@@ -1,0 +1,150 @@
+[
+  {
+    "id": "A_simple_plate",
+    "domain": "A",
+    "difficulty": "easy",
+    "description": "A 100mm x 60mm x 5mm aluminum rectangular plate."
+  },
+  {
+    "id": "A_box_with_corner_holes",
+    "domain": "A",
+    "difficulty": "easy",
+    "description": "A 100mm x 60mm x 20mm aluminum block with four 5mm through-holes, one at each corner, 10mm from each edge."
+  },
+  {
+    "id": "A_l_bracket",
+    "domain": "A",
+    "difficulty": "easy",
+    "description": "An L-shaped steel bracket. Both legs are 50mm long, 30mm wide, and 4mm thick. Each leg has two 6mm clearance holes spaced 30mm apart along its length."
+  },
+  {
+    "id": "A_chamfered_cube",
+    "domain": "A",
+    "difficulty": "easy",
+    "description": "A 50mm cube with a 3mm chamfer on every edge."
+  },
+  {
+    "id": "A_stepped_block",
+    "domain": "A",
+    "difficulty": "medium",
+    "description": "A two-step block. The base is 80mm x 50mm x 10mm. A second 50mm x 30mm x 12mm step sits centered on top of the base."
+  },
+  {
+    "id": "A_slotted_bracket",
+    "domain": "A",
+    "difficulty": "medium",
+    "description": "A 60mm x 30mm x 4mm steel bracket with a 20mm-long, 5mm-wide rectangular slot centered along its length, plus a 6mm hole 8mm from each short edge."
+  },
+  {
+    "id": "A_circular_flange_pattern",
+    "domain": "A",
+    "difficulty": "medium",
+    "description": "A 60mm-diameter, 6mm-thick circular flange with six M5 clearance holes evenly spaced on a 45mm bolt circle."
+  },
+
+  {
+    "id": "B_spur_gear",
+    "domain": "B",
+    "difficulty": "easy",
+    "description": "A 20-tooth involute spur gear with module 2.0, 10mm thickness, and an 8mm bore."
+  },
+  {
+    "id": "B_v_belt_pulley",
+    "domain": "B",
+    "difficulty": "medium",
+    "description": "A V-belt pulley with 60mm outer diameter, 20mm bore, and 15mm width. Include a 4mm-deep V-groove with 40 degree included angle around the outer rim."
+  },
+  {
+    "id": "B_keyed_shaft",
+    "domain": "B",
+    "difficulty": "easy",
+    "description": "A 20mm diameter, 100mm long round shaft with a 5mm wide, 3mm deep keyway machined into the side, running 30mm long starting 10mm from one end."
+  },
+  {
+    "id": "B_bearing_housing",
+    "domain": "B",
+    "difficulty": "medium",
+    "description": "A bearing housing for a 22mm OD, 8mm wide bearing. Outer housing diameter 35mm, length 12mm, with a 2mm retaining lip on one end."
+  },
+  {
+    "id": "B_threaded_rod",
+    "domain": "B",
+    "difficulty": "easy",
+    "description": "An M8x1.25 threaded rod, 60mm long, with a 1mm chamfer on each end."
+  },
+  {
+    "id": "B_hex_bolt_m10",
+    "domain": "B",
+    "difficulty": "easy",
+    "description": "An M10 hex head bolt, 40mm long with 1.5mm thread pitch and 17mm width across flats."
+  },
+  {
+    "id": "B_eccentric_cam",
+    "domain": "B",
+    "difficulty": "hard",
+    "description": "A 12mm thick eccentric cam with a 40mm base circle. The cam profile rises smoothly to a 10mm peak over 180 degrees and falls back over the next 180 degrees. Includes a 10mm bore at its rotational center, offset 8mm from the geometric center of the profile."
+  },
+
+  {
+    "id": "C_tapered_handle",
+    "domain": "C",
+    "difficulty": "easy",
+    "description": "An ergonomic handle, 120mm long. The cross-section is elliptical, tapering from 25mm x 20mm at the base to 18mm x 14mm at the tip."
+  },
+  {
+    "id": "C_water_bottle_grip",
+    "domain": "C",
+    "difficulty": "medium",
+    "description": "A water bottle grip section, 100mm tall. The cross-section is a smooth three-lobed profile with a 30mm circumscribed diameter at the bottom, narrowing to 26mm at mid-height (50mm) and back out to 30mm at the top."
+  },
+  {
+    "id": "C_teardrop_pendant",
+    "domain": "C",
+    "difficulty": "medium",
+    "description": "A teardrop-shaped pendant, 30mm wide at its rounded base, 50mm tall to the pointed tip, and 10mm thick. Smooth side surfaces."
+  },
+  {
+    "id": "C_organic_drawer_pull",
+    "domain": "C",
+    "difficulty": "hard",
+    "description": "An organic drawer pull. The body is 90mm long. The cross-section is an elongated ellipse: 30mm x 12mm at each end, smoothly bulging to 36mm x 18mm in the middle. Two 4mm mounting bosses on the back, 60mm apart."
+  },
+
+  {
+    "id": "D_naca0012_segment",
+    "domain": "D",
+    "difficulty": "easy",
+    "description": "A NACA 0012 airfoil segment with 100mm chord and 200mm span, generated as a single solid (no internal structure)."
+  },
+  {
+    "id": "D_naca2412_with_ribs",
+    "domain": "D",
+    "difficulty": "hard",
+    "description": "A NACA 2412 wing segment, 150mm chord, 300mm span, with 3 internal ribs evenly spaced along the span and a single forward spar at 25 percent chord. Skin thickness 1.5mm."
+  },
+  {
+    "id": "D_tapered_fin",
+    "domain": "D",
+    "difficulty": "medium",
+    "description": "A tapered vertical fin with 80mm root chord, 40mm tip chord, 100mm span, NACA 0006 cross-section. No internal structure."
+  },
+
+  {
+    "id": "E_l_bracket_sheet",
+    "domain": "E",
+    "difficulty": "easy",
+    "description": "A 1.5mm thick steel L-bracket. The base is 50mm x 30mm; the vertical flange is 40mm x 30mm. 3mm bend radius. Two 5mm mounting holes in the base, 30mm apart."
+  },
+  {
+    "id": "E_enclosure_panel",
+    "domain": "E",
+    "difficulty": "medium",
+    "description": "A 2mm thick aluminum enclosure panel, 100mm x 80mm, with 10mm tall flanges on all four edges bent 90 degrees toward the same side. 2mm bend radius."
+  },
+  {
+    "id": "E_pcb_tray",
+    "domain": "E",
+    "difficulty": "medium",
+    "description": "A 1.2mm thick steel PCB tray, 120mm x 80mm, with 12mm flanges on the two long edges only. Four 3mm mounting holes, one at each corner of the flat base, 8mm from each edge."
+  }
+]
