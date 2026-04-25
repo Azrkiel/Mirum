@@ -1,0 +1,24 @@
+{"id":"A_simple_plate","domain":"A","difficulty":"easy","status":"pass","elapsed_s":5.92}
+{"id":"A_box_with_corner_holes","domain":"A","difficulty":"easy","status":"pass","elapsed_s":22.49}
+{"id":"A_l_bracket","domain":"A","difficulty":"easy","status":"pass","elapsed_s":131.0}
+{"id":"A_chamfered_cube","domain":"A","difficulty":"easy","status":"pass","elapsed_s":6.95}
+{"id":"A_stepped_block","domain":"A","difficulty":"medium","status":"pass","elapsed_s":10.64}
+{"id":"A_slotted_bracket","domain":"A","difficulty":"medium","status":"pass","elapsed_s":19.44}
+{"id":"A_circular_flange_pattern","domain":"A","difficulty":"medium","status":"pass","elapsed_s":9.62}
+{"id":"B_spur_gear","domain":"B","difficulty":"easy","status":"pass","elapsed_s":8.69}
+{"id":"B_v_belt_pulley","domain":"B","difficulty":"medium","status":"pass","elapsed_s":53.52}
+{"id":"B_keyed_shaft","domain":"B","difficulty":"easy","status":"pass","elapsed_s":36.0}
+{"id":"B_bearing_housing","domain":"B","difficulty":"medium","status":"pass","elapsed_s":19.73}
+{"id":"B_threaded_rod","domain":"B","difficulty":"easy","status":"fail","elapsed_s":32.33,"error":"OCP.StdFail.StdFail_NotDone: BRep_API: command not done"}
+{"id":"B_hex_bolt_m10","domain":"B","difficulty":"easy","status":"pass","elapsed_s":10.02}
+{"id":"B_eccentric_cam","domain":"B","difficulty":"hard","status":"pass","elapsed_s":27.63}
+{"id":"C_tapered_handle","domain":"C","difficulty":"easy","status":"pass","elapsed_s":19.43}
+{"id":"C_water_bottle_grip","domain":"C","difficulty":"medium","status":"fail","elapsed_s":79.37,"error":"ValueError: Nothing to loft"}
+{"id":"C_teardrop_pendant","domain":"C","difficulty":"medium","status":"pass","elapsed_s":15.36}
+{"id":"C_organic_drawer_pull","domain":"C","difficulty":"hard","status":"fail","elapsed_s":109.61,"error":"UnboundLocalError: local variable newS referenced before assignment"}
+{"id":"D_naca0012_segment","domain":"D","difficulty":"easy","status":"pass","elapsed_s":10.8}
+{"id":"D_naca2412_with_ribs","domain":"D","difficulty":"hard","status":"pass","elapsed_s":49.63}
+{"id":"D_tapered_fin","domain":"D","difficulty":"medium","status":"pass","elapsed_s":13.24}
+{"id":"E_l_bracket_sheet","domain":"E","difficulty":"easy","status":"pass","elapsed_s":12.12}
+{"id":"E_enclosure_panel","domain":"E","difficulty":"medium","status":"pass","elapsed_s":11.97}
+{"id":"E_pcb_tray","domain":"E","difficulty":"medium","status":"pass","elapsed_s":62.58}
