@@ -447,6 +447,120 @@ class ManifestDiff(BaseModel):
     )
 
 
+# ---------------------------------------------------------------------------
+# T3-08: Product and Manufacturing Information (PMI) Annotations
+# ---------------------------------------------------------------------------
+
+class PMIAnnotation(BaseModel):
+    """A single Product and Manufacturing Information annotation on a B-rep face.
+
+    PMI annotations encode tolerances, surface finish callouts, and GD&T
+    symbols on specific faces of a generated part. They are attached to
+    OCCT B-rep faces using XDE/XCAF attributes and included in STEP export
+    (ISO 10303-242 AP242 PMI representation).
+
+    Use case: Expert-level prompts that specify tolerances (e.g., "H7 fit
+    for a 608 bearing", "Ra 0.8 surface finish on the sealing face") should
+    produce STEP files with corresponding PMI annotations — making the output
+    manufacture-ready rather than just geometrically correct.
+    """
+
+    face_selector: str = Field(
+        ...,
+        description=(
+            "CadQuery face selector identifying the annotated face. "
+            "Examples: '>Z' (top face), '<Z' (bottom face), "
+            "'inner_bore_face' (named tag), '>X' (rightmost face). "
+            "Must match one of the anchor_tags defined in the PartDefinition."
+        ),
+    )
+
+    tolerance_type: str = Field(
+        ...,
+        description=(
+            "Type of PMI annotation. Must be one of: "
+            "'linear' (dimensional tolerance, e.g., ±0.05), "
+            "'angular' (angle tolerance, e.g., ±0.5°), "
+            "'surface_finish' (Ra/Rz surface roughness, e.g., Ra 0.8), "
+            "'gdt' (GD&T symbol, e.g., cylindricity, flatness, position). "
+        ),
+    )
+
+    value: str = Field(
+        ...,
+        description=(
+            "The annotation value as a string. Examples: "
+            "'H7' (ISO hole fit tolerance), "
+            "'±0.05' (bilateral linear tolerance in mm), "
+            "'Ra 0.8' (surface roughness in µm), "
+            "'⊙ ⌀0.1 A B' (GD&T position callout), "
+            "'f7' (ISO shaft fit tolerance), "
+            "'IT6' (ISO tolerance grade)."
+        ),
+    )
+
+    reference_dimension: Optional[float] = Field(
+        default=None,
+        description=(
+            "The nominal dimension in mm that this tolerance applies to. "
+            "Required for linear and angular tolerances. "
+            "Example: 20.0 for a 20mm bore with H7 tolerance."
+        ),
+    )
+
+    datum_labels: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Datum reference labels for GD&T annotations. "
+            "Example: ['A', 'B'] for a position callout referencing datums A and B."
+        ),
+    )
+
+
+class PartPMI(BaseModel):
+    """Collection of PMI annotations for a single part.
+
+    Emitted by the Machinist for Expert-level prompts that specify tolerances.
+    The Assembler/postprocessor attaches these to OCCT B-rep faces during
+    STEP export using STEPCAFControl_Writer.
+    """
+
+    part_id: str = Field(
+        ...,
+        description="Must match a part_id in the AssemblyManifest.",
+    )
+
+    annotations: list[PMIAnnotation] = Field(
+        default_factory=list,
+        description="List of PMI annotations for this part's faces.",
+    )
+
+    general_tolerance: Optional[str] = Field(
+        default=None,
+        description=(
+            "General tolerance class for all unspecified dimensions. "
+            "Example: 'ISO 2768-m' (medium class), 'ISO 2768-f' (fine class)."
+        ),
+    )
+
+    material_spec: Optional[str] = Field(
+        default=None,
+        description=(
+            "Material specification string. "
+            "Example: 'Al 6061-T6', 'SS 316L', 'AISI 4140'."
+        ),
+    )
+
+
+class PMIGenerationRequest(BaseModel):
+    """Request to extract PMI from a prompt and attach to an existing part."""
+
+    part_id: str
+    part_description: str
+    original_prompt: str
+    step_path: Optional[str] = None
+
+
 class RefinementRequest(BaseModel):
     """Request body for the /refine endpoint."""
 
