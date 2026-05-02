@@ -349,6 +349,35 @@ def make_co2_void(diameter: float = 19.5, depth: float = 52.0) -> cq.Workplane:
     return result
 
 
+# ISO 4014 / DIN 931 hex-head dimensions: {nominal: (width_across_flats, head_thickness)}
+_ISO_HEX_HEAD_DIMS = {
+    3.0:  (5.5,  2.0),
+    4.0:  (7.0,  2.8),
+    5.0:  (8.0,  3.5),
+    6.0:  (10.0, 4.0),
+    8.0:  (13.0, 5.3),
+    10.0: (16.0, 6.4),
+    12.0: (18.0, 7.5),
+    14.0: (21.0, 8.8),
+    16.0: (24.0, 10.0),
+    20.0: (30.0, 12.5),
+}
+
+# ISO 4032 hex-nut dimensions: {nominal: (width_across_flats, height)}
+_ISO_HEX_NUT_DIMS = {
+    3.0:  (5.5,  2.4),
+    4.0:  (7.0,  3.2),
+    5.0:  (8.0,  4.7),
+    6.0:  (10.0, 5.2),
+    8.0:  (13.0, 6.8),
+    10.0: (16.0, 8.4),
+    12.0: (18.0, 10.8),
+    14.0: (21.0, 12.8),
+    16.0: (24.0, 14.8),
+    20.0: (30.0, 18.0),
+}
+
+
 def make_metric_thread(
     diameter: float,
     pitch: float,
@@ -396,13 +425,130 @@ def make_metric_thread(
     result = result.translate((0, 0, -length / 2.0))
 
     solid = result.val()
-    if not isinstance(solid, cq.Solid):
+    if not isinstance(solid, (cq.Solid, cq.Compound)):
         raise ValueError(
-            f"Thread validation failed: expected cq.Solid, "
+            f"Thread validation failed: expected cq.Solid or cq.Compound, "
             f"got {type(solid).__name__}."
         )
 
     return result
+
+
+def make_hex_bolt(
+    nominal_diameter: float,
+    pitch: float,
+    shank_length: float,
+    head_width_across_flats: float | None = None,
+    head_thickness: float | None = None,
+) -> cq.Workplane:
+    """ISO-style hex-head bolt with a threaded shank, centered at the origin.
+
+    The shank uses ``make_metric_thread``'s ribbed-cylinder approximation —
+    visually thread-like and kernel-safe (true helical sweeps crash BRep).
+    The head points +Z; the shank points -Z.
+
+    Args:
+        nominal_diameter: Major thread diameter in mm (e.g. 10.0 for M10).
+        pitch: Thread pitch in mm (e.g. 1.5 for M10x1.5).
+        shank_length: Length of the threaded shank in mm.
+        head_width_across_flats: Hex head AF in mm. ``None`` → ISO 4014 default.
+        head_thickness: Hex head thickness in mm. ``None`` → ISO 4014 default.
+
+    Returns:
+        cq.Workplane solid centered at the origin.
+    """
+    if head_width_across_flats is None or head_thickness is None:
+        af_default, th_default = _ISO_HEX_HEAD_DIMS.get(
+            nominal_diameter, (1.5 * nominal_diameter, 0.7 * nominal_diameter)
+        )
+        if head_width_across_flats is None:
+            head_width_across_flats = af_default
+        if head_thickness is None:
+            head_thickness = th_default
+
+    # polygon(nSides, diameter) takes the circumscribed-circle diameter.
+    # For a regular hexagon, width-across-flats = circumscribed_diameter * cos(30°).
+    head_circum_dia = head_width_across_flats / math.cos(math.radians(30.0))
+
+    # Head: [0, head_thickness] along Z, pointing +Z.
+    head = (
+        cq.Workplane("XY")
+        .polygon(6, head_circum_dia)
+        .extrude(head_thickness)
+    )
+
+    # Thread returns a Z-centered solid; translate so its top face sits at Z=0.
+    # Result: shank spans [-shank_length, 0].
+    thread = make_metric_thread(nominal_diameter, pitch, shank_length)
+    thread = thread.translate((0, 0, -shank_length / 2.0))
+
+    bolt = head.union(thread)
+
+    # Current extent along Z: [-shank_length, head_thickness]. Recenter on origin.
+    total = shank_length + head_thickness
+    bolt = bolt.translate((0, 0, (shank_length - head_thickness) / 2.0))
+
+    solid = bolt.val()
+    if not isinstance(solid, (cq.Solid, cq.Compound)):
+        raise ValueError(
+            f"Hex bolt validation failed: expected cq.Solid or cq.Compound, "
+            f"got {type(solid).__name__}."
+        )
+    return bolt
+
+
+def make_hex_nut(
+    nominal_diameter: float,
+    pitch: float,
+    width_across_flats: float | None = None,
+    height: float | None = None,
+) -> cq.Workplane:
+    """ISO-style hex nut with a minor-diameter through-bore, centered at origin.
+
+    The bore is a plain cylinder at the thread's minor diameter — the same
+    minor-diameter core ``make_metric_thread`` uses for the bolt shank's
+    ribbed approximation. That gives a self-consistent visual: the bolt's
+    thread ribs thread into the nut's minor-diameter bore without BRep
+    booleans that would crash the kernel.
+
+    Args:
+        nominal_diameter: Major thread diameter in mm (e.g. 10.0 for M10).
+        pitch: Thread pitch in mm.
+        width_across_flats: Hex AF in mm. ``None`` → ISO 4032 default.
+        height: Nut height in mm. ``None`` → ISO 4032 default.
+
+    Returns:
+        cq.Workplane solid centered at the origin.
+    """
+    if width_across_flats is None or height is None:
+        af_default, h_default = _ISO_HEX_NUT_DIMS.get(
+            nominal_diameter, (1.5 * nominal_diameter, 0.8 * nominal_diameter)
+        )
+        if width_across_flats is None:
+            width_across_flats = af_default
+        if height is None:
+            height = h_default
+
+    circum_dia = width_across_flats / math.cos(math.radians(30.0))
+    minor_dia = nominal_diameter - 1.0825 * pitch
+
+    nut = (
+        cq.Workplane("XY")
+        .polygon(6, circum_dia)
+        .extrude(height)
+        .faces(">Z")
+        .workplane()
+        .hole(minor_dia)
+    )
+    nut = nut.translate((0, 0, -height / 2.0))
+
+    solid = nut.val()
+    if not isinstance(solid, (cq.Solid, cq.Compound)):
+        raise ValueError(
+            f"Hex nut validation failed: expected cq.Solid or cq.Compound, "
+            f"got {type(solid).__name__}."
+        )
+    return nut
 
 
 # ---------------------------------------------------------------------------
@@ -982,6 +1128,10 @@ def make_enclosure_panel(
 
 # Expose template function names for strategy prompt injection
 AVAILABLE_TEMPLATES = [
+    "make_hex_bolt(nominal_diameter, pitch, shank_length, "
+    "head_width_across_flats=None, head_thickness=None)",
+    "make_hex_nut(nominal_diameter, pitch, width_across_flats=None, height=None)",
+    "make_metric_thread(diameter, pitch, length)",
     "make_flanged_housing(OD, ID, height, flange_OD, flange_thickness, "
     "bolt_circle_diameter, n_bolt_holes, bolt_hole_diameter)",
     "make_shaft(diameter, length, keyway_width=0, keyway_depth=0, chamfer_end=0.5)",

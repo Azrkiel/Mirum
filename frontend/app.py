@@ -220,7 +220,7 @@ def fetch_plan(prompt: str) -> dict | None:
         resp = requests.post(
             f"{BACKEND_URL}/plan",
             json={"prompt": prompt},
-            timeout=60,
+            timeout=180,
         )
         data = resp.json()
         if data.get("status") == "ok":

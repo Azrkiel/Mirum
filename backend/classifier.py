@@ -14,9 +14,11 @@ Domains:
   E (Sheet Metal/Thin-Wall)    — bent plates, enclosure panels, PCB trays (T3-06)
 """
 
+import os
+
 import google.generativeai as genai
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3.1-flash-lite-preview"
 
 # Gemini-compatible schema (no unsupported fields)
 _CLASSIFICATION_SCHEMA = {

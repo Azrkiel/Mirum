@@ -227,7 +227,7 @@ def _check_occt_analytical(step_path: str) -> G2CheckResult:
 
 async def check_g2_vlm_zebra(
     step_path: str,
-    gemini_model: str = "gemini-2.5-flash",
+    gemini_model: str = "gemini-3-flash-preview",
 ) -> G2CheckResult:
     """VLM-based Zebra Analysis G2 check (stub — requires rendering pipeline).
 

@@ -21,7 +21,7 @@ import google.generativeai as genai
 
 logger = logging.getLogger("mirum.evaluation")
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3-flash-preview"
 
 _LVM_SCORE_PROMPT = """You are evaluating a CadQuery 3D CAD script that was generated from a text prompt.
 
@@ -58,8 +58,7 @@ async def compute_lvm_score(
     geometric_plausibility, lvm_score, missing_features, notes.
     Returns {"lvm_score": None} on failure (non-blocking).
     """
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
+    if not os.environ.get("GEMINI_API_KEY_HEAVY"):
         return {"lvm_score": None, "error": "No API key"}
 
     try:
