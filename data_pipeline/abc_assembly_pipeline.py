@@ -292,12 +292,13 @@ def annotate_assembly(
     try:
         import google.generativeai as genai
 
-        key = api_key or os.environ.get("GEMINI_API_KEY")
+        # Synthetic assembly NL annotation → lite tier.
+        key = api_key or os.environ.get("GEMINI_API_KEY_LITE")
         if not key:
             return _fallback_description(part_a_type, part_b_type, mate_type)
         genai.configure(api_key=key)
 
-        model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+        model = genai.GenerativeModel(model_name="gemini-3.1-flash-lite-preview")
         prompt = (
             f"Generate a concise (1-2 sentence) natural-language description of a "
             f"mechanical assembly consisting of:\n"
@@ -475,7 +476,7 @@ def _parse_args():
     p.add_argument("--pairs-per-rule", type=int, default=5000,
                    help="Assembly pairs to generate per compatible rule")
     p.add_argument("--api-key", default=None,
-                   help="Gemini API key (default: GEMINI_API_KEY env var)")
+                   help="Gemini API key for lite-tier annotation calls (default: GEMINI_API_KEY_LITE env var)")
     return p.parse_args()
 
 
