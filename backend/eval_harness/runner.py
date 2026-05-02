@@ -5,7 +5,7 @@ records pass/fail + elapsed time per prompt. Skips the Planner: each prompt
 is fed directly as a ``PartDefinition``, which isolates Machinist quality
 from upstream planner variance.
 
-Usage (from inside the backend conda env, with GEMINI_API_KEY_HEAVY and GEMINI_API_KEY_LITE set):
+Usage (from inside the backend conda env, with GEMINI_API_KEY_HEAVY set):
 
     python -m eval_harness.runner                       # full eval, latest results
     python -m eval_harness.runner --concurrency 4
@@ -35,7 +35,11 @@ import google.generativeai as genai
 
 from agents import run_critic_loop  # noqa: E402
 import agents as _agents_mod        # noqa: E402
+from evaluation import compute_lvm_score  # noqa: E402
 from schemas import PartDefinition  # noqa: E402
+
+# Threshold for the --strict-lvm gate. 3 of 5 = "mostly correct".
+_STRICT_LVM_THRESHOLD = 3.0
 
 
 _PROMPTS_FILE = _HERE / "prompts.json"
@@ -59,7 +63,11 @@ def _suppress_side_effects() -> None:
     _agents_mod._score_and_log = lambda *a, **kw: asyncio.sleep(0)  # type: ignore[assignment]
 
 
-async def _run_one(prompt: dict[str, Any], max_retries: int) -> dict[str, Any]:
+async def _run_one(
+    prompt: dict[str, Any],
+    max_retries: int,
+    strict_lvm: bool = False,
+) -> dict[str, Any]:
     part = PartDefinition(
         part_id=prompt["id"],
         description=prompt["description"],
@@ -71,6 +79,7 @@ async def _run_one(prompt: dict[str, Any], max_retries: int) -> dict[str, Any]:
         "domain": prompt["domain"],
         "difficulty": prompt.get("difficulty", "unknown"),
     }
+    code: str | None = None
     try:
         code, _ = await run_critic_loop(part, max_retries=max_retries, save_step=False)
         record["status"] = "pass"
@@ -85,6 +94,22 @@ async def _run_one(prompt: dict[str, Any], max_retries: int) -> dict[str, Any]:
             msg,
         )
         record["error"] = last_line[:280]
+
+    # LVM scoring on every pass (cost is one extra Gemini call per success).
+    # Independent of the production fire-and-forget call, which the runner
+    # no-ops in _suppress_side_effects.
+    if record["status"] == "pass" and code is not None:
+        score = await compute_lvm_score(prompt["description"], code, prompt["id"])
+        record["lvm_score"] = score.get("lvm_score")
+        record["missing_features"] = score.get("missing_features", [])
+        if strict_lvm and isinstance(record["lvm_score"], (int, float)) \
+                and record["lvm_score"] < _STRICT_LVM_THRESHOLD:
+            record["status"] = "fail"
+            record["error"] = (
+                f"LVM_BELOW_THRESHOLD: score={record['lvm_score']:.1f} "
+                f"< {_STRICT_LVM_THRESHOLD}"
+            )
+
     record["elapsed_s"] = round(time.monotonic() - t0, 2)
     return record
 
@@ -93,19 +118,29 @@ async def _run_all(
     prompts: list[dict[str, Any]],
     max_retries: int,
     concurrency: int,
+    strict_lvm: bool = False,
 ) -> list[dict[str, Any]]:
     sem = asyncio.Semaphore(concurrency)
 
     async def _bounded(p: dict[str, Any]) -> dict[str, Any]:
         async with sem:
             print(f"[run]  {p['id']}", flush=True)
-            r = await _run_one(p, max_retries)
+            r = await _run_one(p, max_retries, strict_lvm=strict_lvm)
             mark = "PASS" if r["status"] == "pass" else "FAIL"
             err = f"  ({r.get('error', '')[:80]})" if r["status"] == "fail" else ""
-            print(f"[{mark}] {p['id']}  {r['elapsed_s']}s{err}", flush=True)
+            lvm = r.get("lvm_score")
+            lvm_tag = f"  lvm={lvm:.1f}" if isinstance(lvm, (int, float)) else ""
+            print(f"[{mark}] {p['id']}  {r['elapsed_s']}s{lvm_tag}{err}", flush=True)
             return r
 
     return await asyncio.gather(*[_bounded(p) for p in prompts])
+
+
+def _median(xs: list[float]) -> float:
+    if not xs:
+        return 0.0
+    s = sorted(xs)
+    return s[len(s) // 2]
 
 
 def _summarize(results: list[dict[str, Any]]) -> str:
@@ -119,6 +154,9 @@ def _summarize(results: list[dict[str, Any]]) -> str:
     p50 = elapsed[len(elapsed) // 2] if elapsed else 0.0
     p95 = elapsed[int(len(elapsed) * 0.95)] if elapsed else 0.0
 
+    lvm_all = [r["lvm_score"] for r in results if isinstance(r.get("lvm_score"), (int, float))]
+    lvm_median = _median(lvm_all)
+
     lines = [
         f"Total: {passed}/{total} passed ({100 * passed / total:.0f}%)"
         if total else "Total: 0",
@@ -126,8 +164,17 @@ def _summarize(results: list[dict[str, Any]]) -> str:
     for domain in sorted(by_domain):
         rs = by_domain[domain]
         p = sum(1 for r in rs if r["status"] == "pass")
-        lines.append(f"  Domain {domain}: {p}/{len(rs)} ({100 * p / len(rs):.0f}%)")
+        domain_lvms = [r["lvm_score"] for r in rs if isinstance(r.get("lvm_score"), (int, float))]
+        if domain_lvms:
+            lines.append(
+                f"  Domain {domain}: {p}/{len(rs)} ({100 * p / len(rs):.0f}%) "
+                f"| lvm median {_median(domain_lvms):.1f}"
+            )
+        else:
+            lines.append(f"  Domain {domain}: {p}/{len(rs)} ({100 * p / len(rs):.0f}%)")
     lines.append(f"Elapsed p50: {p50}s | p95: {p95}s")
+    if lvm_all:
+        lines.append(f"LVM median: {lvm_median:.1f} (n={len(lvm_all)})")
 
     fails = [r for r in results if r["status"] == "fail"]
     if fails:
@@ -160,7 +207,7 @@ def _diff(baseline: list[dict[str, Any]], current: list[dict[str, Any]]) -> str:
     delta = p_c - p_b
 
     lines = [
-        f"Baseline: {p_b}/{len(by_id_b)} → Current: {p_c}/{len(by_id_c)}  "
+        f"Baseline: {p_b}/{len(by_id_b)} -> Current: {p_c}/{len(by_id_c)}  "
         f"({'+' if delta >= 0 else ''}{delta})",
     ]
     if newly_passing:
@@ -193,16 +240,22 @@ def main() -> None:
                         help="Path to a prior runs/*.jsonl file to diff against.")
     parser.add_argument("--out", default=None,
                         help="Path to write JSONL results. Default: runs/<timestamp>.jsonl")
+    parser.add_argument(
+        "--strict-lvm", action="store_true",
+        help=(
+            f"Demote a passing prompt to fail when its LVM score is below "
+            f"{_STRICT_LVM_THRESHOLD}. Default off so existing baselines stay comparable."
+        ),
+    )
     args = parser.parse_args()
 
     heavy_key = os.environ.get("GEMINI_API_KEY_HEAVY")
-    lite_key = os.environ.get("GEMINI_API_KEY_LITE")
-    if not heavy_key or not lite_key:
+    if not heavy_key:
         raise SystemExit(
-            "Set GEMINI_API_KEY_HEAVY and GEMINI_API_KEY_LITE before running the eval. "
-            "The orchestrator uses both: heavy for the Machinist, lite for the classifier."
+            "Set GEMINI_API_KEY_HEAVY before running the eval. The orchestrator "
+            "drives both heavy (gemini-3-flash-preview) and lite (gemini-3.1-flash-"
+            "lite-preview) models off this single key."
         )
-    # Default global config is heavy; lite-tier call sites swap on demand.
     genai.configure(api_key=heavy_key)
 
     _suppress_side_effects()
@@ -212,7 +265,12 @@ def main() -> None:
           f"max_retries={args.max_retries}", flush=True)
 
     t0 = time.monotonic()
-    results = asyncio.run(_run_all(prompts, args.max_retries, args.concurrency))
+    results = asyncio.run(
+        _run_all(
+            prompts, args.max_retries, args.concurrency,
+            strict_lvm=args.strict_lvm,
+        )
+    )
     total_elapsed = round(time.monotonic() - t0, 1)
 
     _RUNS_DIR.mkdir(parents=True, exist_ok=True)
