@@ -3,148 +3,256 @@
     "id": "A_simple_plate",
     "domain": "A",
     "difficulty": "easy",
-    "description": "A 100mm x 60mm x 5mm aluminum rectangular plate."
+    "description": "A 100mm x 60mm x 5mm aluminum rectangular plate.",
+    "expected_features": ["100x60x5 rectangular plate", "aluminum"]
   },
   {
     "id": "A_box_with_corner_holes",
     "domain": "A",
     "difficulty": "easy",
-    "description": "A 100mm x 60mm x 20mm aluminum block with four 5mm through-holes, one at each corner, 10mm from each edge."
+    "description": "A 100mm x 60mm x 20mm aluminum block with four 5mm through-holes, one at each corner, 10mm from each edge.",
+    "expected_features": ["100x60x20 block", "four through-holes", "5mm hole diameter", "10mm edge inset"]
   },
   {
     "id": "A_l_bracket",
     "domain": "A",
     "difficulty": "easy",
-    "description": "An L-shaped steel bracket. Both legs are 50mm long, 30mm wide, and 4mm thick. Each leg has two 6mm clearance holes spaced 30mm apart along its length."
+    "description": "An L-shaped steel bracket. Both legs are 50mm long, 30mm wide, and 4mm thick. Each leg has two 6mm clearance holes spaced 30mm apart along its length.",
+    "expected_features": ["L-shape geometry", "two 50mm legs", "30mm wide", "4mm thick", "two 6mm holes per leg", "30mm hole spacing"]
   },
   {
     "id": "A_chamfered_cube",
     "domain": "A",
     "difficulty": "easy",
-    "description": "A 50mm cube with a 3mm chamfer on every edge."
+    "description": "A 50mm cube with a 3mm chamfer on every edge.",
+    "expected_features": ["50mm cube", "3mm chamfer", "chamfer applied to all edges"]
   },
   {
     "id": "A_stepped_block",
     "domain": "A",
     "difficulty": "medium",
-    "description": "A two-step block. The base is 80mm x 50mm x 10mm. A second 50mm x 30mm x 12mm step sits centered on top of the base."
+    "description": "A two-step block. The base is 80mm x 50mm x 10mm. A second 50mm x 30mm x 12mm step sits centered on top of the base.",
+    "expected_features": ["80x50x10 base", "50x30x12 upper step", "upper step centered on base"]
   },
   {
     "id": "A_slotted_bracket",
     "domain": "A",
     "difficulty": "medium",
-    "description": "A 60mm x 30mm x 4mm steel bracket with a 20mm-long, 5mm-wide rectangular slot centered along its length, plus a 6mm hole 8mm from each short edge."
+    "description": "A 60mm x 30mm x 4mm steel bracket with a 20mm-long, 5mm-wide rectangular slot centered along its length, plus a 6mm hole 8mm from each short edge.",
+    "expected_features": ["60x30x4 bracket", "20x5 centered slot", "two 6mm holes", "holes 8mm from short edges"]
   },
   {
     "id": "A_circular_flange_pattern",
     "domain": "A",
     "difficulty": "medium",
-    "description": "A 60mm-diameter, 6mm-thick circular flange with six M5 clearance holes evenly spaced on a 45mm bolt circle."
+    "description": "A 60mm-diameter, 6mm-thick circular flange with six M5 clearance holes evenly spaced on a 45mm bolt circle.",
+    "expected_features": ["60mm OD flange", "6mm thickness", "six clearance holes", "45mm bolt circle", "polar pattern"]
   },
 
   {
     "id": "B_spur_gear",
     "domain": "B",
     "difficulty": "easy",
-    "description": "A 20-tooth involute spur gear with module 2.0, 10mm thickness, and an 8mm bore."
+    "description": "A 20-tooth involute spur gear with module 2.0, 10mm thickness, and an 8mm bore.",
+    "expected_features": ["20 teeth", "involute profile", "module 2.0", "10mm thickness", "8mm bore"]
   },
   {
     "id": "B_v_belt_pulley",
     "domain": "B",
     "difficulty": "medium",
-    "description": "A V-belt pulley with 60mm outer diameter, 20mm bore, and 15mm width. Include a 4mm-deep V-groove with 40 degree included angle around the outer rim."
+    "description": "A V-belt pulley with 60mm outer diameter, 20mm bore, and 15mm width. Include a 4mm-deep V-groove with 40 degree included angle around the outer rim.",
+    "expected_features": ["60mm OD pulley", "20mm bore", "15mm width", "V-groove", "4mm groove depth", "40 deg included angle"]
   },
   {
     "id": "B_keyed_shaft",
     "domain": "B",
     "difficulty": "easy",
-    "description": "A 20mm diameter, 100mm long round shaft with a 5mm wide, 3mm deep keyway machined into the side, running 30mm long starting 10mm from one end."
+    "description": "A 20mm diameter, 100mm long round shaft with a 5mm wide, 3mm deep keyway machined into the side, running 30mm long starting 10mm from one end.",
+    "expected_features": ["20mm diameter shaft", "100mm length", "5mm wide keyway", "3mm deep keyway", "30mm keyway length", "keyway offset 10mm from end"]
   },
   {
     "id": "B_bearing_housing",
     "domain": "B",
     "difficulty": "medium",
-    "description": "A bearing housing for a 22mm OD, 8mm wide bearing. Outer housing diameter 35mm, length 12mm, with a 2mm retaining lip on one end."
+    "description": "A bearing housing for a 22mm OD, 8mm wide bearing. Outer housing diameter 35mm, length 12mm, with a 2mm retaining lip on one end.",
+    "expected_features": ["35mm OD housing", "22mm bore", "12mm length", "2mm retaining lip"]
   },
   {
     "id": "B_threaded_rod",
     "domain": "B",
     "difficulty": "easy",
-    "description": "An M8x1.25 threaded rod, 60mm long, with a 1mm chamfer on each end."
+    "description": "An M8x1.25 threaded rod, 60mm long, with a 1mm chamfer on each end.",
+    "expected_features": ["M8 thread", "1.25mm pitch", "60mm length", "1mm chamfer on each end"]
   },
   {
     "id": "B_hex_bolt_m10",
     "domain": "B",
     "difficulty": "easy",
-    "description": "An M10 hex head bolt, 40mm long with 1.5mm thread pitch and 17mm width across flats."
+    "description": "An M10 hex head bolt, 40mm long with 1.5mm thread pitch and 17mm width across flats.",
+    "expected_features": ["M10 thread", "1.5mm pitch", "hex head", "17mm across flats", "40mm shank length"]
   },
   {
     "id": "B_eccentric_cam",
     "domain": "B",
     "difficulty": "hard",
-    "description": "A 12mm thick eccentric cam with a 40mm base circle. The cam profile rises smoothly to a 10mm peak over 180 degrees and falls back over the next 180 degrees. Includes a 10mm bore at its rotational center, offset 8mm from the geometric center of the profile."
+    "description": "A 12mm thick eccentric cam with a 40mm base circle. The cam profile rises smoothly to a 10mm peak over 180 degrees and falls back over the next 180 degrees. Includes a 10mm bore at its rotational center, offset 8mm from the geometric center of the profile.",
+    "expected_features": ["12mm thickness", "40mm base circle", "10mm peak rise", "smooth rise/fall over 360 deg", "10mm bore", "8mm offset bore"]
   },
 
   {
     "id": "C_tapered_handle",
     "domain": "C",
     "difficulty": "easy",
-    "description": "An ergonomic handle, 120mm long. The cross-section is elliptical, tapering from 25mm x 20mm at the base to 18mm x 14mm at the tip."
+    "description": "An ergonomic handle, 120mm long. The cross-section is elliptical, tapering from 25mm x 20mm at the base to 18mm x 14mm at the tip.",
+    "expected_features": ["120mm length", "elliptical cross-section", "tapers from 25x20 base to 18x14 tip"]
   },
   {
     "id": "C_water_bottle_grip",
     "domain": "C",
     "difficulty": "medium",
-    "description": "A water bottle grip section, 100mm tall. The cross-section is a smooth three-lobed profile with a 30mm circumscribed diameter at the bottom, narrowing to 26mm at mid-height (50mm) and back out to 30mm at the top."
+    "description": "A water bottle grip section, 100mm tall. The cross-section is a smooth three-lobed profile with a 30mm circumscribed diameter at the bottom, narrowing to 26mm at mid-height (50mm) and back out to 30mm at the top.",
+    "expected_features": ["lofted body", "three-lobe cross-section", "100mm tall", "30mm circumscribed at top and bottom", "26mm at midheight"]
   },
   {
     "id": "C_teardrop_pendant",
     "domain": "C",
     "difficulty": "medium",
-    "description": "A teardrop-shaped pendant, 30mm wide at its rounded base, 50mm tall to the pointed tip, and 10mm thick. Smooth side surfaces."
+    "description": "A teardrop-shaped pendant, 30mm wide at its rounded base, 50mm tall to the pointed tip, and 10mm thick. Smooth side surfaces.",
+    "expected_features": ["teardrop silhouette", "30mm wide rounded base", "50mm tall", "10mm thick", "smooth side surfaces"]
   },
   {
     "id": "C_organic_drawer_pull",
     "domain": "C",
     "difficulty": "hard",
-    "description": "An organic drawer pull. The body is 90mm long. The cross-section is an elongated ellipse: 30mm x 12mm at each end, smoothly bulging to 36mm x 18mm in the middle. Two 4mm mounting bosses on the back, 60mm apart."
+    "description": "An organic drawer pull. The body is 90mm long. The cross-section is an elongated ellipse: 30mm x 12mm at each end, smoothly bulging to 36mm x 18mm in the middle. Two 4mm mounting bosses on the back, 60mm apart.",
+    "expected_features": ["90mm length", "elliptical cross-section", "30x12 at ends", "36x18 in middle", "two 4mm mounting bosses", "60mm boss spacing"]
+  },
+  {
+    "id": "C_lofted_perfume_bottle",
+    "domain": "C",
+    "difficulty": "easy",
+    "description": "A perfume bottle body, 80mm tall, lofted between three circular cross-sections: 40mm diameter at the base, 50mm diameter at 30mm height, and 22mm diameter at the top.",
+    "expected_features": ["lofted body", "80mm tall", "40mm circle at base", "50mm circle at 30mm height", "22mm circle at top"]
+  },
+  {
+    "id": "C_table_lamp_base",
+    "domain": "C",
+    "difficulty": "easy",
+    "description": "A table lamp base, 100mm tall, formed by revolving a smooth profile that goes from 80mm diameter at the floor, narrows to 35mm diameter at 70mm height, and flares back out to 50mm diameter at the top.",
+    "expected_features": ["100mm tall", "revolved profile", "80mm diameter at floor", "35mm waist at 70mm height", "50mm diameter at top"]
+  },
+  {
+    "id": "C_drop_pendant",
+    "domain": "C",
+    "difficulty": "easy",
+    "description": "A water-droplet pendant lofted from a 20mm diameter circle at the base to a 2mm rounded tip 35mm above. 10mm thick across its widest point.",
+    "expected_features": ["lofted droplet", "20mm circle base", "2mm rounded tip", "35mm tall", "10mm widest thickness"]
+  },
+  {
+    "id": "C_round_to_square_transition",
+    "domain": "C",
+    "difficulty": "medium",
+    "description": "A duct transition piece, 60mm tall, lofted between a 50mm diameter circle at the bottom and a 40mm x 40mm square at the top. Wall thickness 2mm.",
+    "expected_features": ["60mm tall", "lofted body", "50mm circle base", "40x40 square top", "2mm wall thickness", "shelled hollow"]
+  },
+  {
+    "id": "C_ergonomic_handgrip",
+    "domain": "C",
+    "difficulty": "medium",
+    "description": "An ergonomic grip 110mm long. The cross-section is an oval that varies along the length: 28mm x 22mm at one end, narrowing to 24mm x 18mm at the midpoint (55mm), and back out to 30mm x 24mm at the opposite end.",
+    "expected_features": ["110mm length", "oval cross-section", "28x22 at one end", "24x18 at midpoint", "30x24 at opposite end"]
+  },
+  {
+    "id": "C_three_lobe_doorknob",
+    "domain": "C",
+    "difficulty": "medium",
+    "description": "A decorative doorknob lofted along a 60mm axis. The profile is a rounded three-lobed flower shape with a 35mm circumscribed diameter at both ends, swelling to a 45mm circumscribed diameter at the middle. Single solid (no internal cavity).",
+    "expected_features": ["60mm axis length", "three-lobed profile", "35mm circumscribed at ends", "45mm circumscribed at middle", "single solid"]
+  },
+  {
+    "id": "C_blended_chair_leg",
+    "domain": "C",
+    "difficulty": "hard",
+    "description": "A chair leg 420mm long, lofted between three sections: a 50mm x 50mm rounded square at the floor, a 35mm circle at the midpoint, and a 60mm x 40mm rounded rectangle at the seat-attachment top.",
+    "expected_features": ["420mm length", "lofted body", "50x50 rounded square at floor", "35mm circle at midpoint", "60x40 rounded rectangle at top"]
+  },
+  {
+    "id": "C_curved_swan_neck",
+    "domain": "C",
+    "difficulty": "hard",
+    "description": "A swan-neck faucet body. Sweeping curve in the XZ plane, 200mm tall. Circular cross-section that tapers from 28mm diameter at the base to 18mm diameter at the spout outlet. The path arcs forward 90mm along X over the height.",
+    "expected_features": ["200mm tall", "swept along curved path", "28mm diameter at base", "18mm diameter at outlet", "90mm forward arc in X", "circular cross-section"]
   },
 
   {
     "id": "D_naca0012_segment",
     "domain": "D",
     "difficulty": "easy",
-    "description": "A NACA 0012 airfoil segment with 100mm chord and 200mm span, generated as a single solid (no internal structure)."
+    "description": "A NACA 0012 airfoil segment with 100mm chord and 200mm span, generated as a single solid (no internal structure).",
+    "expected_features": ["NACA 0012 cross-section", "100mm chord", "200mm span", "single solid skin"]
   },
   {
     "id": "D_naca2412_with_ribs",
     "domain": "D",
     "difficulty": "hard",
-    "description": "A NACA 2412 wing segment, 150mm chord, 300mm span, with 3 internal ribs evenly spaced along the span and a single forward spar at 25 percent chord. Skin thickness 1.5mm."
+    "description": "A NACA 2412 wing segment, 150mm chord, 300mm span, with 3 internal ribs evenly spaced along the span and a single forward spar at 25 percent chord. Skin thickness 1.5mm.",
+    "expected_features": ["NACA 2412 cross-section", "150mm chord", "300mm span", "3 internal ribs", "spar at 25% chord", "1.5mm skin thickness"]
   },
   {
     "id": "D_tapered_fin",
     "domain": "D",
     "difficulty": "medium",
-    "description": "A tapered vertical fin with 80mm root chord, 40mm tip chord, 100mm span, NACA 0006 cross-section. No internal structure."
+    "description": "A tapered vertical fin with 80mm root chord, 40mm tip chord, 100mm span, NACA 0006 cross-section. No internal structure.",
+    "expected_features": ["NACA 0006 cross-section", "80mm root chord", "40mm tip chord", "100mm span", "linear taper", "single solid"]
+  },
+  {
+    "id": "D_naca4412_segment",
+    "domain": "D",
+    "difficulty": "easy",
+    "description": "A NACA 4412 cambered airfoil segment, 120mm chord, 250mm span, generated as a single solid (no internal structure).",
+    "expected_features": ["NACA 4412 cross-section", "cambered airfoil", "120mm chord", "250mm span", "single solid skin"]
+  },
+  {
+    "id": "D_swept_winglet",
+    "domain": "D",
+    "difficulty": "medium",
+    "description": "A swept winglet. NACA 0008 cross-section, 60mm root chord, 30mm tip chord, 80mm span. Sweep the leading edge back 25 degrees over the span. Single solid skin, no ribs.",
+    "expected_features": ["NACA 0008 cross-section", "60mm root chord", "30mm tip chord", "80mm span", "25 deg leading-edge sweep", "single solid skin"]
+  },
+  {
+    "id": "D_dihedral_wing_panel",
+    "domain": "D",
+    "difficulty": "hard",
+    "description": "A NACA 2412 wing panel, 140mm chord, 320mm span, with 5 degrees of dihedral applied along the span. Two evenly spaced internal ribs. Skin thickness 1.2mm.",
+    "expected_features": ["NACA 2412 cross-section", "140mm chord", "320mm span", "5 deg dihedral", "two internal ribs", "1.2mm skin thickness"]
+  },
+  {
+    "id": "D_horizontal_stabilizer",
+    "domain": "D",
+    "difficulty": "medium",
+    "description": "A horizontal stabilizer using a NACA 0010 symmetric airfoil. 90mm root chord, 60mm tip chord, 200mm span, no twist. Two internal ribs at 1/3 and 2/3 span. Skin thickness 1.0mm.",
+    "expected_features": ["NACA 0010 cross-section", "90mm root chord", "60mm tip chord", "200mm span", "no twist", "rib at 1/3 span", "rib at 2/3 span", "1.0mm skin thickness"]
   },
 
   {
     "id": "E_l_bracket_sheet",
     "domain": "E",
     "difficulty": "easy",
-    "description": "A 1.5mm thick steel L-bracket. The base is 50mm x 30mm; the vertical flange is 40mm x 30mm. 3mm bend radius. Two 5mm mounting holes in the base, 30mm apart."
+    "description": "A 1.5mm thick steel L-bracket. The base is 50mm x 30mm; the vertical flange is 40mm x 30mm. 3mm bend radius. Two 5mm mounting holes in the base, 30mm apart.",
+    "expected_features": ["1.5mm sheet thickness", "50x30 base", "40x30 vertical flange", "3mm bend radius", "two 5mm holes in base", "30mm hole spacing"]
   },
   {
     "id": "E_enclosure_panel",
     "domain": "E",
     "difficulty": "medium",
-    "description": "A 2mm thick aluminum enclosure panel, 100mm x 80mm, with 10mm tall flanges on all four edges bent 90 degrees toward the same side. 2mm bend radius."
+    "description": "A 2mm thick aluminum enclosure panel, 100mm x 80mm, with 10mm tall flanges on all four edges bent 90 degrees toward the same side. 2mm bend radius.",
+    "expected_features": ["2mm sheet thickness", "100x80 panel", "10mm flanges on all four edges", "90 deg bends", "2mm bend radius", "all flanges to same side"]
   },
   {
     "id": "E_pcb_tray",
     "domain": "E",
     "difficulty": "medium",
-    "description": "A 1.2mm thick steel PCB tray, 120mm x 80mm, with 12mm flanges on the two long edges only. Four 3mm mounting holes, one at each corner of the flat base, 8mm from each edge."
+    "description": "A 1.2mm thick steel PCB tray, 120mm x 80mm, with 12mm flanges on the two long edges only. Four 3mm mounting holes, one at each corner of the flat base, 8mm from each edge.",
+    "expected_features": ["1.2mm sheet thickness", "120x80 base", "12mm flanges on long edges only", "four 3mm corner holes", "holes 8mm from each edge"]
   }
 ]
