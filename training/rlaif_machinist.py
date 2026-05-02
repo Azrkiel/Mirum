@@ -56,7 +56,7 @@ HYBRID_EXECUTION_WEIGHT = 0.7
 HYBRID_PREFERENCE_WEIGHT = 0.3
 
 # Gemini model for preference scoring
-PREFERENCE_MODEL = "gemini-2.5-flash"
+PREFERENCE_MODEL = "gemini-3.1-flash-preview"
 
 
 def compute_execution_reward(script: str, timeout: int = 30) -> float:
@@ -831,7 +831,11 @@ def main():
     train_p.add_argument("--steps", type=int, default=10_000)
     train_p.add_argument("--batch-size", type=int, default=64)
     train_p.add_argument("--no-preference-reward", action="store_true")
-    train_p.add_argument("--gemini-api-key", default=None)
+    train_p.add_argument(
+        "--gemini-api-key",
+        default=os.environ.get("GEMINI_API_KEY_HEAVY"),
+        help="Heavy-tier Gemini key for preference scoring (default: GEMINI_API_KEY_HEAVY env var)",
+    )
     train_p.add_argument("--no-4bit", action="store_true")
 
     eval_p = subparsers.add_parser("eval", help="Evaluate RLAIF vs SFT")

@@ -210,16 +210,17 @@ Return JSON:
 
 def annotate_script(
     code: str,
-    model_name: str = "gemini-2.5-flash",
+    model_name: str = "gemini-3.1-flash-lite-preview",
     api_key: str | None = None,
 ) -> dict[str, str] | None:
     """Generate text descriptions for a CadQuery script using Gemini."""
     try:
         import google.generativeai as genai
 
-        key = api_key or os.environ.get("GEMINI_API_KEY")
+        # Code-annotation task → lite tier.
+        key = api_key or os.environ.get("GEMINI_API_KEY_LITE")
         if not key:
-            raise RuntimeError("GEMINI_API_KEY not set")
+            raise RuntimeError("GEMINI_API_KEY_LITE not set")
         genai.configure(api_key=key)
 
         model = genai.GenerativeModel(
@@ -386,7 +387,7 @@ def _parse_args():
     p.add_argument("--max-samples", type=int, default=0,
                    help="Max samples to process (0 = all)")
     p.add_argument("--api-key", default=None,
-                   help="Gemini API key (default: GEMINI_API_KEY env var)")
+                   help="Gemini API key for lite-tier annotation calls (default: GEMINI_API_KEY_LITE env var)")
     return p.parse_args()
 
 

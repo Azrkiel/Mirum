@@ -76,7 +76,7 @@ Return JSON: {{"abstract": "...", "beginner": "...", "intermediate": "...", \
 def stratify_pair(
     description: str,
     code: str,
-    model_name: str = "gemini-2.5-flash",
+    model_name: str = "gemini-3.1-flash-lite-preview",
     api_key: str | None = None,
 ) -> dict[str, str] | None:
     """Call Gemini to generate four complexity variants of a prompt.
@@ -87,9 +87,10 @@ def stratify_pair(
     try:
         import google.generativeai as genai
 
-        key = api_key or os.environ.get("GEMINI_API_KEY")
+        # Prompt stratification is a structured text-rewriting task → lite tier.
+        key = api_key or os.environ.get("GEMINI_API_KEY_LITE")
         if not key:
-            raise RuntimeError("GEMINI_API_KEY not set")
+            raise RuntimeError("GEMINI_API_KEY_LITE not set")
         genai.configure(api_key=key)
 
         model = genai.GenerativeModel(
@@ -301,7 +302,7 @@ def _parse_args():
     p.add_argument("--input", required=True, help="Input JSONL with seed pairs")
     p.add_argument("--output", required=True, help="Output JSONL path")
     p.add_argument("--max-workers", type=int, default=4, help="Gemini concurrency")
-    p.add_argument("--api-key", default=None, help="Gemini API key (default: env var)")
+    p.add_argument("--api-key", default=None, help="Gemini API key for lite-tier (default: GEMINI_API_KEY_LITE env var)")
     p.add_argument("--delay", type=float, default=0.3,
                    help="Seconds between API calls per worker")
     p.add_argument("--mine-telemetry", action="store_true",
