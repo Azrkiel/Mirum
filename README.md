@@ -24,13 +24,16 @@ Mirum is containerized to ensure cross-platform compatibility with the OpenCASCA
 
 ### Prerequisites
 * Docker and Docker Compose
-* Gemini API Key (`GEMINI_API_KEY`)
+* Two Gemini API keys, split by tier:
+  * `GEMINI_API_KEY_HEAVY` — used for `gemini-3.1-flash-preview` (Machinist generation, spatial-reasoning evaluation, RLAIF preference scoring, VLM continuity checks).
+  * `GEMINI_API_KEY_LITE` — used for `gemini-3.1-flash-lite-preview` (domain classifier, PMI/GD&T extraction, dataset annotations, prompt stratification). They may point at the same physical key if you only have one.
 
 ### Build and Run
 1. Clone the repository.
-2. Set your API key in your environment or `.env` file:
+2. Set both API keys in your environment or `.env` file:
    ```bash
-   export GEMINI_API_KEY="your_api_key_here"
+   export GEMINI_API_KEY_HEAVY="your_heavy_tier_key_here"
+   export GEMINI_API_KEY_LITE="your_lite_tier_key_here"
    
 3. Build the isolated conda environment and spin up the FastAPI server:
      docker compose up --build
@@ -54,7 +57,7 @@ Assemble: The Assembler reads the manifest and topologically mates the internal 
 Export: The backend streams a manifold, collision-free .glb assembly file to the client.
 
 💻 Tech Stack
-LLM Engine: Google Gemini 2.5 Flash (google-generativeai)
+LLM Engine: Google Gemini 3.1 Flash Preview (heavy tier) + Gemini 3.1 Flash Lite Preview (lite tier), via google-generativeai
 
 Geometry Kernel: CadQuery / OpenCASCADE
 
