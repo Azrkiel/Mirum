@@ -17,22 +17,32 @@ involvement. Telemetry is captured for every Machinist attempt.
 
 import asyncio
 import json
+import logging
 import os
 import pathlib
 import re
+import time
 from typing import Any
 
 import google.generativeai as genai
 
+logger = logging.getLogger("mirum.agents")
+
 from classifier import classify_part
 from compiler import execute_cad_script
-from failure_analysis import classify_failure
-from retrieval import add_to_index, retrieve_few_shots
+from failure_analysis import build_retry_context, classify_failure
+from retrieval import (
+    add_to_index,
+    extract_techniques,
+    retrieve_few_shots,
+    retrieve_for_failure,
+)
+from strategies import get_active_rules
 from schemas import AssemblyManifest, DesignRequirements, MateType, PartDefinition
 from strategies import get_strategy
 from telemetry import log_attempt
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3-flash-preview"
 
 # Directory for pre-compiled .step files consumed by the deterministic
 # assembler. Defaults to /tmp/mirum/parts because the previous location
@@ -92,8 +102,36 @@ _UNSUPPORTED_SCHEMA_KEYS = {
 }
 
 
+def _flatten_any_of(schema: dict[str, Any]) -> dict[str, Any]:
+    """Flatten Pydantic-style ``anyOf: [X, {"type": "null"}]`` into ``X`` + nullable.
+
+    Gemini's ``response_schema`` rejects ``anyOf`` outright. Pydantic v2 emits it
+    for every ``Optional[...]`` field. We pick the first non-null variant, merge
+    any sibling keys (description, etc.) onto it, and mark it ``nullable``.
+    """
+    variants = schema["anyOf"]
+    non_null = [v for v in variants if not (isinstance(v, dict) and v.get("type") == "null")]
+    has_null = len(non_null) < len(variants)
+    picked = non_null[0] if non_null else {}
+    merged = {k: v for k, v in schema.items() if k != "anyOf"}
+    for k, v in picked.items():
+        merged.setdefault(k, v)
+    if has_null:
+        merged["nullable"] = True
+    return merged
+
+
 def _sanitize_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Recursively strip JSON Schema fields unsupported by the Gemini API."""
+    # Flatten until stable — a picked variant may itself carry anyOf.
+    # Bounded by the number of fields, so this cannot loop indefinitely.
+    guard = 0
+    while "anyOf" in schema and guard < 16:
+        schema = _flatten_any_of(schema)
+        guard += 1
+    if "anyOf" in schema:
+        # Defensive: drop anyOf rather than recurse forever if something pathological slips through.
+        schema = {k: v for k, v in schema.items() if k != "anyOf"}
     cleaned = {}
     for key, value in schema.items():
         if key in _UNSUPPORTED_SCHEMA_KEYS:
@@ -110,16 +148,73 @@ def _sanitize_schema(schema: dict[str, Any]) -> dict[str, Any]:
     return cleaned
 
 
+_REF_PREFIX = "#/$defs/"
+
+
+def _inline_refs(node: Any, defs: dict[str, Any], seen: frozenset = frozenset()) -> Any:
+    """Recursively resolve ``$ref`` pointers against a ``$defs`` map.
+
+    Replaces the prior string-replace approach, which failed when a def's body
+    itself contained a ref to another def that had already been processed —
+    the nested ref re-entered the main schema after its own pass was over.
+    """
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith(_REF_PREFIX):
+            name = ref[len(_REF_PREFIX):]
+            if name in seen or name not in defs:
+                # Cycle or dangling ref — drop the $ref so the output stays clean.
+                return {k: _inline_refs(v, defs, seen) for k, v in node.items() if k != "$ref"}
+            resolved = _inline_refs(defs[name], defs, seen | {name})
+            siblings = {k: _inline_refs(v, defs, seen) for k, v in node.items() if k != "$ref"}
+            if isinstance(resolved, dict):
+                merged = dict(resolved)
+                merged.update(siblings)  # siblings override resolved keys (JSON Schema 2020-12)
+                return merged
+            return resolved
+        return {k: _inline_refs(v, defs, seen) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_inline_refs(item, defs, seen) for item in node]
+    return node
+
+
 def _get_gemini_schema() -> dict[str, Any]:
     """Generate a Gemini-compatible JSON schema from AssemblyManifest."""
+    t0 = time.monotonic()
     raw = AssemblyManifest.model_json_schema()
     defs = raw.pop("$defs", {})
-    raw_json = json.dumps(raw)
-    for def_name, def_schema in defs.items():
-        ref_str = f'{{"$ref": "#/$defs/{def_name}"}}'
-        raw_json = raw_json.replace(ref_str, json.dumps(def_schema))
-    resolved = json.loads(raw_json)
-    return _sanitize_schema(resolved)
+    resolved = _inline_refs(raw, defs)
+    sanitized = _sanitize_schema(resolved)
+    leftover_ref = _find_key(sanitized, "$ref")
+    if leftover_ref is not None:
+        logger.error("Gemini schema still contains $ref at path: %s", leftover_ref)
+    leftover_any = _find_key(sanitized, "anyOf")
+    if leftover_any is not None:
+        logger.error("Gemini schema still contains anyOf at path: %s", leftover_any)
+    logger.info(
+        "_get_gemini_schema: built in %.3fs (%d defs inlined, %d top-level keys)",
+        time.monotonic() - t0,
+        len(defs),
+        len(sanitized),
+    )
+    return sanitized
+
+
+def _find_key(obj: Any, needle: str, path: str = "$") -> str | None:
+    """Return the dotted path of the first occurrence of ``needle`` in ``obj``, or None."""
+    if isinstance(obj, dict):
+        if needle in obj:
+            return path
+        for k, v in obj.items():
+            hit = _find_key(v, needle, f"{path}.{k}")
+            if hit is not None:
+                return hit
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            hit = _find_key(v, needle, f"{path}[{i}]")
+            if hit is not None:
+                return hit
+    return None
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -174,6 +269,8 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
     )
 
     try:
+        rea_t0 = time.monotonic()
+        logger.info("run_rea: calling Gemini (prompt=%d chars)", len(prompt))
         response = await model.generate_content_async(
             f"Extract design requirements from this brief:\n\n{prompt}",
             generation_config={
@@ -181,6 +278,7 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
                 "response_schema": _REA_SCHEMA,
             },
         )
+        logger.info("run_rea: Gemini returned in %.1fs", time.monotonic() - rea_t0)
         import json as _json
         raw = _json.loads(response.text)
         # Log token usage
@@ -196,6 +294,7 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
             pass
         return DesignRequirements(**raw)
     except Exception:
+        logger.exception("run_rea: failed — Planner will proceed without structured requirements")
         return None  # Non-blocking — Planner proceeds without structured requirements
 
 
@@ -357,12 +456,23 @@ async def run_planner(
     else:
         planner_input = user_prompt
 
+    schema = _get_gemini_schema()
+    logger.info(
+        "run_planner: calling Gemini (model=%s, prompt=%d chars, has_requirements=%s)",
+        MODEL, len(planner_input), requirements is not None,
+    )
+    llm_t0 = time.monotonic()
     response = await model.generate_content_async(
         planner_input,
         generation_config={
             "response_mime_type": "application/json",
-            "response_schema": _get_gemini_schema(),
+            "response_schema": schema,
         },
+    )
+    logger.info(
+        "run_planner: Gemini returned in %.1fs (%d chars of JSON)",
+        time.monotonic() - llm_t0,
+        len(response.text or ""),
     )
 
     # Log token usage for cost analysis (T1-10)
@@ -377,7 +487,15 @@ async def run_planner(
     except Exception:
         pass
 
-    return AssemblyManifest.model_validate_json(response.text)
+    validate_t0 = time.monotonic()
+    manifest = AssemblyManifest.model_validate_json(response.text)
+    logger.info(
+        "run_planner: manifest validated in %.3fs (parts=%d, mates=%d)",
+        time.monotonic() - validate_t0,
+        len(manifest.parts),
+        len(manifest.mating_rules),
+    )
+    return manifest
 
 
 def is_single_part(manifest: AssemblyManifest) -> bool:
@@ -399,13 +517,22 @@ async def _score_and_log(prompt: str, code: str, part_id: str) -> None:
 
 
 async def run_machinist(
-    part_def: PartDefinition, domain: str = "A", error_context: str = "",
+    part_def: PartDefinition,
+    domain: str = "A",
+    error_context: str = "",
+    retry_failure_class: str | None = None,
+    retry_techniques: list[str] | None = None,
 ) -> str:
     """Subagent 2: The Machinist.
 
     Generates isolated CadQuery Python code for a single part.
     The domain must be pre-classified by the caller; the system prompt
     is built dynamically based on domain and part description keywords.
+
+    On retry (``retry_failure_class`` or ``retry_techniques`` provided), the
+    few-shots are pulled by ``retrieve_for_failure`` so the Machinist sees a
+    working example of the exact pattern that just blew up, instead of more
+    semantically-similar parts that share the same broken technique.
     """
     system_prompt = get_strategy(domain, part_def.description)
 
@@ -414,20 +541,33 @@ async def run_machinist(
         system_instruction=system_prompt,
     )
 
-    # Few-shot retrieval augmentation (T1-05)
-    few_shots = retrieve_few_shots(part_def.description, domain=domain, k=3)
+    # Few-shot retrieval augmentation (T1-05). Description similarity on the
+    # first attempt; failure-aware retrieval on retry.
+    if retry_failure_class or retry_techniques:
+        few_shots = retrieve_for_failure(
+            failure_class=retry_failure_class or "unknown",
+            techniques=retry_techniques or [],
+            domain=domain,
+            k=3,
+        )
+        header = (
+            "\n\nWorking CadQuery examples that successfully use the "
+            f"technique that just failed for you ({retry_failure_class or 'unknown'}):\n"
+        )
+    else:
+        few_shots = retrieve_few_shots(part_def.description, domain=domain, k=3)
+        header = (
+            "\n\nHere are successful CadQuery examples for similar parts "
+            "(for reference only — generate NEW code for this specific part):\n"
+        )
+
     few_shot_section = ""
-    if few_shots and not error_context:  # Only inject on first attempt
+    if few_shots:
         examples = []
         for ex in few_shots:
             preview = ex["code"][:800]
             examples.append(f"# Example output for similar part:\n```python\n{preview}\n```")
-        few_shot_section = (
-            "\n\nHere are successful CadQuery examples for similar parts "
-            "(for reference only — generate NEW code for this specific part):\n"
-            + "\n\n".join(examples)
-            + "\n\n---\n\n"
-        )
+        few_shot_section = header + "\n\n".join(examples) + "\n\n---\n\n"
 
     prompt = (
         few_shot_section +
@@ -525,9 +665,17 @@ async def run_critic_loop(
         domain = classification.get("domain", "A")
 
         error_context = ""
+        retry_failure_class: str | None = None
+        retry_techniques: list[str] | None = None
 
         for attempt in range(1, max_retries + 1):
-            code = await run_machinist(part_def, domain=domain, error_context=error_context)
+            code = await run_machinist(
+                part_def,
+                domain=domain,
+                error_context=error_context,
+                retry_failure_class=retry_failure_class,
+                retry_techniques=retry_techniques,
+            )
             result = await execute_cad_script(code)
 
             success = result["status"] == "success"
@@ -570,6 +718,8 @@ async def run_critic_loop(
                                 failure_operation="continuity",
                             )
                             error_context = g2_feedback
+                            retry_failure_class = "continuity"
+                            retry_techniques = extract_techniques(code)
                             # Clean up temp step, continue retry loop
                             try:
                                 import os as _os
@@ -618,6 +768,8 @@ async def run_critic_loop(
                                 failure_operation="gaussian_curvature",
                             )
                             error_context = gauss_result.feedback_message
+                            retry_failure_class = "gaussian_curvature"
+                            retry_techniques = extract_techniques(code)
                             continue
                     except Exception:
                         pass  # Curvature check is advisory — never block compilation
@@ -637,7 +789,14 @@ async def run_critic_loop(
                 )
                 return code, step_path
 
-            error_context = result["traceback"]
+            active_rules = get_active_rules(domain, part_def.description)
+            error_context = build_retry_context(
+                traceback=result.get("traceback", ""),
+                code=code,
+                active_rules=active_rules,
+            )
+            retry_failure_class = failure_op
+            retry_techniques = extract_techniques(code)
             if attempt == max_retries:
                 raise ScriptError(
                     f"Part '{part_def.part_id}' failed after {max_retries} attempts. "
