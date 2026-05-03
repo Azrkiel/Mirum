@@ -13,7 +13,6 @@ the test surfaces that as 404. After A-02/A-03 land, it should turn green.
 """
 from __future__ import annotations
 
-import contextlib
 import os
 import sys
 import time
@@ -38,41 +37,39 @@ def _client():
     return TestClient(app)
 
 
+async def _slow_async_generator_pipeline(prompt: str):
+    """An async generator that hangs for 3 seconds before yielding anything.
+    A correct /jobs route MUST schedule this as a background task and
+    return its job_id BEFORE the first yield — i.e. before any sleep
+    elapses on the request handler's coroutine."""
+    import asyncio
+    await asyncio.sleep(3.0)
+    yield 'data: {"step":"machinist","status":"done"}\n\n'
+
+
 def test_post_jobs_returns_id_immediately() -> None:
     """A-01: POST /jobs MUST return within 200ms with `{job_id, status_url}`
-    even when the pipeline would take a long time. We patch the long-running
-    pipeline to a slow no-op so a buggy implementation that awaits it
-    inline visibly trips the budget."""
+    even when the pipeline would take a long time.
+
+    We patch `routes_jobs._pipeline` (the actual reference the route
+    reads, set during main.py wiring via `routes_jobs.set_pipeline(...)`)
+    so a regression that awaited the pipeline inline would visibly trip
+    the 200ms budget. Patching `main._pipeline` alone would NOT bite
+    because the route doesn't dereference main's symbol — it reads its
+    own module-global. (This was caught by zero-context review of the
+    initial commit.)"""
     client = _client()
 
-    async def _slow_no_op_pipeline(*args, **kwargs):
-        # 3-second sleep simulates a slow LLM call. A correct route MUST
-        # spawn this as a background task and return BEFORE awaiting it.
-        import asyncio
-        await asyncio.sleep(3.0)
-        return None
+    import routes_jobs
+    assert routes_jobs._pipeline is not None, (
+        "test premise broken: routes_jobs._pipeline must be wired by "
+        "main.py at import time; if this fails, app startup wiring "
+        "was changed and the test patch would no longer cover the route"
+    )
 
-    # Patch any module-level pipeline coroutine the route uses, if it exists.
-    # The patch is a no-op when the symbol isn't there yet (red phase) — the
-    # 404 from the missing route will still fail the test.
-    patches = []
-    try:
-        import main
-        if hasattr(main, "_pipeline"):
-            patches.append(unittest.mock.patch.object(main, "_pipeline", _slow_no_op_pipeline))
-    except Exception:
-        pass
-    try:
-        import jobs as _jobs_mod  # type: ignore[import-not-found]
-        if hasattr(_jobs_mod, "_pipeline"):
-            patches.append(unittest.mock.patch.object(_jobs_mod, "_pipeline", _slow_no_op_pipeline))
-    except Exception:
-        pass
-
-    with contextlib.ExitStack() as stack:
-        for p in patches:
-            stack.enter_context(p)
-
+    with unittest.mock.patch.object(
+        routes_jobs, "_pipeline", _slow_async_generator_pipeline
+    ):
         t0 = time.monotonic()
         response = client.post("/jobs", json={"prompt": "a 10mm cube"})
         elapsed_ms = (time.monotonic() - t0) * 1000
@@ -99,6 +96,34 @@ def test_post_jobs_returns_id_immediately() -> None:
     )
 
 
+def test_background_task_is_strongly_referenced() -> None:
+    """Regression guard: asyncio.create_task only weakly references the
+    returned Task. The route must store a strong ref on JobState so the
+    GC does not drop a still-pending pipeline task. See zero-context
+    review feedback on commit 533f04b."""
+    client = _client()
+    import routes_jobs
+    with unittest.mock.patch.object(
+        routes_jobs, "_pipeline", _slow_async_generator_pipeline
+    ):
+        response = client.post("/jobs", json={"prompt": "a 10mm cube"})
+    assert response.status_code == 200
+    job_id = response.json()["job_id"]
+
+    # Reach into the registry on app.state to confirm the JobState
+    # actually holds a Task.
+    from main import app
+    state = app.state.job_registry.get(job_id)
+    assert state is not None, "registry lost the job"
+    assert state.task is not None, (
+        "JobState.task is None — submit_job is not storing the background "
+        "task reference; Python may GC the pipeline mid-run"
+    )
+    assert not state.task.done() or state.task.cancelled(), (
+        "task should be pending (3s sleeper has not finished)"
+    )
+
+
 def test_post_jobs_rejects_oversized_prompt() -> None:
     """A-01 boundary: the existing GenerateRequest has max_length=5000 on
     the prompt field. The /jobs route should inherit that bound — a
@@ -114,6 +139,7 @@ def test_post_jobs_rejects_oversized_prompt() -> None:
 def _run_all() -> int:
     funcs = [
         test_post_jobs_returns_id_immediately,
+        test_background_task_is_strongly_referenced,
         test_post_jobs_rejects_oversized_prompt,
     ]
     failures = 0

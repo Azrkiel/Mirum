@@ -80,8 +80,22 @@ async def submit_job(body: JobsSubmitRequest, request: Request) -> dict[str, str
             logger.exception("job %s pipeline raised", state.job_id)
             state.status = JobStatus.FAILED
             state.error = str(e)[:1000]
+        finally:
+            # Defensive: if the body raised a BaseException not caught
+            # above (CancelledError on shutdown, KeyboardInterrupt in
+            # dev), the job would otherwise stay RUNNING forever and
+            # the polling endpoint would lie. Pin a terminal state.
+            if state.status == JobStatus.RUNNING:
+                state.status = JobStatus.FAILED
+                if state.error is None:
+                    state.error = "pipeline task ended without a terminal status"
 
-    asyncio.create_task(_runner())
+    # Keep a strong reference on the JobState so Python's GC does NOT
+    # drop the still-pending Task. asyncio.create_task only weakly
+    # references the returned Task; the loop's pending-task list keeps
+    # it alive while running, but a defensive ref here guards against
+    # future refactors that might run jobs on a custom executor.
+    state.task = asyncio.create_task(_runner())
 
     return {"job_id": state.job_id, "status_url": f"/jobs/{state.job_id}"}
 

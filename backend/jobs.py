@@ -51,6 +51,11 @@ class JobState:
     # instantiated outside an event loop (e.g. inside a sync test fixture).
     cancel_event: asyncio.Event | None = None
     new_event_cond: asyncio.Condition | None = None
+    # Strong reference to the background runner so Python's GC does not
+    # silently drop a still-pending pipeline task. asyncio.create_task
+    # only weakly references the returned Task; without storing it we
+    # have seen "Task was destroyed but it is pending" warnings.
+    task: asyncio.Task | None = None
     created_at: float = field(default_factory=time.monotonic)
 
     def _ensure_cancel(self) -> asyncio.Event:
