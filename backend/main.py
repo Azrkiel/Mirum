@@ -914,3 +914,18 @@ async def annotate_step_with_pmi(body: PMIRequest, request: Request):
             for a in pmi.annotations
         ],
     }
+
+
+# ---- Worktree A: non-blocking /jobs route family ----
+# Imports go here (rather than at module top) so wiring sees `_pipeline`
+# already defined in this module's namespace. The submitter returns
+# immediately; a background asyncio task drains the same `_pipeline`
+# coroutine the legacy /generate route still uses, so frontend clients
+# no longer have to hold a TCP socket open across multi-minute Planner
+# / Critic-loop calls. Plan §4 A-02/A-03/A-07.
+from jobs import JobRegistry  # noqa: E402
+import routes_jobs  # noqa: E402
+
+app.state.job_registry = JobRegistry()
+routes_jobs.set_pipeline(_pipeline)
+app.include_router(routes_jobs.router)
