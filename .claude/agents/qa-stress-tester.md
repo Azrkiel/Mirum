@@ -77,9 +77,10 @@ base=json.load(open('backend/eval_harness/prompts.json'));
 mut=json.load(open('/tmp/mirum/qa-stress/<base-id>-mutations.json'));
 json.dump(base+mut, open('backend/eval_harness/prompts.json','w'), indent=2)"
 
-# Run only the mutations.
+# Run only the mutations (bash / Git Bash form):
 python -m eval_harness.runner --filter "<DOMAIN>_qa_" --report-md \
   output/qa-reports/$(date +%F)-<base-id>-stress.md --strict-lvm
+# PowerShell form: substitute `$(Get-Date -Format yyyy-MM-dd)` for `$(date +%F)`.
 ```
 
 **(B) Live backend (when already up):**
