@@ -49,9 +49,10 @@ _RUNS_DIR = pathlib.Path(
     os.environ.get("MIRUM_EVAL_RUNS_DIR", "/tmp/mirum/eval_runs")
 )
 
-# Filter helpers live in a dep-free sibling so the test suite (and any
-# future tooling) can call them without pulling in google-generativeai.
+# Filter and reporting helpers live in dep-free siblings so the test suite
+# (and any future tooling) can call them without pulling in google-generativeai.
 from eval_harness._prompts_loader import filter_prompts as _filter_prompts  # noqa: E402
+from eval_harness._md_report import render_markdown_report as _render_md  # noqa: E402
 
 
 def _suppress_side_effects() -> None:
@@ -278,6 +279,15 @@ def main() -> None:
     parser.add_argument("--out", default=None,
                         help="Path to write JSONL results. Default: runs/<timestamp>.jsonl")
     parser.add_argument(
+        "--report-md", dest="report_md", default=None,
+        help=(
+            "Optional path to write a markdown table summarising the run "
+            "(columns: id, domain, difficulty, status, lvm, features matched, "
+            "time_ms, regression_for, notes; sorted by domain then id for "
+            "diffability). Used by the worktree merge gate (plan §9 F-04)."
+        ),
+    )
+    parser.add_argument(
         "--strict-lvm", action="store_true",
         help=(
             f"Demote a passing prompt to fail when its LVM score is below "
@@ -335,6 +345,12 @@ def main() -> None:
     print(_summarize(results))
     print(f"\nWall-clock elapsed: {total_elapsed}s")
     print(f"Results written to: {out_path}")
+
+    if args.report_md:
+        report_path = pathlib.Path(args.report_md)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(_render_md(results, prompts), encoding="utf-8")
+        print(f"Markdown report written to: {report_path}")
 
     if args.baseline:
         baseline_records = [json.loads(ln) for ln in pathlib.Path(args.baseline).read_text().splitlines() if ln.strip()]
