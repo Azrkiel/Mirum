@@ -254,5 +254,132 @@
     "difficulty": "medium",
     "description": "A 1.2mm thick steel PCB tray, 120mm x 80mm, with 12mm flanges on the two long edges only. Four 3mm mounting holes, one at each corner of the flat base, 8mm from each edge.",
     "expected_features": ["1.2mm sheet thickness", "120x80 base", "12mm flanges on long edges only", "four 3mm corner holes", "holes 8mm from each edge"]
+  },
+
+  {
+    "id": "A_csv_cube_no_load",
+    "domain": "A",
+    "difficulty": "easy",
+    "description": "Create a 10mm x 10mm x 10mm cube.",
+    "expected_features": ["10x10x10 cube"],
+    "regression_for": ["A"],
+    "notes": "User-feedback CSV (4/30/2026): pipeline never returned for this prompt. Worktree A (job queue + worker scaling) should make this complete < 30s reliably."
+  },
+  {
+    "id": "A_csv_simple_circle",
+    "domain": "A",
+    "difficulty": "easy",
+    "description": "A 25mm radius cylinder, 5mm tall.",
+    "expected_features": ["50mm diameter", "5mm height", "circular cross-section"],
+    "regression_for": ["A"],
+    "notes": "User-feedback CSV (4/30/2026): multiple users reported 'a circle' / 'a blue circle' / '3D Circle' prompts buffering and never returning, OR returning 'Could not reach backend ... read timeout=180'. Worktree A fix."
+  },
+  {
+    "id": "A_csv_simple_square",
+    "domain": "A",
+    "difficulty": "easy",
+    "description": "A 30mm x 30mm x 5mm square plate.",
+    "expected_features": ["30x30 square footprint", "5mm thickness"],
+    "regression_for": ["A"],
+    "notes": "User-feedback CSV (4/30/2026): 'Build a square' / 'Draw a square' buffered then died with read-timeout. Worktree A fix."
+  },
+  {
+    "id": "B_csv_iphone_case",
+    "domain": "B",
+    "difficulty": "hard",
+    "description": "A phone case designed for the iPhone 17. It is 5.89 inches tall, 2.81 inches wide, 0.31 inches deep. Include a camera cutout, a charging port cutout on the bottom edge, and side buttons.",
+    "expected_features": ["~150mm tall", "~71mm wide", "~8mm deep", "rounded corners", "camera cutout on back", "charging port cutout on bottom edge", "side button cutouts", "wall thickness 1-2mm"],
+    "regression_for": ["B"],
+    "notes": "User-feedback CSV (4/30/2026): TypeError: Workplane.rect() got an unexpected keyword argument 'rx'. Worktree B's cq_lint must reject this kwarg pre-execution and surface the fix (use .rect() then .edges('|Z').fillet(r))."
+  },
+  {
+    "id": "B_csv_cat_head_spline",
+    "domain": "C",
+    "difficulty": "hard",
+    "description": "A cat head, approximately 220mm long, 150mm wide, 220mm tall, with simplified ears, eyes, and a snout.",
+    "expected_features": ["recognizable cat head silhouette", "ears", "snout", "no spline-interpolation crash", "single watertight solid"],
+    "regression_for": ["B"],
+    "notes": "User-feedback CSV (4/27/2026): Standard_OutOfRange: BSplCLib::Interpolate on a 24-point periodic spline. Worktree B's cq_lint must reject periodic splines with > 16 control points (or detect duplicate first/last point) before they reach OCCT."
+  },
+  {
+    "id": "B_csv_cat_leg_cut",
+    "domain": "C",
+    "difficulty": "medium",
+    "description": "A cat front leg, ~60mm tall and ~25mm in diameter, sculpted in a bent position suitable for a sitting cat. Include a paw at the bottom and a shoulder attachment on top.",
+    "expected_features": ["~60mm tall leg", "tapered profile", "paw at bottom", "shoulder/socket at top"],
+    "regression_for": ["B"],
+    "notes": "User-feedback CSV (4/28/2026): ValueError: Cannot find a solid on the stack or in the parent chain after .cut(). Worktree B should warn the LLM about losing solid context after booleans (rebind to a name)."
+  },
+  {
+    "id": "B_csv_baseball_wires_item",
+    "domain": "C",
+    "difficulty": "hard",
+    "description": "A baseball with stitching, 80mm diameter.",
+    "expected_features": ["80mm diameter sphere", "two stitching seams that follow the classic figure-8 baseball pattern", "stitches embossed (not engraved through)", "no IndexError on wires().item()"],
+    "regression_for": ["B", "E"],
+    "notes": "User-feedback CSV (4/28/2026): IndexError on cq.Workplane('XY').spline(...).wires().item(0). Worktree B's cq_lint should warn on .item(N) without bounds check. Worktree E's NONE-domain freeform path is the right CadQuery shape (sphere + sweep on sinusoidal helix), not the threaded-tube Domain B fallback."
+  },
+  {
+    "id": "C_csv_cat_20m",
+    "domain": "C",
+    "difficulty": "medium",
+    "description": "A cat, 20 meters all around, sitting.",
+    "expected_features": ["clamped to figurine scale (~150-250mm overall, not 20000mm)", "REA returns unit_clamped=True with original captured", "recognizable sitting-cat silhouette", "no OCCT failures from absurd scale"],
+    "regression_for": ["C"],
+    "notes": "User-feedback CSV (4/27/2026): planner produced 19 parts at 10000mm each, several OCCT failures including BSplCLib::Interpolate on the head. Worktree C's REA scale-clamp heuristic must catch this and rescale to figurine range."
+  },
+  {
+    "id": "C_csv_apartment_building",
+    "domain": "A",
+    "difficulty": "medium",
+    "description": "An apartment building, approximately 100mm tall (figurine scale).",
+    "expected_features": ["multi-part decomposition (>= 3 parts: e.g. foundation, walls/floors, roof)", "windows or floor divisions visible", "not a single monolithic box"],
+    "regression_for": ["C"],
+    "notes": "User-feedback CSV (4/30/2026): planner returned a single 5x10x100 cq.box. Worktree C's planner decomposition floor must require >= 3 parts for architectural prompts."
+  },
+  {
+    "id": "C_csv_f14_jet",
+    "domain": "D",
+    "difficulty": "hard",
+    "description": "An F-14 Tomcat jet as a single solid part with the wings swept in (at a 68 degree angle) and the landing gear retracted, with a wingspan of 81mm, length of 133mm, and height of 34mm.",
+    "expected_features": ["overall dimensions ~81mm x 133mm x 34mm", "fuselage", "swept wings at ~68 degrees", "no separate landing gear", "single solid part", "completes within 240s without backend timeout"],
+    "regression_for": ["A", "C"],
+    "notes": "User-feedback CSV (4/30/2026): planning ran for 5 minutes then 'Could not connect to backend (Connection error)'. Worktree A (move planning off the synchronous SSE path) and Worktree C (avoid over-decomposition for single-solid prompts) both apply."
+  },
+  {
+    "id": "D_csv_spoon_funnel",
+    "domain": "C",
+    "difficulty": "hard",
+    "description": "A continuous single-part spoon, one foot long (about 305mm), with a bowl diameter of 20mm. Smooth ergonomic transition from handle to bowl.",
+    "expected_features": ["~305mm overall length", "20mm bowl diameter", "recognizable spoon silhouette (handle tapers, then opens into a shallow oval bowl at one end)", "bowl is concave (not a cylinder or funnel)", "vision verifier returns matches=true"],
+    "regression_for": ["D"],
+    "notes": "User-feedback CSV (4/29/2026): user said it 'looked more as a long funnel'. Worktree D's rendered-image LVM must catch the missing concave bowl and either retry or fail loudly."
+  },
+  {
+    "id": "D_csv_pacman",
+    "domain": "C",
+    "difficulty": "medium",
+    "description": "A 3D Pac-Man character, 30mm diameter sphere, with a clear wedge-shaped mouth opening (about 60 degrees) cut from one side, and one small spherical eye protrusion on top.",
+    "expected_features": ["30mm diameter sphere body", "60-degree wedge mouth cut from front", "mouth opening visible from front view (depth, not flat)", "single eye protruding on top of head", "vision verifier returns matches=true"],
+    "regression_for": ["D"],
+    "notes": "User-feedback CSV (4/30/2026): user said depth perception was off, 'like it looked at a 2d picture'. Worktree D's multi-view render must catch the missing depth on the mouth cut."
+  },
+  {
+    "id": "D_csv_gremlin_chair",
+    "domain": "C",
+    "difficulty": "hard",
+    "description": "A gremlin figure (figurine scale, ~100mm tall) holding a chair above its head, ready to throw it.",
+    "expected_features": ["recognizable bipedal figure", "arms raised above head", "chair object positioned above the figure", "figure and chair visually distinct from each other", "vision verifier returns matches=true OR the run fails loudly with a vision-explained reason"],
+    "regression_for": ["D"],
+    "notes": "User-feedback CSV (4/30/2026): user said 'it unfortunately looks not very close to the gremlin'. Worktree D's vision verifier should catch the wrong silhouette and either trigger a retry or fail loudly rather than ship a confusing GLB."
+  },
+  {
+    "id": "E_csv_baseball_stitches",
+    "domain": "C",
+    "difficulty": "hard",
+    "description": "A properly scaled baseball with stitching, 80mm diameter.",
+    "expected_features": ["80mm diameter sphere", "two raised seams running in the classic figure-8 baseball pattern across the surface", "seams are continuous curves (not threads or screw threads)", "classifier returns NONE (no domain template force-fit)", "vision verifier returns matches=true"],
+    "regression_for": ["E", "D"],
+    "notes": "User-feedback CSV (4/28/2026): system produced a long threaded tube instead of a stitched sphere because the Classifier force-fit into Domain B (mechanical/threads). Worktree E's NONE veto + freeform path is the fix; Worktree D's vision verifier is the safety net."
   }
 ]
