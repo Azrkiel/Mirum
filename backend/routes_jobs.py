@@ -83,12 +83,15 @@ async def submit_job(body: JobsSubmitRequest, request: Request) -> dict[str, str
         finally:
             # Defensive: if the body raised a BaseException not caught
             # above (CancelledError on shutdown, KeyboardInterrupt in
-            # dev), the job would otherwise stay RUNNING forever and
-            # the polling endpoint would lie. Pin a terminal state.
-            if state.status == JobStatus.RUNNING:
-                state.status = JobStatus.FAILED
-                if state.error is None:
-                    state.error = "pipeline task ended without a terminal status"
+            # dev), the job would otherwise stay RUNNING — or, worse,
+            # if cancellation lands BEFORE the RUNNING assignment, stay
+            # QUEUED — and the polling endpoint would lie. The helper
+            # checks against the centralised TERMINAL_STATUSES so a
+            # future status enum addition (TIMED_OUT in A-10) cannot
+            # silently bypass the gate.
+            state.pin_failed_if_not_terminal(
+                "pipeline task ended without a terminal status"
+            )
 
     # Keep a strong reference on the JobState so Python's GC does NOT
     # drop the still-pending Task. asyncio.create_task only weakly

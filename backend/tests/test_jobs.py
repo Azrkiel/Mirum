@@ -124,6 +124,42 @@ def test_background_task_is_strongly_referenced() -> None:
     )
 
 
+def test_pin_failed_promotes_queued_to_failed() -> None:
+    """Round-2 review concern 3: gate must catch QUEUED, not just RUNNING.
+    A BaseException injected at task-start (before line 71's RUNNING
+    assignment) leaves the JobState at its initial QUEUED. The finally
+    must still pin a terminal status — otherwise the polling endpoint
+    lies about the job's outcome."""
+    from jobs import JobState, JobStatus
+    state = JobState(job_id="x", prompt="x")  # constructor leaves status=QUEUED
+    assert state.status == JobStatus.QUEUED
+    state.pin_failed_if_not_terminal("ran but never started")
+    assert state.status == JobStatus.FAILED
+    assert state.error == "ran but never started"
+
+
+def test_pin_failed_promotes_running_to_failed() -> None:
+    from jobs import JobState, JobStatus
+    state = JobState(job_id="x", prompt="x")
+    state.status = JobStatus.RUNNING
+    state.pin_failed_if_not_terminal("died without setting terminal")
+    assert state.status == JobStatus.FAILED
+    assert state.error == "died without setting terminal"
+
+
+def test_pin_failed_is_no_op_on_terminal() -> None:
+    """Idempotence: a job that already reached DONE / FAILED / CANCELLED
+    must not be overwritten by the finally clause running last."""
+    from jobs import JobState, JobStatus
+    for terminal in (JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED):
+        state = JobState(job_id="x", prompt="x")
+        state.status = terminal
+        state.error = "real reason"
+        state.pin_failed_if_not_terminal("would overwrite if not idempotent")
+        assert state.status == terminal, f"helper overwrote terminal {terminal!r}"
+        assert state.error == "real reason", "helper overwrote a real error message"
+
+
 def test_post_jobs_rejects_oversized_prompt() -> None:
     """A-01 boundary: the existing GenerateRequest has max_length=5000 on
     the prompt field. The /jobs route should inherit that bound — a
@@ -140,6 +176,9 @@ def _run_all() -> int:
     funcs = [
         test_post_jobs_returns_id_immediately,
         test_background_task_is_strongly_referenced,
+        test_pin_failed_promotes_queued_to_failed,
+        test_pin_failed_promotes_running_to_failed,
+        test_pin_failed_is_no_op_on_terminal,
         test_post_jobs_rejects_oversized_prompt,
     ]
     failures = 0

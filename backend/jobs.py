@@ -31,6 +31,15 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+# A status is "terminal" if no further state transitions are expected.
+# Used by the runner's finally clause to decide whether to pin a stale
+# QUEUED/RUNNING to FAILED. Centralised here so a future add to the
+# status enum (e.g. TIMED_OUT in A-10) cannot silently bypass the gate.
+TERMINAL_STATUSES = frozenset(
+    {JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED}
+)
+
+
 @dataclass
 class JobEvent:
     """One pipeline-emitted event. The cursor for SSE replay is `seq`."""
@@ -89,6 +98,20 @@ class JobState:
         if cursor < 0:
             cursor = 0
         return self.events[cursor:]
+
+    def is_terminal(self) -> bool:
+        return self.status in TERMINAL_STATUSES
+
+    def pin_failed_if_not_terminal(self, reason: str) -> None:
+        """Idempotent: pin status to FAILED only if not already terminal.
+        The runner calls this from its finally clause so that a
+        BaseException (CancelledError on shutdown, KeyboardInterrupt)
+        cannot leave the JobState stuck at QUEUED or RUNNING — which
+        would make the polling endpoint lie about the job's outcome."""
+        if not self.is_terminal():
+            self.status = JobStatus.FAILED
+            if self.error is None:
+                self.error = reason
 
 
 class JobRegistry:
