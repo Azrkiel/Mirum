@@ -250,6 +250,160 @@ def test_get_events_skips_already_seen_with_cursor() -> None:
     )
 
 
+def test_cancel_route_promotes_queued_to_cancelled() -> None:
+    """A-05 part 1a: a queued job (runner hasn't started) goes
+    eagerly to CANCELLED so the polling endpoint reflects the user's
+    intent immediately. We bypass the /jobs POST route and submit
+    directly into the registry so the test doesn't get bitten by
+    starlette's per-request event-loop lifecycle (which would let the
+    runner race ahead and tear down before the cancel call lands)."""
+    client = _client()
+    from main import app
+    from jobs import JobStatus
+
+    state = app.state.job_registry.submit("manual queued")
+    assert state.status == JobStatus.QUEUED  # premise
+    response = client.post(f"/jobs/{state.job_id}/cancel")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "cancelled", body
+    assert state.status == JobStatus.CANCELLED
+    assert state.cancel_event is not None and state.cancel_event.is_set(), (
+        "cancel route must set state.cancel_event in addition to the eager "
+        "status promotion (so the runner, if it ever does start, observes it)"
+    )
+
+
+def test_cancel_route_sets_event_on_running_state() -> None:
+    """A-05 part 1b: a job whose runner has already started (RUNNING)
+    is NOT eagerly transitioned by the cancel route — that would
+    race the runner. The route only sets the event; the runner
+    observes it on its next post-yield check and moves to CANCELLED
+    itself (covered by test_run_pipeline_into_observes_mid_run_cancel)."""
+    client = _client()
+    from main import app
+    from jobs import JobStatus
+
+    state = app.state.job_registry.submit("manual running")
+    state.status = JobStatus.RUNNING  # simulate runner mid-flight
+
+    response = client.post(f"/jobs/{state.job_id}/cancel")
+
+    assert response.status_code == 200
+    assert state.cancel_event is not None and state.cancel_event.is_set()
+    # Status stays RUNNING — runner is responsible for the terminal transition.
+    assert state.status == JobStatus.RUNNING, (
+        f"cancel route must NOT racily overwrite RUNNING; got {state.status.value}"
+    )
+
+
+def test_cancel_terminal_job_is_no_op() -> None:
+    """A-05 part 2: cancelling a job that already reached DONE/FAILED/
+    CANCELLED returns the current status without overwriting it. The
+    client may have raced the runner; the response should let them
+    re-render the real outcome."""
+    client = _client()
+    from main import app
+    from jobs import JobStatus
+
+    # Fabricate a terminal job directly (no runner involved).
+    state = app.state.job_registry.submit("manual")
+    state.status = JobStatus.DONE
+    response = client.post(f"/jobs/{state.job_id}/cancel")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "done", f"cancel must not overwrite DONE; got {body}"
+    # Cancel event should NOT be set (we no-op'd before .set()).
+    # If state.cancel_event was None it stays None; if it existed, it stays unset.
+    if state.cancel_event is not None:
+        assert not state.cancel_event.is_set(), (
+            "cancel on terminal must not set the event"
+        )
+
+
+def test_run_pipeline_into_observes_pre_set_cancel() -> None:
+    """A-05 part 3: direct unit test of routes_jobs.run_pipeline_into.
+    If cancel_event is set BEFORE the runner enters its loop, the
+    runner must transition to CANCELLED on the first iteration check
+    (not finish all events as DONE)."""
+    import asyncio
+    from jobs import JobState, JobStatus
+    from routes_jobs import run_pipeline_into
+
+    async def _yield_three(prompt):
+        for i in range(3):
+            yield f'data: {{"i":{i}}}\n\n'
+
+    async def _scenario():
+        state = JobState(job_id="t", prompt="x")
+        cancel = state._ensure_cancel()
+        cancel.set()  # pre-set BEFORE the runner enters its loop
+        await run_pipeline_into(state, _yield_three)
+        return state
+
+    state = asyncio.run(_scenario())
+    assert state.status == JobStatus.CANCELLED, (
+        f"runner must observe pre-set cancel and land on CANCELLED; "
+        f"got {state.status.value} with {len(state.events)} events"
+    )
+    # The runner appended one event before checking cancel — that's the
+    # documented granularity (one check per pipeline yield). Asserting
+    # exactly 1 event pins the granularity contract.
+    assert len(state.events) == 1, (
+        f"granularity contract: cancel is checked AFTER the first event "
+        f"is appended; got {len(state.events)} events"
+    )
+
+
+def test_run_pipeline_into_observes_mid_run_cancel() -> None:
+    """A-05 part 4: a cancel that lands MID-run (after some events
+    have been emitted) still terminates the runner promptly."""
+    import asyncio
+    from jobs import JobState, JobStatus
+    from routes_jobs import run_pipeline_into
+
+    cancel_after = 2  # set cancel after 2 events have been appended
+
+    async def _yield_until_cancelled(prompt):
+        i = 0
+        while True:
+            yield f'data: {{"i":{i}}}\n\n'
+            await asyncio.sleep(0.001)  # let the canceller scheduler-tick in
+            i += 1
+            if i > 20:
+                # Failsafe: if cancel never lands, don't loop forever.
+                return
+
+    async def _scenario():
+        state = JobState(job_id="t", prompt="x")
+        cancel = state._ensure_cancel()
+
+        async def _canceller():
+            while len(state.events) < cancel_after:
+                await asyncio.sleep(0.001)
+            cancel.set()
+
+        await asyncio.gather(
+            run_pipeline_into(state, _yield_until_cancelled),
+            _canceller(),
+        )
+        return state
+
+    state = asyncio.run(_scenario())
+    assert state.status == JobStatus.CANCELLED
+    # cancel landed at events_count >= 2; the runner appended one more
+    # before its post-yield check fired. So events should be >= 3 and
+    # < 20 (well short of the failsafe).
+    assert cancel_after <= len(state.events) < 20
+
+
+def test_cancel_unknown_job_returns_404() -> None:
+    client = _client()
+    response = client.post("/jobs/does-not-exist/cancel")
+    assert response.status_code == 404
+
+
 def test_get_events_unknown_job_returns_404() -> None:
     client = _client()
     response = client.get("/jobs/does-not-exist/events?cursor=0")
@@ -277,6 +431,12 @@ def _run_all() -> int:
         test_pin_failed_is_no_op_on_terminal,
         test_get_events_replays_from_cursor_zero,
         test_get_events_skips_already_seen_with_cursor,
+        test_cancel_route_promotes_queued_to_cancelled,
+        test_cancel_route_sets_event_on_running_state,
+        test_cancel_terminal_job_is_no_op,
+        test_run_pipeline_into_observes_pre_set_cancel,
+        test_run_pipeline_into_observes_mid_run_cancel,
+        test_cancel_unknown_job_returns_404,
         test_get_events_unknown_job_returns_404,
         test_post_jobs_rejects_oversized_prompt,
     ]

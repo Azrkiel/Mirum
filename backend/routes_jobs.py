@@ -39,6 +39,41 @@ def set_pipeline(fn: PipelineFn) -> None:
     _pipeline = fn
 
 
+async def run_pipeline_into(state: Any, pipeline: PipelineFn) -> None:
+    """Drain the pipeline async generator into a JobState.
+
+    Extracted from `submit_job` so it can be unit-tested without a
+    FastAPI TestClient (which spins up a fresh event loop per request,
+    breaking any cross-request task lifetime — see test_jobs.py for the
+    motivating bug). The state-machine contract is identical to what
+    the route's background task does:
+
+      QUEUED → RUNNING → (DONE | CANCELLED | FAILED)
+
+    The finally clause uses TERMINAL_STATUSES so a BaseException
+    landing before the RUNNING assignment still pins a terminal state
+    (cf. round-2 reviewer feedback on commit d7aa8a9)."""
+    from jobs import JobStatus  # local import to dodge circular
+
+    try:
+        state.status = JobStatus.RUNNING
+        cancel = state._ensure_cancel()
+        async for event_str in pipeline(state.prompt):
+            await state.append_event({"raw": event_str})
+            if cancel.is_set():
+                state.status = JobStatus.CANCELLED
+                return
+        state.status = JobStatus.DONE
+    except Exception as e:  # noqa: BLE001 — top-level task guard
+        logger.exception("job %s pipeline raised", state.job_id)
+        state.status = JobStatus.FAILED
+        state.error = str(e)[:1000]
+    finally:
+        state.pin_failed_if_not_terminal(
+            "pipeline task ended without a terminal status"
+        )
+
+
 class JobsSubmitRequest(BaseModel):
     prompt: str = Field(..., max_length=5000)
 
@@ -68,39 +103,12 @@ async def submit_job(body: JobsSubmitRequest, request: Request) -> dict[str, str
             detail="pipeline not configured; check app startup wiring",
         )
 
-    async def _runner() -> None:
-        try:
-            state.status = JobStatus.RUNNING
-            cancel = state._ensure_cancel()
-            async for event_str in pipeline(body.prompt):
-                await state.append_event({"raw": event_str})
-                if cancel.is_set():
-                    state.status = JobStatus.CANCELLED
-                    return
-            state.status = JobStatus.DONE
-        except Exception as e:  # noqa: BLE001 — top-level task guard
-            logger.exception("job %s pipeline raised", state.job_id)
-            state.status = JobStatus.FAILED
-            state.error = str(e)[:1000]
-        finally:
-            # Defensive: if the body raised a BaseException not caught
-            # above (CancelledError on shutdown, KeyboardInterrupt in
-            # dev), the job would otherwise stay RUNNING — or, worse,
-            # if cancellation lands BEFORE the RUNNING assignment, stay
-            # QUEUED — and the polling endpoint would lie. The helper
-            # checks against the centralised TERMINAL_STATUSES so a
-            # future status enum addition (TIMED_OUT in A-10) cannot
-            # silently bypass the gate.
-            state.pin_failed_if_not_terminal(
-                "pipeline task ended without a terminal status"
-            )
-
     # Keep a strong reference on the JobState so Python's GC does NOT
     # drop the still-pending Task. asyncio.create_task only weakly
     # references the returned Task; the loop's pending-task list keeps
     # it alive while running, but a defensive ref here guards against
     # future refactors that might run jobs on a custom executor.
-    state.task = asyncio.create_task(_runner())
+    state.task = asyncio.create_task(run_pipeline_into(state, pipeline))
 
     return {"job_id": state.job_id, "status_url": f"/jobs/{state.job_id}"}
 
@@ -156,6 +164,42 @@ async def stream_events(
             await asyncio.sleep(0.1)
 
     return StreamingResponse(_generate(), media_type="text/event-stream")
+
+
+@router.post("/{job_id}/cancel")
+async def cancel_job(job_id: str, request: Request) -> dict[str, str]:
+    """A-05: cooperative cancellation. Sets state.cancel_event; the
+    background runner sees it on the next iteration of its `async for`
+    over the pipeline generator and transitions to CANCELLED.
+
+    The legacy `_pipeline` is NOT modified to check more frequently in
+    v1 — granularity is one check per pipeline yield, which fires after
+    each pipeline phase (Planner, REA, each Machinist attempt). Multi-
+    second phases mean the cancel takes at most one phase-length to
+    land, which is acceptable. Tighter granularity is plan §4 A-05's
+    'second pass' note and ships in a follow-up if user reports demand it."""
+    from jobs import JobRegistry, JobStatus  # local to dodge circular import
+
+    registry: JobRegistry | None = getattr(request.app.state, "job_registry", None)
+    if registry is None:
+        raise HTTPException(status_code=503, detail="job registry not configured")
+    state = registry.get(job_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"unknown job_id {job_id}")
+
+    if state.is_terminal():
+        # Cancel a terminated job is a no-op. Return the current state
+        # so the client can re-render its outcome instead of guessing.
+        return {"job_id": job_id, "status": state.status.value}
+
+    cancel = state._ensure_cancel()
+    cancel.set()
+    # If the runner hasn't reached its first iteration yet (still QUEUED),
+    # eagerly mark CANCELLED here. The finally clause's gate will not
+    # overwrite a terminal status, so this is safe.
+    if state.status == JobStatus.QUEUED:
+        state.status = JobStatus.CANCELLED
+    return {"job_id": job_id, "status": state.status.value}
 
 
 @router.get("/{job_id}")
