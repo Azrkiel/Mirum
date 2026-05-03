@@ -60,10 +60,15 @@ python -m eval_harness.runner [flags]
 ### Common invocations
 
 ```bash
-# Worktree A (backend throughput) gate
+# Worktree A (backend throughput) gate, bash / Git Bash form:
 python -m eval_harness.runner \
   --regression-for A \
   --report-md output/qa-reports/$(date +%F)-A.md
+
+# Same in PowerShell (this repo's default shell on Windows):
+# python -m eval_harness.runner `
+#   --regression-for A `
+#   --report-md "output/qa-reports/$(Get-Date -Format yyyy-MM-dd)-A.md"
 
 # Verify what --regression-for would run before paying for it
 python -m eval_harness.runner --regression-for B --dry-run

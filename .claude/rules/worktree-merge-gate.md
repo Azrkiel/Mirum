@@ -30,10 +30,15 @@ and the markdown reporter columns / sort order.
 ### (b) Worktree's regression slice completes with no new failures — always required
 
 ```bash
-# Run the slice this worktree gates, write a markdown report:
+# Bash / Git Bash form:
 python -m eval_harness.runner \
   --regression-for <letter> \
   --report-md output/qa-reports/$(date +%F)-<letter>.md
+
+# PowerShell equivalent (this repo's default shell on Windows):
+python -m eval_harness.runner `
+  --regression-for <letter> `
+  --report-md "output/qa-reports/$(Get-Date -Format yyyy-MM-dd)-<letter>.md"
 ```
 
 `<letter>` is the worktree's letter (A/B/C/D/E). For Worktree F itself,
