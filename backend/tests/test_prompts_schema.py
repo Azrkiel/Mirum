@@ -15,24 +15,36 @@ REQUIRED_FIELDS = ("id", "domain", "difficulty", "description", "expected_featur
 ALLOWED_DOMAINS = {"A", "B", "C", "D", "E"}
 ALLOWED_REGRESSION_TAGS = {"A", "B", "C", "D", "E"}
 
-# IDs added to track every CSV-sourced failure prompt from the first round of
-# user testing (Form Responses, 4/27-4/30/2026). Each maps to the worktree(s)
-# whose fix the case validates. See plan §9 (Worktree F, task F-01).
+# IDs that track every CSV-sourced failure prompt (Form Responses,
+# 4/27-4/30/2026) where the user-rated result was <= 3 OR the pipeline never
+# returned. ID convention: <DOMAIN>_csv_<short-slug> where <DOMAIN> matches
+# the entry's `domain` field. The `regression_for` array on each entry tags
+# which downstream worktree's fix the case validates. See plan §9 (Worktree F).
 EXPECTED_REGRESSION_IDS = {
+    # Domain A — primitives, structural, architectural decomposition
     "A_csv_cube_no_load",
     "A_csv_simple_circle",
     "A_csv_simple_square",
+    "A_csv_apartment_building",
+    "A_csv_dog_cupcake",
+    "A_csv_bus_driver_figurine",
+    "A_csv_smooth_sphere_3in",
+    "A_csv_bolt_threads_timeout",
+    "A_csv_mouse_shell_timeout",
+    # Domain B — mechanical / parametric (threads, fasteners, phone case)
     "B_csv_iphone_case",
-    "B_csv_cat_head_spline",
-    "B_csv_cat_leg_cut",
-    "B_csv_baseball_wires_item",
+    "B_csv_passenger_car_shell",
+    # Domain C — organic, ergonomic, figurine, surface-of-revolution
     "C_csv_cat_20m",
-    "C_csv_apartment_building",
-    "C_csv_f14_jet",
-    "D_csv_spoon_funnel",
-    "D_csv_pacman",
-    "D_csv_gremlin_chair",
-    "E_csv_baseball_stitches",
+    "C_csv_cat_head_spline",
+    "C_csv_cat_leg_cut",
+    "C_csv_baseball_wires_item",
+    "C_csv_baseball_stitches",
+    "C_csv_spoon_funnel",
+    "C_csv_pacman",
+    "C_csv_gremlin_chair",
+    # Domain D — aerospace
+    "D_csv_f14_jet",
 }
 
 
@@ -75,15 +87,42 @@ def test_expected_features_is_list_of_strings() -> None:
         assert all(isinstance(f, str) for f in feats), f"{entry['id']}: expected_features items must be strings"
 
 
-def test_regression_for_uses_only_allowed_tags() -> None:
+def test_regression_for_is_list_of_strings_with_allowed_tags() -> None:
+    """`regression_for` (when present) MUST be a list of strings drawn from
+    {A, B, C, D, E}. A bare-string value would silently break the
+    `runner.py --regression-for <letter>` filter (string `in` test would pass
+    on character match), so we reject the type before checking membership."""
     entries = _load()
     for entry in entries:
         tags = entry.get("regression_for")
         if tags is None:
             continue
-        assert isinstance(tags, list), f"{entry['id']}: regression_for must be a list"
+        assert isinstance(tags, list), (
+            f"{entry['id']}: regression_for must be a list (got {type(tags).__name__})"
+        )
+        for t in tags:
+            assert isinstance(t, str), (
+                f"{entry['id']}: regression_for items must be strings (got {type(t).__name__}: {t!r})"
+            )
         bad = [t for t in tags if t not in ALLOWED_REGRESSION_TAGS]
         assert not bad, f"{entry['id']}: regression_for has invalid tags {bad}"
+
+
+def test_id_prefix_matches_domain() -> None:
+    """Convention (consistent with the pre-existing entries A_simple_plate,
+    B_spur_gear, ..., E_pcb_tray): every id begins with its domain letter
+    followed by an underscore. Worktree association is captured separately
+    in `regression_for`. Mixing the two leads to ids that lie about what
+    the test exercises."""
+    entries = _load()
+    bad = [
+        (e["id"], e["domain"])
+        for e in entries
+        if not e["id"].startswith(e["domain"] + "_")
+    ]
+    assert not bad, (
+        f"id prefix must match domain (id startswith '<DOMAIN>_'); offenders: {bad}"
+    )
 
 
 def test_all_csv_failure_prompts_present() -> None:
@@ -114,7 +153,8 @@ def _run_all() -> int:
         test_id_uniqueness,
         test_domain_values_in_allowed_set,
         test_expected_features_is_list_of_strings,
-        test_regression_for_uses_only_allowed_tags,
+        test_regression_for_is_list_of_strings_with_allowed_tags,
+        test_id_prefix_matches_domain,
         test_all_csv_failure_prompts_present,
         test_csv_regression_prompts_carry_regression_for_tag,
     ]
