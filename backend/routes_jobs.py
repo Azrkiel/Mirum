@@ -13,10 +13,12 @@ JobRegistry stored at `app.state.job_registry`.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-from typing import Any, Awaitable, Callable
+from typing import Any, AsyncGenerator, Callable
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("mirum.api.jobs")
@@ -101,6 +103,59 @@ async def submit_job(body: JobsSubmitRequest, request: Request) -> dict[str, str
     state.task = asyncio.create_task(_runner())
 
     return {"job_id": state.job_id, "status_url": f"/jobs/{state.job_id}"}
+
+
+@router.get("/{job_id}/events")
+async def stream_events(
+    job_id: str, request: Request, cursor: int = 0
+) -> StreamingResponse:
+    """SSE stream of job events. `cursor=N` skips events with seq < N
+    (replay) and live-tails new ones. Closes when the job reaches a
+    terminal status (DONE / FAILED / CANCELLED), emitting a final
+    'complete' frame.
+
+    Polling-based v1: the live-tail loop wakes every 100ms to drain
+    any new events. Avoids the asyncio.Condition cross-await race that
+    would otherwise need careful lock ordering. 100ms latency per
+    event is imperceptible against multi-second pipeline phases."""
+    from jobs import JobRegistry  # local to dodge circular import
+
+    registry: JobRegistry | None = getattr(request.app.state, "job_registry", None)
+    if registry is None:
+        raise HTTPException(status_code=503, detail="job registry not configured")
+    state = registry.get(job_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"unknown job_id {job_id}")
+
+    async def _generate() -> AsyncGenerator[str, None]:
+        next_cursor = max(0, cursor)
+        while True:
+            # Drain any buffered events strictly newer than next_cursor.
+            while next_cursor < len(state.events):
+                ev = state.events[next_cursor]
+                yield f"data: {json.dumps({'seq': ev.seq, 'timestamp': ev.timestamp, 'payload': ev.payload})}\n\n"
+                next_cursor = ev.seq + 1
+
+            # Terminal status closes the stream after one final frame.
+            if state.is_terminal():
+                terminal = {
+                    "step": "complete",
+                    "status": state.status.value,
+                    "error": state.error,
+                }
+                yield f"data: {json.dumps(terminal)}\n\n"
+                return
+
+            # Client disconnected? Stop streaming so the worker is freed.
+            try:
+                if await request.is_disconnected():
+                    return
+            except Exception:  # noqa: BLE001
+                pass
+
+            await asyncio.sleep(0.1)
+
+    return StreamingResponse(_generate(), media_type="text/event-stream")
 
 
 @router.get("/{job_id}")

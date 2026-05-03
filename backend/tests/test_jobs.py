@@ -160,6 +160,102 @@ def test_pin_failed_is_no_op_on_terminal() -> None:
         assert state.error == "real reason", "helper overwrote a real error message"
 
 
+async def _three_event_pipeline(prompt: str):
+    """Yields three SSE-formatted events synchronously (no awaits between
+    yields so the runner buffers them all before the SSE consumer reads).
+    Mirrors the real _pipeline's yield format: 'data: {...}\\n\\n'."""
+    yield 'data: {"step":"planner","status":"running"}\n\n'
+    yield 'data: {"step":"planner","status":"done"}\n\n'
+    yield 'data: {"step":"machinist","status":"done"}\n\n'
+
+
+def _wait_until_terminal(app, job_id: str, timeout: float = 2.0) -> None:
+    """Spin until the job's status is terminal or the timeout elapses.
+    The runner is on the same event loop as the test, so yielding via
+    sleep(0) gives it scheduling slots."""
+    import asyncio
+    state = app.state.job_registry.get(job_id)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if state is not None and state.is_terminal():
+            return
+        # Drive the event loop briefly so the background runner can advance.
+        asyncio.run(asyncio.sleep(0.05))
+        state = app.state.job_registry.get(job_id)
+    raise AssertionError(
+        f"job {job_id} did not reach terminal status within {timeout}s; "
+        f"current status: {getattr(state, 'status', None)}"
+    )
+
+
+def test_get_events_replays_from_cursor_zero() -> None:
+    """A-04: GET /jobs/{id}/events?cursor=0 must replay every event
+    the runner has buffered, then emit a terminal 'complete' event
+    once the job reaches a terminal status. Runs against a synchronous
+    pipeline that yields three events so the assertion is deterministic."""
+    client = _client()
+    import routes_jobs
+    with unittest.mock.patch.object(
+        routes_jobs, "_pipeline", _three_event_pipeline
+    ):
+        submit = client.post("/jobs", json={"prompt": "x"})
+        assert submit.status_code == 200
+        job_id = submit.json()["job_id"]
+
+        # Open the SSE stream. Body should contain all 3 events + 'complete'.
+        response = client.get(f"/jobs/{job_id}/events?cursor=0")
+
+    assert response.status_code == 200, (
+        f"GET /jobs/{{id}}/events returned {response.status_code}; "
+        f"route likely missing. Body: {response.text[:200]}"
+    )
+    body = response.text
+    # Each pipeline event becomes one SSE frame; the terminal also.
+    assert "planner" in body and "machinist" in body, (
+        f"missing pipeline events in stream body: {body[:400]}"
+    )
+    assert "complete" in body, (
+        f"missing terminal 'complete' event: {body[:400]}"
+    )
+
+
+def test_get_events_skips_already_seen_with_cursor() -> None:
+    """If the client has already seen events 0..N-1 and reconnects with
+    cursor=N, the replay must NOT re-deliver them. This is the whole
+    point of the cursor — without it, a dropped client doubles every
+    event on reconnect."""
+    client = _client()
+    import routes_jobs
+    with unittest.mock.patch.object(
+        routes_jobs, "_pipeline", _three_event_pipeline
+    ):
+        submit = client.post("/jobs", json={"prompt": "x"})
+        job_id = submit.json()["job_id"]
+        # Wait for the job to finish so the events are fully buffered.
+        from main import app
+        _wait_until_terminal(app, job_id)
+
+        # cursor=2 → only the 3rd event (seq=2) should appear, plus terminal.
+        response = client.get(f"/jobs/{job_id}/events?cursor=2")
+
+    assert response.status_code == 200
+    body = response.text
+    assert body.count("data:") <= 3, (
+        f"with cursor=2 we expected at most 1 buffered event + 1 terminal "
+        f"(2 frames); got body with {body.count('data:')} frames: {body[:400]}"
+    )
+    assert "machinist" in body, "missing the 3rd event under cursor=2 replay"
+    assert "planner" not in body, (
+        f"cursor=2 replay leaked already-seen planner events: {body[:400]}"
+    )
+
+
+def test_get_events_unknown_job_returns_404() -> None:
+    client = _client()
+    response = client.get("/jobs/does-not-exist/events?cursor=0")
+    assert response.status_code == 404
+
+
 def test_post_jobs_rejects_oversized_prompt() -> None:
     """A-01 boundary: the existing GenerateRequest has max_length=5000 on
     the prompt field. The /jobs route should inherit that bound — a
@@ -179,6 +275,9 @@ def _run_all() -> int:
         test_pin_failed_promotes_queued_to_failed,
         test_pin_failed_promotes_running_to_failed,
         test_pin_failed_is_no_op_on_terminal,
+        test_get_events_replays_from_cursor_zero,
+        test_get_events_skips_already_seen_with_cursor,
+        test_get_events_unknown_job_returns_404,
         test_post_jobs_rejects_oversized_prompt,
     ]
     failures = 0
