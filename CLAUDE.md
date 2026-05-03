@@ -23,7 +23,7 @@ Mirum is a multi-agent text-to-CAD orchestrator: `Planner → REA → [Machinist
 
 ## Runtime facts
 
-- **Two Gemini key tiers**: `GEMINI_API_KEY_HEAVY` (Machinist, eval, RLAIF) and `GEMINI_API_KEY_LITE` (classifier, PMI extraction, dataset annotation). Default new agent calls to lite unless quality demands heavy.
+- **Single Gemini key**: `GEMINI_API_KEY_HEAVY` is the only key the orchestrator requires (set globally at `backend/main.py:61-68`). Model-tier separation, not key-tier separation: use `gemini-3-flash-preview` for Machinist/Planner/REA/Refiner/eval and `gemini-3.1-flash-lite-preview` for classifier/PMI extraction. Both call sites read the same env var. The `GEMINI_API_KEY_LITE` references that remain in `data_pipeline/` are for offline dataset scripts, not the live pipeline.
 - **Writable scratch**: `/tmp/mirum/work` (env: `MIRUM_WORK_DIR`). The container's `/app` is read-only; named volumes are root-owned. Never write outside `/tmp/mirum/...`.
 - **Run**: `docker compose up --build` → backend at `:8000`, frontend at `:8501`.
 - **Sandbox is Linux-only enforcement**: on Windows the `resource` module is missing, so `RLIMIT_AS` doesn't apply. Production must run in Docker.
@@ -38,11 +38,11 @@ Mirum is a multi-agent text-to-CAD orchestrator: `Planner → REA → [Machinist
 
 ## Security guardrails
 
-If you touch `backend/compiler.py`, `backend/main.py` endpoints, `backend/schemas.py`, or anything that handles `GEMINI_API_KEY_*`:
+If you touch `backend/compiler.py`, `backend/main.py` endpoints, `backend/schemas.py`, or anything that handles `GEMINI_API_KEY_HEAVY`:
 
 - Walk the checklist at `.claude/skills/mirum-security-review/SKILL.md` for the relevant section.
 - Dispatch `mirum-security-reviewer` agent (`Agent` tool with `subagent_type: "mirum-security-reviewer"`) before merging.
-- Sandbox invariants you must NOT regress: `_ALLOWED_MODULES = {"cadquery", "cq", "math", "cad_utils"}`, `_BANNED_BUILTINS` (eval/exec/open/getattr/etc.), 1.5GB `RLIMIT_AS`, 30s timeout, no Gemini keys in subprocess `env`.
+- Sandbox invariants you must NOT regress: `_ALLOWED_MODULES = {"cadquery", "cq", "math", "cad_utils"}`, `_BANNED_BUILTINS` (eval/exec/open/getattr/etc.), 1.5GB `RLIMIT_AS`, 30s timeout, no `GEMINI_API_KEY_HEAVY` in subprocess `env`.
 - Path-safety reference pattern: `backend/main.py:870-873` (resolve + startswith `_WORK_DIR`).
 
 ## Workflow defaults
