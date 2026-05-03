@@ -10,6 +10,8 @@ Usage (from inside the backend conda env, with GEMINI_API_KEY_HEAVY set):
     python -m eval_harness.runner                       # full eval, latest results
     python -m eval_harness.runner --concurrency 4
     python -m eval_harness.runner --filter A_           # only prompts whose id starts with A_
+    python -m eval_harness.runner --regression-for B    # only prompts tagged regression_for: ["B", ...]
+    python -m eval_harness.runner --regression-for B --dry-run   # list matching ids, run nothing
     python -m eval_harness.runner --baseline runs/<file>.jsonl   # diff against a prior run
 """
 
@@ -31,12 +33,9 @@ _BACKEND = _HERE.parent
 # Make the backend modules importable when invoked as `python -m eval_harness.runner`.
 sys.path.insert(0, str(_BACKEND))
 
-import google.generativeai as genai
-
-from agents import run_critic_loop  # noqa: E402
-import agents as _agents_mod        # noqa: E402
-from evaluation import compute_lvm_score  # noqa: E402
-from schemas import PartDefinition  # noqa: E402
+# Heavy imports (google.generativeai, agents, evaluation, schemas) are loaded
+# lazily inside _run_one / main() so --dry-run and the unit tests can resolve
+# `_filter_prompts` without paying for the Gemini SDK or the orchestrator.
 
 # Threshold for the --strict-lvm gate. 3 of 5 = "mostly correct".
 _STRICT_LVM_THRESHOLD = 3.0
@@ -50,6 +49,10 @@ _RUNS_DIR = pathlib.Path(
     os.environ.get("MIRUM_EVAL_RUNS_DIR", "/tmp/mirum/eval_runs")
 )
 
+# Filter helpers live in a dep-free sibling so the test suite (and any
+# future tooling) can call them without pulling in google-generativeai.
+from eval_harness._prompts_loader import filter_prompts as _filter_prompts  # noqa: E402
+
 
 def _suppress_side_effects() -> None:
     """Disable retrieval-index updates and LVM scoring during eval.
@@ -59,6 +62,7 @@ def _suppress_side_effects() -> None:
     eval text in their prompts. Likewise, the fire-and-forget LVM scorer adds
     a per-success Gemini call we don't need.
     """
+    import agents as _agents_mod
     _agents_mod.add_to_index = lambda **kwargs: None  # type: ignore[assignment]
     _agents_mod._score_and_log = lambda *a, **kw: asyncio.sleep(0)  # type: ignore[assignment]
 
@@ -68,6 +72,10 @@ async def _run_one(
     max_retries: int,
     strict_lvm: bool = False,
 ) -> dict[str, Any]:
+    from agents import run_critic_loop
+    from evaluation import compute_lvm_score
+    from schemas import PartDefinition
+
     part = PartDefinition(
         part_id=prompt["id"],
         description=prompt["description"],
@@ -221,13 +229,25 @@ def _diff(baseline: list[dict[str, Any]], current: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _load_prompts(filter_prefix: str | None) -> list[dict[str, Any]]:
+def _load_prompts(
+    filter_prefix: str | None,
+    regression_for: str | None = None,
+) -> list[dict[str, Any]]:
     raw = json.loads(_PROMPTS_FILE.read_text(encoding="utf-8"))
-    if filter_prefix:
-        raw = [p for p in raw if p["id"].startswith(filter_prefix)]
-    if not raw:
-        raise SystemExit(f"No prompts matched filter {filter_prefix!r}")
-    return raw
+    filtered = _filter_prompts(
+        raw,
+        id_prefix=filter_prefix,
+        regression_for=regression_for,
+    )
+    if not filtered:
+        criteria_parts: list[str] = []
+        if filter_prefix:
+            criteria_parts.append(f"--filter {filter_prefix!r}")
+        if regression_for:
+            criteria_parts.append(f"--regression-for {regression_for!r}")
+        criteria = " and ".join(criteria_parts) or "(no filter)"
+        raise SystemExit(f"No prompts matched {criteria}")
+    return filtered
 
 
 def main() -> None:
@@ -236,6 +256,23 @@ def main() -> None:
     parser.add_argument("--max-retries", type=int, default=3)
     parser.add_argument("--filter", default=None,
                         help="Only run prompts whose id starts with this prefix.")
+    parser.add_argument(
+        "--regression-for", dest="regression_for", default=None,
+        choices=["A", "B", "C", "D", "E"],
+        help=(
+            "Only run prompts whose `regression_for` array contains the given "
+            "letter. Used by Worktree gates to run the regression slice tied "
+            "to a specific fix (see plan §9 F-03). ANDs with --filter."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help=(
+            "Print the ids that match the filters, then exit without running "
+            "the pipeline. Lets a worktree gate verify it picked up the "
+            "right prompts before paying for Gemini calls."
+        ),
+    )
     parser.add_argument("--baseline", default=None,
                         help="Path to a prior runs/*.jsonl file to diff against.")
     parser.add_argument("--out", default=None,
@@ -249,6 +286,18 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Dry-run path is dep-free (no Gemini, no heavy imports needed at runtime).
+    # Resolve filters and exit before touching the pipeline.
+    if args.dry_run:
+        prompts = _load_prompts(args.filter, args.regression_for)
+        for p in prompts:
+            tags = p.get("regression_for") or []
+            tag_str = f"  [regression_for={','.join(tags)}]" if tags else ""
+            print(f"{p['id']}  (domain={p['domain']}, "
+                  f"difficulty={p.get('difficulty', 'unknown')}){tag_str}")
+        print(f"\n{len(prompts)} prompt(s) matched.")
+        return
+
     heavy_key = os.environ.get("GEMINI_API_KEY_HEAVY")
     if not heavy_key:
         raise SystemExit(
@@ -256,11 +305,12 @@ def main() -> None:
             "drives both heavy (gemini-3-flash-preview) and lite (gemini-3.1-flash-"
             "lite-preview) models off this single key."
         )
+    import google.generativeai as genai
     genai.configure(api_key=heavy_key)
 
     _suppress_side_effects()
 
-    prompts = _load_prompts(args.filter)
+    prompts = _load_prompts(args.filter, args.regression_for)
     print(f"Running {len(prompts)} prompt(s) with concurrency={args.concurrency}, "
           f"max_retries={args.max_retries}", flush=True)
 
