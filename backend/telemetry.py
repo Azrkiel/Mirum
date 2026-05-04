@@ -132,6 +132,85 @@ def log_assembly_event(
         _debug_log_error("telemetry", exc, context={"assembly_name": assembly_name})
 
 
+def record_phase_timing(
+    job_id: str,
+    phase: str,
+    elapsed_ms: float,
+    *,
+    extra: Optional[dict] = None,
+) -> None:
+    """Record per-phase wall-clock timing for a job (plan §4 A-09).
+
+    `phase` should be one of: ``rea``, ``planner``, ``classifier``,
+    ``machinist`` (per attempt — pass ``part_id`` and ``attempt`` in
+    ``extra`` to disambiguate), ``compiler``, ``assembler``, ``export``.
+    Used by the QA harness post-Worktree-A to confirm the fix actually
+    lowers per-prompt p95 latency.
+
+    Failures are swallowed (telemetry is analytics-only, must never
+    break the pipeline). Mirrors the pattern of every other ``log_*``
+    function in this module.
+    """
+    try:
+        _ensure_handler()
+        record = {
+            "timestamp": time.time(),
+            "event_type": "phase_timing",
+            "job_id": job_id,
+            "phase": phase,
+            "elapsed_ms": round(float(elapsed_ms), 2),
+        }
+        if extra:
+            # Merge but never let extra clobber the canonical fields above.
+            for k, v in extra.items():
+                if k not in record:
+                    record[k] = v
+        _logger.info(json.dumps(record))
+    except Exception as exc:
+        _debug_log_error(
+            "telemetry",
+            exc,
+            context={"job_id": job_id, "phase": phase},
+        )
+
+
+class phase_timer:  # noqa: N801 — context-manager naming convention
+    """Context manager for `record_phase_timing`. Usage::
+
+        with phase_timer(job_id, "planner"):
+            await run_planner(...)
+
+    Captures wall-clock between __enter__ and __exit__ even if the body
+    raises. Records a `failed=True` field in the JSONL record on
+    exception so failed phases are still measurable.
+    """
+
+    def __init__(
+        self,
+        job_id: str,
+        phase: str,
+        *,
+        extra: Optional[dict] = None,
+    ) -> None:
+        self.job_id = job_id
+        self.phase = phase
+        self.extra = dict(extra) if extra else None
+        self._start: float = 0.0
+
+    def __enter__(self) -> "phase_timer":
+        self._start = time.monotonic()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        elapsed_ms = (time.monotonic() - self._start) * 1000.0
+        ext = dict(self.extra) if self.extra else {}
+        if exc_type is not None:
+            ext["failed"] = True
+            ext["exc_type"] = exc_type.__name__
+        record_phase_timing(self.job_id, self.phase, elapsed_ms, extra=ext or None)
+        # Don't suppress: returning None / False propagates the exception.
+
+
 def log_token_usage(
     agent: str,
     prompt_tokens: int,
