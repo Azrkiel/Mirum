@@ -433,7 +433,7 @@
     "difficulty": "hard",
     "description": "An F-14 Tomcat jet as a single solid part with the wings swept in (at a 68 degree angle) and the landing gear retracted, with a wingspan of 81mm, length of 133mm, and height of 34mm.",
     "expected_features": ["overall dimensions ~81mm x 133mm x 34mm", "fuselage", "swept wings at ~68 degrees", "no separate landing gear", "single solid part", "completes within 240s without backend timeout"],
-    "regression_for": ["A", "C"],
-    "notes": "User-feedback CSV (4/30/2026): planning ran for 5 minutes then 'Could not connect to backend (Connection error)'. Worktree A (move planning off the synchronous SSE path) and Worktree C (avoid over-decomposition for single-solid prompts) both apply."
+    "regression_for": ["B", "C"],
+    "notes": "User-feedback CSV (4/30/2026): planning ran for 5 minutes then 'Could not connect to backend (Connection error)'. The user-visible failure was an SSE-layer timeout (Worktree A territory), but the live runner baseline on 2026-05-03 (commit bfd7119) shows the underlying pipeline returns in 161s with `ValueError: Cannot find a solid on the stack or in the parent chain` — a CadQuery chain-state-loss after .cut() that Worktree B's cq_lint should catch (B-07 'solid-on-stack heuristic'). Tag updated A→B accordingly. Worktree C still applies for the over-decomposition aspect."
   }
 ]

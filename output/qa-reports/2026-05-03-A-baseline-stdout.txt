@@ -1,0 +1,33 @@
+Running on Windows: subprocess memory limits are NOT enforced. Production deployments MUST use Linux/Docker.
+Running 9 prompt(s) with concurrency=3, max_retries=3
+[run]  A_csv_cube_no_load
+[run]  A_csv_simple_circle
+[run]  A_csv_simple_square
+[PASS] A_csv_cube_no_load  8.86s  lvm=5.0
+[run]  A_csv_dog_cupcake
+[PASS] A_csv_simple_circle  8.91s  lvm=5.0
+[run]  A_csv_bus_driver_figurine
+[PASS] A_csv_simple_square  9.25s  lvm=5.0
+[run]  A_csv_smooth_sphere_3in
+[PASS] A_csv_smooth_sphere_3in  9.34s  lvm=5.0
+[run]  A_csv_bolt_threads_timeout
+[PASS] A_csv_dog_cupcake  19.67s  lvm=4.7
+[run]  A_csv_mouse_shell_timeout
+[PASS] A_csv_bolt_threads_timeout  12.3s  lvm=5.0
+[run]  D_csv_f14_jet
+[PASS] A_csv_bus_driver_figurine  29.33s  lvm=3.0
+[PASS] A_csv_mouse_shell_timeout  31.72s  lvm=5.0
+[FAIL] D_csv_f14_jet  161.36s  (ValueError: Cannot find a solid on the stack or in the parent chain)
+
+Total: 8/9 passed (89%)
+  Domain A: 8/8 (100%) | lvm median 5.0
+  Domain D: 0/1 (0%)
+Elapsed p50: 12.3s | p95: 161.36s
+LVM median: 5.0 (n=8)
+
+Failures:
+  - D_csv_f14_jet (D, hard) [161.36s]: ValueError: Cannot find a solid on the stack or in the parent chain
+
+Wall-clock elapsed: 192.3s
+Results written to: \tmp\mirum\eval_runs\1777859883.jsonl
+Markdown report written to: C:\Users\Kevin\Developments\T2CIII-worktrees\backend-throughput\output\qa-reports\2026-05-03-A-baseline.md
