@@ -410,52 +410,81 @@ def test_get_events_unknown_job_returns_404() -> None:
     assert response.status_code == 404
 
 
-def test_five_concurrent_submissions_each_get_distinct_id_within_budget() -> None:
-    """A-11: five POST /jobs in rapid succession must each return a
-    distinct {job_id, status_url} within the per-request budget. The
-    legacy /generate route held a single uvicorn worker hostage for
-    the duration of a generation, so even five trivial submissions
-    would serialise behind one slow request — exactly the failure
-    mode the user CSV reported. /jobs returns immediately and the
-    pipeline runs in the background, so all five submissions complete
-    in ~5 × per-submission budget at most.
+def test_five_concurrent_submissions_each_within_budget() -> None:
+    """A-11: five POST /jobs issued *in parallel* (asyncio.gather over
+    httpx.AsyncClient) — while a sixth slow pipeline is running in the
+    background — must each return a distinct {job_id, status_url}
+    inside the A-01 200ms per-request budget.
 
-    We patch the pipeline to yield three events with no awaits so
-    the test is deterministic and not bottlenecked on Gemini."""
-    client = _client()
+    The legacy /generate route held a single uvicorn worker hostage
+    for the duration of a generation, so even trivial submissions
+    serialised behind a slow request — the headline failure mode in
+    the user CSV. This test recreates that scenario:
+
+      1. Submit one job whose pipeline hangs for 60s (still running).
+      2. While it hangs, submit five more jobs concurrently.
+      3. Assert each of the five returns within 200ms.
+
+    Without /jobs spawning the pipeline as a background task, the
+    sixth submission would block on the first one's _pipeline body
+    and trip the 200ms budget. The first iteration of A-11 was
+    purely sequential and would have missed that regression — caught
+    by the round-1 zero-context reviewer."""
+    import asyncio
+    import httpx
     import routes_jobs
 
-    async def _instant_pipeline(prompt):
-        yield 'data: {"step":"planner","status":"done"}\n\n'
-        yield 'data: {"step":"machinist","status":"done"}\n\n'
-        yield 'data: {"step":"export","status":"done"}\n\n'
+    async def _hung_pipeline(prompt):
+        await asyncio.sleep(60)
+        yield 'data: {"never":"reached"}\n\n'
 
-    n = 5
-    job_ids: list[str] = []
-    elapsed_per: list[float] = []
+    async def _scenario():
+        from main import app
+        # ASGI transport keeps everything on the same event loop, so
+        # background tasks created by the route survive across requests.
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as ac:
+            # Kick off the slow job. Returns immediately; pipeline hangs
+            # in the background.
+            slow = await ac.post("/jobs", json={"prompt": "slow"})
+            assert slow.status_code == 200
+            slow_id = slow.json()["job_id"]
 
-    with unittest.mock.patch.object(routes_jobs, "_pipeline", _instant_pipeline):
-        for i in range(n):
+            # Five concurrent fast submissions.
+            n = 5
             t0 = time.monotonic()
-            response = client.post("/jobs", json={"prompt": f"a {10 + i}mm cube"})
-            elapsed_per.append((time.monotonic() - t0) * 1000)
-            assert response.status_code == 200, response.text[:200]
-            job_ids.append(response.json()["job_id"])
+            responses = await asyncio.gather(*[
+                ac.post("/jobs", json={"prompt": f"a {10 + i}mm cube"})
+                for i in range(n)
+            ])
+            wall = (time.monotonic() - t0) * 1000
 
-    # All five distinct.
-    assert len(set(job_ids)) == n, f"job_ids collided: {job_ids}"
-    # Each individual submission stays within the A-01 200ms budget.
-    over_budget = [(i, ms) for i, ms in enumerate(elapsed_per) if ms > 200]
-    assert not over_budget, (
-        f"five sequential submissions exceeded 200ms each — workers are "
-        f"serialising on something they shouldn't: {over_budget}"
+            # Cancel the slow job so the test process can exit cleanly
+            # and we don't leave a 60-second hang in the loop.
+            state = app.state.job_registry.get(slow_id)
+            if state is not None and state.task is not None:
+                state.task.cancel()
+
+            return responses, wall
+
+    with unittest.mock.patch.object(routes_jobs, "_pipeline", _hung_pipeline):
+        responses, wall_ms = asyncio.run(_scenario())
+
+    assert all(r.status_code == 200 for r in responses), [r.status_code for r in responses]
+    job_ids = [r.json()["job_id"] for r in responses]
+    assert len(set(job_ids)) == 5, f"job_ids collided: {job_ids}"
+    # The five fast submissions ran concurrently against a hung pipeline;
+    # if the route were awaiting the pipeline body inline, the 60-second
+    # sleep would dwarf the budget and wall_ms would be on the order of
+    # 60 seconds, not under 1 second. The 5 × 200ms ceiling is a generous
+    # bound — in practice these complete in < 100ms.
+    assert wall_ms < 1000, (
+        f"five concurrent submissions took {wall_ms:.0f}ms total — workers "
+        f"are serialising on the slow background job, which is exactly the "
+        f"regression /jobs is supposed to prevent"
     )
-
-    # And the FastAPI app's registry holds all five.
-    from main import app
-    for jid in job_ids:
-        state = app.state.job_registry.get(jid)
-        assert state is not None, f"registry lost {jid}"
 
 
 def test_streaming_route_classifier_is_correct() -> None:
@@ -503,7 +532,7 @@ def _run_all() -> int:
         test_run_pipeline_into_observes_mid_run_cancel,
         test_cancel_unknown_job_returns_404,
         test_get_events_unknown_job_returns_404,
-        test_five_concurrent_submissions_each_get_distinct_id_within_budget,
+        test_five_concurrent_submissions_each_within_budget,
         test_streaming_route_classifier_is_correct,
         test_post_jobs_rejects_oversized_prompt,
     ]

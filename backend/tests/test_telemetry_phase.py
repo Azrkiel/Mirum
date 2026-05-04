@@ -58,15 +58,22 @@ def test_record_phase_timing_extra_merges_without_clobber() -> None:
             extra={
                 "part_id": "p1",
                 "attempt": 2,
-                "phase": "tampered",        # MUST be ignored
-                "event_type": "tampered",   # MUST be ignored
-                "job_id": "tampered",       # MUST be ignored
+                # ALL FIVE canonical fields included — the merge guard
+                # must reject every one of them, not just the easy ones.
+                "phase": "tampered",
+                "event_type": "tampered",
+                "job_id": "tampered",
+                "timestamp": 0.0,
+                "elapsed_ms": 9999.0,
             },
         )
     r = _captured_records(info.call_args_list)[0]
     assert r["phase"] == "machinist", f"extra clobbered phase: {r}"
-    assert r["event_type"] == "phase_timing"
-    assert r["job_id"] == "job-1"
+    assert r["event_type"] == "phase_timing", f"extra clobbered event_type: {r}"
+    assert r["job_id"] == "job-1", f"extra clobbered job_id: {r}"
+    assert r["elapsed_ms"] == 50.0, f"extra clobbered elapsed_ms: {r}"
+    # timestamp comes from time.time() inside the recorder; reject the 0.0.
+    assert r["timestamp"] != 0.0, f"extra clobbered timestamp: {r}"
     assert r["part_id"] == "p1"
     assert r["attempt"] == 2
 

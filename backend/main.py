@@ -115,22 +115,6 @@ app.add_middleware(
 )
 
 
-@app.middleware("http")
-async def audit_log(request: Request, call_next):
-    start = time.time()
-    response = await call_next(request)
-    elapsed = time.time() - start
-    logger.info(
-        "%s %s %s %d %.3fs",
-        request.client.host if request.client else "-",
-        request.method,
-        request.url.path,
-        response.status_code,
-        elapsed,
-    )
-    return response
-
-
 # Server-side request timeout (plan §4 A-10). Cap any handler at 600s so a
 # runaway sync pipeline cannot hold a worker forever. SSE / job-event-stream
 # routes are exempt: their handlers return a StreamingResponse object
@@ -154,6 +138,13 @@ def _is_streaming_route(path: str) -> bool:
     )
 
 
+# Middleware registration order matters: Starlette wraps in REGISTRATION
+# order, so the LAST `@app.middleware("http")` is the OUTERMOST. We want
+# audit_log on the outside so it sees every response — including 504s
+# emitted by request_timeout below. If the order were inverted (audit_log
+# registered last), request_timeout's 504 would never reach audit_log
+# because TimeoutError would propagate out of audit_log's `await
+# call_next(...)` before its `logger.info(...)` ran.
 @app.middleware("http")
 async def request_timeout(request: Request, call_next):
     if _is_streaming_route(request.url.path):
@@ -178,6 +169,22 @@ async def request_timeout(request: Request, call_next):
                 ),
             },
         )
+
+
+@app.middleware("http")
+async def audit_log(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    elapsed = time.time() - start
+    logger.info(
+        "%s %s %s %d %.3fs",
+        request.client.host if request.client else "-",
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed,
+    )
+    return response
 
 
 class GenerateRequest(BaseModel):

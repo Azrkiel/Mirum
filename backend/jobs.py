@@ -42,7 +42,15 @@ TERMINAL_STATUSES = frozenset(
 
 @dataclass
 class JobEvent:
-    """One pipeline-emitted event. The cursor for SSE replay is `seq`."""
+    """One pipeline-emitted event.
+
+    Contract: `seq` is dense and contiguous (0, 1, 2, ...) — every
+    event in JobState.events has `seq == its index`. The SSE replay
+    endpoint relies on this when computing `next_cursor = ev.seq + 1`
+    to skip already-seen events. A future refactor that filters
+    events post-append (or otherwise introduces gaps) would silently
+    break the replay loop's progress condition; pin the invariant
+    here so the comment shows up at the source-of-truth file."""
     seq: int
     timestamp: float
     payload: dict[str, Any]
