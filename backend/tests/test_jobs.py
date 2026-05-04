@@ -410,6 +410,23 @@ def test_get_events_unknown_job_returns_404() -> None:
     assert response.status_code == 404
 
 
+def test_streaming_route_classifier_is_correct() -> None:
+    """A-10 unit guard: _is_streaming_route must catch the SSE routes
+    (/generate, /jobs/{id}/events) so the timeout middleware doesn't
+    504 a healthy stream, and must NOT catch the polling endpoint
+    (/jobs/{id}) which should be subject to the timeout."""
+    from main import _is_streaming_route
+    assert _is_streaming_route("/generate")
+    assert _is_streaming_route("/jobs/abc123/events")
+    assert _is_streaming_route("/jobs/abc-1.2_3/events")  # uuid-ish chars
+    assert not _is_streaming_route("/jobs/abc123")        # polling endpoint
+    assert not _is_streaming_route("/jobs/abc123/cancel") # cancel route
+    assert not _is_streaming_route("/jobs")               # submit route
+    assert not _is_streaming_route("/run")
+    assert not _is_streaming_route("/plan")
+    assert not _is_streaming_route("/")
+
+
 def test_post_jobs_rejects_oversized_prompt() -> None:
     """A-01 boundary: the existing GenerateRequest has max_length=5000 on
     the prompt field. The /jobs route should inherit that bound — a
@@ -438,6 +455,7 @@ def _run_all() -> int:
         test_run_pipeline_into_observes_mid_run_cancel,
         test_cancel_unknown_job_returns_404,
         test_get_events_unknown_job_returns_404,
+        test_streaming_route_classifier_is_correct,
         test_post_jobs_rejects_oversized_prompt,
     ]
     failures = 0

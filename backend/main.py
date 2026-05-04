@@ -131,6 +131,55 @@ async def audit_log(request: Request, call_next):
     return response
 
 
+# Server-side request timeout (plan §4 A-10). Cap any handler at 600s so a
+# runaway sync pipeline cannot hold a worker forever. SSE / job-event-stream
+# routes are exempt: their handlers return a StreamingResponse object
+# quickly; the body iterator runs outside the handler-call window and may
+# legitimately stream for the full pipeline duration. Hitting this timeout
+# is always a bug — log loudly so we notice.
+import asyncio as _timeout_asyncio  # noqa: E402 — local alias keeps the
+# middleware self-contained without colliding with the ad-hoc `import asyncio
+# as _asyncio` pattern used inside _pipeline.
+from fastapi.responses import JSONResponse  # noqa: E402
+
+_REQUEST_TIMEOUT_SECONDS = 600.0
+
+
+def _is_streaming_route(path: str) -> bool:
+    """Routes whose handler returns a StreamingResponse and whose body
+    iterator may legitimately run for many minutes. Exempt from the
+    request-timeout middleware so we don't 504 a healthy SSE stream."""
+    return path == "/generate" or (
+        path.startswith("/jobs/") and path.endswith("/events")
+    )
+
+
+@app.middleware("http")
+async def request_timeout(request: Request, call_next):
+    if _is_streaming_route(request.url.path):
+        return await call_next(request)
+    try:
+        return await _timeout_asyncio.wait_for(
+            call_next(request), timeout=_REQUEST_TIMEOUT_SECONDS
+        )
+    except _timeout_asyncio.TimeoutError:
+        logger.error(
+            "request_timeout: %s %s exceeded %ss",
+            request.method, request.url.path, _REQUEST_TIMEOUT_SECONDS,
+        )
+        return JSONResponse(
+            status_code=504,
+            content={
+                "status": "error",
+                "detail": (
+                    f"server-side request timeout ({int(_REQUEST_TIMEOUT_SECONDS)}s); "
+                    "if you submitted a long generation, use POST /jobs instead "
+                    "and poll /jobs/{id}"
+                ),
+            },
+        )
+
+
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., max_length=5000)
 

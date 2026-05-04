@@ -40,6 +40,19 @@ USER caduser
 # which calls os.chdir('/app') in the child — that fails because /app is a
 # read-only bind-mount owned by the host user (not caduser).
 # Hot-reload is also unnecessary since deploy.ps1 does `docker compose restart`.
+#
+# --workers 1 (intentional, plan §4 A-07): the v1 JobRegistry is per-process
+# in-memory (backend/jobs.py). Submit-and-poll across workers would silently
+# drop jobs. Multi-worker requires sticky session or Redis; we'll prove the
+# /jobs unblocking helps before adding that complexity.
+#
+# --timeout-keep-alive 600 (10 min) replaces the default 5s. The /jobs SSE
+# replay endpoint streams events for the duration of a long generation, and
+# the default keep-alive would tear down a quiet connection (no events for
+# >5s during a slow Planner phase) before the client could reconnect with
+# a cursor. Frontend /jobs poll cycle is 2s, well under this bound.
 CMD ["/opt/conda/envs/cadenv/bin/uvicorn", "main:app", \
      "--app-dir", "/app", \
-     "--host", "0.0.0.0", "--port", "8000"]
+     "--host", "0.0.0.0", "--port", "8000", \
+     "--workers", "1", \
+     "--timeout-keep-alive", "600"]
