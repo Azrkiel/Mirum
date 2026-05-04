@@ -410,6 +410,54 @@ def test_get_events_unknown_job_returns_404() -> None:
     assert response.status_code == 404
 
 
+def test_five_concurrent_submissions_each_get_distinct_id_within_budget() -> None:
+    """A-11: five POST /jobs in rapid succession must each return a
+    distinct {job_id, status_url} within the per-request budget. The
+    legacy /generate route held a single uvicorn worker hostage for
+    the duration of a generation, so even five trivial submissions
+    would serialise behind one slow request — exactly the failure
+    mode the user CSV reported. /jobs returns immediately and the
+    pipeline runs in the background, so all five submissions complete
+    in ~5 × per-submission budget at most.
+
+    We patch the pipeline to yield three events with no awaits so
+    the test is deterministic and not bottlenecked on Gemini."""
+    client = _client()
+    import routes_jobs
+
+    async def _instant_pipeline(prompt):
+        yield 'data: {"step":"planner","status":"done"}\n\n'
+        yield 'data: {"step":"machinist","status":"done"}\n\n'
+        yield 'data: {"step":"export","status":"done"}\n\n'
+
+    n = 5
+    job_ids: list[str] = []
+    elapsed_per: list[float] = []
+
+    with unittest.mock.patch.object(routes_jobs, "_pipeline", _instant_pipeline):
+        for i in range(n):
+            t0 = time.monotonic()
+            response = client.post("/jobs", json={"prompt": f"a {10 + i}mm cube"})
+            elapsed_per.append((time.monotonic() - t0) * 1000)
+            assert response.status_code == 200, response.text[:200]
+            job_ids.append(response.json()["job_id"])
+
+    # All five distinct.
+    assert len(set(job_ids)) == n, f"job_ids collided: {job_ids}"
+    # Each individual submission stays within the A-01 200ms budget.
+    over_budget = [(i, ms) for i, ms in enumerate(elapsed_per) if ms > 200]
+    assert not over_budget, (
+        f"five sequential submissions exceeded 200ms each — workers are "
+        f"serialising on something they shouldn't: {over_budget}"
+    )
+
+    # And the FastAPI app's registry holds all five.
+    from main import app
+    for jid in job_ids:
+        state = app.state.job_registry.get(jid)
+        assert state is not None, f"registry lost {jid}"
+
+
 def test_streaming_route_classifier_is_correct() -> None:
     """A-10 unit guard: _is_streaming_route must catch the SSE routes
     (/generate, /jobs/{id}/events) so the timeout middleware doesn't
@@ -455,6 +503,7 @@ def _run_all() -> int:
         test_run_pipeline_into_observes_mid_run_cancel,
         test_cancel_unknown_job_returns_404,
         test_get_events_unknown_job_returns_404,
+        test_five_concurrent_submissions_each_get_distinct_id_within_budget,
         test_streaming_route_classifier_is_correct,
         test_post_jobs_rejects_oversized_prompt,
     ]
