@@ -31,9 +31,19 @@ sys.path.insert(0, str(_BACKEND))
 
 
 def _client():
-    """Build a fresh TestClient over the FastAPI app."""
+    """Build a fresh TestClient over the FastAPI app.
+
+    Disables both rate limiters (main.py's slowapi `limiter` for
+    /generate et al, and routes_jobs.py's in-house buckets for /jobs)
+    so the multiple-POST tests don't trip 5/minute on the submitter
+    or 30/minute on cancel/events. Production limits are unaffected
+    — the test toggle does NOT persist across processes; uvicorn
+    starts with the limiter enabled."""
     from fastapi.testclient import TestClient
-    from main import app
+    from main import app, limiter as _main_limiter
+    from routes_jobs import disable_rate_limit
+    _main_limiter.enabled = False
+    disable_rate_limit()
     return TestClient(app)
 
 
@@ -348,6 +358,41 @@ def test_cancel_terminal_job_is_no_op() -> None:
         )
 
 
+def test_run_pipeline_into_sanitizes_error_paths() -> None:
+    """Security gate: a pipeline exception's raw str(e) can leak file
+    paths and tracebacks. The runner MUST route the error string
+    through main._safe_error before storing on state.error, since
+    state.error is exposed verbatim via the SSE _stream_end frame
+    AND the GET /jobs/{id} polling response."""
+    import asyncio
+    from jobs import JobState, JobStatus
+    from routes_jobs import run_pipeline_into
+
+    leaky_path = r"C:\Users\Kevin\secret\internal.py"
+
+    async def _crash(prompt):
+        # Raise an exception whose str() contains a Windows-shaped path;
+        # _safe_error's regex should redact it to <internal>.
+        raise FileNotFoundError(f"[Errno 2] No such file: '{leaky_path}'")
+        yield  # pragma: no cover — generator type marker
+
+    async def _scenario():
+        state = JobState(job_id="t", prompt="x")
+        await run_pipeline_into(state, _crash)
+        return state
+
+    state = asyncio.run(_scenario())
+    assert state.status == JobStatus.FAILED
+    assert state.error is not None
+    assert leaky_path not in state.error, (
+        f"raw filesystem path leaked into state.error: {state.error!r}"
+    )
+    assert "<internal>" in state.error, (
+        f"_safe_error redaction missing — expected '<internal>' marker; "
+        f"got {state.error!r}"
+    )
+
+
 def test_run_pipeline_into_observes_pre_set_cancel() -> None:
     """A-05 part 3: direct unit test of routes_jobs.run_pipeline_into.
     If cancel_event is set BEFORE the runner enters its loop, the
@@ -513,6 +558,42 @@ def test_five_concurrent_submissions_each_within_budget() -> None:
     )
 
 
+def test_rate_limit_returns_429_when_enabled() -> None:
+    """Security gate: the new POST /jobs route MUST trip a 429 once the
+    per-IP per-minute budget is exhausted. Without this guard, a client
+    could spam POST /jobs and burn Gemini quota one background task at
+    a time. We re-enable the limiter for this single test (other tests
+    disable it via _client() so they can drive the route freely)."""
+    from fastapi.testclient import TestClient
+    from main import app, limiter as _main_limiter
+    from routes_jobs import enable_rate_limit, disable_rate_limit, _RATE_BUCKETS
+    _main_limiter.enabled = False  # we're not testing slowapi here
+    _RATE_BUCKETS.clear()           # fresh bucket
+    enable_rate_limit()
+    try:
+        client = TestClient(app)
+        import routes_jobs
+
+        async def _instant(prompt):
+            yield 'data: {"step":"machinist","status":"done"}\n\n'
+
+        with unittest.mock.patch.object(routes_jobs, "_pipeline", _instant):
+            statuses = [
+                client.post("/jobs", json={"prompt": f"x {i}"}).status_code
+                for i in range(7)
+            ]
+        # 5/minute on submitter → first 5 should land 200, 6th and 7th 429.
+        assert statuses[:5] == [200] * 5, (
+            f"first 5 submits should pass; got {statuses[:5]}"
+        )
+        assert statuses[5] == 429 and statuses[6] == 429, (
+            f"6th + 7th submits must trip the limiter; got {statuses[5:]}"
+        )
+    finally:
+        disable_rate_limit()
+        _RATE_BUCKETS.clear()
+
+
 def test_streaming_route_classifier_is_correct() -> None:
     """A-10 unit guard: _is_streaming_route must catch the SSE routes
     (/generate, /jobs/{id}/events) so the timeout middleware doesn't
@@ -554,11 +635,13 @@ def _run_all() -> int:
         test_cancel_route_promotes_queued_to_cancelled,
         test_cancel_route_sets_event_on_running_state,
         test_cancel_terminal_job_is_no_op,
+        test_run_pipeline_into_sanitizes_error_paths,
         test_run_pipeline_into_observes_pre_set_cancel,
         test_run_pipeline_into_observes_mid_run_cancel,
         test_cancel_unknown_job_returns_404,
         test_get_events_unknown_job_returns_404,
         test_five_concurrent_submissions_each_within_budget,
+        test_rate_limit_returns_429_when_enabled,
         test_streaming_route_classifier_is_correct,
         test_post_jobs_rejects_oversized_prompt,
     ]

@@ -17,13 +17,73 @@ import json
 import logging
 from typing import Any, AsyncGenerator, Callable
 
-from fastapi import APIRouter, HTTPException, Request
+import time as _time
+from collections import defaultdict, deque
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("mirum.api.jobs")
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+# Per-route, per-IP rate limits. Keeping the implementation in-house (rather
+# than slowapi) because slowapi 0.1.9's @limiter decorator wraps the route
+# handler in a way that breaks FastAPI's body-parameter inference on
+# APIRouter routes (the wrapped signature loses the Pydantic-model
+# annotation, FastAPI then treats `body` as a query param, and POST /jobs
+# returns 422 for every well-formed request). The decorator works fine on
+# @app.post in main.py but not on @router.post here. A 30-line bucket
+# implementation avoids the compatibility tax and gives us deterministic
+# behaviour. main.py's slowapi limiter remains in place for legacy /generate
+# et al — both layers coexist, with separate buckets per route family.
+#
+# Bounds (DoS protection — every /jobs POST spawns a Gemini-billing
+# background task):
+#   POST /jobs                          5/minute  (matches /generate)
+#   POST /jobs/{id}/cancel              30/minute (cheap; user may rage-cancel)
+#   GET  /jobs/{id}                     60/minute (polling endpoint, 2s cadence)
+#   GET  /jobs/{id}/events              30/minute (SSE; reconnect with cursor)
+_RATE_BUCKETS: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+_RATE_LIMITER_ENABLED = True  # toggled off by tests via disable_rate_limit()
+
+
+def disable_rate_limit() -> None:
+    """Test hook. Production never calls this."""
+    global _RATE_LIMITER_ENABLED
+    _RATE_LIMITER_ENABLED = False
+
+
+def enable_rate_limit() -> None:
+    global _RATE_LIMITER_ENABLED
+    _RATE_LIMITER_ENABLED = True
+
+
+def rate_limit(scope: str, per_minute: int):
+    """FastAPI dependency factory. `scope` is a per-route key so different
+    routes have independent buckets (a client at the /generate quota
+    isn't blocked from polling /jobs/{id})."""
+    def _dep(request: Request) -> None:
+        if not _RATE_LIMITER_ENABLED:
+            return
+        ip = request.client.host if request.client else "unknown"
+        key = (scope, ip)
+        bucket = _RATE_BUCKETS[key]
+        now = _time.monotonic()
+        cutoff = now - 60.0
+        # Drop expired entries from the left (deque) — O(k) on prune,
+        # amortised O(1) per request once the bucket reaches steady state.
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
+        if len(bucket) >= per_minute:
+            raise HTTPException(
+                status_code=429,
+                detail=f"rate limit exceeded ({per_minute}/minute on {scope})",
+            )
+        bucket.append(now)
+    return _dep
 
 # Pluggable pipeline reference. main.py sets this to its `_pipeline`
 # coroutine after the symbol is defined; tests can monkey-patch it to a
@@ -91,7 +151,12 @@ async def run_pipeline_into(state: Any, pipeline: PipelineFn) -> None:
     except Exception as e:  # noqa: BLE001 — top-level task guard
         logger.exception("job %s pipeline raised", state.job_id)
         state.status = JobStatus.FAILED
-        state.error = str(e)[:1000]
+        # Per CLAUDE.md security guardrails: error responses must go
+        # through _safe_error so filesystem paths in tracebacks (e.g.
+        # `/app/...`, `C:\\Users\\...`) don't leak to clients via the
+        # SSE _stream_end frame or the GET /jobs/{id} polling response.
+        from main import _safe_error  # local to dodge circular at module load
+        state.error = _safe_error(e)[:1000]
     finally:
         state.pin_failed_if_not_terminal(
             "pipeline task ended without a terminal status"
@@ -102,7 +167,7 @@ class JobsSubmitRequest(BaseModel):
     prompt: str = Field(..., max_length=5000)
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(rate_limit("jobs_submit", 5))])
 async def submit_job(body: JobsSubmitRequest, request: Request) -> dict[str, str]:
     """Spawn the pipeline as a background task and return the job id."""
     from jobs import JobRegistry, JobStatus  # local to dodge circular import
@@ -137,7 +202,10 @@ async def submit_job(body: JobsSubmitRequest, request: Request) -> dict[str, str
     return {"job_id": state.job_id, "status_url": f"/jobs/{state.job_id}"}
 
 
-@router.get("/{job_id}/events")
+@router.get(
+    "/{job_id}/events",
+    dependencies=[Depends(rate_limit("jobs_events", 30))],
+)
 async def stream_events(
     job_id: str, request: Request, cursor: int = 0
 ) -> StreamingResponse:
@@ -205,7 +273,10 @@ async def stream_events(
     return StreamingResponse(_generate(), media_type="text/event-stream")
 
 
-@router.post("/{job_id}/cancel")
+@router.post(
+    "/{job_id}/cancel",
+    dependencies=[Depends(rate_limit("jobs_cancel", 30))],
+)
 async def cancel_job(job_id: str, request: Request) -> dict[str, str]:
     """A-05: cooperative cancellation. Sets state.cancel_event; the
     background runner sees it on the next iteration of its `async for`
@@ -241,7 +312,10 @@ async def cancel_job(job_id: str, request: Request) -> dict[str, str]:
     return {"job_id": job_id, "status": state.status.value}
 
 
-@router.get("/{job_id}")
+@router.get(
+    "/{job_id}",
+    dependencies=[Depends(rate_limit("jobs_get", 60))],
+)
 async def get_job(job_id: str, request: Request) -> dict[str, Any]:
     """Polling endpoint — JSON snapshot of the job state. The frontend
     polls this every 2s as a fallback when SSE is unavailable."""
