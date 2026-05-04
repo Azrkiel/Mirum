@@ -39,6 +39,30 @@ def set_pipeline(fn: PipelineFn) -> None:
     _pipeline = fn
 
 
+def _parse_pipeline_event(event_str: str) -> dict[str, Any]:
+    """Decode one yield from the legacy `_pipeline` async generator.
+
+    `_pipeline` yields SSE-formatted strings (`data: {...}\\n\\n`).
+    Storing the raw string in the JobState forces the SSE replay route
+    and any frontend consumer to do nested JSON-and-SSE parsing each
+    time — and the frontend has to do the same dance after pretty-
+    printing into its progress widget.
+
+    Parse the inner payload here so JobState.events stores clean dicts,
+    and `/jobs/{id}/events` can flatten them straight into a single
+    JSON object per SSE frame. Falls back to `{"raw": event_str}` if
+    the input doesn't decode (defensive — a future _pipeline refactor
+    might emit a non-SSE control byte and we don't want to crash the
+    runner over it)."""
+    s = event_str.strip()
+    if s.startswith("data: "):
+        try:
+            return json.loads(s[6:])
+        except json.JSONDecodeError:
+            pass
+    return {"raw": event_str}
+
+
 async def run_pipeline_into(state: Any, pipeline: PipelineFn) -> None:
     """Drain the pipeline async generator into a JobState.
 
@@ -59,7 +83,7 @@ async def run_pipeline_into(state: Any, pipeline: PipelineFn) -> None:
         state.status = JobStatus.RUNNING
         cancel = state._ensure_cancel()
         async for event_str in pipeline(state.prompt):
-            await state.append_event({"raw": event_str})
+            await state.append_event(_parse_pipeline_event(event_str))
             if cancel.is_set():
                 state.status = JobStatus.CANCELLED
                 return
@@ -139,15 +163,30 @@ async def stream_events(
         next_cursor = max(0, cursor)
         while True:
             # Drain any buffered events strictly newer than next_cursor.
+            # Each frame flattens the pipeline event (already a parsed
+            # dict — see _parse_pipeline_event) into the outer envelope
+            # so the frontend gets a single-shot {seq, timestamp, step,
+            # status, ...} structure instead of nested JSON-in-SSE-in-
+            # JSON.
             while next_cursor < len(state.events):
                 ev = state.events[next_cursor]
-                yield f"data: {json.dumps({'seq': ev.seq, 'timestamp': ev.timestamp, 'payload': ev.payload})}\n\n"
+                frame = {
+                    "seq": ev.seq,
+                    "timestamp": ev.timestamp,
+                    **(ev.payload if isinstance(ev.payload, dict) else {"payload": ev.payload}),
+                }
+                yield f"data: {json.dumps(frame)}\n\n"
                 next_cursor = ev.seq + 1
 
             # Terminal status closes the stream after one final frame.
+            # Named `_stream_end` (not `complete`) because `_pipeline`
+            # itself emits its own `step:"complete"` event with the
+            # finished GLB; we don't want to overwrite that on the
+            # frontend. `_stream_end` is the route's own "no more
+            # events coming" signal — frontends ignore unknown steps.
             if state.is_terminal():
                 terminal = {
-                    "step": "complete",
+                    "step": "_stream_end",
                     "status": state.status.value,
                     "error": state.error,
                 }

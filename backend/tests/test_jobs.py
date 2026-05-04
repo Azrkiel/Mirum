@@ -210,12 +210,38 @@ def test_get_events_replays_from_cursor_zero() -> None:
         f"route likely missing. Body: {response.text[:200]}"
     )
     body = response.text
-    # Each pipeline event becomes one SSE frame; the terminal also.
+    # Each pipeline event becomes one SSE frame; the route appends a
+    # `_stream_end` synthetic frame after the job reaches a terminal
+    # status (named so it doesn't collide with `_pipeline`'s own
+    # `step:"complete"` payload that carries the finished GLB).
     assert "planner" in body and "machinist" in body, (
         f"missing pipeline events in stream body: {body[:400]}"
     )
-    assert "complete" in body, (
-        f"missing terminal 'complete' event: {body[:400]}"
+    assert "_stream_end" in body, (
+        f"missing synthetic terminal '_stream_end' event: {body[:400]}"
+    )
+
+    # Frames must be FLAT — i.e. the inner pipeline JSON is spread into
+    # the outer envelope, not nested under a "payload" key. Frontend
+    # consumers should be able to read step/status from the top-level
+    # object without unwrapping.
+    import json as _json
+    frames = []
+    for ln in body.splitlines():
+        if ln.startswith("data: "):
+            try:
+                frames.append(_json.loads(ln[6:]))
+            except _json.JSONDecodeError:
+                pass
+    pipeline_frames = [f for f in frames if f.get("step") in ("planner", "machinist")]
+    assert pipeline_frames, f"no parseable pipeline frames in body: {body[:400]}"
+    sample = pipeline_frames[0]
+    assert "payload" not in sample, (
+        f"frame is double-nested under 'payload' — A-06 frontend would "
+        f"have to do nested parsing: {sample}"
+    )
+    assert "seq" in sample and "step" in sample and "status" in sample, (
+        f"frame missing required flat fields {{seq,step,status}}: {sample}"
     )
 
 

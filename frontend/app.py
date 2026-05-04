@@ -7,6 +7,7 @@ Form-based UI with prompt input, CadQuery code viewer, and 3D model viewer.
 import base64
 import json
 import os
+import time
 
 import requests
 import streamlit as st
@@ -98,67 +99,151 @@ def _progress_md(steps: list[dict]) -> str:
 
 
 def stream_pipeline(prompt: str, progress_ph) -> None:
-    """Stream SSE events from /generate, updating session state."""
+    """Submit to POST /jobs and stream events from GET /jobs/{id}/events.
+
+    Replaces the legacy held-open POST /generate path (Worktree A,
+    plan §4 A-06). The submit returns a job_id within ~200ms; the
+    SSE stream may drop and reconnect with a `cursor` param so a
+    user-CSV-style "read timeout=180" no longer means the
+    generation is lost — only that the stream needs to be re-opened.
+
+    Each SSE frame is a flat dict — `{seq, timestamp, step, status,
+    ...pipeline-specific-fields}` — produced by the backend's
+    `/jobs/{id}/events` endpoint after spreading the pipeline event
+    payload into the outer envelope. The synthetic `_stream_end`
+    frame signals end-of-stream without colliding with `_pipeline`'s
+    own `step:"complete"` payload (which carries the GLB on success).
+    """
     steps, idx = [], {}
     script_code, glb_bytes = "", None
     error_message = ""
     params = {}
 
+    # ---- 1. Submit ----
     try:
-        with requests.post(
-            f"{BACKEND_URL}/generate",
+        submit = requests.post(
+            f"{BACKEND_URL}/jobs",
             json={"prompt": prompt},
-            stream=True,
-            timeout=300,
-        ) as resp:
-            if resp.status_code != 200:
-                try:
-                    detail = resp.json().get("detail", resp.text)
-                except Exception:
-                    detail = resp.text
-                st.session_state.status = f"Error (HTTP {resp.status_code})"
-                st.error(f"Generation failed:\n\n```\n{detail}\n```")
-                return
-
-            st.session_state.status = "Generating..."
-
-            for raw in resp.iter_lines(decode_unicode=True):
-                if not raw or not raw.startswith("data: "):
-                    continue
-                ev = json.loads(raw[6:])
-                step, status = ev["step"], ev["status"]
-
-                if step == "complete":
-                    if status == "done":
-                        glb_bytes = base64.b64decode(ev.get("glb", ""))
-                        params = ev.get("parameters", {})
-                        # T2-08: store manifest for refinement
-                        if ev.get("manifest"):
-                            st.session_state.last_manifest = ev["manifest"]
-                        if ev.get("scripts"):
-                            st.session_state.last_scripts = ev["scripts"]
-                    elif status == "error":
-                        error_message = ev.get("message", "")
-                    script_code = ev.get("script", script_code)
-                    continue
-                if step == "script" and status == "done":
-                    script_code = ev.get("detail", "")
-
-                if step in idx:
-                    steps[idx[step]] = ev
-                else:
-                    idx[step] = len(steps)
-                    steps.append(ev)
-                progress_ph.markdown(_progress_md(steps))
-
+            timeout=10,  # 200ms target; 10s ceiling on the connection itself
+        )
     except requests.ConnectionError:
         st.session_state.status = "Connection error"
         st.error("Could not connect to backend. Is it running?")
         return
     except requests.Timeout:
         st.session_state.status = "Timeout"
-        st.error("Request timed out.")
+        st.error("Submission timed out (>10s) — backend is overloaded.")
         return
+
+    if submit.status_code != 200:
+        try:
+            detail = submit.json().get("detail", submit.text)
+        except Exception:
+            detail = submit.text
+        st.session_state.status = f"Error (HTTP {submit.status_code})"
+        st.error(f"Job submission failed:\n\n```\n{detail}\n```")
+        return
+
+    job_id = submit.json().get("job_id")
+    if not job_id:
+        st.session_state.status = "Error"
+        st.error(f"Submit returned no job_id: {submit.text[:200]}")
+        return
+
+    st.session_state.status = "Generating..."
+
+    # ---- 2. Stream + reconnect on drop ----
+    cursor = 0
+    pipeline_done = False
+    max_reconnects = 5
+    reconnects = 0
+
+    while not pipeline_done:
+        try:
+            with requests.get(
+                f"{BACKEND_URL}/jobs/{job_id}/events",
+                params={"cursor": cursor},
+                stream=True,
+                # Connect within 10s; allow each chunk up to 600s of silence
+                # (matches the backend's --timeout-keep-alive 600 setting).
+                timeout=(10, 600),
+            ) as resp:
+                if resp.status_code != 200:
+                    try:
+                        detail = resp.json().get("detail", resp.text)
+                    except Exception:
+                        detail = resp.text
+                    st.session_state.status = f"Error (HTTP {resp.status_code})"
+                    st.error(f"Stream failed:\n\n```\n{detail}\n```")
+                    return
+
+                for raw in resp.iter_lines(decode_unicode=True):
+                    if not raw or not raw.startswith("data: "):
+                        continue
+                    try:
+                        ev = json.loads(raw[6:])
+                    except json.JSONDecodeError:
+                        continue
+
+                    # Advance the cursor so a reconnect skips events
+                    # we've already rendered.
+                    if "seq" in ev:
+                        cursor = int(ev["seq"]) + 1
+
+                    step = ev.get("step", "?")
+                    status = ev.get("status", "?")
+
+                    # End-of-stream marker (synthetic, from /jobs/{id}/events).
+                    if step == "_stream_end":
+                        pipeline_done = True
+                        # If the pipeline itself ended in failure / cancel
+                        # without emitting its own `complete`, surface that
+                        # via the route's status so the user sees something.
+                        if status in ("failed", "cancelled") and not error_message:
+                            error_message = (
+                                ev.get("error")
+                                or f"Generation {status} without explicit pipeline error."
+                            )
+                        break
+
+                    # The pipeline's own terminal frame — carries the GLB on
+                    # success; carries error context on failure.
+                    if step == "complete":
+                        if status == "done":
+                            glb_bytes = base64.b64decode(ev.get("glb", ""))
+                            params = ev.get("parameters", {})
+                            if ev.get("manifest"):
+                                st.session_state.last_manifest = ev["manifest"]
+                            if ev.get("scripts"):
+                                st.session_state.last_scripts = ev["scripts"]
+                        elif status == "error":
+                            error_message = ev.get("message", "")
+                        script_code = ev.get("script", script_code)
+                        continue
+
+                    if step == "script" and status == "done":
+                        script_code = ev.get("detail", "")
+
+                    if step in idx:
+                        steps[idx[step]] = ev
+                    else:
+                        idx[step] = len(steps)
+                        steps.append(ev)
+                    progress_ph.markdown(_progress_md(steps))
+
+        except (requests.ConnectionError, requests.Timeout):
+            reconnects += 1
+            if reconnects > max_reconnects:
+                st.session_state.status = "Connection lost"
+                st.error(
+                    f"Lost connection to /jobs/{job_id}/events after "
+                    f"{max_reconnects} reconnect attempts. The job is still "
+                    f"running on the backend; refresh and check /jobs/{job_id} "
+                    f"to see its final status."
+                )
+                return
+            time.sleep(1)
+            continue  # reconnect with current cursor
 
     st.session_state.script_code = script_code
     st.session_state.glb_bytes = glb_bytes
@@ -167,8 +252,11 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
         st.session_state.script_version += 1
 
     has_error = any(s["status"] == "error" for s in steps)
-    if has_error:
-        err = next(s for s in steps if s["status"] == "error")
+    if has_error or error_message:
+        err = next(
+            (s for s in steps if s["status"] == "error"),
+            {"step": "_stream_end"},
+        )
         st.session_state.status = f"Error: {_step_label(err['step'])}"
         if error_message:
             st.error(
