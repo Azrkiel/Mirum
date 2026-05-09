@@ -67,3 +67,37 @@ Failed run outputs (no useful per-prompt data — every record is `error: "]"`):
 - Failure-aware retrieval: `backend/retrieval.py` → `retrieve_for_failure`, `_FAILURE_TO_TECHNIQUE`.
 - Runner: `backend/eval_harness/runner.py` (entry point: `python -m eval_harness.runner`).
 - Baseline floor: `backend/eval_harness/runs/baseline.jsonl`.
+
+## Worktree A follow-up — security report 2026-05-04
+
+- [ ] **starlette CVE bump** — pin starlette >= 0.47.2 in
+  backend/requirements.txt. CVE-2024-47874 + CVE-2025-54121.
+  Run pip-audit after to confirm clean. Touches the whole FastAPI
+  surface; lands in its own PR before the next worktree merges.
+
+- [ ] **M2: prune empty rate-limit buckets** —
+  `backend/routes_jobs.py:_RATE_BUCKETS` grows unbounded across unique
+  IPs. Add a periodic prune (e.g. once every 1000 requests, drop keys
+  whose deque is empty) or LRU cap. Memory-pressure DoS if Mirum is
+  ever exposed publicly.
+
+- [ ] **M3: proxy-aware rate-limit key** —
+  `backend/routes_jobs.py:rate_limit._dep` uses `request.client.host`
+  (TCP peer). When a reverse proxy fronts the deployment, switch to
+  `X-Forwarded-For` / `X-Real-IP` reads gated by a trusted-proxy
+  allowlist. Document at deploy time.
+
+- [ ] **L1: extend `_safe_error` to redact Linux paths** —
+  `backend/main.py:86-90` regex covers /app/, /opt/, C:/, C:\\\\
+  but misses /home/, /root/, /var/, /etc/, /usr/, /tmp/. Worktree A
+  added new client-visible error surfaces (state.error in SSE +
+  polling) that inherit this gap. One-line regex extension; covered
+  by adding a test case to test_jobs.py with each new prefix.
+
+- [ ] **B110 in routes_jobs.py:200** — wrap `await
+  request.is_disconnected()` exception handler with a `logger.debug`
+  so transport-quirk failures are observable.
+
+- [ ] **Multi-worker job affinity** — JobRegistry is per-process.
+  Dockerfile pins --workers 1. Before bumping workers, add Redis-
+  backed JobRegistry or sticky session routing.
