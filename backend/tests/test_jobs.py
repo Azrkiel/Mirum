@@ -594,6 +594,51 @@ def test_rate_limit_returns_429_when_enabled() -> None:
         _RATE_BUCKETS.clear()
 
 
+def test_rate_limit_no_TOCTOU_under_concurrency() -> None:
+    """Regression guard for M1 — the rate_limit dep MUST be `async def`
+    so FastAPI runs it on the event loop. A sync dep would run in
+    anyio.to_thread.run_sync; concurrent requests on the same bucket
+    would race on the read-then-append and over-fill past per_minute.
+
+    Submits 10 POSTs in parallel against a 5/min bucket; expects
+    exactly 5 200s and 5 429s. A racy sync impl would see 6+ 200s."""
+    import asyncio
+    import httpx
+    from main import app, limiter as _main_limiter
+    from routes_jobs import enable_rate_limit, disable_rate_limit, _RATE_BUCKETS
+    import routes_jobs
+
+    _main_limiter.enabled = False
+    _RATE_BUCKETS.clear()
+    enable_rate_limit()
+    try:
+        async def _instant(prompt):
+            yield 'data: {"step":"machinist","status":"done"}\n\n'
+
+        async def _scenario():
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://testserver",
+            ) as ac:
+                return await asyncio.gather(*[
+                    ac.post("/jobs", json={"prompt": f"x {i}"})
+                    for i in range(10)
+                ])
+
+        with unittest.mock.patch.object(routes_jobs, "_pipeline", _instant):
+            responses = asyncio.run(_scenario())
+
+        codes = sorted(r.status_code for r in responses)
+        # Exactly 5 × 200 and 5 × 429. A TOCTOU race would land 6+ 200s.
+        assert codes == [200]*5 + [429]*5, (
+            f"rate limit raced under concurrency — got {codes}; sync `_dep` "
+            f"would let extra 200s slip through. Did someone revert M1?"
+        )
+    finally:
+        disable_rate_limit()
+        _RATE_BUCKETS.clear()
+
+
 def test_streaming_route_classifier_is_correct() -> None:
     """A-10 unit guard: _is_streaming_route must catch the SSE routes
     (/generate, /jobs/{id}/events) so the timeout middleware doesn't
@@ -642,6 +687,7 @@ def _run_all() -> int:
         test_get_events_unknown_job_returns_404,
         test_five_concurrent_submissions_each_within_budget,
         test_rate_limit_returns_429_when_enabled,
+        test_rate_limit_no_TOCTOU_under_concurrency,
         test_streaming_route_classifier_is_correct,
         test_post_jobs_rejects_oversized_prompt,
     ]
