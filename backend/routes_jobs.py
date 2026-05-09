@@ -64,8 +64,26 @@ def enable_rate_limit() -> None:
 def rate_limit(scope: str, per_minute: int):
     """FastAPI dependency factory. `scope` is a per-route key so different
     routes have independent buckets (a client at the /generate quota
-    isn't blocked from polling /jobs/{id})."""
-    def _dep(request: Request) -> None:
+    isn't blocked from polling /jobs/{id}).
+
+    `async def`, intentionally — sync deps run in `anyio.to_thread.run_sync`
+    so multiple concurrent requests on the same `(scope, ip)` key would race
+    on the read-then-mutate of the bucket (CPython's GIL makes individual
+    deque ops atomic, but the `len(bucket) >= per_minute` check followed by
+    `bucket.append(now)` is not). With `async def` the dep runs cooperatively
+    on the event loop; since the body has no awaits, the check + mutate
+    sequence is effectively atomic. Caught by the security re-review of
+    commit b1f89b9.
+
+    Known follow-up gaps (deferred to a separate PR — see security report
+    output/qa-reports/2026-05-04-A-security-review.md):
+      M2 — `_RATE_BUCKETS` grows unbounded across unique IPs (LRU/prune).
+      M3 — Trusts `request.client.host`; if a reverse proxy is added the
+           limiter must opt into trusting X-Forwarded-For from an allowlist.
+      L1 — `_safe_error` regex misses Linux paths (/home /root /var /etc
+           /usr /tmp); state.error in SSE/polling responses inherits this.
+    """
+    async def _dep(request: Request) -> None:
         if not _RATE_LIMITER_ENABLED:
             return
         ip = request.client.host if request.client else "unknown"
