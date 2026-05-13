@@ -48,6 +48,10 @@ if (-not $LogsOnly) {
     Run-SCP "C:\Users\Kevin\Developments\T2CIII\frontend" "$RDIR/"
 
     Write-Host ""
+    Write-Host "==> Syncing docker-compose.yml..." -ForegroundColor Yellow
+    Run-SCP "C:\Users\Kevin\Developments\T2CIII\docker-compose.yml" "$RDIR/"
+
+    Write-Host ""
     # Bind-mounts expose host UIDs into the container. caduser inside the
     # backend image is a system user (UID ~999) distinct from host ubuntu
     # (UID 1001). scp defaults ~/T2CIII/* to mode 0700, making /app
@@ -58,16 +62,21 @@ if (-not $LogsOnly) {
     Run-SSH "chmod -R a+rX $RDIR"
 
     Write-Host ""
+    # up -d --force-recreate ensures: (a) stopped containers come back up,
+    # (b) running containers get a clean restart picking up scp'd code, and
+    # (c) BOTH backend and frontend are handled — the previous `restart
+    # backend` left a stopped frontend dead for days after a manual
+    # `compose down`.
     if ($Build) {
-        Write-Host "==> Rebuilding and restarting backend container (--build)..." -ForegroundColor Yellow
-        Run-SSH "cd $RDIR && docker compose up -d --build backend"
+        Write-Host "==> Rebuilding and recreating backend + frontend (--build)..." -ForegroundColor Yellow
+        Run-SSH "cd $RDIR && docker compose up -d --build --force-recreate backend frontend"
     } else {
-        Write-Host "==> Restarting backend container..." -ForegroundColor Yellow
-        Run-SSH "cd $RDIR && docker compose restart backend"
+        Write-Host "==> Recreating backend + frontend..." -ForegroundColor Yellow
+        Run-SSH "cd $RDIR && docker compose up -d --force-recreate backend frontend"
     }
 
     Write-Host ""
-    Write-Host "==> Backend restarted. Uvicorn --reload will also pick up the new files." -ForegroundColor Green
+    Write-Host "==> Containers recreated. Uvicorn --reload and Streamlit watcher will pick up further changes." -ForegroundColor Green
 }
 
 if (-not $NoLogs) {
