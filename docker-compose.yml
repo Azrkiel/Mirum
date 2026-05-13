@@ -13,6 +13,7 @@ services:
       - /tmp:size=256M
     env_file:
       - .env
+    restart: unless-stopped
 
   frontend:
     build:
@@ -23,6 +24,7 @@ services:
       - ./frontend:/app:ro
     depends_on:
       - backend
+    restart: unless-stopped
 
 volumes:
   backend_tmp_parts:

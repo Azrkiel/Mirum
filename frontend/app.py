@@ -65,20 +65,108 @@ def _icon(status: str) -> str:
     return {"running": "\u23f3", "done": "\u2705", "error": "\u274c"}.get(status, "\u2b1c")
 
 
+_VIEWER_TEMPLATE = """<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; }
+  #renderCanvas { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
+</style>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+<script src="https://cdn.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
+</head><body>
+<canvas id="renderCanvas"></canvas>
+<script>
+(async () => {
+  const canvas = document.getElementById("renderCanvas");
+  let engine, scene, camera, ground, gridMat;
+  let loadedMeshes = [];
+
+  async function initEngine() {
+    try {
+      if (BABYLON.WebGPUEngine && (await BABYLON.WebGPUEngine.IsSupportedAsync)) {
+        const e = new BABYLON.WebGPUEngine(canvas, { antialias: true });
+        await e.initAsync();
+        return e;
+      }
+    } catch (err) {
+      console.warn("WebGPU init failed, falling back to WebGL2:", err);
+    }
+    return new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+  }
+
+  function createGround(s) {
+    const g = BABYLON.MeshBuilder.CreateGround("ground", { width: 50, height: 50 }, s);
+    const m = new BABYLON.GridMaterial("grid", s);
+    m.majorUnitFrequency = 10;
+    m.minorUnitVisibility = 0.45;
+    m.gridRatio = 1;
+    m.mainColor = new BABYLON.Color3(0.10, 0.10, 0.18);
+    m.lineColor = new BABYLON.Color3(0.40, 0.40, 0.55);
+    m.opacity = 0.98;
+    g.material = m;
+    return [g, m];
+  }
+
+  function buildScene() {
+    const s = new BABYLON.Scene(engine);
+    s.clearColor = BABYLON.Color4.FromHexString("#1a1a2eff");
+    camera = new BABYLON.ArcRotateCamera(
+      "cam", -Math.PI / 3, Math.PI / 3, 10, BABYLON.Vector3.Zero(), s
+    );
+    camera.attachControl(canvas, true);
+    camera.wheelDeltaPercentage = 0.01;
+    camera.panningSensibility = 50;
+    new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), s);
+    [ground, gridMat] = createGround(s);
+    return s;
+  }
+
+  async function updateViewer(blob) {
+    for (const m of loadedMeshes) m.dispose(false, true);
+    loadedMeshes = [];
+    const url = URL.createObjectURL(blob);
+    try {
+      const before = new Set(scene.meshes);
+      await BABYLON.SceneLoader.AppendAsync("", url, scene, null, ".glb");
+      loadedMeshes = scene.meshes.filter(m => !before.has(m) && m !== ground);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    for (const m of loadedMeshes) {
+      const pbr = new BABYLON.PBRMaterial("pbr_" + m.name, scene);
+      pbr.albedoColor = new BABYLON.Color3(0.78, 0.78, 0.82);
+      pbr.metallic = 1.0;
+      pbr.roughness = 0.3;
+      m.material = pbr;
+    }
+    // Dispose ground before framing — getWorldExtends ignores setEnabled(false), so
+    // a hidden 50x50 ground would still dominate the bounding box and push the camera out.
+    ground.dispose();
+    gridMat.dispose();
+    scene.createDefaultCameraOrLight(true, true, true);
+    [ground, gridMat] = createGround(scene);
+  }
+
+  engine = await initEngine();
+  scene = buildScene();
+  engine.runRenderLoop(() => scene.render());
+  window.addEventListener("resize", () => engine.resize());
+
+  const b64 = "__GLB_B64__";
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const blob = new Blob([bytes], { type: "model/gltf-binary" });
+  await updateViewer(blob);
+})();
+</script>
+</body></html>"""
+
+
 def render_glb_viewer(glb_bytes: bytes, height: int = 500) -> None:
     assert isinstance(height, int) and 100 <= height <= 2000
     b64 = base64.b64encode(glb_bytes).decode("ascii")
-    data_uri = f"data:model/gltf-binary;base64,{b64}"
-    html = f"""
-    <script type="module"
-        src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.1.1/model-viewer.min.js">
-    </script>
-    <model-viewer
-        src="{data_uri}"
-        auto-rotate camera-controls shadow-intensity="1"
-        style="width:100%;height:{height}px;background:#1a1a2e;">
-    </model-viewer>
-    """
+    html = _VIEWER_TEMPLATE.replace("__GLB_B64__", b64)
     components.html(html, height=height + 20)
 
 
@@ -191,7 +279,14 @@ def run_script(script: str) -> None:
             st.session_state.status = "Run failed"
             st.error(f"Script execution failed:\n\n```\n{data.get('detail', 'Unknown error')}\n```")
             return
-        st.session_state.glb_bytes = base64.b64decode(data["glb"])
+        glb_b64 = data.get("glb")
+        if not glb_b64:
+            st.session_state.status = "Run failed"
+            st.error(
+                f"Script returned no geometry. Backend response:\n\n```\n{data.get('detail', data)}\n```"
+            )
+            return
+        st.session_state.glb_bytes = base64.b64decode(glb_b64)
         st.session_state.status = "Ready"
     except requests.ConnectionError:
         st.session_state.status = "Connection error"
@@ -443,8 +538,12 @@ if st.session_state.glb_bytes and st.session_state.get("last_manifest"):
                 )
                 data = resp.json()
                 if data.get("status") == "ok":
-                    import base64 as _b64
-                    st.session_state.glb_bytes = _b64.b64decode(data["glb"])
+                    glb_b64 = data.get("glb")
+                    if glb_b64:
+                        import base64 as _b64
+                        st.session_state.glb_bytes = _b64.b64decode(glb_b64)
+                    else:
+                        st.warning("Refinement succeeded but no geometry was returned — viewer not updated.")
                     st.session_state.last_manifest = data.get("updated_manifest", st.session_state.last_manifest)
                     st.session_state.last_scripts = data.get("updated_scripts", {})
                     regen = data.get("regenerated_parts", [])
