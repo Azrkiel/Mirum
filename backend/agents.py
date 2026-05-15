@@ -41,8 +41,9 @@ from strategies import get_active_rules
 from schemas import AssemblyManifest, DesignRequirements, MateType, PartDefinition
 from strategies import get_strategy
 from telemetry import log_attempt
+from config import GEMINI_MODEL_HEAVY
 
-MODEL = "gemini-3-flash-preview"
+MODEL = GEMINI_MODEL_HEAVY
 
 # Directory for pre-compiled .step files consumed by the deterministic
 # assembler. Defaults to /tmp/mirum/parts because the previous location
@@ -252,6 +253,34 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
             "production_volume": {"type": "string"},
             "inferred_domain": {"type": "string"},
             "confidence": {"type": "number"},
+            # Phase 3 (XFOIL): only populate for Domain D when explicitly stated
+            "flight_env": {
+                "type": "object",
+                "description": (
+                    "Domain D only. Populate ONLY if the prompt names "
+                    "explicit aerodynamic conditions. Omit otherwise."
+                ),
+                "properties": {
+                    "alpha_start": {"type": "number"},
+                    "alpha_end":   {"type": "number"},
+                    "alpha_step":  {"type": "number"},
+                    "reynolds":    {"type": "number"},
+                    "mach":        {"type": "number"},
+                    "n_crit":      {"type": "number"},
+                },
+            },
+            "airfoil_spec": {
+                "type": "object",
+                "description": (
+                    "Domain D only. Populate from the prompt when a NACA "
+                    "airfoil and/or wing dimensions are named."
+                ),
+                "properties": {
+                    "naca_code": {"type": "string"},
+                    "chord_mm":  {"type": "number"},
+                    "span_mm":   {"type": "number"},
+                },
+            },
         },
         "required": ["primary_function", "connecting_interfaces", "confidence"],
     }
@@ -264,6 +293,14 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
             "Be conservative — only include information explicitly stated or clearly implied. "
             "Do NOT invent specifications not mentioned in the prompt. "
             "Set confidence < 0.5 if the prompt is too vague to reliably extract requirements. "
+            # Phase 3 (XFOIL) — Domain D aerodynamic extraction
+            "If inferred_domain is 'D' (aerospace/aerodynamic) AND the prompt explicitly "
+            "names flight conditions, populate `flight_env` (alpha_start/end/step in degrees, "
+            "reynolds, mach, n_crit). NEVER guess Re or Mach from cruise descriptions alone — "
+            "only set fields the user gave numerically. If the prompt names a NACA airfoil or "
+            "wing dimensions, populate `airfoil_spec` (naca_code as a 4-digit string e.g. '2412', "
+            "chord_mm, span_mm). Leave both objects out entirely for non-D domains or when no "
+            "explicit values are given. "
             "Return JSON matching the DesignRequirements schema."
         ),
     )
@@ -655,9 +692,10 @@ async def run_critic_loop(
             subprocess call whose output they'd just throw away.
 
     Returns:
-        (validated_code, step_file_path) — the clean CadQuery source and
-        the absolute path to the pre-compiled .step file. When save_step
-        is False the step path is an empty string.
+        (validated_code, step_file_path, geometry_cert) — the clean CadQuery
+        source, the absolute path to the pre-compiled .step file (empty string
+        when save_step is False), and a GeometryCertificate dict (or None when
+        save_step is False or OCC is unavailable).
     """
     async with _MACHINIST_SEMAPHORE:
         # Classify once per part — domain is stable across retries
@@ -787,7 +825,18 @@ async def run_critic_loop(
                     if save_step
                     else ""
                 )
-                return code, step_path
+
+                # Geometry certificate — runs for all domains when a STEP file
+                # was produced.  Never blocks delivery; failures are informational.
+                geometry_cert: dict | None = None
+                if step_path:
+                    try:
+                        from verification.geometry import certify_geometry
+                        geometry_cert = dict(certify_geometry(step_path))
+                    except Exception as _cert_exc:
+                        logger.debug("geometry cert skipped: %s", _cert_exc)
+
+                return code, step_path, geometry_cert
 
             active_rules = get_active_rules(domain, part_def.description)
             error_context = build_retry_context(
@@ -809,7 +858,7 @@ async def run_critic_loop(
 
 async def run_machinist_batch(
     parts: list[PartDefinition],
-) -> tuple[dict[str, str], dict[str, str]]:
+) -> tuple[dict[str, str], dict[str, str], dict[str, dict | None]]:
     """Run all Machinist critic loops concurrently with rate limiting.
 
     Deduplicates parts with identical descriptions: calls the Machinist
@@ -817,8 +866,9 @@ async def run_machinist_batch(
     identical parts.
 
     Returns:
-        (part_scripts, step_files) — two dicts mapping part_id to
-        validated code and to the pre-compiled .step file path.
+        (part_scripts, step_files, geometry_certs) — three dicts mapping
+        part_id to validated code, pre-compiled .step file path, and
+        GeometryCertificate dict (or None when OCC is unavailable).
     """
     # Group parts by description for deduplication
     desc_to_parts: dict[str, list[PartDefinition]] = {}
@@ -831,7 +881,7 @@ async def run_machinist_batch(
     tasks = [run_critic_loop(part) for part in unique_parts]
     results = await asyncio.gather(*tasks)
 
-    # Map representative description -> (code, step_path)
+    # Map representative description -> (code, step_path, geometry_cert)
     desc_to_result = {
         part.description: result for part, result in zip(unique_parts, results)
     }
@@ -839,12 +889,14 @@ async def run_machinist_batch(
     # Fan out cached results to all parts sharing the same description
     part_scripts: dict[str, str] = {}
     step_files: dict[str, str] = {}
+    geometry_certs: dict[str, dict | None] = {}
     for part in parts:
-        code, step_path = desc_to_result[part.description]
+        code, step_path, geometry_cert = desc_to_result[part.description]
         part_scripts[part.part_id] = code
         step_files[part.part_id] = step_path
+        geometry_certs[part.part_id] = geometry_cert
 
-    return part_scripts, step_files
+    return part_scripts, step_files, geometry_certs
 
 
 async def run_single_part_export(part_script: str, output_filename: str) -> str:
