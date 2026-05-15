@@ -46,6 +46,10 @@ for key, default in [
     ("parameters", {}),
     ("last_manifest", None),   # T2-08: for refinement
     ("last_scripts", {}),      # T2-08: for refinement
+    ("run_aero", False),       # Phase 3: opt-in XFOIL polar
+    ("aero_report", None),     # Phase 3: PolarReport dict from /generate complete event
+    ("aero_plots", None),      # T2-16: cached {cl_alpha, cd_alpha, cp_dist} base64 PNGs
+    ("geometry_certificate", None),  # G-05: GeometryCertificate dict from /generate
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -191,11 +195,15 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     script_code, glb_bytes = "", None
     error_message = ""
     params = {}
+    aero_report = None
+    geometry_cert = None  # G-05: geometry certificate
+    # Phase 3: opt-in aerodynamic analysis (checkbox state lives in session)
+    run_aero = bool(st.session_state.get("run_aero", False))
 
     try:
         with requests.post(
             f"{BACKEND_URL}/generate",
-            json={"prompt": prompt},
+            json={"prompt": prompt, "run_aero": run_aero},
             stream=True,
             timeout=300,
         ) as resp:
@@ -220,6 +228,8 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
                     if status == "done":
                         glb_bytes = base64.b64decode(ev.get("glb", ""))
                         params = ev.get("parameters", {})
+                        aero_report = ev.get("aero_report")  # Phase 3
+                        geometry_cert = ev.get("geometry_certificate")  # G-05
                         # T2-08: store manifest for refinement
                         if ev.get("manifest"):
                             st.session_state.last_manifest = ev["manifest"]
@@ -251,6 +261,9 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     st.session_state.script_code = script_code
     st.session_state.glb_bytes = glb_bytes
     st.session_state.parameters = params
+    st.session_state.aero_report = aero_report  # Phase 3
+    st.session_state.aero_plots = None          # T2-16: reset so plots are re-fetched
+    st.session_state.geometry_certificate = geometry_cert  # G-05
     if script_code:
         st.session_state.script_version += 1
 
@@ -287,6 +300,10 @@ def run_script(script: str) -> None:
             )
             return
         st.session_state.glb_bytes = base64.b64decode(glb_b64)
+        # Manual script re-run changes geometry — clear stale aero data so the
+        # PerformanceCard doesn't show a polar that doesn't match the new model.
+        st.session_state.aero_report = None
+        st.session_state.aero_plots = None
         st.session_state.status = "Ready"
     except requests.ConnectionError:
         st.session_state.status = "Connection error"
@@ -356,6 +373,180 @@ def render_plan_review(plan: dict) -> bool:
     return False
 
 
+# ── T2-16: Aerodynamic PerformanceCard ─────────────────────
+
+def _fetch_aero_plots(report: dict) -> dict | None:
+    """POST to /analysis/plots and return {cl_alpha, cd_alpha, cp_dist} or None."""
+    naca_code = report.get("naca_code", "0012")
+    reynolds = float(report.get("reynolds") or 1_000_000.0)
+    mach = float(report.get("mach") or 0.0)
+    n_crit = float(report.get("n_crit") or 9.0)
+    # Use 60% of stall alpha as the design point for the Cp plot
+    stall_alpha = report.get("stall_alpha")
+    design_alpha = round(stall_alpha * 0.60, 1) if stall_alpha else 4.0
+    design_alpha = max(-5.0, min(design_alpha, 20.0))  # clamp
+    try:
+        resp = requests.post(
+            f"{BACKEND_URL}/analysis/plots",
+            json={
+                "naca_code": naca_code,
+                "polar": report,
+                "design_alpha": design_alpha,
+                "reynolds": reynolds,
+                "mach": mach,
+                "n_crit": n_crit,
+            },
+            timeout=30,
+        )
+        data = resp.json()
+        if data.get("status") == "ok":
+            return data
+        st.warning(f"Polar plot generation failed: {data.get('detail', '')}")
+    except requests.ConnectionError:
+        st.warning("Could not reach backend for polar plots.")
+    except Exception as _e:
+        st.warning(f"Polar plot request failed: {_e}")
+    return None
+
+
+def _render_geometry_cert_card(cert: dict) -> None:
+    """Render a collapsible geometry certificate card.
+
+    Shows pass/fail status, volume, surface area, mass (if available),
+    and per-check details in a Streamlit expander.
+    """
+    passed = cert.get("passed", False)
+    icon = "✅" if passed else "❌"
+    label = f"{icon} Geometry Certificate — {'PASSED' if passed else 'FAILED'}"
+
+    with st.expander(label, expanded=not passed):
+        # Key metrics row
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            vol = cert.get("volume_mm3")
+            st.metric("Volume", f"{vol:,.1f} mm³" if vol is not None else "—")
+        with col2:
+            sa = cert.get("surface_area_mm2")
+            st.metric("Surface Area", f"{sa:,.1f} mm²" if sa is not None else "—")
+        with col3:
+            mass_g = cert.get("mass_g")
+            mat = cert.get("material", "")
+            if mass_g is not None:
+                st.metric("Mass", f"{mass_g:,.2f} g", delta=mat or None)
+            else:
+                st.metric("Mass", "—")
+
+        # Bounding box
+        bb = cert.get("bounding_box")
+        if bb:
+            st.caption(
+                f"Bounding box: {bb.get('x_mm', 0):.1f} × "
+                f"{bb.get('y_mm', 0):.1f} × "
+                f"{bb.get('z_mm', 0):.1f} mm"
+            )
+
+        # Per-check table
+        checks = cert.get("checks", {})
+        if checks:
+            check_labels = {
+                "volume_positive": "Volume > 0",
+                "surface_area_positive": "Surface area > 0",
+                "no_degenerate_faces": "No degenerate faces",
+                "bounding_box_finite": "Bounding box finite",
+                "brep_valid": "BRep topology valid",
+                "is_solid": "Shape is solid",
+            }
+            rows = []
+            for key, label_text in check_labels.items():
+                if key in checks:
+                    rows.append(
+                        f"{'✅' if checks[key] else '❌'} {label_text}"
+                    )
+            st.markdown("\n".join(rows))
+
+        # Failures
+        failures = cert.get("failures", [])
+        if failures:
+            st.error("**Failures:**\n" + "\n".join(f"- {f}" for f in failures))
+
+        # Multi-part note
+        if cert.get("part_count", 1) > 1:
+            st.caption(f"Aggregate of {cert['part_count']} parts")
+
+
+def _render_performance_card(report: dict) -> None:
+    """Render the aerodynamic PerformanceCard into the current Streamlit column.
+
+    Shows four key metrics, then three matplotlib polar charts (Cl, Cd, Cp)
+    fetched from /analysis/plots, and a CSV download button.
+    """
+    naca = report.get("naca_code", "?")
+    Re = float(report.get("reynolds") or 0)
+    Cl_max = report.get("Cl_max")
+    stall_alpha = report.get("stall_alpha")
+
+    st.markdown("### ✈️ Aero Performance")
+
+    m1, m2 = st.columns(2)
+    m1.metric("Airfoil", f"NACA {naca}")
+    m2.metric("Re", f"{Re / 1e6:.2f}M" if Re else "n/a")
+    m3, m4 = st.columns(2)
+    m3.metric("Cl_max",
+              f"{Cl_max:.3f}" if Cl_max is not None else "n/a")
+    m4.metric("Stall α",
+              f"{stall_alpha:.1f}°" if stall_alpha is not None else "n/a")
+
+    st.markdown("---")
+
+    # Fetch (or retrieve cached) plot images.
+    # aero_plots is None → not yet fetched; False → fetch failed (sentinel to
+    # prevent re-fetching on every Streamlit interaction); dict → success.
+    plots = st.session_state.get("aero_plots")
+    if plots is None:
+        with st.spinner("Generating charts…"):
+            plots = _fetch_aero_plots(report)
+            # Store False as a failure sentinel so we don't retry on every
+            # subsequent interaction (which would hang for 30 s each time).
+            st.session_state.aero_plots = plots if plots is not None else False
+
+    if plots:
+        cl_b64 = plots.get("cl_alpha")
+        cd_b64 = plots.get("cd_alpha")
+        cp_b64 = plots.get("cp_dist")
+
+        if cl_b64:
+            st.image(base64.b64decode(cl_b64), use_container_width=True)
+        if cd_b64:
+            st.image(base64.b64decode(cd_b64), use_container_width=True)
+        if cp_b64:
+            st.image(base64.b64decode(cp_b64), use_container_width=True)
+        else:
+            st.caption("_Cp distribution unavailable (XFOIL not found)_")
+    elif plots is False:
+        st.caption("_Charts unavailable — backend returned an error_")
+    else:
+        st.caption("_Charts unavailable_")
+
+    # CSV download
+    import pandas as _pd
+    alpha_vals = report.get("alpha", [])
+    if alpha_vals:
+        polar_df = _pd.DataFrame({
+            "α (deg)": alpha_vals,
+            "Cl": report.get("Cl", []),
+            "Cd": report.get("Cd", []),
+            "Cm": report.get("Cm", []),
+            "L/D": report.get("L_D", []),
+        }).set_index("α (deg)")
+        st.download_button(
+            "⬇ Download polar CSV",
+            polar_df.to_csv().encode("utf-8"),
+            f"polar_naca{naca}.csv",
+            "text/csv",
+            key="polar_csv_download",
+        )
+
+
 # ── Page Layout ─────────────────────────────────────────────
 
 # 1) Prompt
@@ -367,7 +558,17 @@ prompt = st.text_area(
     height=80,
 )
 
-# 2) Generate button
+# 2) Options + Generate button
+st.checkbox(
+    "Run aerodynamic analysis (Domain D wings only — adds ~30s)",
+    key="run_aero",
+    help=(
+        "Opt-in. When the assembly is classified as Domain D (aerospace) and "
+        "has a NACA airfoil + chord + span, the backend slices the wing STEP "
+        "at mid-span and runs XFOIL for Cl/Cd/Cm vs angle of attack. Failure "
+        "is non-blocking — the GLB is delivered either way."
+    ),
+)
 generate = st.button(
     "Generate (Ctrl+Enter)", type="primary", use_container_width=True
 )
@@ -441,15 +642,36 @@ if st.session_state.show_plan and st.session_state.pending_plan:
         st.session_state.show_plan = False
         stream_pipeline(st.session_state.pending_prompt, progress_ph)
 
-# 4) 3D viewer (when model exists)
+# 4) 3D viewer + PerformanceCard (T2-16: side-by-side when aero_report present)
 if st.session_state.glb_bytes:
-    render_glb_viewer(st.session_state.glb_bytes)
-    st.download_button(
-        "Download .glb",
-        st.session_state.glb_bytes,
-        "assembly.glb",
-        "model/gltf-binary",
-    )
+    aero_report = st.session_state.get("aero_report")
+    if aero_report:
+        # Side-by-side: viewer ~60 %, performance card ~40 %
+        viewer_col, card_col = st.columns([3, 2], gap="medium")
+        with viewer_col:
+            render_glb_viewer(st.session_state.glb_bytes, height=460)
+            st.download_button(
+                "⬇ Download .glb",
+                st.session_state.glb_bytes,
+                "assembly.glb",
+                "model/gltf-binary",
+            )
+        with card_col:
+            _render_performance_card(aero_report)
+    else:
+        # No aero report — full-width viewer
+        render_glb_viewer(st.session_state.glb_bytes)
+        st.download_button(
+            "Download .glb",
+            st.session_state.glb_bytes,
+            "assembly.glb",
+            "model/gltf-binary",
+        )
+
+    # G-06: geometry certificate collapsible card (shown below viewer always)
+    geo_cert = st.session_state.get("geometry_certificate")
+    if geo_cert:
+        _render_geometry_cert_card(geo_cert)
 
 # Parameter editor sidebar (T1-06)
 if st.session_state.parameters:

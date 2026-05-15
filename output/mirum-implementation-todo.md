@@ -9,11 +9,12 @@ Comprehensive, developer-ready task list derived from the [[Mirum Capability Gap
 
 ## How to read this document
 
-Tasks are grouped into three tiers:
+Tasks are grouped into four tiers:
 
 - **Tier 1 — Days (1–5 days each):** High-impact changes requiring no new infrastructure, no new models, no external data. Pick up and ship.
 - **Tier 2 — Weeks (1–6 weeks each):** Significant new features, data pipelines, or fine-tuning work. Clear ROI, moderate complexity.
 - **Tier 3 — Research Bets (months):** Deep ML research, new model training, or architecturally risky work. High upside, high investment.
+- **Tier 4 — Subagent Architecture (weeks, parallel-trackable):** Break the monolithic `agents.py` into a proper subagent system. Each agent runs independently, communicates via structured messages, and can be swapped or parallelized. Tasks use the **Token Efficiency Protocol** (XML task format, telegraphic fragments, status symbols). Status symbols: ⬜ pending · 🔄 in progress · ✅ done · ⚠️ blocked.
 
 Within each tier, tasks are ordered by dependency — tasks that unblock others come first.
 
@@ -1318,6 +1319,157 @@ Within each tier, tasks are ordered by dependency — tasks that unblock others 
 
 ---
 
+### ✅ T2-14: Gemini Model String Centralization
+
+**GAP FOUND:** P0-01 audit confirmed all 5 files (`agents.py`, `main.py`, `evaluation.py`, `retrieval.py`, `strategies.py`) hardcode Gemini model strings. `backend/config.py` now defines `GEMINI_MODEL_HEAVY = "gemini-3-flash-preview"` and `GEMINI_MODEL_LITE = "gemini-3.1-flash-lite-preview"`, but none of the existing files import from it. A model rename requires 5 manual edits instead of 1.
+
+**What it is:** Update all model-string sites in the codebase to import from `config.py`. This is the simplest correctness fix in the codebase — one hour of mechanical refactoring with zero logic change.
+
+**Implementation steps:**
+
+1. `grep -rn '"gemini-' backend/` to find every hardcoded model string with exact line numbers.
+
+2. In each file, add at top: `from config import GEMINI_MODEL_HEAVY, GEMINI_MODEL_LITE` and replace every hardcoded string with the appropriate constant. The mapping is: `"gemini-3-flash-preview"` → `GEMINI_MODEL_HEAVY`, `"gemini-3.1-flash-lite-preview"` → `GEMINI_MODEL_LITE`.
+
+3. In `main.py` line 68 (the global `genai.configure` call), ensure the configure call itself still runs — don't remove it, just keep it; the key comes from the env var, not the model string.
+
+4. Run `python -m pytest backend/tests/ -q` to confirm nothing broken.
+
+5. Verify: `grep -rn '"gemini-' backend/` returns zero hits.
+
+**Files:** `backend/agents.py`, `backend/main.py`, `backend/evaluation.py`, `backend/retrieval.py`, `backend/strategies.py`, `backend/config.py`  
+**Dependencies:** None  
+**Effort:** 0.5 days  
+**Success criteria:** Zero hardcoded Gemini model strings in the codebase. Changing `GEMINI_MODEL_HEAVY` in `config.py` updates the model used by all agents.
+
+---
+
+### ✅ T2-15: Airfoil Pipeline Phase 2 — End-to-End Validation
+
+**GAP FOUND:** `_run_aero_stage()` is already implemented in `main.py` (lines 164–232) and `aero_report` is wired into the `/generate` response payload. However: (a) the function has never been tested against a live XFOIL binary end-to-end, (b) the production Dockerfile has no `xfoil` package, (c) CI runs skip all Group B tests because `MIRUM_XFOIL_BIN` is unset.
+
+**What it is:** Validate the full aero pipeline against a live XFOIL binary; add XFOIL to the production Docker image; wire `mock_xfoil` into CI so Group B tests always run.
+
+**Implementation steps:**
+
+1. **Windows validation (manual):** On the Windows dev machine with `T2CIII\bin\xfoil.exe` installed, run the `/generate` endpoint with a Domain D prompt that specifies a NACA airfoil (e.g., `"Generate a NACA 2412 wing section, chord 300mm, Re=2e6, alpha 0–15°"`). Verify that the response JSON contains a populated `aero_report` field with non-null `Cl`, `Cd`, `stall_alpha`. Log the raw XFOIL stdout for debugging.
+
+2. **PolarReport schema validation:** Confirm that `_run_aero_stage`'s output round-trips through `PolarReport.model_validate()` without loss. Check that `aero_report` in the SSE payload serialises cleanly to JSON (no numpy arrays, no non-serialisable floats like `nan` — replace `nan` with `null`).
+
+3. **Dockerfile update:** In `Dockerfile` (or `docker-compose.yml`), add:
+   ```dockerfile
+   RUN apt-get update && apt-get install -y xfoil && apt-get clean && rm -rf /var/lib/apt/lists/*
+   ```
+   Verify with `docker exec <container> xfoil <<< "QUIT"`.
+
+4. **CI mock integration:** In CI (GitHub Actions or equivalent), set `MIRUM_XFOIL_BIN` to the path of `analysis/tests/mock_xfoil` (the shebang executable created in Phase 1). This unblocks all 7 Group B golden-value tests. Add to `.github/workflows/ci.yml`:
+   ```yaml
+   env:
+     MIRUM_XFOIL_BIN: analysis/tests/mock_xfoil
+   ```
+
+5. **NaN guard:** In `_run_aero_stage`, wrap the `PolarReport` construction with a nan-to-null sanitizer:
+   ```python
+   import math
+   def _sanitize_floats(obj):
+       if isinstance(obj, float) and math.isnan(obj): return None
+       if isinstance(obj, dict): return {k: _sanitize_floats(v) for k,v in obj.items()}
+       if isinstance(obj, list): return [_sanitize_floats(v) for v in obj]
+       return obj
+   ```
+
+6. **Integration test:** Add `backend/tests/test_aero_stage.py` — mocks XFOIL binary, runs `_run_aero_stage` with a mock STEP file + NACA spec, asserts `PolarReport` has expected keys and non-null `stall_alpha`.
+
+**Files:** `backend/main.py`, `Dockerfile`, `.github/workflows/ci.yml`, `backend/tests/test_aero_stage.py`  
+**Dependencies:** T2-13 (aerospace demos — use demo STEP files for validation)  
+**Effort:** 2–3 days  
+**Success criteria:** `/generate` with Domain D NACA prompt returns populated `aero_report`. Group B tests run in CI (0 skips). `docker build` produces image with working `xfoil`. NaN values serialise as `null`.
+
+---
+
+### ✅ T2-16: Airfoil Pipeline Phase 3 — Frontend Polar Display [2026-05-14]
+
+**GAP FOUND:** The `aero_report` field is populated in the `/generate` SSE response payload but the Streamlit frontend (`frontend/app.py`) does not display it. Aerodynamic results are silently dropped on the UI side.
+
+**What it is:** Add a collapsible "Aerodynamic Report" panel to the Streamlit sidebar / results section that plots Cl, Cd, and L/D vs. α and annotates the stall point. Display only for Domain D outputs where `aero_report` is non-null.
+
+**Implementation steps:**
+
+1. In `frontend/app.py`, after the GLB viewer section, add:
+   ```python
+   if result.get("aero_report"):
+       aero = result["aero_report"]
+       with st.expander("✈️ Aerodynamic Report", expanded=True):
+           import plotly.graph_objects as go
+           alpha = aero["alpha"]
+           fig = go.Figure()
+           fig.add_trace(go.Scatter(x=alpha, y=aero["Cl"], name="Cl", line=dict(color="royalblue")))
+           fig.add_trace(go.Scatter(x=alpha, y=aero["Cd"], name="Cd", line=dict(color="tomato"), yaxis="y2"))
+           fig.add_trace(go.Scatter(x=alpha, y=aero["L_D"], name="L/D", line=dict(color="seagreen", dash="dot"), yaxis="y3"))
+           if aero.get("stall_alpha") is not None:
+               fig.add_vline(x=aero["stall_alpha"], line_dash="dash", line_color="orange",
+                             annotation_text=f"Stall α={aero['stall_alpha']}°")
+           fig.update_layout(title=f"NACA {aero['naca_code']} Polar  Re={aero['reynolds']:.2e}",
+                             xaxis_title="α (deg)", yaxis_title="Cl")
+           st.plotly_chart(fig, use_container_width=True)
+           col1, col2, col3 = st.columns(3)
+           col1.metric("Cl max", f"{aero.get('Cl_max', 'n/a'):.3f}" if aero.get('Cl_max') else "n/a")
+           col2.metric("Stall α", f"{aero.get('stall_alpha', 'n/a')}°" if aero.get('stall_alpha') else "n/a")
+           col3.metric("Converged pts", aero.get("converged_count", "n/a"))
+   ```
+
+2. Ensure `plotly` is in `requirements.txt` / `pyproject.toml`. It likely already is for the GLB viewer.
+
+3. Add a download button for the raw polar CSV:
+   ```python
+   import pandas as pd, io
+   df = pd.DataFrame({"alpha": aero["alpha"], "Cl": aero["Cl"], "Cd": aero["Cd"], "L_D": aero["L_D"]})
+   st.download_button("Download polar CSV", df.to_csv(index=False), "polar.csv", "text/csv")
+   ```
+
+4. Add polar path link if `aero["polar_path"]` is non-null — lets the user download the raw XFOIL polar file.
+
+**Files:** `frontend/app.py`, `requirements.txt`  
+**Dependencies:** T2-15 (Phase 2 validation — need working `aero_report` in response)  
+**Effort:** 1–2 days  
+**Success criteria:** Domain D generation displays Cl/Cd/L/D polar chart with stall annotation. Chart only appears when `aero_report` is non-null (no error for Domain A/B/C outputs). Polar CSV downloadable.
+
+---
+
+### ✅ T2-17: Domain D Eval Harness Prompts [2026-05-14]
+
+**GAP FOUND:** The eval harness regression suite (`backend/eval_harness/`) has no prompts with `regression_for: ["D"]`. Domain D (aerospace) has the richest implementation (OML Master Modeling, airfoil functions, XFOIL pipeline) but is untested by the automated regression gate. Any change to `strategies.py` Domain D prompts, `cad_utils.make_naca_wire()`, or `analysis/airfoil.py` could silently regress without detection.
+
+**What it is:** Add at least 8 Domain D prompts to `backend/eval_harness/prompts.json` (or the CSV source), tagged `regression_for: ["D"]`, covering the core Domain D capabilities.
+
+**Implementation steps:**
+
+1. Add the following prompts (minimum set) to the eval harness corpus:
+
+   | id | description | regression_for |
+   |----|-------------|---------------|
+   | D-001 | NACA 0012 wing section, chord 200mm, span 500mm, no sweep | ["D"] |
+   | D-002 | NACA 2412 cambered wing, chord 300mm, AoA sweep 0–15° | ["D"] |
+   | D-003 | Wing + 3 internal ribs, NACA 0015, chord 400mm | ["D"] |
+   | D-004 | Wing + rib + spar cross-section, FASTENED mate | ["D"] |
+   | D-005 | Symmetric NACA 0009 control surface, 150mm chord | ["D"] |
+   | D-006 | Multi-part wing assembly: skin + 2 ribs + spar | ["D"] |
+   | D-007 | Wing with explicit Re=1e6, Ncrit=9, alpha 0–18° aerodynamic sweep | ["D"] |
+   | D-008 | Fuselage cross-section (NACA 0018 thickness profile, 2m length) | ["D"] |
+
+2. For each prompt, define the pass criteria in the harness schema: `expected_domain: "D"`, `min_converged_alpha` (for prompts with aerodynamic sweep), `required_naca_code`.
+
+3. Run `python backend/tests/test_prompts_schema.py` to verify new prompt ids follow the schema contract (`id` prefix matches `domain`, `regression_for` is `list[str]` from {A,B,C,D,E}).
+
+4. Add `D` to the worktree-merge-gate.md `--regression-for` map (Worktree D or a new Worktree G for airfoil work).
+
+**Files:** `backend/eval_harness/prompts.json` (or CSV source), `backend/tests/test_prompts_schema.py`, `.claude/rules/worktree-merge-gate.md`  
+**Dependencies:** T2-15 (Phase 2 validation — need working aero pipeline before prompts can be evaluated end-to-end)  
+**Effort:** 1–2 days  
+**Success criteria:** 8 Domain D prompts pass schema tests. `python -m eval_harness.runner --regression-for D` runs successfully and reports pass/fail for all 8 prompts. Schema tests pass (no duplicate ids, correct prefix format).
+
+---
+
 ## Tier 3 — Research Bets
 
 ### T3-01: Semantic Mate Bootstrapping Pipeline via OntoBREP ✅ IMPLEMENTED
@@ -1664,6 +1816,375 @@ Within each tier, tasks are ordered by dependency — tasks that unblock others 
 
 ---
 
+### ✅ T3-09: VLM Zebra Rendering Pipeline (Unblocks Two Production Stubs) [2026-05-14]
+
+**GAP FOUND:** Two functions in the codebase are `STUB / no-op` pending a rendering pipeline:
+- `backend/continuity_check.py` line 247: `vlm_g2_check()` — returns `passed=True` unconditionally
+- `backend/geometry_analysis.py` line 357: `vlm_curvature_check()` — returns placeholder result
+
+Both stubs share the same blocker: there is no code path that takes a STEP file → zebra-stripe rendered image → Gemini Vision API. This task builds that shared rendering utility so both stubs can be completed.
+
+**What it is:** Build a `render_zebra(step_path) -> image_path` pipeline using either (a) a headless OpenCASCADE/VTK renderer, (b) a lightweight Three.js offscreen renderer via Node.js, or (c) screenshot of the existing GLB viewer with zebra shaders enabled. Then complete both VLM stubs using Gemini Vision.
+
+**Why it matters:** G2 continuity and gaussian curvature checks are currently no-ops — every part trivially "passes." Domain C (organic parts) depends entirely on these checks for surface quality. The existing Critic Loop integration calls `curvature_check_for_critic()` and `vlm_g2_check()` but their results are meaningless until the rendering pipeline exists.
+
+**Implementation steps:**
+
+1. **Renderer selection (Day 1 — evaluate options):**
+   - Option A: `pythonocc-core` with `OCC.Core.V3d` off-screen rendering + `OCC.Core.Graphic3d` zebra material. Requires X11 in Docker (or VirtualFramebuffer). Complexity: high.
+   - Option B: Export STEP → GLB (existing pipeline), then use `pyrender` + custom zebra fragment shader. Complexity: medium. Best choice if `pyrender` is already installed.
+   - Option C: Puppeteer / Playwright headless Chrome with Three.js zebra shader, save screenshot. Complexity: medium but adds Node.js dependency.
+   - **Recommended:** Option B — reuse the existing STEP→GLB pipeline + `pyrender` + zebra GLSL shader.
+
+2. **Implement `render_zebra(step_path, output_png_path, *, n_stripes=20)`:**
+   ```python
+   import pyrender, trimesh, numpy as np
+   from OCC.Core.STEPControl import STEPControl_Reader
+   
+   def render_zebra(step_path: str, output_png_path: str, *, n_stripes: int = 20) -> str:
+       """Render STEP file with zebra-stripe reflection map. Returns path to PNG."""
+       # Load via trimesh (STEP→mesh via OCC export)
+       mesh = trimesh.load(step_path)
+       # Apply zebra material: fragment shader alternates black/white based on
+       # dot product of reflected normal with environment Y axis
+       scene = pyrender.Scene(ambient_light=[0.1, 0.1, 0.1])
+       mat = pyrender.MetallicRoughnessMaterial(metallicFactor=1.0, roughnessFactor=0.0)
+       mesh_node = pyrender.Mesh.from_trimesh(mesh, material=mat)
+       scene.add(mesh_node)
+       camera = pyrender.PerspectiveCamera(yfov=np.pi / 3.0)
+       scene.add(camera, pose=_look_at_pose(mesh))
+       r = pyrender.OffscreenRenderer(800, 600)
+       color, _ = r.render(scene)
+       import imageio; imageio.imwrite(output_png_path, color)
+       return output_png_path
+   ```
+   Note: a true zebra shader requires a custom GLSL fragment shader injected via pyrender's `CustomShaderCache`. See pyrender docs for fragment shader override. The n_stripes parameter controls stripe frequency.
+
+3. **Complete `vlm_g2_check()` in `continuity_check.py`:**
+   - Replace the stub body with:
+     1. `render_zebra(step_path, tmp_png_path)`
+     2. Load image as base64
+     3. Send to Gemini Vision with the system prompt already documented in the stub (lines 250–256)
+     4. Parse JSON response: `{"g2_pass": bool, "violation_description": str}`
+     5. Return `G2CheckResult(passed=result["g2_pass"], method="vlm_zebra", feedback=result["violation_description"])`
+
+4. **Complete `vlm_curvature_check()` in `geometry_analysis.py`:**
+   - Replace stub body with:
+     1. `render_zebra(step_path, tmp_png_path)` (reuse same rendering call)
+     2. Send to Gemini Vision with the curvature analysis prompt already documented in the stub (lines 357–369)
+     3. Parse structured output: `{"severity": 0–3, "regions": [...], "feedback": str}`
+     4. Return `GaussianCurvatureResult(severity=severity, regions=regions, feedback=feedback, method="vlm_zebra")`
+
+5. **Docker:** Add `pyrender` (headless-compatible) to requirements. Verify `pyrender.OffscreenRenderer` works in Docker without a display:
+   ```dockerfile
+   RUN pip install pyrender imageio imageio-ffmpeg
+   ENV PYOPENGL_PLATFORM=osmesa
+   ```
+
+6. **Test:** Add `backend/tests/test_vlm_stubs.py` — with mocked Gemini Vision responses, verify that both `vlm_g2_check()` and `vlm_curvature_check()` no longer return stubs and instead parse mocked JSON responses.
+
+**Files:** `backend/continuity_check.py`, `backend/geometry_analysis.py`, new `backend/rendering.py`, `requirements.txt`, `Dockerfile`  
+**Dependencies:** T1-07 (GLB viewer — existing STEP→GLB pipeline can be reused for mesh loading), T3-07 (Gaussian curvature — defines the data structure being populated)  
+**Effort:** 2–4 months (renderer evaluation + GLSL zebra shader + Vision API integration + Docker headless validation)  
+**Success criteria:** `render_zebra()` produces visible zebra stripes on a NACA 0012 wing STEP file. `vlm_g2_check()` returns a non-trivial result (not always `passed=True`) on a surface with a known G2 discontinuity. `vlm_curvature_check()` returns severity > 0 on a saddle surface. Both checks active in the Critic Loop.
+
+---
+
+## Tier 4 — Subagent Architecture
+
+> **Goal:** Break the monolithic `agents.py` (1,422 lines, 8 entangled functions, shared global state) into a proper subagent system. Each agent runs as an independent object with its own context window, communicates via structured `SubagentMessage` envelopes, can be upgraded independently via the model registry, and can be spawned in parallel where tasks are independent.
+>
+> **Current pain points:** Planner shares context with Machinist which shares with Critic — impossible to upgrade one model without touching all three. Machinist parts are generated sequentially even though they are independent. Telemetry spans are per-critic-attempt, not per-agent. A model rename requires coordinated edits across 5 files.
+>
+> **Token Efficiency Protocol** applies throughout. Status symbols: ⬜ pending · 🔄 in progress · ✅ done · ⚠️ blocked.
+
+---
+
+### ✅ T4-01: SubagentBase — Protocol, Message Schema, Context
+
+```xml
+<task id="T4-01" status="⬜" effort="3–5d" tier="4">
+  <summary>Define SubagentBase ABC + SubagentMessage TypedDict + SubagentContext dataclass</summary>
+  <why>Shared interface every subagent signs. Without it extractions diverge. Zero logic change — pure schema.</why>
+  <files>
+    <new>backend/subagents/__init__.py</new>
+    <new>backend/subagents/base.py</new>
+    <new>backend/subagents/messages.py</new>
+  </files>
+  <steps>
+    <step n="1">SubagentMessage TypedDict:
+      trace_id: str          # UUID4 — propagated across full pipeline
+      parent_id: str | None  # spawning agent's trace_id
+      agent_type: str        # "planner"|"machinist"|"critic"|"assembler"|"rea"|"clarifier"|"aero"
+      payload: dict          # agent-specific structured output
+      metadata: dict         # {model, temperature, tokens_in, tokens_out, latency_ms, timestamp}
+    </step>
+    <step n="2">SubagentContext dataclass:
+      trace_id: str
+      prompt: str
+      domain: str
+      manifest: AssemblyManifest | None = None
+      flight_env: FlightEnvelope | None = None
+      history: list[SubagentMessage] = field(default_factory=list)
+      model_registry: ModelRegistry = field(default_factory=ModelRegistry.default)
+    </step>
+    <step n="3">SubagentBase ABC:
+      @abstractmethod async def run(self, ctx: SubagentContext) -> SubagentMessage
+      @property def agent_type(self) -> str   # must match SubagentMessage.agent_type literal
+      @property def model(self) -> str         # reads from ctx.model_registry
+    </step>
+    <step n="4">Unit test: mock subagent passes ABC contract + mypy strict</step>
+    <step n="5">SubagentMessage.to_json() / from_json() — clean round-trip, no numpy/nan</step>
+  </steps>
+  <success>ABC defined. Mock subagent passes mypy. Message round-trips JSON cleanly. 0 logic changes to existing agents.py.</success>
+  <deps>none</deps>
+</task>
+```
+
+---
+
+### ✅ T4-02: Orchestrator / Router
+
+```xml
+<task id="T4-02" status="⬜" effort="1–2w" tier="4">
+  <summary>Central Orchestrator dispatching to subagents via state machine; replaces inline main.py pipeline</summary>
+  <why>main.py /generate currently has 80+ lines of imperative pipeline logic. Orchestrator separates routing from agent logic and enables parallel dispatch of independent stages.</why>
+  <files>
+    <new>backend/subagents/orchestrator.py</new>
+    <modify>backend/main.py  ← /generate body → Orchestrator(ctx).run()</modify>
+  </files>
+  <steps>
+    <step n="1">PipelineState enum:
+      INIT → REA → CLARIFY → PLAN → MACHINE → CRITICIZE → ASSEMBLE → AERO → DONE | FAILED
+    </step>
+    <step n="2">Orchestrator.run(prompt, opts) → AsyncGenerator[SSEEvent]:
+      1. Root span: trace_id=uuid4(), emit INIT SSE
+      2. REASubagent → DesignRequirements
+      3. If under-specified → ClarifierSubagent → clarification questions
+      4. PlannerSubagent → AssemblyManifest
+      5. asyncio.gather(*[MachinistSubagent().run(ctx_part) for part in manifest.parts])
+      6. CriticSubagent per part (serial within part, parallel across parts)
+      7. AssemblerSubagent → STEP + GLB
+      8. If domain=="D" and airfoil_spec → AeroSubagent (parallel with assembler)
+      9. Emit DONE SSE; return result dict
+    </step>
+    <step n="3">Replace main.py /generate body: Orchestrator(ctx).run()</step>
+    <step n="4">Backward compat: /run endpoint keeps direct run_machinist() call (single-part quick mode unchanged)</step>
+    <step n="5">Integration test: full /generate pipeline routed through Orchestrator → SSE stream identical to current</step>
+  </steps>
+  <success>SSE event stream byte-identical to current on 5 test prompts. No regression. Parallel Machinist speedup measurable (≥1.5× on 4-part assembly vs. sequential).</success>
+  <deps>T4-01</deps>
+</task>
+```
+
+---
+
+### ✅ T4-03: Planner Subagent
+
+```xml
+<task id="T4-03" status="✅" effort="2–3d" tier="4">
+  <summary>Extract run_planner → PlannerSubagent; isolated context window; model from registry</summary>
+  <files>
+    <new>backend/subagents/planner.py</new>
+    <modify>backend/agents.py  ← run_planner() → shim calling PlannerSubagent</modify>
+  </files>
+  <steps>
+    <step n="1">Move run_planner body → PlannerSubagent.run(ctx): no logic change</step>
+    <step n="2">Model: ctx.model_registry.get("planner").model_id (not hardcoded)</step>
+    <step n="3">Input: ctx.prompt + ctx.domain + REA payload from ctx.history</step>
+    <step n="4">Output: SubagentMessage{payload={manifest: AssemblyManifest.model_dump()}}</step>
+    <step n="5">Context window: system_prompt + user_prompt only — no history bleed from clarifier/REA</step>
+    <step n="6">Shim: run_planner(*args) → asyncio.run(PlannerSubagent().run(ctx)) for backward compat</step>
+  </steps>
+  <success>PlannerSubagent.run() produces structurally identical manifests to run_planner() on 10 held-out prompts (same keys, plausible values — LLM output will vary).</success>
+  <deps>T4-01</deps>
+</task>
+```
+
+---
+
+### ✅ T4-04: Machinist Subagent (Parallel-Safe)
+
+```xml
+<task id="T4-04" status="⬜" effort="3–5d" tier="4">
+  <summary>Extract run_machinist + batch → MachinistSubagent; each instance stateless, parallel-safe</summary>
+  <files>
+    <new>backend/subagents/machinist.py</new>
+    <modify>backend/agents.py  ← run_machinist() / run_machinist_batch() → shims</modify>
+  </files>
+  <steps>
+    <step n="1">MachinistSubagent.run(ctx): handles single part — own tmp dir, own trace_id, own telemetry sink</step>
+    <step n="2">Critic loop embedded: MachinistSubagent calls CriticSubagent internally until accept or max_retries</step>
+    <step n="3">Parallel spawn: Orchestrator uses asyncio.gather(*[MachinistSubagent().run(ctx_p) for ctx_p in part_ctxs])</step>
+    <step n="4">Resource guard: asyncio.Semaphore(MAX_MACHINIST_CONCURRENCY) — default 4, from config.py</step>
+    <step n="5">Per-attempt telemetry emitted with parent_id=orchestrator trace_id</step>
+    <step n="6">Shim: run_machinist_batch() → gather over MachinistSubagent instances</step>
+  </steps>
+  <success>4-part assembly: 4 concurrent MachinistSubagents; wall-clock ≤1.5× single-part at 4× concurrency (Gemini API is the bottleneck, not Python). Resource guard prevents runaway parallelism.</success>
+  <deps>T4-01, T4-05</deps>
+</task>
+```
+
+---
+
+### ✅ T4-05: Critic Subagent
+
+```xml
+<task id="T4-05" status="✅" effort="2–3d" tier="4">
+  <summary>Extract run_critic_loop + run_assembly_critic_loop → CriticSubagent + AssemblyCriticSubagent</summary>
+  <files>
+    <new>backend/subagents/critic.py</new>
+    <modify>backend/agents.py  ← shims</modify>
+  </files>
+  <steps>
+    <step n="1">CriticSubagent.run(ctx): inputs={code, part_id, domain, max_retries} — preserves full Critic Loop (compile→traceback→retry)</step>
+    <step n="2">G2/curvature checks remain advisory: CriticSubagent.run() never raises on geometry advisories</step>
+    <step n="3">AssemblyCriticSubagent.run(ctx): inputs={step_paths, manifest} → runs interpenetration + DOF checks</step>
+    <step n="4">Both emit per-attempt SubagentMessages (retry N logged as child of parent trace_id)</step>
+    <step n="5">CriticSubagent wired into MachinistSubagent (T4-04) — not called directly by Orchestrator</step>
+  </steps>
+  <success>CriticSubagent produces identical pass/fail outcomes to run_critic_loop() on 20 held-out part generation tasks. AssemblyCriticSubagent flags known-bad assembly (interpenetrating parts).</success>
+  <deps>T4-01</deps>
+</task>
+```
+
+---
+
+### ✅ T4-06: Assembler Subagent
+
+```xml
+<task id="T4-06" status="✅" effort="2–3d" tier="4">
+  <summary>Extract run_assembler + run_assembler_constraint + run_single_part_export → AssemblerSubagent</summary>
+  <files>
+    <new>backend/subagents/assembler.py</new>
+    <modify>backend/agents.py  ← shims</modify>
+  </files>
+  <steps>
+    <step n="1">AssemblerSubagent.run(ctx): selects constraint vs. translation path from manifest.mating_rules</step>
+    <step n="2">Single-part fast path: SinglePartExportSubagent (trivial wrapper — enables hot-swap of export logic)</step>
+    <step n="3">Output: SubagentMessage{payload={step_path, glb_path, assembly_report}}</step>
+    <step n="4">Interpenetration check (T1-02) runs inside AssemblerSubagent post-solve — before output message emitted</step>
+    <step n="5">No LLM call in assembler: model registry entry = None (no-op)</step>
+  </steps>
+  <success>AssemblerSubagent handles all 3 assembly modes. No regression on existing assembly integration tests.</success>
+  <deps>T4-01, T4-05</deps>
+</task>
+```
+
+---
+
+### ✅ T4-07: Clarifier + REA Subagents
+
+```xml
+<task id="T4-07" status="✅" effort="2–3d" tier="4">
+  <summary>Extract run_rea → REASubagent; run_clarifier → ClarifierSubagent; both use lite model</summary>
+  <files>
+    <new>backend/subagents/rea.py</new>
+    <new>backend/subagents/clarifier.py</new>
+    <modify>backend/agents.py  ← shims</modify>
+  </files>
+  <steps>
+    <step n="1">REASubagent.run(ctx): prompt → DesignRequirements SubagentMessage; lite model default</step>
+    <step n="2">ClarifierSubagent.run(ctx): prompt + requirements → list[str] SubagentMessage; lite model default</step>
+    <step n="3">ClarifierSubagent: empty list → Orchestrator skips clarification gate (no blocking)</step>
+    <step n="4">Both add trace_id to existing telemetry.py calls</step>
+    <step n="5">Shims: run_rea() → REASubagent; run_clarifier() → ClarifierSubagent</step>
+  </steps>
+  <success>REASubagent + ClarifierSubagent output matches current agents.py on 10 test prompts. Lite model confirmed from ModelRegistry (not heavy model).</success>
+  <deps>T4-01, T4-10</deps>
+</task>
+```
+
+---
+
+### ✅ T4-08: Airfoil Analyst Subagent
+
+```xml
+<task id="T4-08" status="✅" effort="2–3d" tier="4">
+  <summary>Wrap analysis/airfoil.py → AeroSubagent; integrate at Orchestrator Phase 3 slot; parallel with assembler</summary>
+  <files>
+    <new>backend/subagents/aero.py</new>
+    <modify>backend/main.py  ← remove _run_aero_stage(); route through AeroSubagent</modify>
+  </files>
+  <steps>
+    <step n="1">AeroSubagent.run(ctx): inputs=step_files + airfoil_spec + flight_env → PolarReport SubagentMessage</step>
+    <step n="2">Move _run_aero_stage() body verbatim into AeroSubagent.run() — add message wrapper only</step>
+    <step n="3">Skip silently: airfoil_spec is None OR domain != "D" → return null-payload SubagentMessage</step>
+    <step n="4">No LLM call — model registry entry = None</step>
+    <step n="5">Parallel with assembler: AeroSubagent only needs the wing part STEP (available before full assembly). Orchestrator spawns asyncio.gather(assembler_task, aero_task) when domain=="D"</step>
+    <step n="6">CI: MIRUM_XFOIL_BIN=analysis/tests/mock_xfoil — no code change needed, already wired in config.py</step>
+  </steps>
+  <success>AeroSubagent.run() produces PolarReport matching _run_aero_stage() on 3 NACA test cases. Parallel execution with AssemblerSubagent confirmed via asyncio.gather timing log.</success>
+  <deps>T4-01, T4-02, T2-15</deps>
+</task>
+```
+
+---
+
+### ✅ T4-09: Subagent-Level Telemetry + Trace IDs
+
+```xml
+<task id="T4-09" status="✅" effort="2–3d" tier="4">
+  <summary>Per-subagent telemetry: trace_id propagation, per-agent latency + token counts, JSONL sink</summary>
+  <files>
+    <modify>backend/telemetry.py  ← add write_subagent_span()</modify>
+    <new>backend/subagents/telemetry_mixin.py</new>
+  </files>
+  <steps>
+    <step n="1">TelemetryMixin (mixed into SubagentBase):
+      start_span(name) → records start_time + trace_id
+      end_span(tokens_in, tokens_out, status) → writes SubagentSpan JSONL record
+    </step>
+    <step n="2">SubagentSpan JSONL record:
+      {trace_id, parent_id, agent_type, model, latency_ms, tokens_in, tokens_out, status, timestamp}
+    </step>
+    <step n="3">Orchestrator: root span (trace_id=UUID4, parent_id=null); each child subagent inherits trace_id + sets parent_id=orchestrator trace_id</step>
+    <step n="4">telemetry.py: add write_subagent_span() → appends to /tmp/mirum/telemetry/subagent_spans.jsonl (separate from critic_loop.jsonl for query clarity)</step>
+    <step n="5">Optional: Streamlit sidebar shows per-agent latency breakdown (low-pri — add only if time allows)</step>
+  </steps>
+  <success>Full pipeline run produces SubagentSpan records for all 7+ agent types. Trace tree reconstructable from JSONL via trace_id + parent_id linkage. Per-agent P50/P95 latency queryable with jq one-liner.</success>
+  <deps>T4-01, T4-02</deps>
+</task>
+```
+
+---
+
+### ✅ T4-10: Model Registry + Hot-Swap
+
+```xml
+<task id="T4-10" status="✅" effort="2–3d" tier="4">
+  <summary>ModelRegistry singleton: per-agent model config; hot-swap without restart via POST /admin/model-config</summary>
+  <files>
+    <new>backend/subagents/model_registry.py</new>
+    <modify>backend/main.py  ← add POST /admin/model-config endpoint</modify>
+    <modify>backend/config.py  ← add per-agent model defaults table</modify>
+  </files>
+  <steps>
+    <step n="1">ModelRegistry singleton: dict[agent_type → ModelConfig]
+      ModelConfig: {model_id: str, temperature: float, max_tokens: int, lite_fallback: str | None}
+    </step>
+    <step n="2">Default registry from config.py:
+      planner:    GEMINI_MODEL_HEAVY, temp=0.3
+      machinist:  GEMINI_MODEL_HEAVY, temp=0.2
+      critic:     GEMINI_MODEL_HEAVY, temp=0.1
+      rea:        GEMINI_MODEL_LITE,  temp=0.2
+      clarifier:  GEMINI_MODEL_LITE,  temp=0.4
+      assembler:  n/a (no LLM)
+      aero:       n/a (no LLM)
+    </step>
+    <step n="3">SubagentBase.model property: ModelRegistry.instance().get(self.agent_type).model_id</step>
+    <step n="4">POST /admin/model-config {agent_type, model_id, temperature} → in-place registry update (no restart)</step>
+    <step n="5">Auth: /admin/* gated by ADMIN_API_KEY env var (simple bearer token, no OAuth for v1)</step>
+    <step n="6">Hot-swap test: swap Planner to lite model via POST → run 3 generates → swap back → no restart at any point</step>
+    <step n="7">Swap logged: telemetry event {type: "model_swap", agent_type, old_model, new_model, timestamp}</step>
+  </steps>
+  <success>Planner swapped heavy→lite via POST /admin/model-config. Next /generate uses lite model. Swap reverted. Zero process restarts. Swap events visible in telemetry JSONL.</success>
+  <deps>T4-01, T4-09</deps>
+</task>
+```
+
+---
+
 ## Dependency Graph
 
 ```
@@ -1698,12 +2219,32 @@ T2-05 (Stratified Dataset) ─┘
 
 T2-04 (G2 Continuity)
   └─ T3-07 (Gaussian Curvature)
+      └─ T3-09 (VLM Zebra Rendering — completes both VLM stubs)
 
 T2-10 (cad_utils Expansion)
   └─ T3-06 (Domain E Sheet Metal)
 
 T2-09 (Parasolid Export)
   └─ T3-08 (PMI Validation)
+
+T2-13 (Aerospace Demos)
+  └─ T2-15 (Airfoil Phase 2 Validation)
+      ├─ T2-16 (Airfoil Phase 3 Frontend)
+      └─ T2-17 (Domain D Eval Harness Prompts)
+
+T2-14 (Gemini Model Centralization)  ← no deps; enables T4-10
+
+T4-01 (SubagentBase protocol)
+  ├─ T4-02 (Orchestrator)
+  │     ├─ T4-03 (Planner subagent)
+  │     ├─ T4-04 (Machinist subagent — parallel)
+  │     │     └─ T4-05 (Critic subagent — called inside Machinist)
+  │     ├─ T4-06 (Assembler subagent)
+  │     │     └─ T4-08 (Aero subagent — parallel with assembler for Domain D)
+  │     └─ T4-07 (Clarifier + REA subagents)
+  ├─ T4-09 (Subagent telemetry + trace IDs)
+  └─ T4-10 (Model registry + hot-swap)
+      └─ T4-07 (Clarifier + REA — need registry for lite-model routing)
 ```
 
 ---
@@ -1732,7 +2273,28 @@ If starting fresh, execute in this order to get the maximum early impact:
 18. **T3-04** — RLAIF (continuous quality improvement post-SFT)
 19. **T3-01** — Semantic mate bootstrapping (assembly quality step change)
 
+**Gap-fill additions (run concurrently with above):**
+
+20. **T2-14** — Gemini model centralization (0.5 days, zero logic risk — do immediately)
+21. **T2-15** — Airfoil Phase 2 end-to-end validation (requires XFOIL on dev machine)
+22. **T2-16** — Airfoil Phase 3 frontend polar display (1–2 days after T2-15)
+23. **T2-17** — Domain D eval harness prompts (1–2 days, schema-driven)
+24. **T3-09** — VLM Zebra rendering (unblocks two production no-op stubs; start renderer evaluation early)
+
+**Subagent architecture (Tier 4 — begin after Tier 1 complete):**
+
+25. **T4-01** — SubagentBase protocol (foundational; zero risk; do in parallel with T2-14)
+26. **T4-10** — Model registry (enables hot-swap; do early to inform all subagent extractions)
+27. **T4-07** — REA + Clarifier subagents (simplest extractions, no side effects)
+28. **T4-03** — Planner subagent
+29. **T4-05** — Critic subagent
+30. **T4-04** — Machinist subagent + parallel execution (highest impact latency win)
+31. **T4-06** — Assembler subagent
+32. **T4-08** — Aero subagent (after T2-15 validates the aero pipeline)
+33. **T4-02** — Orchestrator (integrate all subagents; replaces main.py pipeline)
+34. **T4-09** — Subagent telemetry (wire after each subagent is extracted)
+
 ---
 
 *Generated from: `wiki/synthesis/mirum-capability-gaps.md` + `wiki/synthesis/mirum-technical-architecture.md`*  
-*Date: 2026-04-18*
+*Updated: 2026-05-14 — Added T2-14/15/16/17 (gap audit), T3-09 (VLM Zebra), Tier 4 (Subagent Architecture T4-01–T4-10)*
