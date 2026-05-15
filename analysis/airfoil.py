@@ -393,6 +393,15 @@ def _build_xfoil_script(
     """
     lines: list[str] = []
 
+    # ── Disable graphics (PLOP G F) ──────────────────────────────────────────
+    # Without this, ASEQ in OPER tries to open an X11 display for XFOIL's
+    # built-in plotter and aborts with "Cannot open display" in headless
+    # environments (Docker, CI). Has no effect on systems with a display —
+    # the polar still accumulates to the PACC file regardless.
+    lines.append("PLOP")
+    lines.append("G F")
+    lines.append("")  # blank line exits the PLOP submenu
+
     # ── Load airfoil ─────────────────────────────────────────────────────────
     if airfoil_spec.upper().startswith("NACA"):
         lines.append(airfoil_spec.upper())  # e.g. "NACA 0012"
