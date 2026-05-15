@@ -6,7 +6,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app:ro
-      - ./analysis:/app/analysis:ro   # Phase 3: standalone XFOIL analysis package (importable via PYTHONPATH=/app)
+      - ./analysis:/opt/analysis:ro   # Phase 3: standalone XFOIL analysis package. Mounted outside /app to avoid nested-bind-mount on read-only rootfs. PYTHONPATH adds /opt in the Dockerfile.
       - backend_tmp_parts:/app/tmp_parts
       - backend_telemetry:/app/telemetry_logs
     read_only: true
