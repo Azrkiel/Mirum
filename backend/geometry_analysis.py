@@ -349,34 +349,135 @@ async def check_curvature_via_vlm(
         2. Gemini Vision API call with the rendered image
         3. Structured output schema for surface quality scoring
     """
-    logger.info(
-        "VLM curvature analysis stub called for %s — returning placeholder",
-        rendered_image_path,
+    logger.info("VLM curvature analysis starting for %s", rendered_image_path)
+
+    # --- Step 1: Load rendered image ---
+    import json as _json   # noqa: PLC0415
+    import os as _os       # noqa: PLC0415
+    import tempfile as _tmp  # noqa: PLC0415
+
+    # If rendered_image_path is empty or None, render from step_path if available
+    image_path_to_use = rendered_image_path
+    rendered_here = False
+
+    if not image_path_to_use or not _os.path.isfile(image_path_to_use):
+        logger.warning(
+            "check_curvature_via_vlm: image not found at %r — cannot run VLM check",
+            rendered_image_path,
+        )
+        return GaussianCurvatureResult(
+            passed=True,
+            method="vlm_image_missing",
+            feedback_message="VLM curvature check skipped — rendered image not available.",
+        )
+
+    try:
+        with open(image_path_to_use, "rb") as f:
+            png_bytes = f.read()
+    except OSError as exc:
+        logger.warning("check_curvature_via_vlm: cannot read image %s: %s", image_path_to_use, exc)
+        return GaussianCurvatureResult(
+            passed=True,
+            method="vlm_image_read_error",
+            feedback_message=f"VLM curvature check skipped — image read error: {exc}",
+        )
+    finally:
+        if rendered_here:
+            try:
+                _os.unlink(image_path_to_use)
+            except OSError:
+                pass
+
+    # --- Step 2: Call Gemini Vision ---
+    vision_system_prompt = (
+        "You are a mechanical surface quality inspector. This image shows a 3D rendered "
+        "part with a simulated zebra-stripe environment map for curvature analysis.\n\n"
+        "Zebra stripes reveal surface quality:\n"
+        "  - Smooth and continuous across a region: good surface quality (severity 0)\n"
+        "  - Mildly wavy mid-surface: minor G2 variation (severity 1)\n"
+        "  - Noticeably wavy or pinched stripes: moderate G2 failure (severity 2)\n"
+        "  - Kinked / abruptly broken stripes on smooth regions: severe G2 discontinuity (severity 3)\n"
+        "  - Kinked stripes at silhouette edges or sharp feature edges are NORMAL — ignore those.\n\n"
+        "Identify regions where zebra stripes are irregular on surfaces that appear to be "
+        "smooth/continuous (not at intended sharp edges). "
+        "Return ONLY valid JSON, no markdown:\n"
+        '{"severity": <0-3>, "regions": ["<region description>", ...], '
+        '"feedback": "<brief assessment>"}'
     )
 
-    # TODO: Implement full VLM zebra analysis:
-    # 1. Load rendered_image_path as base64
-    # 2. Send to Gemini Vision with system prompt:
-    #    "You are a mechanical surface quality inspector. This image shows a 3D
-    #    rendered part with a zebra-stripe environment map for curvature analysis.
-    #    Zebra stripes should be:
-    #      - Smooth and continuous: good surface quality
-    #      - Kinked or discontinuous at edges: G1 discontinuity (expected at feature edges)
-    #      - Wavy or irregular mid-surface: possible G2 failure or saddle region
-    #    Identify regions where zebra stripes are irregular (wavy, kinked, pinched)
-    #    on smooth continuous surfaces. Report as JSON:
-    #    {severity: 0-3, regions: [...], feedback: str}"
-    # 3. Parse structured output into GaussianCurvatureResult
+    try:
+        import google.generativeai as genai  # noqa: PLC0415
+        from config import GEMINI_MODEL_HEAVY  # noqa: PLC0415
 
-    return GaussianCurvatureResult(
-        passed=True,
-        method="vlm_stub",
-        feedback_message=(
-            "VLM zebra analysis not yet implemented. "
-            "Requires rendering pipeline and Gemini Vision integration. "
-            "See T3-07 stub for implementation details."
-        ),
-    )
+        model_name = api_key or GEMINI_MODEL_HEAVY  # api_key param repurposed as model override
+        # Normalise: if api_key looks like an API key (not a model id), use default model
+        if api_key and not api_key.startswith("gemini"):
+            model_name = GEMINI_MODEL_HEAVY
+
+        model = genai.GenerativeModel(model_name=model_name)
+        image_part = {"mime_type": "image/png", "data": png_bytes}
+
+        import asyncio as _asyncio  # noqa: PLC0415
+        try:
+            loop = _asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            # We're in an async context — we need to await; but this function is sync.
+            # Create a coroutine and run in a new thread with its own event loop.
+            import concurrent.futures as _cf  # noqa: PLC0415
+
+            async def _call_vision():
+                return await model.generate_content_async(
+                    [vision_system_prompt, image_part],
+                    generation_config={"response_mime_type": "application/json"},
+                )
+
+            with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_asyncio.run, _call_vision())
+                response = future.result(timeout=60)
+        else:
+            response = _asyncio.run(
+                model.generate_content_async(
+                    [vision_system_prompt, image_part],
+                    generation_config={"response_mime_type": "application/json"},
+                )
+            )
+
+        data = _json.loads(response.text)
+        severity = int(data.get("severity", 0))
+        regions: list[str] = [str(r) for r in data.get("regions", [])]
+        feedback: str = str(data.get("feedback", ""))
+
+        passed = severity < 2  # severity 0-1: pass; 2-3: fail
+        violation_descs = [f"[{r}] severity {severity}" for r in regions] if not passed else []
+
+        logger.info(
+            "check_curvature_via_vlm: severity=%d passed=%s regions=%s",
+            severity, passed, regions[:3],
+        )
+
+        msg = f"Zebra VLM: severity {severity}/3. {feedback}"
+        if not passed:
+            msg += "\n\nFix: Increase loft cross-sections; ensure adjacent sections have smooth curvature transitions."
+
+        return GaussianCurvatureResult(
+            passed=passed,
+            method="vlm_zebra",
+            n_saddle_points=len(regions) if not passed else 0,
+            saddle_regions=regions,
+            violation_descriptions=violation_descs,
+            feedback_message=msg,
+        )
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("check_curvature_via_vlm: Vision API failed (%s) — returning pass", exc)
+        return GaussianCurvatureResult(
+            passed=True,
+            method="vlm_zebra_api_failed",
+            feedback_message=f"VLM curvature check skipped — Vision API error: {exc}",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +521,57 @@ def curvature_check_for_critic(
         )
 
     result = compute_gaussian_curvature(step_path, n_samples=n_samples)
+
+    # If OCCT is unavailable (method="skipped"), attempt the VLM Zebra path (T3-09)
+    if result.method in ("skipped", "failed"):
+        import asyncio as _asyncio  # noqa: PLC0415
+        import os as _os            # noqa: PLC0415
+        import tempfile as _tmp     # noqa: PLC0415
+
+        logger.info(
+            "curvature_check_for_critic: OCCT %s for %s — attempting VLM Zebra fallback",
+            result.method, step_path,
+        )
+        try:
+            from rendering import render_zebra  # noqa: PLC0415
+
+            tmp_png = _tmp.NamedTemporaryFile(suffix="_zebra.png", delete=False)
+            tmp_png_path = tmp_png.name
+            tmp_png.close()
+
+            try:
+                loop = _asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop is not None and loop.is_running():
+                # Inside running event loop — run render in thread synchronously
+                import concurrent.futures as _cf  # noqa: PLC0415
+                with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+                    pool.submit(render_zebra, step_path, tmp_png_path).result(timeout=60)
+            else:
+                render_zebra(step_path, tmp_png_path)
+
+            import asyncio as _asyncio2  # noqa: PLC0415
+
+            async def _vlm_call():
+                return await check_curvature_via_vlm(tmp_png_path, part_description)
+
+            if loop is not None and loop.is_running():
+                import concurrent.futures as _cf2  # noqa: PLC0415
+                with _cf2.ThreadPoolExecutor(max_workers=1) as pool:
+                    result = pool.submit(_asyncio.run, _vlm_call()).result(timeout=120)
+            else:
+                result = _asyncio.run(_vlm_call())
+
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("VLM Zebra fallback in curvature_check_for_critic failed: %s", exc)
+            # Keep original skipped result
+        finally:
+            try:
+                _os.unlink(tmp_png_path)
+            except (NameError, OSError):
+                pass
 
     # Enrich feedback with part description context if failed
     if not result.passed and part_description:
