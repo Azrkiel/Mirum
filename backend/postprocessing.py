@@ -515,8 +515,9 @@ async def extract_pmi_via_llm(
             "required": ["has_pmi", "annotations"],
         }
 
+        from config import GEMINI_MODEL_LITE  # noqa: PLC0415
         model = genai.GenerativeModel(
-            model_name="gemini-3.1-flash-lite-preview",
+            model_name=GEMINI_MODEL_LITE,
             system_instruction=(
                 "You are a manufacturing engineer extracting PMI (Product and Manufacturing "
                 "Information) from design prompts. Extract all explicit tolerance callouts, "
