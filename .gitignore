@@ -34,3 +34,7 @@ Thumbs.db
 # Pipeline runtime directories
 backend/tmp_parts/
 backend/telemetry_logs/
+# XFOIL binary — installed via bin/install_xfoil_windows.ps1 on Win,
+# apt-get install xfoil on Linux. Never commit the binary itself.
+bin/xfoil.exe
+bin/xfoil
