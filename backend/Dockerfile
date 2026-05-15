@@ -5,8 +5,20 @@ FROM continuumio/miniconda3
 # libGLEW but no longer bundle libGL itself, so rebuilds started failing
 # with "libGL.so.1: cannot open shared object file". Install it from apt.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libgl1 && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends \
+        libgl1 \
+        xfoil \
+        libosmesa6 \
+        libgles2-mesa \
+        freeglut3 \
+    && rm -rf /var/lib/apt/lists/*
+# xfoil: Mark Drela's subsonic airfoil analysis tool.
+# Required by analysis/airfoil.py for Domain D aerodynamic polar generation.
+# The binary lands at /usr/bin/xfoil — no MIRUM_XFOIL_BIN env var needed in Linux.
+#
+# libosmesa6 / libgles2-mesa: OSMesa software OpenGL implementation for headless rendering.
+# Required by pyrender's OffscreenRenderer (T3-09 Zebra rendering pipeline).
+# PYOPENGL_PLATFORM=osmesa (set in ENV below) tells PyOpenGL to use OSMesa instead of X11.
 
 # Create conda environment with Python 3.10 and CadQuery from conda-forge
 RUN conda create -n cadenv python=3.10 -y && \
@@ -32,7 +44,13 @@ EXPOSE 8000
 ENV HOME=/tmp \
     XDG_CONFIG_HOME=/tmp/.config \
     CONDA_NO_PLUGINS=true \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    PYOPENGL_PLATFORM=osmesa
+# PYOPENGL_PLATFORM=osmesa: forces PyOpenGL (and therefore pyrender) to use
+# the OSMesa software renderer instead of an X11/EGL display.  Required for
+# headless Docker rendering in the T3-09 Zebra pipeline.
+# If OSMesa packages are not installed (e.g. in CI), set MIRUM_NO_PYRENDER=1
+# to disable pyrender and use the pure-numpy synthetic fallback instead.
 
 USER caduser
 
