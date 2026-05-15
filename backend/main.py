@@ -133,6 +133,14 @@ async def audit_log(request: Request, call_next):
 
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., max_length=5000)
+    run_aero: bool = Field(
+        default=False,
+        description=(
+            "Phase 3 opt-in: when True and the assembly is Domain D (aerospace), "
+            "run XFOIL on the multi-part STEP after export and attach a polar "
+            "report. Failure is non-blocking — GLB delivery never depends on it."
+        ),
+    )
 
 
 class RunRequest(BaseModel):
@@ -147,7 +155,124 @@ def _event(step: str, status: str, detail: str = "") -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
-async def _pipeline(prompt: str) -> AsyncGenerator[str, None]:
+def _sanitize_floats(obj: object) -> object:
+    """Recursively replace NaN/Inf floats with None so json.dumps never raises.
+
+    XFOIL polar data can contain NaN for unconverged alpha points.  JSON does
+    not support NaN, so these must be replaced with null before the dict is
+    serialised into the SSE payload.
+    """
+    import math  # noqa: PLC0415 — stdlib, always available
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_floats(v) for v in obj]
+    return obj
+
+
+async def _run_aero_stage(
+    step_files: dict[str, str],
+    requirements,
+) -> tuple[dict | None, str]:
+    """Phase 3: XFOIL polar after export. Always returns; never raises.
+
+    Returns (polar_dict, status_msg). polar_dict is a PolarReport.model_dump()
+    on success, or None when aero is skipped (status_msg explains why).
+
+    Aero failure must never block GLB delivery — every failure path returns
+    None with a human-readable reason that the frontend can surface.
+    """
+    # --- Gate 1: requirements must indicate Domain D ---
+    if requirements is None:
+        return None, "no REA requirements available"
+    domain = (getattr(requirements, "inferred_domain", "") or "").strip().upper()
+    if domain != "D":
+        return None, f"inferred_domain={domain!r} (not Domain D)"
+
+    # --- Gate 2: airfoil_spec must name a wing ---
+    spec = getattr(requirements, "airfoil_spec", None)
+    if spec is None or not spec.naca_code or not spec.chord_mm or not spec.span_mm:
+        return None, "airfoil_spec missing naca_code / chord_mm / span_mm"
+
+    # --- Gate 3: need a STEP file (multi-part path only in v1) ---
+    if not step_files:
+        return None, "no STEP file (single-part path not supported in v1)"
+
+    # Pick the wing OML STEP: prefer a part whose id contains 'wing'/'oml'/'skin',
+    # else fall back to the first part (planner-ordered: base/foundation first).
+    step_path = None
+    for pid, path in step_files.items():
+        if any(kw in pid.lower() for kw in ("wing", "oml", "skin")):
+            step_path = path
+            break
+    if step_path is None:
+        step_path = next(iter(step_files.values()))
+
+    # --- Lazy import: analysis/ lives at repo root, may not be packaged everywhere ---
+    try:
+        import sys as _sys
+        from pathlib import Path as _Path
+        _repo_root = _Path(__file__).resolve().parent.parent
+        if str(_repo_root) not in _sys.path:
+            _sys.path.insert(0, str(_repo_root))
+        from analysis.airfoil import analyze_wing_step  # noqa: PLC0415
+        from schemas import PolarReport  # noqa: PLC0415
+    except ImportError as e:
+        return None, f"analysis module unavailable ({_safe_error(str(e))})"
+
+    # --- Build FlightEnvelope dict from REA spec; absent fields fall back to defaults ---
+    flight_env: dict = {}
+    fe = getattr(requirements, "flight_env", None)
+    if fe is not None:
+        for key in ("alpha_start", "alpha_end", "alpha_step", "reynolds", "mach", "n_crit"):
+            val = getattr(fe, key, None)
+            if val is not None:
+                flight_env[key] = float(val)
+
+    # --- Run XFOIL off the event loop (blocking subprocess) ---
+    import asyncio as _asyncio
+    try:
+        result = await _asyncio.to_thread(
+            analyze_wing_step,
+            step_path,
+            spec.naca_code,
+            float(spec.span_mm),
+            float(spec.chord_mm),
+            flight_env,
+        )
+    except Exception as e:
+        return None, f"XFOIL failed: {type(e).__name__}: {_safe_error(str(e))}"
+
+    try:
+        polar = PolarReport(
+            naca_code=result["naca_code"],
+            chord_mm=result["chord_mm"],
+            reynolds=result["reynolds"],
+            mach=result["mach"],
+            n_crit=result["n_crit"],
+            alpha=result["alpha"],
+            Cl=result["Cl"],
+            Cd=result["Cd"],
+            Cm=result["Cm"],
+            L_D=result["L_D"],
+            converged_count=result["converged_count"],
+            stall_alpha=result["stall_alpha"],
+            Cl_max=result["Cl_max"],
+        )
+    except Exception as e:
+        return None, f"polar parse failed: {type(e).__name__}: {_safe_error(str(e))}"
+
+    cl_max_str = f"{polar.Cl_max:.3f}" if polar.Cl_max is not None else "n/a"
+    sa_str = f"{polar.stall_alpha:.1f}°" if polar.stall_alpha is not None else "n/a"
+    msg = f"converged {polar.converged_count} α-points; Cl_max={cl_max_str}; stall α={sa_str}"
+    # Sanitize NaN/Inf → null before JSON serialisation (XFOIL can emit NaN
+    # for unconverged alpha points; JSON has no NaN literal).
+    return _sanitize_floats(polar.model_dump()), msg
+
+
+async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, None]:
     """Run the full pipeline, yielding SSE progress events."""
 
     # --- Step 1: REA (parallel with Planner) + Planner ---
@@ -176,6 +301,11 @@ async def _pipeline(prompt: str) -> AsyncGenerator[str, None]:
     # subprocess happens to have, which is /app (read-only).
     output_filename = str(_WORK_DIR / (uuid.uuid4().hex + ".glb"))
     param_dict = {}  # T1-06: Initialize for both paths
+    # Phase 3: hoisted so the post-export aero stage can see the per-part
+    # STEP files. Populated only in the multi-part path; empty for single-part.
+    step_files: dict[str, str] = {}
+    # G-05: per-part geometry certs — populated in the multi-part path.
+    _part_certs: dict[str, dict | None] = {}
 
     if single:
         # Single-part fast path: one machinist call, direct export, no assembler.
@@ -186,7 +316,7 @@ async def _pipeline(prompt: str) -> AsyncGenerator[str, None]:
         label = f"machinist:{part.part_id}"
         yield _event(label, "running", "Manufacturing single part")
         try:
-            code, _ = await run_critic_loop(part, save_step=False)
+            code, _, _cert = await run_critic_loop(part, save_step=False)
         except ScriptError as e:
             logger.exception("Machinist failed (single-part)")
             debug_log_error(
@@ -266,17 +396,18 @@ async def _pipeline(prompt: str) -> AsyncGenerator[str, None]:
 
         # Run concurrently with semaphore-based rate limiting
         async def _build_part(part):
-            code, step_path = await run_critic_loop(part)
-            return part.part_id, code, step_path
+            code, step_path, cert = await run_critic_loop(part)
+            return part.part_id, code, step_path, cert
 
         tasks = [_build_part(part) for part in parts]
         part_scripts: dict[str, str] = {}
-        step_files: dict[str, str] = {}
+        _part_certs: dict[str, dict | None] = {}
         for coro in asyncio.as_completed(tasks):
             try:
-                part_id, code, step_path = await coro
+                part_id, code, step_path, cert = await coro
                 part_scripts[part_id] = code
                 step_files[part_id] = step_path
+                _part_certs[part_id] = cert
                 yield _event(labels[part_id], "done", f"Part '{part_id}' validated")
             except ScriptError as e:
                 logger.exception("Machinist failed (multi-part)")
@@ -410,6 +541,90 @@ async def _pipeline(prompt: str) -> AsyncGenerator[str, None]:
     # T3-08: Check if prompt has tolerance callouts (inform frontend to offer /pmi/annotate)
     pmi_detected = has_tolerance_callouts(prompt)
 
+    # Phase 3 (XFOIL): optional aerodynamic polar. Gated on the opt-in flag;
+    # every failure path inside _run_aero_stage returns (None, reason) so this
+    # block can never prevent the "complete" event from being emitted.
+    aero_report: dict | None = None
+    if run_aero:
+        yield _event("aero", "running", "Running XFOIL polar analysis")
+        aero_report, aero_msg = await _run_aero_stage(step_files, requirements)
+        if aero_report is not None:
+            yield _event("aero", "done", aero_msg)
+        else:
+            yield _event("aero", "skipped", aero_msg)
+
+    # Geometry certificate — aggregate across all parts.
+    # Multi-part: use the certs collected during _build_part().
+    # Single-part: save a temp STEP and run the check (lightweight, advisory).
+    geometry_certificate: dict | None = None
+    try:
+        from verification.geometry import certify_geometry
+        from verification.material import resolve_material, mass_properties as _mass_props
+
+        if single:
+            # Single-part: write a temp STEP from the validated code
+            _cert_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_cert.step"))
+            _cert_script = (
+                f"{code}\n\n"
+                f"import cadquery as cq\n"
+                f"cq.exporters.export(result, r'{_cert_step_path}')\n"
+            )
+            _cert_exec = await execute_cad_script(_cert_script)
+            if _cert_exec["status"] == "success" and os.path.exists(_cert_step_path):
+                geometry_certificate = dict(certify_geometry(_cert_step_path))
+                try:
+                    os.remove(_cert_step_path)
+                except OSError:
+                    pass
+        else:
+            # Multi-part: merge per-part certs — aggregate volume + surface area,
+            # overall passed = all parts passed.
+            if _part_certs:
+                all_passed = all(
+                    c is not None and c.get("passed", False)
+                    for c in _part_certs.values()
+                )
+                total_vol = sum(
+                    (c["volume_mm3"] or 0.0)
+                    for c in _part_certs.values()
+                    if c is not None and c["volume_mm3"] is not None
+                )
+                total_sa = sum(
+                    (c["surface_area_mm2"] or 0.0)
+                    for c in _part_certs.values()
+                    if c is not None and c["surface_area_mm2"] is not None
+                )
+                all_failures: list[str] = []
+                for pid, c in _part_certs.items():
+                    if c:
+                        for f in c.get("failures", []):
+                            all_failures.append(f"{pid}: {f}")
+                geometry_certificate = {
+                    "passed": all_passed,
+                    "volume_mm3": total_vol if total_vol > 0 else None,
+                    "surface_area_mm2": total_sa if total_sa > 0 else None,
+                    "bounding_box": None,  # undefined for multi-part aggregate
+                    "checks": {},
+                    "failures": all_failures,
+                    "part_count": len(_part_certs),
+                    "per_part": {
+                        pid: c for pid, c in _part_certs.items()
+                    },
+                }
+
+        # Augment cert with material mass if we have volume + requirements
+        if geometry_certificate and geometry_certificate.get("volume_mm3"):
+            _mat_class = getattr(requirements, "material_class", None) if requirements else None
+            _mat_name, _density = resolve_material(_mat_class)
+            _mass = _mass_props(geometry_certificate["volume_mm3"], _density)
+            geometry_certificate["material"] = _mat_name
+            geometry_certificate["mass_g"] = _mass["mass_g"]
+            geometry_certificate["mass_kg"] = _mass["mass_kg"]
+
+    except Exception as _cert_exc:
+        logger.debug("geometry certificate generation failed: %s", _cert_exc)
+        geometry_certificate = None
+
     complete_payload = {
         "step": "complete",
         "status": "done",
@@ -418,6 +633,8 @@ async def _pipeline(prompt: str) -> AsyncGenerator[str, None]:
         "parameters": param_dict_final,  # T1-06
         "export_formats": get_available_formats(),  # T2-09
         "pmi_detected": pmi_detected,   # T3-08: hints frontend to offer PMI annotation
+        "aero_report": aero_report,     # Phase 3: PolarReport dict or None
+        "geometry_certificate": geometry_certificate,  # G-05: post-compile cert
     }
     yield f"data: {json.dumps(complete_payload)}\n\n"
 
@@ -543,7 +760,7 @@ async def plan_assembly(body: GenerateRequest, request: Request):
 @limiter.limit("5/minute")
 async def generate(body: GenerateRequest, request: Request):
     return StreamingResponse(
-        _pipeline(body.prompt),
+        _pipeline(body.prompt, run_aero=body.run_aero),
         media_type="text/event-stream",
     )
 
@@ -723,7 +940,7 @@ async def refine_assembly(body: RefineRequest, request: Request):
 
     async def _rebuild(part_id: str):
         part = part_map[part_id]
-        code, step_path = await run_critic_loop(part)
+        code, step_path, _cert = await run_critic_loop(part)
         return part_id, code, step_path
 
     tasks = [_rebuild(pid) for pid in parts_to_regenerate if pid in part_map]
@@ -853,6 +1070,105 @@ async def extract_pmi(body: PMIRequest, request: Request):
     }
 
 
+# ---------------------------------------------------------------------------
+# T2-16: Aerodynamic polar plot generation
+# ---------------------------------------------------------------------------
+
+class PlotsRequest(BaseModel):
+    """Request body for /analysis/plots (T2-16)."""
+    naca_code: str = Field(
+        ...,
+        description="4-digit NACA code, e.g. '0012'.",
+        min_length=4, max_length=6,
+    )
+    polar: dict = Field(
+        ...,
+        description="PolarReport.model_dump() dict from the /generate complete event.",
+    )
+    design_alpha: float = Field(
+        default=4.0,
+        description="Angle of attack (degrees) at which to render the Cp distribution.",
+        ge=-20.0, le=30.0,
+    )
+    reynolds: float = Field(default=1_000_000.0, gt=0)
+    mach: float = Field(default=0.0, ge=0.0, le=1.0)
+    n_crit: float = Field(default=9.0, ge=0.0, le=20.0)
+    session_id: str = Field(
+        default="",
+        description="Optional session identifier for telemetry grouping.",
+        max_length=64,
+    )
+
+
+@app.post("/analysis/plots")
+@limiter.limit("10/minute")
+async def generate_analysis_plots(body: PlotsRequest, request: Request):
+    """T2-16: Generate aerodynamic polar plots as base64 PNGs.
+
+    Generates three server-side matplotlib charts:
+      - cl_alpha : Cl vs α with stall_alpha marker and Cl_max annotation
+      - cd_alpha : Cd vs α on a log-scale Y-axis
+      - cp_dist  : Cp distribution at *design_alpha* (upper/lower surfaces,
+                   filled between).  Requires XFOIL; null on failure.
+
+    The Cl and Cd charts are pure Python (fast, no subprocess).
+    The Cp chart spawns XFOIL — it returns null rather than an error if
+    XFOIL is unavailable, so the endpoint never blocks the frontend.
+
+    Returns
+    -------
+    JSON with keys: status, cl_alpha, cd_alpha, cp_dist
+    cl_alpha and cd_alpha are always populated on success.
+    cp_dist may be null if XFOIL is not available.
+    """
+    import asyncio as _asyncio
+    import sys
+    from pathlib import Path as _Path
+
+    # Ensure analysis/ is importable (repo root is parent of backend/)
+    _repo_root = _Path(__file__).resolve().parent.parent
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
+
+    try:
+        from analysis.plots import plot_cl_alpha, plot_cd_alpha, plot_cp_dist  # noqa: PLC0415
+    except ImportError as imp_err:
+        logger.error("/analysis/plots: import failed: %s", imp_err)
+        return {"status": "error", "detail": f"plots module unavailable: {imp_err}"}
+
+    polar = body.polar
+
+    # Cl and Cd charts: pure matplotlib, run in thread pool to stay async-safe
+    try:
+        cl_b64 = await _asyncio.to_thread(plot_cl_alpha, polar)
+        cd_b64 = await _asyncio.to_thread(plot_cd_alpha, polar)
+    except Exception as chart_err:
+        logger.exception("/analysis/plots: chart generation failed")
+        return {"status": "error", "detail": _safe_error(chart_err)}
+
+    # Cp distribution: XFOIL subprocess — best-effort, never blocks the response
+    cp_b64: str | None = None
+    try:
+        cp_b64 = await _asyncio.to_thread(
+            plot_cp_dist,
+            body.naca_code,
+            body.design_alpha,
+            body.reynolds,
+            body.mach,
+            body.n_crit,
+        )
+    except Exception as cp_err:
+        logger.warning("/analysis/plots: Cp plot failed: %s", cp_err)
+        # cp_b64 stays None — frontend shows placeholder
+
+    return {
+        "status": "ok",
+        "cl_alpha": cl_b64,
+        "cd_alpha": cd_b64,
+        "cp_dist": cp_b64,
+    }
+
+
 @app.post("/pmi/annotate")
 @limiter.limit("10/minute")
 async def annotate_step_with_pmi(body: PMIRequest, request: Request):
@@ -914,3 +1230,95 @@ async def annotate_step_with_pmi(body: PMIRequest, request: Request):
             for a in pmi.annotations
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# T4-10: Admin — model registry hot-swap
+# ---------------------------------------------------------------------------
+
+class ModelConfigRequest(BaseModel):
+    """Request body for POST /admin/model-config."""
+    agent_type: str = Field(..., description="Subagent type key (e.g. 'planner', 'critic')")
+    model_id: str | None = Field(None, description="New Gemini model id, or null to leave unchanged")
+    temperature: float | None = Field(None, ge=0.0, le=2.0, description="Sampling temperature")
+    max_tokens: int | None = Field(None, ge=1, le=65536, description="Max output tokens")
+    lite_fallback: str | None = Field(None, description="Lite fallback model id ('' to clear)")
+
+
+def _require_admin(request: Request) -> None:
+    """Validate ADMIN_API_KEY bearer token.  Raises HTTPException on failure."""
+    from fastapi import HTTPException  # noqa: PLC0415
+    admin_key = os.environ.get("ADMIN_API_KEY", "")
+    if not admin_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Admin API is disabled — set ADMIN_API_KEY env var to enable.",
+        )
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token.")
+    token = auth_header.removeprefix("Bearer ").strip()
+    if token != admin_key:
+        raise HTTPException(status_code=403, detail="Invalid admin API key.")
+
+
+@app.post("/admin/model-config")
+@limiter.limit("20/minute")
+async def admin_model_config(body: ModelConfigRequest, request: Request):
+    """Hot-swap the model configuration for a subagent without restarting.
+
+    Requires ``Authorization: Bearer <ADMIN_API_KEY>`` header.
+
+    Returns the updated ModelConfig for the given agent_type, plus a snapshot
+    of the full registry so the caller can verify the change.
+    """
+    _require_admin(request)
+
+    try:
+        from subagents.model_registry import ModelRegistry  # noqa: PLC0415
+    except ImportError:
+        from fastapi import HTTPException  # noqa: PLC0415
+        raise HTTPException(status_code=503, detail="ModelRegistry not available.")
+
+    registry = ModelRegistry.instance()
+
+    try:
+        new_cfg = registry.update(
+            body.agent_type,
+            model_id=body.model_id,
+            temperature=body.temperature,
+            max_tokens=body.max_tokens,
+            lite_fallback=body.lite_fallback,
+        )
+    except Exception as e:
+        from fastapi import HTTPException  # noqa: PLC0415
+        raise HTTPException(status_code=400, detail=f"Registry update failed: {e}")
+
+    return {
+        "status": "ok",
+        "agent_type": body.agent_type,
+        "updated": {
+            "model_id": new_cfg.model_id,
+            "temperature": new_cfg.temperature,
+            "max_tokens": new_cfg.max_tokens,
+            "lite_fallback": new_cfg.lite_fallback,
+        },
+        "registry_snapshot": registry.snapshot(),
+    }
+
+
+@app.get("/admin/model-config")
+@limiter.limit("30/minute")
+async def admin_model_config_get(request: Request):
+    """Return a read-only snapshot of the current ModelRegistry.
+
+    Requires ``Authorization: Bearer <ADMIN_API_KEY>`` header.
+    """
+    _require_admin(request)
+
+    try:
+        from subagents.model_registry import ModelRegistry  # noqa: PLC0415
+        return {"status": "ok", "registry": ModelRegistry.instance().snapshot()}
+    except ImportError:
+        from fastapi import HTTPException  # noqa: PLC0415
+        raise HTTPException(status_code=503, detail="ModelRegistry not available.")

@@ -230,6 +230,66 @@ class MatingRule(BaseModel):
         return self
 
 
+# ---------------------------------------------------------------------------
+# Phase 3: Aerodynamic analysis schemas (XFOIL pipeline integration)
+# ---------------------------------------------------------------------------
+
+class FlightEnvelopeSpec(BaseModel):
+    """Flight conditions for XFOIL polar analysis.
+
+    Mirrors the FlightEnvelope TypedDict in analysis/airfoil.py.  Populated
+    by the REA from Domain D prompts when flight conditions are explicit
+    (e.g. "cruise at Mach 0.3, Re=1.5e6"); missing fields fall back to
+    analysis.airfoil._DEFAULT_ENV.
+    """
+
+    alpha_start: Optional[float] = Field(default=None, description="Angle of attack sweep start (deg).")
+    alpha_end:   Optional[float] = Field(default=None, description="Angle of attack sweep end (deg).")
+    alpha_step:  Optional[float] = Field(default=None, description="Angle of attack sweep step (deg).")
+    reynolds:    Optional[float] = Field(default=None, description="Reynolds number based on chord.")
+    mach:        Optional[float] = Field(default=None, description="Free-stream Mach number.")
+    n_crit:      Optional[float] = Field(default=None, description="e^N transition criterion (9 = clean tunnel).")
+
+
+class AirfoilSpec(BaseModel):
+    """Airfoil identification needed to slice the wing STEP for XFOIL.
+
+    Populated by the REA when the prompt names a NACA airfoil and/or wing
+    dimensions. Used by analyze_wing_step to (a) cut the STEP at mid-span
+    and (b) fall back to analytic NACA coordinates if the OCC slice fails.
+    """
+
+    naca_code: Optional[str] = Field(
+        default=None,
+        max_length=4,
+        description="4-digit NACA code (e.g. '0012', '2412'). Used for label + fallback.",
+    )
+    chord_mm:  Optional[float] = Field(default=None, description="Representative chord length (mm).")
+    span_mm:   Optional[float] = Field(default=None, description="Total wing span (mm). Mid-span is span_mm/2.")
+
+
+class PolarReport(BaseModel):
+    """Aerodynamic polar result delivered alongside the GLB on /generate.
+
+    Mirrors the PolarResult TypedDict in analysis/airfoil.py.  Carries the
+    full alpha/Cl/Cd/Cm/L_D arrays so the frontend can plot the polar.
+    """
+
+    naca_code:       str
+    chord_mm:        float
+    reynolds:        float
+    mach:            float
+    n_crit:          float
+    alpha:           list[float]
+    Cl:              list[float]
+    Cd:              list[float]
+    Cm:              list[float]
+    L_D:             list[float]
+    converged_count: int
+    stall_alpha:     Optional[float] = None
+    Cl_max:          Optional[float] = None
+
+
 class AssemblyManifest(BaseModel):
     """The complete blueprint for a multi-part mechanical assembly.
 
@@ -282,6 +342,16 @@ class AssemblyManifest(BaseModel):
             "(3) The assembly graph must be connected — no orphan parts. "
             "(4) NEVER encode absolute positions. Positioning is emergent "
             "from the chain of relative constraints."
+        ),
+    )
+
+    aero_report: Optional[PolarReport] = Field(
+        default=None,
+        description=(
+            "Aerodynamic polar attached after export when /generate was "
+            "invoked with run_aero=True on a Domain D assembly. None when "
+            "aero analysis was not requested, the assembly is not a wing, "
+            "or XFOIL was unavailable / failed (see SSE 'aero' event detail)."
         ),
     )
 
@@ -394,6 +464,26 @@ class DesignRequirements(BaseModel):
         description=(
             "REA confidence score 0–1. Below 0.5 means the prompt is too vague "
             "to extract reliable requirements — the Clarifier should be invoked."
+        ),
+    )
+
+    flight_env: Optional[FlightEnvelopeSpec] = Field(
+        default=None,
+        description=(
+            "Domain D only: flight conditions extracted from the prompt for "
+            "downstream XFOIL analysis. Populate only when the prompt names "
+            "explicit conditions (Reynolds, Mach, AoA range, N_crit). All "
+            "fields are optional — missing fields fall back to airfoil-module "
+            "defaults at analysis time."
+        ),
+    )
+
+    airfoil_spec: Optional[AirfoilSpec] = Field(
+        default=None,
+        description=(
+            "Domain D only: airfoil identification needed to slice the wing "
+            "STEP and label the polar (NACA code, chord, span). Populate when "
+            "the prompt names a NACA airfoil or wing dimensions."
         ),
     )
 
