@@ -18,7 +18,9 @@ import os
 
 import google.generativeai as genai
 
-MODEL = "gemini-3.1-flash-lite-preview"
+from config import GEMINI_MODEL_LITE
+
+MODEL = GEMINI_MODEL_LITE
 
 # Gemini-compatible schema (no unsupported fields)
 _CLASSIFICATION_SCHEMA = {

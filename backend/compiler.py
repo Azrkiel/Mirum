@@ -58,6 +58,16 @@ _BANNED_DUNDERS = {
     "__import__", "__subclasses__", "__globals__", "__builtins__",
     "__loader__", "__spec__", "__code__",
 }
+# Importlib gap fix: block bare use of dangerous stdlib module names as
+# ast.Name nodes (e.g. `importlib.import_module(...)` without a prior
+# import statement, exploiting a pre-loaded reference in __builtins__).
+# The import-statement path is already caught by the allowlist above, but
+# belt-and-suspenders coverage prevents any residual name-binding tricks.
+_BANNED_BARE_NAMES = {
+    "importlib", "ctypes", "subprocess", "socket", "shutil",
+    "pickle", "pathlib", "tempfile", "pty", "fcntl", "mmap",
+    "multiprocessing", "threading",
+}
 _MEM_LIMIT_BYTES = int(1.5 * 1024 * 1024 * 1024)  # 1.5 GB
 
 
@@ -67,6 +77,9 @@ def _check_ast_security(script_string: str) -> str | None:
     Uses an ALLOWLIST for imports: only modules in _ALLOWED_MODULES may be
     imported.  All other modules (os, sys, subprocess, importlib, ctypes,
     pickle, socket, shutil, pathlib, etc.) are rejected automatically.
+
+    Additionally, bare use of any name in _BANNED_BARE_NAMES is rejected
+    even without an import statement (importlib gap fix).
     """
     try:
         tree = ast.parse(script_string)
@@ -99,6 +112,15 @@ def _check_ast_security(script_string: str) -> str | None:
                 return (
                     f"Security violation: call to '{func.id}()' is banned."
                 )
+
+        # --- Banned bare names (importlib gap fix) ---
+        # Check ast.Name nodes that are NOT part of an import statement;
+        # the import-statement branch above handles those separately.
+        if isinstance(node, ast.Name) and node.id in _BANNED_BARE_NAMES:
+            return (
+                f"Security violation: use of '{node.id}' is not allowed "
+                f"(forbidden stdlib module name)."
+            )
 
         # --- Dangerous dunder attribute access ---
         if isinstance(node, ast.Attribute) and node.attr in _BANNED_DUNDERS:
