@@ -33,6 +33,8 @@ Usage from critic.py:
 import logging
 from dataclasses import dataclass, field
 
+from config import GEMINI_MODEL_HEAVY
+
 logger = logging.getLogger("mirum.continuity")
 
 
@@ -98,13 +100,33 @@ def check_g2_continuity(step_path: str, domain: str = "C") -> G2CheckResult:
     if result.method != "skipped":
         return result
 
-    # Fallback: skip (VLM Zebra approach requires rendering infrastructure)
+    # Fallback: VLM Zebra approach (T3-09) — requires rendering.py
     logger.info(
-        "G2 check skipped for %s — pythonocc-core not available; "
-        "VLM Zebra fallback not yet configured.",
+        "G2 check: OCCT unavailable for %s — scheduling VLM Zebra fallback",
         step_path,
     )
-    return G2CheckResult(passed=True, method="skipped")
+    # check_g2_vlm_zebra is async; run it synchronously via asyncio.run()
+    # only if there is no running event loop (e.g. in test context).
+    # In the FastAPI/asyncio context, callers should await check_g2_vlm_zebra
+    # directly. This sync shim exists for the Critic Loop which calls
+    # check_g2_continuity() synchronously from a background thread.
+    import asyncio as _asyncio  # noqa: PLC0415
+    try:
+        loop = _asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is not None and loop.is_running():
+        # We're inside an async context — return a skipped result;
+        # callers that want the VLM path should await check_g2_vlm_zebra() directly.
+        logger.info("G2 VLM fallback skipped (event loop running) — use check_g2_vlm_zebra()")
+        return G2CheckResult(passed=True, method="skipped_async_ctx")
+    else:
+        try:
+            return _asyncio.run(check_g2_vlm_zebra(step_path))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("VLM Zebra fallback failed: %s", exc)
+            return G2CheckResult(passed=True, method="skipped")
 
 
 def _check_occt_analytical(step_path: str) -> G2CheckResult:
@@ -227,31 +249,98 @@ def _check_occt_analytical(step_path: str) -> G2CheckResult:
 
 async def check_g2_vlm_zebra(
     step_path: str,
-    gemini_model: str = "gemini-3-flash-preview",
+    gemini_model: str = GEMINI_MODEL_HEAVY,
 ) -> G2CheckResult:
-    """VLM-based Zebra Analysis G2 check (stub — requires rendering pipeline).
+    """VLM-based Zebra Analysis G2 check (T3-09).
 
-    To activate:
-    1. Add a headless renderer (OCCT Display or Blender subprocess) that
-       produces a Zebra Analysis render (striped HDRI reflection) of the STEP.
-    2. Pass the render to Gemini Vision with the prompt below.
-    3. Parse the JSON response.
+    Pipeline:
+      1. ``render_zebra(step_path)`` → zebra-stripe PNG (pyrender or synthetic)
+      2. Encode PNG as base64 → Gemini Vision
+      3. Parse JSON response ``{"g2_pass": bool, "violation_description": str}``
+      4. Return ``G2CheckResult``
 
-    Currently returns passed=True as a no-op stub until the rendering
-    pipeline from T1-07 is extended for Zebra illumination.
+    Falls back to ``passed=True`` if rendering or the Vision API call fails
+    — G2 checks are advisory and must not block part delivery.
     """
-    logger.info(
-        "VLM Zebra G2 check stub called for %s — rendering not yet configured.",
-        step_path,
+    import asyncio as _asyncio   # noqa: PLC0415
+    import base64 as _b64        # noqa: PLC0415
+    import json as _json         # noqa: PLC0415
+    import os as _os             # noqa: PLC0415
+    import tempfile as _tmp      # noqa: PLC0415
+
+    logger.info("VLM Zebra G2 check starting for %s", step_path)
+
+    # --- Step 1: Render zebra PNG (blocking subprocess / IO) ---
+    tmp_png = _tmp.NamedTemporaryFile(suffix="_zebra.png", delete=False)
+    tmp_png_path = tmp_png.name
+    tmp_png.close()
+
+    try:
+        from rendering import render_zebra  # noqa: PLC0415
+        await _asyncio.to_thread(render_zebra, step_path, tmp_png_path)
+    except Exception as exc:
+        logger.warning("check_g2_vlm_zebra: render failed (%s) — skipping VLM check", exc)
+        try:
+            _os.unlink(tmp_png_path)
+        except OSError:
+            pass
+        return G2CheckResult(passed=True, method="vlm_zebra_render_failed",
+                             feedback_message=f"Render failed: {exc}")
+
+    # --- Step 2: Encode PNG and call Gemini Vision ---
+    try:
+        with open(tmp_png_path, "rb") as f:
+            png_bytes = f.read()
+    except OSError as exc:
+        logger.warning("check_g2_vlm_zebra: could not read rendered PNG: %s", exc)
+        return G2CheckResult(passed=True, method="vlm_zebra_render_failed")
+    finally:
+        try:
+            _os.unlink(tmp_png_path)
+        except OSError:
+            pass
+
+    vision_prompt = (
+        "This is a Zebra Analysis render (simulated striped reflection map) of a 3D "
+        "manufactured surface. Zebra stripes diagnose surface continuity:\n"
+        "  - Smooth, unbroken stripes = good G2 (curvature-continuous) surface\n"
+        "  - Sharp kinks or abrupt bends in stripes AT a surface boundary = G2 violation\n"
+        "  - Wavy or irregular stripes mid-surface = possible G2 failure or saddle region\n\n"
+        "Examine the stripes carefully. Do any show sharp kinks or discontinuities at "
+        "surface-to-surface boundaries (not at the silhouette edge)? "
+        "Return ONLY valid JSON, no markdown:\n"
+        '{"g2_pass": <true if no violations>, "violation_description": "<empty string or '
+        'description of the first violation>"}'
     )
-    # TODO: Implement when rendering pipeline is available
-    # Steps:
-    #   1. render_zebra(step_path) -> zebra_image_path
-    #   2. Upload zebra_image_path to Gemini Vision
-    #   3. Prompt:
-    #       "This is a Zebra Analysis render (striped reflection) of a 3D surface.
-    #        Do any of the stripes show sharp kinks or discontinuities at surface
-    #        boundaries? If yes, describe which boundary. Return JSON:
-    #        {\"g2_pass\": bool, \"violation_description\": \"...\"}"
-    #   4. Parse JSON and build G2CheckResult
-    return G2CheckResult(passed=True, method="vlm_zebra_stub")
+
+    try:
+        import google.generativeai as genai  # noqa: PLC0415
+
+        model = genai.GenerativeModel(model_name=gemini_model)
+        image_part = {"mime_type": "image/png", "data": png_bytes}
+        response = await model.generate_content_async(
+            [vision_prompt, image_part],
+            generation_config={"response_mime_type": "application/json"},
+        )
+        data = _json.loads(response.text)
+        g2_pass: bool = bool(data.get("g2_pass", True))
+        violation_desc: str = str(data.get("violation_description", ""))
+
+        logger.info(
+            "check_g2_vlm_zebra: %s → g2_pass=%s desc=%r",
+            step_path, g2_pass, violation_desc[:80],
+        )
+
+        if g2_pass:
+            return G2CheckResult(passed=True, method="vlm_zebra")
+        return G2CheckResult(
+            passed=False,
+            violation_count=1,
+            violation_descriptions=[violation_desc] if violation_desc else [],
+            method="vlm_zebra",
+        )
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("check_g2_vlm_zebra: Vision API call failed (%s) — returning pass", exc)
+        return G2CheckResult(passed=True, method="vlm_zebra_api_failed",
+                             feedback_message=f"Vision API error: {exc}")

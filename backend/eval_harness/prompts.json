@@ -4,265 +4,503 @@
     "domain": "A",
     "difficulty": "easy",
     "description": "A 100mm x 60mm x 5mm aluminum rectangular plate.",
-    "expected_features": ["100x60x5 rectangular plate", "aluminum"]
+    "expected_features": [
+      "100x60x5 rectangular plate",
+      "aluminum"
+    ]
   },
   {
     "id": "A_box_with_corner_holes",
     "domain": "A",
     "difficulty": "easy",
     "description": "A 100mm x 60mm x 20mm aluminum block with four 5mm through-holes, one at each corner, 10mm from each edge.",
-    "expected_features": ["100x60x20 block", "four through-holes", "5mm hole diameter", "10mm edge inset"]
+    "expected_features": [
+      "100x60x20 block",
+      "four through-holes",
+      "5mm hole diameter",
+      "10mm edge inset"
+    ]
   },
   {
     "id": "A_l_bracket",
     "domain": "A",
     "difficulty": "easy",
     "description": "An L-shaped steel bracket. Both legs are 50mm long, 30mm wide, and 4mm thick. Each leg has two 6mm clearance holes spaced 30mm apart along its length.",
-    "expected_features": ["L-shape geometry", "two 50mm legs", "30mm wide", "4mm thick", "two 6mm holes per leg", "30mm hole spacing"]
+    "expected_features": [
+      "L-shape geometry",
+      "two 50mm legs",
+      "30mm wide",
+      "4mm thick",
+      "two 6mm holes per leg",
+      "30mm hole spacing"
+    ]
   },
   {
     "id": "A_chamfered_cube",
     "domain": "A",
     "difficulty": "easy",
     "description": "A 50mm cube with a 3mm chamfer on every edge.",
-    "expected_features": ["50mm cube", "3mm chamfer", "chamfer applied to all edges"]
+    "expected_features": [
+      "50mm cube",
+      "3mm chamfer",
+      "chamfer applied to all edges"
+    ]
   },
   {
     "id": "A_stepped_block",
     "domain": "A",
     "difficulty": "medium",
     "description": "A two-step block. The base is 80mm x 50mm x 10mm. A second 50mm x 30mm x 12mm step sits centered on top of the base.",
-    "expected_features": ["80x50x10 base", "50x30x12 upper step", "upper step centered on base"]
+    "expected_features": [
+      "80x50x10 base",
+      "50x30x12 upper step",
+      "upper step centered on base"
+    ]
   },
   {
     "id": "A_slotted_bracket",
     "domain": "A",
     "difficulty": "medium",
     "description": "A 60mm x 30mm x 4mm steel bracket with a 20mm-long, 5mm-wide rectangular slot centered along its length, plus a 6mm hole 8mm from each short edge.",
-    "expected_features": ["60x30x4 bracket", "20x5 centered slot", "two 6mm holes", "holes 8mm from short edges"]
+    "expected_features": [
+      "60x30x4 bracket",
+      "20x5 centered slot",
+      "two 6mm holes",
+      "holes 8mm from short edges"
+    ]
   },
   {
     "id": "A_circular_flange_pattern",
     "domain": "A",
     "difficulty": "medium",
     "description": "A 60mm-diameter, 6mm-thick circular flange with six M5 clearance holes evenly spaced on a 45mm bolt circle.",
-    "expected_features": ["60mm OD flange", "6mm thickness", "six clearance holes", "45mm bolt circle", "polar pattern"]
+    "expected_features": [
+      "60mm OD flange",
+      "6mm thickness",
+      "six clearance holes",
+      "45mm bolt circle",
+      "polar pattern"
+    ]
   },
-
   {
     "id": "B_spur_gear",
     "domain": "B",
     "difficulty": "easy",
     "description": "A 20-tooth involute spur gear with module 2.0, 10mm thickness, and an 8mm bore.",
-    "expected_features": ["20 teeth", "involute profile", "module 2.0", "10mm thickness", "8mm bore"]
+    "expected_features": [
+      "20 teeth",
+      "involute profile",
+      "module 2.0",
+      "10mm thickness",
+      "8mm bore"
+    ]
   },
   {
     "id": "B_v_belt_pulley",
     "domain": "B",
     "difficulty": "medium",
     "description": "A V-belt pulley with 60mm outer diameter, 20mm bore, and 15mm width. Include a 4mm-deep V-groove with 40 degree included angle around the outer rim.",
-    "expected_features": ["60mm OD pulley", "20mm bore", "15mm width", "V-groove", "4mm groove depth", "40 deg included angle"]
+    "expected_features": [
+      "60mm OD pulley",
+      "20mm bore",
+      "15mm width",
+      "V-groove",
+      "4mm groove depth",
+      "40 deg included angle"
+    ]
   },
   {
     "id": "B_keyed_shaft",
     "domain": "B",
     "difficulty": "easy",
     "description": "A 20mm diameter, 100mm long round shaft with a 5mm wide, 3mm deep keyway machined into the side, running 30mm long starting 10mm from one end.",
-    "expected_features": ["20mm diameter shaft", "100mm length", "5mm wide keyway", "3mm deep keyway", "30mm keyway length", "keyway offset 10mm from end"]
+    "expected_features": [
+      "20mm diameter shaft",
+      "100mm length",
+      "5mm wide keyway",
+      "3mm deep keyway",
+      "30mm keyway length",
+      "keyway offset 10mm from end"
+    ]
   },
   {
     "id": "B_bearing_housing",
     "domain": "B",
     "difficulty": "medium",
     "description": "A bearing housing for a 22mm OD, 8mm wide bearing. Outer housing diameter 35mm, length 12mm, with a 2mm retaining lip on one end.",
-    "expected_features": ["35mm OD housing", "22mm bore", "12mm length", "2mm retaining lip"]
+    "expected_features": [
+      "35mm OD housing",
+      "22mm bore",
+      "12mm length",
+      "2mm retaining lip"
+    ]
   },
   {
     "id": "B_threaded_rod",
     "domain": "B",
     "difficulty": "easy",
     "description": "An M8x1.25 threaded rod, 60mm long, with a 1mm chamfer on each end.",
-    "expected_features": ["M8 thread", "1.25mm pitch", "60mm length", "1mm chamfer on each end"]
+    "expected_features": [
+      "M8 thread",
+      "1.25mm pitch",
+      "60mm length",
+      "1mm chamfer on each end"
+    ]
   },
   {
     "id": "B_hex_bolt_m10",
     "domain": "B",
     "difficulty": "easy",
     "description": "An M10 hex head bolt, 40mm long with 1.5mm thread pitch and 17mm width across flats.",
-    "expected_features": ["M10 thread", "1.5mm pitch", "hex head", "17mm across flats", "40mm shank length"]
+    "expected_features": [
+      "M10 thread",
+      "1.5mm pitch",
+      "hex head",
+      "17mm across flats",
+      "40mm shank length"
+    ]
   },
   {
     "id": "B_eccentric_cam",
     "domain": "B",
     "difficulty": "hard",
     "description": "A 12mm thick eccentric cam with a 40mm base circle. The cam profile rises smoothly to a 10mm peak over 180 degrees and falls back over the next 180 degrees. Includes a 10mm bore at its rotational center, offset 8mm from the geometric center of the profile.",
-    "expected_features": ["12mm thickness", "40mm base circle", "10mm peak rise", "smooth rise/fall over 360 deg", "10mm bore", "8mm offset bore"]
+    "expected_features": [
+      "12mm thickness",
+      "40mm base circle",
+      "10mm peak rise",
+      "smooth rise/fall over 360 deg",
+      "10mm bore",
+      "8mm offset bore"
+    ]
   },
-
   {
     "id": "C_tapered_handle",
     "domain": "C",
     "difficulty": "easy",
     "description": "An ergonomic handle, 120mm long. The cross-section is elliptical, tapering from 25mm x 20mm at the base to 18mm x 14mm at the tip.",
-    "expected_features": ["120mm length", "elliptical cross-section", "tapers from 25x20 base to 18x14 tip"]
+    "expected_features": [
+      "120mm length",
+      "elliptical cross-section",
+      "tapers from 25x20 base to 18x14 tip"
+    ]
   },
   {
     "id": "C_water_bottle_grip",
     "domain": "C",
     "difficulty": "medium",
     "description": "A water bottle grip section, 100mm tall. The cross-section is a smooth three-lobed profile with a 30mm circumscribed diameter at the bottom, narrowing to 26mm at mid-height (50mm) and back out to 30mm at the top.",
-    "expected_features": ["lofted body", "three-lobe cross-section", "100mm tall", "30mm circumscribed at top and bottom", "26mm at midheight"]
+    "expected_features": [
+      "lofted body",
+      "three-lobe cross-section",
+      "100mm tall",
+      "30mm circumscribed at top and bottom",
+      "26mm at midheight"
+    ]
   },
   {
     "id": "C_teardrop_pendant",
     "domain": "C",
     "difficulty": "medium",
     "description": "A teardrop-shaped pendant, 30mm wide at its rounded base, 50mm tall to the pointed tip, and 10mm thick. Smooth side surfaces.",
-    "expected_features": ["teardrop silhouette", "30mm wide rounded base", "50mm tall", "10mm thick", "smooth side surfaces"]
+    "expected_features": [
+      "teardrop silhouette",
+      "30mm wide rounded base",
+      "50mm tall",
+      "10mm thick",
+      "smooth side surfaces"
+    ]
   },
   {
     "id": "C_organic_drawer_pull",
     "domain": "C",
     "difficulty": "hard",
     "description": "An organic drawer pull. The body is 90mm long. The cross-section is an elongated ellipse: 30mm x 12mm at each end, smoothly bulging to 36mm x 18mm in the middle. Two 4mm mounting bosses on the back, 60mm apart.",
-    "expected_features": ["90mm length", "elliptical cross-section", "30x12 at ends", "36x18 in middle", "two 4mm mounting bosses", "60mm boss spacing"]
+    "expected_features": [
+      "90mm length",
+      "elliptical cross-section",
+      "30x12 at ends",
+      "36x18 in middle",
+      "two 4mm mounting bosses",
+      "60mm boss spacing"
+    ]
   },
   {
     "id": "C_lofted_perfume_bottle",
     "domain": "C",
     "difficulty": "easy",
     "description": "A perfume bottle body, 80mm tall, lofted between three circular cross-sections: 40mm diameter at the base, 50mm diameter at 30mm height, and 22mm diameter at the top.",
-    "expected_features": ["lofted body", "80mm tall", "40mm circle at base", "50mm circle at 30mm height", "22mm circle at top"]
+    "expected_features": [
+      "lofted body",
+      "80mm tall",
+      "40mm circle at base",
+      "50mm circle at 30mm height",
+      "22mm circle at top"
+    ]
   },
   {
     "id": "C_table_lamp_base",
     "domain": "C",
     "difficulty": "easy",
     "description": "A table lamp base, 100mm tall, formed by revolving a smooth profile that goes from 80mm diameter at the floor, narrows to 35mm diameter at 70mm height, and flares back out to 50mm diameter at the top.",
-    "expected_features": ["100mm tall", "revolved profile", "80mm diameter at floor", "35mm waist at 70mm height", "50mm diameter at top"]
+    "expected_features": [
+      "100mm tall",
+      "revolved profile",
+      "80mm diameter at floor",
+      "35mm waist at 70mm height",
+      "50mm diameter at top"
+    ]
   },
   {
     "id": "C_drop_pendant",
     "domain": "C",
     "difficulty": "easy",
     "description": "A water-droplet pendant lofted from a 20mm diameter circle at the base to a 2mm rounded tip 35mm above. 10mm thick across its widest point.",
-    "expected_features": ["lofted droplet", "20mm circle base", "2mm rounded tip", "35mm tall", "10mm widest thickness"]
+    "expected_features": [
+      "lofted droplet",
+      "20mm circle base",
+      "2mm rounded tip",
+      "35mm tall",
+      "10mm widest thickness"
+    ]
   },
   {
     "id": "C_round_to_square_transition",
     "domain": "C",
     "difficulty": "medium",
     "description": "A duct transition piece, 60mm tall, lofted between a 50mm diameter circle at the bottom and a 40mm x 40mm square at the top. Wall thickness 2mm.",
-    "expected_features": ["60mm tall", "lofted body", "50mm circle base", "40x40 square top", "2mm wall thickness", "shelled hollow"]
+    "expected_features": [
+      "60mm tall",
+      "lofted body",
+      "50mm circle base",
+      "40x40 square top",
+      "2mm wall thickness",
+      "shelled hollow"
+    ]
   },
   {
     "id": "C_ergonomic_handgrip",
     "domain": "C",
     "difficulty": "medium",
     "description": "An ergonomic grip 110mm long. The cross-section is an oval that varies along the length: 28mm x 22mm at one end, narrowing to 24mm x 18mm at the midpoint (55mm), and back out to 30mm x 24mm at the opposite end.",
-    "expected_features": ["110mm length", "oval cross-section", "28x22 at one end", "24x18 at midpoint", "30x24 at opposite end"]
+    "expected_features": [
+      "110mm length",
+      "oval cross-section",
+      "28x22 at one end",
+      "24x18 at midpoint",
+      "30x24 at opposite end"
+    ]
   },
   {
     "id": "C_three_lobe_doorknob",
     "domain": "C",
     "difficulty": "medium",
     "description": "A decorative doorknob lofted along a 60mm axis. The profile is a rounded three-lobed flower shape with a 35mm circumscribed diameter at both ends, swelling to a 45mm circumscribed diameter at the middle. Single solid (no internal cavity).",
-    "expected_features": ["60mm axis length", "three-lobed profile", "35mm circumscribed at ends", "45mm circumscribed at middle", "single solid"]
+    "expected_features": [
+      "60mm axis length",
+      "three-lobed profile",
+      "35mm circumscribed at ends",
+      "45mm circumscribed at middle",
+      "single solid"
+    ]
   },
   {
     "id": "C_blended_chair_leg",
     "domain": "C",
     "difficulty": "hard",
     "description": "A chair leg 420mm long, lofted between three sections: a 50mm x 50mm rounded square at the floor, a 35mm circle at the midpoint, and a 60mm x 40mm rounded rectangle at the seat-attachment top.",
-    "expected_features": ["420mm length", "lofted body", "50x50 rounded square at floor", "35mm circle at midpoint", "60x40 rounded rectangle at top"]
+    "expected_features": [
+      "420mm length",
+      "lofted body",
+      "50x50 rounded square at floor",
+      "35mm circle at midpoint",
+      "60x40 rounded rectangle at top"
+    ]
   },
   {
     "id": "C_curved_swan_neck",
     "domain": "C",
     "difficulty": "hard",
     "description": "A swan-neck faucet body. Sweeping curve in the XZ plane, 200mm tall. Circular cross-section that tapers from 28mm diameter at the base to 18mm diameter at the spout outlet. The path arcs forward 90mm along X over the height.",
-    "expected_features": ["200mm tall", "swept along curved path", "28mm diameter at base", "18mm diameter at outlet", "90mm forward arc in X", "circular cross-section"]
+    "expected_features": [
+      "200mm tall",
+      "swept along curved path",
+      "28mm diameter at base",
+      "18mm diameter at outlet",
+      "90mm forward arc in X",
+      "circular cross-section"
+    ]
   },
-
   {
     "id": "D_naca0012_segment",
     "domain": "D",
     "difficulty": "easy",
     "description": "A NACA 0012 airfoil segment with 100mm chord and 200mm span, generated as a single solid (no internal structure).",
-    "expected_features": ["NACA 0012 cross-section", "100mm chord", "200mm span", "single solid skin"]
+    "expected_features": [
+      "NACA 0012 cross-section",
+      "100mm chord",
+      "200mm span",
+      "single solid skin"
+    ],
+    "regression_for": [
+      "D"
+    ]
   },
   {
     "id": "D_naca2412_with_ribs",
     "domain": "D",
     "difficulty": "hard",
     "description": "A NACA 2412 wing segment, 150mm chord, 300mm span, with 3 internal ribs evenly spaced along the span and a single forward spar at 25 percent chord. Skin thickness 1.5mm.",
-    "expected_features": ["NACA 2412 cross-section", "150mm chord", "300mm span", "3 internal ribs", "spar at 25% chord", "1.5mm skin thickness"]
+    "expected_features": [
+      "NACA 2412 cross-section",
+      "150mm chord",
+      "300mm span",
+      "3 internal ribs",
+      "spar at 25% chord",
+      "1.5mm skin thickness"
+    ],
+    "regression_for": [
+      "D"
+    ]
   },
   {
     "id": "D_tapered_fin",
     "domain": "D",
     "difficulty": "medium",
     "description": "A tapered vertical fin with 80mm root chord, 40mm tip chord, 100mm span, NACA 0006 cross-section. No internal structure.",
-    "expected_features": ["NACA 0006 cross-section", "80mm root chord", "40mm tip chord", "100mm span", "linear taper", "single solid"]
+    "expected_features": [
+      "NACA 0006 cross-section",
+      "80mm root chord",
+      "40mm tip chord",
+      "100mm span",
+      "linear taper",
+      "single solid"
+    ],
+    "regression_for": [
+      "D"
+    ]
   },
   {
     "id": "D_naca4412_segment",
     "domain": "D",
     "difficulty": "easy",
     "description": "A NACA 4412 cambered airfoil segment, 120mm chord, 250mm span, generated as a single solid (no internal structure).",
-    "expected_features": ["NACA 4412 cross-section", "cambered airfoil", "120mm chord", "250mm span", "single solid skin"]
+    "expected_features": [
+      "NACA 4412 cross-section",
+      "cambered airfoil",
+      "120mm chord",
+      "250mm span",
+      "single solid skin"
+    ],
+    "regression_for": [
+      "D"
+    ]
   },
   {
     "id": "D_swept_winglet",
     "domain": "D",
     "difficulty": "medium",
     "description": "A swept winglet. NACA 0008 cross-section, 60mm root chord, 30mm tip chord, 80mm span. Sweep the leading edge back 25 degrees over the span. Single solid skin, no ribs.",
-    "expected_features": ["NACA 0008 cross-section", "60mm root chord", "30mm tip chord", "80mm span", "25 deg leading-edge sweep", "single solid skin"]
+    "expected_features": [
+      "NACA 0008 cross-section",
+      "60mm root chord",
+      "30mm tip chord",
+      "80mm span",
+      "25 deg leading-edge sweep",
+      "single solid skin"
+    ],
+    "regression_for": [
+      "D"
+    ]
   },
   {
     "id": "D_dihedral_wing_panel",
     "domain": "D",
     "difficulty": "hard",
     "description": "A NACA 2412 wing panel, 140mm chord, 320mm span, with 5 degrees of dihedral applied along the span. Two evenly spaced internal ribs. Skin thickness 1.2mm.",
-    "expected_features": ["NACA 2412 cross-section", "140mm chord", "320mm span", "5 deg dihedral", "two internal ribs", "1.2mm skin thickness"]
+    "expected_features": [
+      "NACA 2412 cross-section",
+      "140mm chord",
+      "320mm span",
+      "5 deg dihedral",
+      "two internal ribs",
+      "1.2mm skin thickness"
+    ],
+    "regression_for": [
+      "D"
+    ]
   },
   {
     "id": "D_horizontal_stabilizer",
     "domain": "D",
     "difficulty": "medium",
     "description": "A horizontal stabilizer using a NACA 0010 symmetric airfoil. 90mm root chord, 60mm tip chord, 200mm span, no twist. Two internal ribs at 1/3 and 2/3 span. Skin thickness 1.0mm.",
-    "expected_features": ["NACA 0010 cross-section", "90mm root chord", "60mm tip chord", "200mm span", "no twist", "rib at 1/3 span", "rib at 2/3 span", "1.0mm skin thickness"]
+    "expected_features": [
+      "NACA 0010 cross-section",
+      "90mm root chord",
+      "60mm tip chord",
+      "200mm span",
+      "no twist",
+      "rib at 1/3 span",
+      "rib at 2/3 span",
+      "1.0mm skin thickness"
+    ],
+    "regression_for": [
+      "D"
+    ]
   },
-
   {
     "id": "E_l_bracket_sheet",
     "domain": "E",
     "difficulty": "easy",
     "description": "A 1.5mm thick steel L-bracket. The base is 50mm x 30mm; the vertical flange is 40mm x 30mm. 3mm bend radius. Two 5mm mounting holes in the base, 30mm apart.",
-    "expected_features": ["1.5mm sheet thickness", "50x30 base", "40x30 vertical flange", "3mm bend radius", "two 5mm holes in base", "30mm hole spacing"]
+    "expected_features": [
+      "1.5mm sheet thickness",
+      "50x30 base",
+      "40x30 vertical flange",
+      "3mm bend radius",
+      "two 5mm holes in base",
+      "30mm hole spacing"
+    ]
   },
   {
     "id": "E_enclosure_panel",
     "domain": "E",
     "difficulty": "medium",
     "description": "A 2mm thick aluminum enclosure panel, 100mm x 80mm, with 10mm tall flanges on all four edges bent 90 degrees toward the same side. 2mm bend radius.",
-    "expected_features": ["2mm sheet thickness", "100x80 panel", "10mm flanges on all four edges", "90 deg bends", "2mm bend radius", "all flanges to same side"]
+    "expected_features": [
+      "2mm sheet thickness",
+      "100x80 panel",
+      "10mm flanges on all four edges",
+      "90 deg bends",
+      "2mm bend radius",
+      "all flanges to same side"
+    ]
   },
   {
     "id": "E_pcb_tray",
     "domain": "E",
     "difficulty": "medium",
     "description": "A 1.2mm thick steel PCB tray, 120mm x 80mm, with 12mm flanges on the two long edges only. Four 3mm mounting holes, one at each corner of the flat base, 8mm from each edge.",
-    "expected_features": ["1.2mm sheet thickness", "120x80 base", "12mm flanges on long edges only", "four 3mm corner holes", "holes 8mm from each edge"]
+    "expected_features": [
+      "1.2mm sheet thickness",
+      "120x80 base",
+      "12mm flanges on long edges only",
+      "four 3mm corner holes",
+      "holes 8mm from each edge"
+    ]
   },
-
   {
     "id": "A_csv_cube_no_load",
     "domain": "A",
     "difficulty": "easy",
     "description": "Create a 10mm x 10mm x 10mm cube.",
-    "expected_features": ["10x10x10 cube"],
-    "regression_for": ["A"],
+    "expected_features": [
+      "10x10x10 cube"
+    ],
+    "regression_for": [
+      "A"
+    ],
     "notes": "User-feedback CSV (4/30/2026): pipeline never returned for this prompt. Worktree A (job queue + worker scaling) should make this complete < 30s reliably."
   },
   {
@@ -270,8 +508,14 @@
     "domain": "A",
     "difficulty": "easy",
     "description": "A 25mm radius cylinder, 5mm tall.",
-    "expected_features": ["50mm diameter", "5mm height", "circular cross-section"],
-    "regression_for": ["A"],
+    "expected_features": [
+      "50mm diameter",
+      "5mm height",
+      "circular cross-section"
+    ],
+    "regression_for": [
+      "A"
+    ],
     "notes": "User-feedback CSV (4/30/2026): multiple users reported 'a circle' / 'a blue circle' / '3D Circle' prompts buffering and never returning, OR returning 'Could not reach backend ... read timeout=180'. Worktree A fix."
   },
   {
@@ -279,8 +523,13 @@
     "domain": "A",
     "difficulty": "easy",
     "description": "A 30mm x 30mm x 5mm square plate.",
-    "expected_features": ["30x30 square footprint", "5mm thickness"],
-    "regression_for": ["A"],
+    "expected_features": [
+      "30x30 square footprint",
+      "5mm thickness"
+    ],
+    "regression_for": [
+      "A"
+    ],
     "notes": "User-feedback CSV (4/30/2026): 'Build a square' / 'Draw a square' buffered then died with read-timeout. Worktree A fix."
   },
   {
@@ -288,8 +537,16 @@
     "domain": "A",
     "difficulty": "medium",
     "description": "An apartment building, approximately 100mm tall (figurine scale).",
-    "expected_features": ["multi-part decomposition with at least 3 distinct parts", "foundation or base block", "wall or floor structure", "roof element", "windows or floor divisions visible on the exterior"],
-    "regression_for": ["C"],
+    "expected_features": [
+      "multi-part decomposition with at least 3 distinct parts",
+      "foundation or base block",
+      "wall or floor structure",
+      "roof element",
+      "windows or floor divisions visible on the exterior"
+    ],
+    "regression_for": [
+      "C"
+    ],
     "notes": "User-feedback CSV (4/30/2026): planner returned a single 5x10x100 cq.box. Worktree C's planner decomposition floor must require >= 3 parts for architectural prompts. (Domain A because the underlying CadQuery primitives are box-based; the failure mode is planner under-decomposition, not domain mis-routing.)"
   },
   {
@@ -297,8 +554,15 @@
     "domain": "A",
     "difficulty": "medium",
     "description": "A dog figurine roughly 100mm tall, with a wide-open mouth showing teeth, wearing a small bow on its collar.",
-    "expected_features": ["recognizable bipedal or quadrupedal figurine", "head with open-mouth detail", "collar or neck band detail", "bow on collar"],
-    "regression_for": ["A"],
+    "expected_features": [
+      "recognizable bipedal or quadrupedal figurine",
+      "head with open-mouth detail",
+      "collar or neck band detail",
+      "bow on collar"
+    ],
+    "regression_for": [
+      "A"
+    ],
     "notes": "User-feedback CSV (4/30/2026): user-prompt 'a dog ... cupcake ... scary pitbull wearing a bow' ran 15 minutes and failed. Captured here as an A regression because the headline failure was a runaway pipeline that never returned; rated 1."
   },
   {
@@ -306,8 +570,16 @@
     "domain": "A",
     "difficulty": "medium",
     "description": "A bus driver figurine, 200mm tall, 150mm wide, 60mm deep, simple humanoid form.",
-    "expected_features": ["humanoid silhouette", "200mm overall height", "150mm overall width", "60mm overall depth", "completes without backend Connection error"],
-    "regression_for": ["A"],
+    "expected_features": [
+      "humanoid silhouette",
+      "200mm overall height",
+      "150mm overall width",
+      "60mm overall depth",
+      "completes without backend Connection error"
+    ],
+    "regression_for": [
+      "A"
+    ],
     "notes": "User-feedback CSV (4/30/2026): 'A soulful bus driver figurine ... result just wouldn't load. Connection error.' Rated 2. Worktree A fix."
   },
   {
@@ -315,8 +587,14 @@
     "domain": "A",
     "difficulty": "easy",
     "description": "A smooth sphere 3 inches in diameter (about 76mm).",
-    "expected_features": ["~76mm diameter sphere", "smooth surface (not faceted)", "completes without 'refused to build' error"],
-    "regression_for": ["A"],
+    "expected_features": [
+      "~76mm diameter sphere",
+      "smooth surface (not faceted)",
+      "completes without 'refused to build' error"
+    ],
+    "regression_for": [
+      "A"
+    ],
     "notes": "User-feedback CSV (4/30/2026): 'It refused to build it, just would not generate.' Rated 2. Captured as A since the failure was a refusal/timeout; once the pipeline reliably runs, Worktree D can also help if topology is bad."
   },
   {
@@ -324,8 +602,16 @@
     "domain": "A",
     "difficulty": "medium",
     "description": "A bolt with a 0.25 inch (6.35mm) diameter, 3 inch (76.2mm) length, and 20 threads per inch (UNF/UNC).",
-    "expected_features": ["6.35mm shank diameter", "76.2mm overall length", "external threads at 20 TPI density", "hex head", "completes without backend read-timeout"],
-    "regression_for": ["A"],
+    "expected_features": [
+      "6.35mm shank diameter",
+      "76.2mm overall length",
+      "external threads at 20 TPI density",
+      "hex head",
+      "completes without backend read-timeout"
+    ],
+    "regression_for": [
+      "A"
+    ],
     "notes": "User-feedback CSV (4/30/2026): 'Could not reach backend ... read timeout=180'. Rated 1. Tagged A; once Worktree A makes this reach Domain B, the threads should land via cad_utils.make_metric_thread (T2-03)."
   },
   {
@@ -333,8 +619,15 @@
     "domain": "A",
     "difficulty": "medium",
     "description": "A smooth, ergonomic shell for a computer mouse, roughly 120mm long and 60mm wide.",
-    "expected_features": ["~120mm long", "~60mm wide", "ergonomic curved shell (not flat)", "completes without backend read-timeout"],
-    "regression_for": ["A"],
+    "expected_features": [
+      "~120mm long",
+      "~60mm wide",
+      "ergonomic curved shell (not flat)",
+      "completes without backend read-timeout"
+    ],
+    "regression_for": [
+      "A"
+    ],
     "notes": "User-feedback CSV (4/30/2026): 'Could not reach backend ... read timeout=180'. Rated 1. A separate organic-shell topology case is captured by C_csv_spoon_funnel for Worktree D once the pipeline runs."
   },
   {
@@ -342,8 +635,19 @@
     "domain": "B",
     "difficulty": "hard",
     "description": "A phone case designed for the iPhone 17. It is 5.89 inches tall, 2.81 inches wide, 0.31 inches deep. Include a camera cutout, a charging port cutout on the bottom edge, and side buttons.",
-    "expected_features": ["~150mm tall", "~71mm wide", "~8mm deep", "rounded corners", "camera cutout on back", "charging port cutout on bottom edge", "side button cutouts", "wall thickness 1-2mm"],
-    "regression_for": ["B"],
+    "expected_features": [
+      "~150mm tall",
+      "~71mm wide",
+      "~8mm deep",
+      "rounded corners",
+      "camera cutout on back",
+      "charging port cutout on bottom edge",
+      "side button cutouts",
+      "wall thickness 1-2mm"
+    ],
+    "regression_for": [
+      "B"
+    ],
     "notes": "User-feedback CSV (4/30/2026): TypeError: Workplane.rect() got an unexpected keyword argument 'rx'. Worktree B's cq_lint must reject this kwarg pre-execution and surface the fix (use .rect() then .edges('|Z').fillet(r))."
   },
   {
@@ -351,8 +655,16 @@
     "domain": "B",
     "difficulty": "hard",
     "description": "A passenger car body, 4500mm long, 1800mm wide, 1500mm tall, with a hollow shelled interior. Single solid (no separate doors or windows).",
-    "expected_features": ["~4500mm long", "~1800mm wide", "~1500mm tall", "shelled interior with wall thickness 5-15mm", "no shell-failure traceback (BRep_API command not done)"],
-    "regression_for": ["B"],
+    "expected_features": [
+      "~4500mm long",
+      "~1800mm wide",
+      "~1500mm tall",
+      "shelled interior with wall thickness 5-15mm",
+      "no shell-failure traceback (BRep_API command not done)"
+    ],
+    "regression_for": [
+      "B"
+    ],
     "notes": "User-feedback CSV (4/30/2026): prompt 'Generate a 3D model of 6 and 7' produced a multi-part train decomposition; passenger car body failed with OCP.StdFail.StdFail_NotDone: BRep_API: command not done at .shell(). Worktree B should add a shell-feasibility lint (wall_thickness vs feature ratio)."
   },
   {
@@ -360,8 +672,15 @@
     "domain": "C",
     "difficulty": "medium",
     "description": "A cat, 20 meters all around, sitting.",
-    "expected_features": ["overall size between 100mm and 300mm (clamped figurine scale)", "no part dimension above 1000mm in any axis", "recognizable sitting-cat silhouette", "no OCCT failures from absurd scale"],
-    "regression_for": ["C"],
+    "expected_features": [
+      "overall size between 100mm and 300mm (clamped figurine scale)",
+      "no part dimension above 1000mm in any axis",
+      "recognizable sitting-cat silhouette",
+      "no OCCT failures from absurd scale"
+    ],
+    "regression_for": [
+      "C"
+    ],
     "notes": "User-feedback CSV (4/27/2026): planner produced 19 parts at 10000mm each, several OCCT failures including BSplCLib::Interpolate on the head. Worktree C's REA scale-clamp heuristic should set unit_clamped=True with original captured (assert via telemetry, not via expected_features grader)."
   },
   {
@@ -369,8 +688,16 @@
     "domain": "C",
     "difficulty": "hard",
     "description": "A cat head, approximately 220mm long, 150mm wide, 220mm tall, with simplified ears, eyes, and a snout.",
-    "expected_features": ["recognizable cat head silhouette", "ears", "snout", "no spline-interpolation crash", "single watertight solid"],
-    "regression_for": ["B"],
+    "expected_features": [
+      "recognizable cat head silhouette",
+      "ears",
+      "snout",
+      "no spline-interpolation crash",
+      "single watertight solid"
+    ],
+    "regression_for": [
+      "B"
+    ],
     "notes": "User-feedback CSV (4/27/2026): Standard_OutOfRange: BSplCLib::Interpolate on a 24-point periodic spline. Worktree B's cq_lint must reject periodic splines with > 16 control points (or detect duplicate first/last point) before they reach OCCT."
   },
   {
@@ -378,8 +705,15 @@
     "domain": "C",
     "difficulty": "medium",
     "description": "A cat front leg, ~60mm tall and ~25mm in diameter, sculpted in a bent position suitable for a sitting cat. Include a paw at the bottom and a shoulder attachment on top.",
-    "expected_features": ["~60mm tall leg", "tapered profile", "paw at bottom", "shoulder/socket at top"],
-    "regression_for": ["B"],
+    "expected_features": [
+      "~60mm tall leg",
+      "tapered profile",
+      "paw at bottom",
+      "shoulder/socket at top"
+    ],
+    "regression_for": [
+      "B"
+    ],
     "notes": "User-feedback CSV (4/28/2026): ValueError: Cannot find a solid on the stack or in the parent chain after .cut(). Worktree B should warn the LLM about losing solid context after booleans (rebind to a name)."
   },
   {
@@ -387,8 +721,16 @@
     "domain": "C",
     "difficulty": "hard",
     "description": "A baseball with stitching, 80mm diameter.",
-    "expected_features": ["80mm diameter sphere", "two stitching seams that follow the classic figure-8 baseball pattern", "stitches embossed (not engraved through)", "no IndexError on wires().item()"],
-    "regression_for": ["B", "E"],
+    "expected_features": [
+      "80mm diameter sphere",
+      "two stitching seams that follow the classic figure-8 baseball pattern",
+      "stitches embossed (not engraved through)",
+      "no IndexError on wires().item()"
+    ],
+    "regression_for": [
+      "B",
+      "E"
+    ],
     "notes": "User-feedback CSV (4/28/2026): IndexError on cq.Workplane('XY').spline(...).wires().item(0). Worktree B's cq_lint should warn on .item(N) without bounds check. Worktree E's NONE-domain freeform path is the right CadQuery shape (sphere + sweep on sinusoidal helix), not the threaded-tube Domain B fallback."
   },
   {
@@ -396,8 +738,16 @@
     "domain": "C",
     "difficulty": "hard",
     "description": "A properly scaled baseball with stitching, 80mm diameter.",
-    "expected_features": ["80mm diameter sphere", "two raised seams running in the classic figure-8 baseball pattern across the surface", "seams are continuous curves (not screw threads or helical ridges)", "spherical body (not cylindrical or tube-shaped)"],
-    "regression_for": ["E", "D"],
+    "expected_features": [
+      "80mm diameter sphere",
+      "two raised seams running in the classic figure-8 baseball pattern across the surface",
+      "seams are continuous curves (not screw threads or helical ridges)",
+      "spherical body (not cylindrical or tube-shaped)"
+    ],
+    "regression_for": [
+      "E",
+      "D"
+    ],
     "notes": "User-feedback CSV (4/28/2026): system produced a long threaded tube instead of a stitched sphere because the Classifier force-fit into Domain B (mechanical/threads). Worktree E's NONE veto + freeform path is the fix; Worktree D's vision verifier is the safety net. Once Worktree E's NONE enum lands, this entry's domain may move from C to NONE."
   },
   {
@@ -405,8 +755,16 @@
     "domain": "C",
     "difficulty": "hard",
     "description": "A continuous single-part spoon, one foot long (about 305mm), with a bowl diameter of 20mm. Smooth ergonomic transition from handle to bowl.",
-    "expected_features": ["~305mm overall length", "20mm bowl diameter", "recognizable spoon silhouette (handle tapers, then opens into a shallow oval bowl at one end)", "concave bowl interior", "bowl is asymmetric on the long axis (not a centered cylinder)"],
-    "regression_for": ["D"],
+    "expected_features": [
+      "~305mm overall length",
+      "20mm bowl diameter",
+      "recognizable spoon silhouette (handle tapers, then opens into a shallow oval bowl at one end)",
+      "concave bowl interior",
+      "bowl is asymmetric on the long axis (not a centered cylinder)"
+    ],
+    "regression_for": [
+      "D"
+    ],
     "notes": "User-feedback CSV (4/29/2026): user said it 'looked more as a long funnel'. Worktree D's rendered-image LVM must catch the missing concave bowl and trigger a retry."
   },
   {
@@ -414,8 +772,15 @@
     "domain": "C",
     "difficulty": "medium",
     "description": "A 3D Pac-Man character, 30mm diameter sphere, with a clear wedge-shaped mouth opening (about 60 degrees) cut from one side, and one small spherical eye protrusion on top.",
-    "expected_features": ["30mm diameter sphere body", "60-degree wedge mouth cut from front", "mouth has visible interior depth (not a flat decal)", "single eye protrusion on top of head"],
-    "regression_for": ["D"],
+    "expected_features": [
+      "30mm diameter sphere body",
+      "60-degree wedge mouth cut from front",
+      "mouth has visible interior depth (not a flat decal)",
+      "single eye protrusion on top of head"
+    ],
+    "regression_for": [
+      "D"
+    ],
     "notes": "User-feedback CSV (4/30/2026): user said depth perception was off, 'like it looked at a 2d picture'. Worktree D's multi-view render must catch the missing depth on the mouth cut."
   },
   {
@@ -423,8 +788,15 @@
     "domain": "C",
     "difficulty": "hard",
     "description": "A gremlin figure (figurine scale, ~100mm tall) holding a chair above its head, ready to throw it.",
-    "expected_features": ["recognizable bipedal figure ~100mm tall", "arms raised above head", "chair object positioned above the figure's head", "figure body and chair body are distinct, non-interpenetrating solids"],
-    "regression_for": ["D"],
+    "expected_features": [
+      "recognizable bipedal figure ~100mm tall",
+      "arms raised above head",
+      "chair object positioned above the figure's head",
+      "figure body and chair body are distinct, non-interpenetrating solids"
+    ],
+    "regression_for": [
+      "D"
+    ],
     "notes": "User-feedback CSV (4/30/2026): user said 'it unfortunately looks not very close to the gremlin'. Worktree D's vision verifier should catch wrong silhouette / interpenetration and trigger a retry."
   },
   {
@@ -432,8 +804,78 @@
     "domain": "D",
     "difficulty": "hard",
     "description": "An F-14 Tomcat jet as a single solid part with the wings swept in (at a 68 degree angle) and the landing gear retracted, with a wingspan of 81mm, length of 133mm, and height of 34mm.",
-    "expected_features": ["overall dimensions ~81mm x 133mm x 34mm", "fuselage", "swept wings at ~68 degrees", "no separate landing gear", "single solid part", "completes within 240s without backend timeout"],
-    "regression_for": ["A", "C"],
+    "expected_features": [
+      "overall dimensions ~81mm x 133mm x 34mm",
+      "fuselage",
+      "swept wings at ~68 degrees",
+      "no separate landing gear",
+      "single solid part",
+      "completes within 240s without backend timeout"
+    ],
+    "regression_for": [
+      "A",
+      "C"
+    ],
     "notes": "User-feedback CSV (4/30/2026): planning ran for 5 minutes then 'Could not connect to backend (Connection error)'. Worktree A (move planning off the synchronous SSE path) and Worktree C (avoid over-decomposition for single-solid prompts) both apply."
+  },
+  {
+    "id": "D_multipart_wing_assembly",
+    "domain": "D",
+    "difficulty": "hard",
+    "description": "A multi-part wing assembly: skin shell (NACA 0015, 200mm chord, 500mm span, 1.5mm thickness), two internal ribs evenly spaced, and one forward spar at 25% chord. Parts joined with FASTENED mates.",
+    "expected_features": [
+      "NACA 0015 cross-section",
+      "200mm chord",
+      "500mm span",
+      "skin shell 1.5mm",
+      "two internal ribs",
+      "spar at 25% chord",
+      "FASTENED mates",
+      "multi-part assembly"
+    ],
+    "regression_for": [
+      "D"
+    ],
+    "notes": "Multi-part Domain D path \u2014 tests that Planner decomposes wing into skin + ribs + spar and that the assembler applies FASTENED mates correctly."
+  },
+  {
+    "id": "D_aero_sweep_naca0012",
+    "domain": "D",
+    "difficulty": "hard",
+    "description": "A NACA 0012 wing, chord 200mm, span 500mm. Compute a Cl/Cd polar from alpha -2 to 18 degrees at Re 1e6 and Ncrit 9. Report stall angle and Cl_max.",
+    "expected_features": [
+      "NACA 0012 cross-section",
+      "200mm chord",
+      "500mm span",
+      "aerodynamic polar alpha -2 to 18",
+      "Re 1e6",
+      "Ncrit 9",
+      "stall alpha reported",
+      "Cl_max reported"
+    ],
+    "regression_for": [
+      "D"
+    ],
+    "expected_naca_code": "0012",
+    "min_converged_alpha": 14,
+    "notes": "Primary XFOIL integration test \u2014 validates the full aero pipeline: generate wing geometry, run XFOIL, return PolarReport. Stall should be \u226514 alpha-points converged."
+  },
+  {
+    "id": "D_fuselage_cross_section",
+    "domain": "D",
+    "difficulty": "medium",
+    "description": "A fuselage cross-section body using a NACA 0018 thickness profile (symmetric, max thickness 18%) scaled to 300mm chord and extruded 2000mm along the longitudinal axis.",
+    "expected_features": [
+      "NACA 0018 thickness profile",
+      "300mm chord",
+      "2000mm length",
+      "symmetric cross-section",
+      "single solid"
+    ],
+    "regression_for": [
+      "D"
+    ],
+    "expected_naca_code": "0018",
+    "notes": "Tests that the Domain D strategy correctly handles non-wing applications of NACA profiles (fuselage body of revolution). Large span-to-chord ratio stresses the loft / extrude path."
   }
 ]

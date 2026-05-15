@@ -19,9 +19,11 @@ import os
 
 import google.generativeai as genai
 
+from config import GEMINI_MODEL_HEAVY
+
 logger = logging.getLogger("mirum.evaluation")
 
-MODEL = "gemini-3-flash-preview"
+MODEL = GEMINI_MODEL_HEAVY
 
 _LVM_SCORE_PROMPT = """You are evaluating a CadQuery 3D CAD script that was generated from a text prompt.
 
