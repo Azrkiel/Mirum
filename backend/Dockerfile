@@ -9,11 +9,13 @@ RUN apt-get update && \
         libgl1 \
         xfoil \
         libosmesa6 \
-        libgles2-mesa \
+        libgles2 \
     && rm -rf /var/lib/apt/lists/*
-# Note: freeglut3 was renamed in Debian bookworm. pyrender's OSMesa
-# path doesn't need GLUT — only legacy interactive renderers do.
-# If pyrender breaks on a specific symbol, add libglut3.12 here.
+# Debian package naming notes:
+# - freeglut3 was dropped/renamed in trixie. pyrender's OSMesa path
+#   doesn't need GLUT; only legacy interactive renderers do.
+# - libgles2-mesa was renamed to libgles2 in trixie.
+# If pyrender ever fails on a missing OpenGL symbol, add libglut3.12.
 # xfoil: Mark Drela's subsonic airfoil analysis tool.
 # Required by analysis/airfoil.py for Domain D aerodynamic polar generation.
 # The binary lands at /usr/bin/xfoil — no MIRUM_XFOIL_BIN env var needed in Linux.
