@@ -58,13 +58,48 @@ RULE_BLOCKS = {
         "2D sketch or an unextruded workplane. "
     ),
     "rule_no_hallucinated_methods": (
-        "(6) NEVER invent CadQuery methods. The following DO NOT EXIST: "
-        "rotate_about_origin(), revolve_about(), sweep_along(), make_gear(), "
-        "make_thread(). "
+        "(6) NEVER invent CadQuery methods. The following DO NOT EXIST as "
+        "built-in Workplane methods: rotate_about_origin(), revolve_about(), "
+        "sweep_along(), make_gear(), make_thread(). For gears and threads, use "
+        "the cad_utils library helpers (make_involute_spur_gear, "
+        "make_metric_thread, make_hex_bolt, make_hex_nut) described in the "
+        "domain rules below. "
+        "Workplane.shell() takes ONE positional argument (thickness) — it does "
+        "NOT accept a faces= kwarg. Faces are selected BEFORE the call: "
+        ".faces('>Z').shell(thickness). See rule_shell_api for the full pattern."
+    ),
+    "rule_shell_api": (
+        "SHELL OPERATION — exact CadQuery API. Workplane.shell(thickness) takes "
+        "ONE positional argument: wall thickness (float). Positive thickness "
+        "grows outward, negative thickness hollows inward. Faces to leave open "
+        "are selected on the workplane BEFORE .shell() is called — they are "
+        "NEVER passed as a keyword argument. "
+        "\n"
+        "  CORRECT:   solid.faces('>Z').shell(-2.0)         # hollow box, top open\n"
+        "  CORRECT:   solid.faces('>Z').shell(2.0)          # +2mm wall outward, top open\n"
+        "  WRONG:     solid.shell(2.0, faces=...)           # 'faces' is NOT a parameter\n"
+        "  WRONG:     solid.shell(2.0, thickness=2.0)       # no kwargs accepted\n"
+        "\n"
+        "Canonical pattern for a hollow box with an open top:\n"
+        "  result = cq.Workplane('XY').box(L, W, H).faces('>Z').shell(-wall_thickness)\n"
+        "If multiple faces should be open, chain selectors before .shell(): "
+        "solid.faces('>Z or <Z').shell(-t). Wall thickness must be much smaller "
+        "than the smallest dimension; otherwise OCCT raises StdFail_NotDone."
     ),
     "rule_face_selectors": (
         "(7) Only use standard face selectors: '>Z', '<Z', '>X', '<X', '>Y', '<Y'. "
         "NEVER invent face names. "
+    ),
+    "rule_no_part_tagging": (
+        "(8) DO NOT CALL .tag() IN YOUR SCRIPT. The anchor_tags declared in "
+        "the PartDefinition are CONTRACT METADATA for the downstream assembler — "
+        "they are NOT something your script has to implement. The assembler uses "
+        "standard directional selectors ('>Z', '<Z', '>X', '<X', '>Y', '<Y') "
+        "directly on the imported .step and does not read any tags from your "
+        "script. Do NOT call result.tag(...), Workplane.tag(...), or any variant. "
+        "Do NOT reference cq.selectors.FaceByAll, cq.selectors.PlaneSelector, or "
+        "other non-existent selectors. Your job is ONLY to assign a valid "
+        "cq.Workplane solid to `result`."
     ),
 
     # ── Conditional shared rules (keyword-triggered) ──────────────────
@@ -163,8 +198,15 @@ RULE_BLOCKS = {
         "(B2) For PULLEYS/WHEELS: Use .circle(r).extrude(w), then cut a V-groove "
         "or flat groove using .revolve() on a trapezoidal profile, or boolean cut "
         "a torus-shaped ring. "
-        "(B3) For THREADS: Approximate as a plain cylinder with correct major/minor "
-        "diameter. Do NOT attempt helical sweeps — they are unreliable. "
+        "(B3) For THREADED CYLINDERS (studs, threaded rods, external threads on "
+        "a custom shaft), USE the pre-built library helper: "
+        "  from cad_utils import make_metric_thread "
+        "  result = make_metric_thread(diameter=10.0, pitch=1.5, length=40.0) "
+        "This returns a stable ribbed-cylinder approximation centered at the "
+        "origin. NEVER attempt helical sweeps — they crash the BRep kernel. "
+        "NEVER approximate as a plain cylinder — the helper is already the "
+        "reliable approximation. For complete HEX BOLTS and HEX NUTS, use the "
+        "dedicated fastener helpers instead (see FASTENER RULE below). "
         "(B4) For CAMS: Compute the cam profile as polar coordinates using math, "
         "convert to (x,y) points, use .polyline(points).close().extrude(). "
         "(B5) For SPRINGS: Approximate as a cylinder or torus. Do NOT attempt "
@@ -175,13 +217,60 @@ RULE_BLOCKS = {
         "(teeth, module, pitch, diameter, bore, etc.) and apply them precisely."
     ),
 
+    "rule_fasteners": (
+        "FASTENER RULE (MANDATORY — USE THE LIBRARY): "
+        "For any standard HEX BOLT / HEX SCREW, you MUST use: "
+        "  from cad_utils import make_hex_bolt "
+        "  result = make_hex_bolt( "
+        "      nominal_diameter=10.0,   # M10 -> 10.0, M8 -> 8.0, etc. "
+        "      pitch=1.5,                # thread pitch in mm "
+        "      shank_length=40.0,        # threaded shank length in mm "
+        "      # head_width_across_flats=17.0,  # optional; ISO 4014 default used if omitted "
+        "      # head_thickness=6.4,            # optional; ISO 4014 default used if omitted "
+        "  ) "
+        "\n"
+        "For any standard HEX NUT, you MUST use: "
+        "  from cad_utils import make_hex_nut "
+        "  result = make_hex_nut( "
+        "      nominal_diameter=10.0, "
+        "      pitch=1.5, "
+        "      # width_across_flats=17.0,  # optional; ISO 4032 default used if omitted "
+        "      # height=8.0,               # optional; ISO 4032 default used if omitted "
+        "  ) "
+        "\n"
+        "If the prompt specifies exact head/nut dimensions (e.g. '17mm width "
+        "across flats'), pass them explicitly; otherwise leave the optional "
+        "arguments out and the helper picks ISO standard values. "
+        "\n"
+        "Do NOT hand-build a bolt or nut from .polygon() + .circle() + "
+        ".extrude() — the helpers already produce a valid centered solid with "
+        "proper threads. Hand-rolled fasteners historically fail because the "
+        "LLM invents face selectors, miscomputes the hex circumscribed radius, "
+        "or tries to model threads as a plain cylinder with no ribs."
+    ),
+
     # ── Domain C: Organic / Ergonomic ─────────────────────────────────
     "rule_domain_c": (
         "DOMAIN C STRATEGY — Cross-Sectional Lofting: "
-        "You MUST use the .loft() approach for organic shapes. Do NOT try to "
-        "approximate organic shapes with boxes and cylinders — they will look wrong. "
         "\n"
-        "(C1) LOFT APPROACH (primary method): "
+        "(C0) PRIMITIVE FAST PATH — check this FIRST. If the part description "
+        "names a single primitive shape, use the matching CadQuery primitive "
+        "directly. Do NOT loft a primitive out of many cross-sections. "
+        "  - sphere / ball / globe          → cq.Workplane('XY').sphere(radius) "
+        "  - cylinder / rod / shaft         → cq.Workplane('XY').cylinder(h, r) "
+        "  - box / cube                     → cq.Workplane('XY').box(L, W, H) "
+        "  - ellipsoid (one axis stretched) → 2-section .loft() between two ellipses, NOT 10+ sections "
+        "Decoration on top of a primitive (e.g., baseball stitching) is OPTIONAL: "
+        "the body must always succeed first. If a decorative sweep or stitch step "
+        "is risky, omit it and return the clean primitive. "
+        "\n"
+        "Use the lofting strategy below ONLY when no primitive matches the "
+        "shape (handles, ergonomic grips, freeform sculpts, animal heads). "
+        "\n"
+        "(C1) LOFT APPROACH — for shapes no primitive matches: "
+        "Use .loft() for genuinely organic shapes (handles, grips, animal heads, freeform). "
+        "Do NOT try to approximate complex organic shapes with stacks of boxes and cylinders — "
+        "they will look wrong. The steps: "
         "  1. Create multiple 2D cross-section profiles at different Z heights. "
         "  2. Each cross-section should be a closed wire (circle, ellipse, or spline). "
         "  3. Use .workplane(offset=z) to step to the next Z-height before drawing each section. "
@@ -229,6 +318,71 @@ RULE_BLOCKS = {
         "\n"
         "(C6) Apply .fillet() on sharp edges LAST, after the loft is complete. "
         "(C7) Ensure at least 3 cross-sections for smooth shapes (more = smoother)."
+    ),
+
+    # ── Domain C variant: Low-Poly / Game-Asset Composition ───────────
+    # Replaces rule_domain_c when the part description signals a stylized
+    # creature / character feature. Periodic-spline lofts are the wrong
+    # tool for these — they trigger BSpline interpolation failures
+    # (BSplCLib::Interpolate Standard_OutOfRange) and aren't needed for
+    # game-asset fidelity. Substitution is performed in _resolve_rule_names.
+    "rule_domain_c_low_poly": (
+        "DOMAIN C STRATEGY — Low-Poly Primitive Composition (Game-Asset Mode): "
+        "This part is a stylized creature/character feature. Build it from "
+        "simple primitives unioned together, NOT from periodic-spline lofts. "
+        "Spline lofts with many control points trigger BSpline interpolation "
+        "failures and are not needed for game-asset fidelity. "
+        "\n"
+        "(L1) PREFERRED PRIMITIVES (combine with .union()): "
+        "  - Sphere:           cq.Workplane('XY').sphere(radius) "
+        "  - Cylinder:         cq.Workplane('XY').cylinder(height, radius) "
+        "  - Box:              cq.Workplane('XY').box(L, W, H) "
+        "  - Capsule:          cylinder + sphere on each end "
+        "  - Tapered cylinder: short two-section .loft() between two circles "
+        "  - Ellipsoid:        short two-section .loft() between two ellipses "
+        "\n"
+        "(L2) DO NOT use periodic-spline lofts (.spline(pts, periodic=True) "
+        "fed into .loft()). Stay with primitives plus, at most, one short "
+        ".loft() between two ordinary circles or ellipses. Never more than "
+        "three cross-sections in a single loft chain. "
+        "\n"
+        "(L3) DO NOT manually edit individual spline control points to add "
+        "ear bumps, eye sockets, or other details. If the part needs a bump, "
+        "model it as a separate small primitive (sphere/cone) and .union() "
+        "it onto the parent shape at the desired position via "
+        "result = base.union(detail.translate((x, y, z))). "
+        "\n"
+        "(L4) DO NOT call .shell() on this part. Game-asset parts are solid; "
+        "the Domain C shelling mandate does not apply in low-poly mode. "
+        "\n"
+        "(L5) FILLETING: optional. If applied, use a small radius — no "
+        "larger than 0.1 × the smallest dimension of the smallest "
+        "sub-primitive. Skipping fillet entirely is acceptable for low-poly "
+        "assets. "
+        "\n"
+        "(L6) Avoid boolean subtractions unless strictly required. Low-poly "
+        "assets rarely need negative features, and boundary cleanup on a "
+        "cluster of unioned primitives is fragile. "
+        "\n"
+        "(L7) NEVER call .cut() / .union() / .shell() / .fillet() inside a "
+        "loft profile lambda or on a 2D wire. These methods need a 3D solid. "
+        "If the profile needs a notch, build the part FIRST, then subtract "
+        "from the resulting solid. (See rule_no_boolean_on_wire.) "
+        "\n"
+        "(L8) WORKED EXAMPLE — a cat front leg in a sitting pose (~60mm): "
+        "  upper = cq.Workplane('XY').cylinder(40, 6) "
+        "  knee  = cq.Workplane('XY').sphere(7).translate((0, 0, -20)) "
+        "  lower = cq.Workplane('XY').cylinder(20, 5).translate((0, 0, -32)) "
+        "  paw   = ( "
+        "      cq.Workplane('XY') "
+        "      .ellipse(10, 8) "
+        "      .workplane(offset=6).ellipse(8, 6) "
+        "      .loft() "
+        "      .translate((0, 0, -45)) "
+        "  ) "
+        "  result = upper.union(knee).union(lower).union(paw) "
+        "Notice: every component is a clean primitive or a 2-section loft, "
+        "no .cut() inside any profile, no .shell()."
     ),
 
     # ── Domain E: Sheet Metal / Thin-Wall ─────────────────────────────
@@ -669,6 +823,33 @@ RULE_BLOCKS = {
         "extract the 4-digit code and pass it to make_naca_wire(). "
     ),
 
+    "rule_no_boolean_on_wire": (
+        "BOOLEAN OPS REQUIRE A 3D SOLID — NEVER call them on a 2D wire. "
+        "The methods .cut(), .union(), .intersect(), .shell(), .fillet(), and "
+        ".chamfer() all operate on a 3D solid. Calling any of them on a "
+        "workplane that holds only a wire (.circle(), .rect(), .ellipse(), "
+        ".polyline(), .polygon(), .spline()) crashes the kernel with "
+        "'Cannot find a solid on the stack or in the parent chain'. "
+        "\n"
+        "RULE: Convert the wire to a solid FIRST via .extrude(thickness), "
+        ".revolve(), or .loft() before any boolean / shell / fillet op. "
+        "\n"
+        "INSIDE A LOFT CHAIN, NEVER call .cut() or .union() on a profile. "
+        "Loft profiles are wires; cut/union do not apply. If a section needs "
+        "a notch, build the loft FIRST, then subtract the notch from the "
+        "resulting solid: "
+        "  result = ( cq.Workplane('XY').circle(10) "
+        "             .workplane(offset=20).circle(8) "
+        "             .loft() ) "
+        "  result = result.faces('>Z').workplane().rect(5, 5).cutBlind(-2) "
+        "\n"
+        "WRONG (causes 'Cannot find a solid' — NEVER do this): "
+        "  cq.Workplane('XY').circle(10).cut(other_workplane)        # circle is a wire "
+        "  lambda wp: wp.circle(r).cut(rect_wp)                       # inside a loft profile "
+        "  cq.Workplane('XY').rect(10,10).fillet(1)                   # rect is a wire "
+        "  cq.Workplane('XY').ellipse(5,3).shell(-1)                  # ellipse is a wire "
+    ),
+
     "rule_co2_dragster": (
         "CO2 DRAGSTER STRATEGY (MANDATORY): "
         "When generating a CO2 dragster, you MUST follow this exact boolean sequence: "
@@ -695,8 +876,10 @@ _CORE_RULES = [
     "rule_origin",
     "rule_raw_python",
     "rule_3d_solid",
+    "rule_no_boolean_on_wire",
     "rule_no_hallucinated_methods",
     "rule_face_selectors",
+    "rule_no_part_tagging",
 ]
 
 # Domain preambles — first line of each system prompt
@@ -767,6 +950,11 @@ _KEYWORD_TRIGGERS = {
         "text", "label", "engrav", "emboss", "letter", "font",
         "inscri", "carve",
     ],
+    "rule_fasteners": [
+        "hex bolt", "hex nut", "hex head bolt", "hex screw", "hex-head",
+        "bolt", "nut", "screw", "fastener", "threaded rod", "stud",
+        "m3 ", "m4 ", "m5 ", "m6 ", "m8 ", "m10", "m12", "m14", "m16", "m20",
+    ],
     "rule_co2_dragster": [
         "dragster", "co2 car", "derby car", "race car",
     ],
@@ -775,6 +963,10 @@ _KEYWORD_TRIGGERS = {
         "web", "gusset", "rib", "keyway", "spline shaft", "gudgeon",
         "thread boss", "shell", "lands",
     ],
+    "rule_shell_api": [
+        "shell", "hollow", "wall thickness", "open top", "open box",
+        "shelled", "thin wall", "thin-wall", "hollowed",
+    ],
     "rule_domain_e": [
         "sheet metal", "sheet steel", "sheet aluminum", "bent plate",
         "thin wall", "thin-wall", "enclosure panel", "pcb tray", "pcb mount",
@@ -782,12 +974,86 @@ _KEYWORD_TRIGGERS = {
         "bend radius", "flange height", "k-factor", "flat pattern",
         "bend allowance", "metal bracket", "stamped",
     ],
+    # Low-poly / game-asset override for Domain C. When any of these match
+    # the part description, _resolve_rule_names substitutes rule_domain_c
+    # with rule_domain_c_low_poly inside the domain rule list (it does NOT
+    # append, to avoid contradictory instructions in the prompt).
+    "rule_domain_c_low_poly": [
+        "low poly", "low-poly", "lowpoly",
+        "game asset", "game-asset", "video game", "video-game",
+        "game character", "game model",
+        "feline", "canine", "creature",
+        "muzzle", "whisker", "paw",
+        "cat", "dog", "rabbit", "horse",
+        "lion", "tiger", "bear", "wolf", "fox",
+        "deer", "elephant", "giraffe", "zebra",
+        "monkey", "kangaroo", "dragon",
+    ],
 }
 
 
 # --------------------------------------------------------------------------
 # Strategy builder
 # --------------------------------------------------------------------------
+
+def _resolve_rule_names(domain: str, description: str = "") -> list[str]:
+    """Return the ordered list of rule names that should fire for (domain, description).
+
+    Order: core rules, then domain rules, then keyword-triggered rules. De-duplicated.
+    Used by get_strategy to build the prompt and by get_active_rules to surface the
+    same rule list to the critic-loop retry path.
+    """
+    desc_lower = description.lower()
+    seen: set[str] = set()
+    ordered: list[str] = []
+
+    for name in _CORE_RULES:
+        if name not in seen:
+            seen.add(name)
+            ordered.append(name)
+
+    # Low-poly override: when the description signals a stylized
+    # creature/game-asset feature, swap rule_domain_c for the low-poly
+    # variant in-place (Domain C only). This keeps the override in the
+    # domain section rather than letting it land later as a contradictory
+    # extra rule alongside the strict loft mandate.
+    domain_rule_names = list(_DOMAIN_RULES.get(domain, _DOMAIN_RULES["A"]))
+    low_poly_keywords = _KEYWORD_TRIGGERS.get("rule_domain_c_low_poly", ())
+    low_poly_active = (
+        domain == "C"
+        and bool(description)
+        and any(kw in desc_lower for kw in low_poly_keywords)
+    )
+    if low_poly_active:
+        domain_rule_names = [
+            "rule_domain_c_low_poly" if n == "rule_domain_c" else n
+            for n in domain_rule_names
+        ]
+
+    for name in domain_rule_names:
+        if name not in seen:
+            seen.add(name)
+            ordered.append(name)
+    if description:
+        for rule_name, keywords in _KEYWORD_TRIGGERS.items():
+            # Handled by the domain substitution above — never inject
+            # this rule as an extra trailing block.
+            if rule_name == "rule_domain_c_low_poly":
+                continue
+            if rule_name not in seen and any(kw in desc_lower for kw in keywords):
+                seen.add(rule_name)
+                ordered.append(rule_name)
+    return ordered
+
+
+def get_active_rules(domain: str, description: str = "") -> list[str]:
+    """Return the rule names get_strategy() would inject for this (domain, description).
+
+    The critic loop uses this on retry to tell the Machinist which rule it most
+    likely violated, anchored against the rules that were actually in scope.
+    """
+    return _resolve_rule_names(domain, description)
+
 
 def get_strategy(domain: str, description: str = "") -> str:
     """Build a domain-specific system prompt with dynamic rule injection.
@@ -804,41 +1070,31 @@ def get_strategy(domain: str, description: str = "") -> str:
     Returns:
         Complete system prompt string for the Machinist LLM.
     """
-    desc_lower = description.lower()
+    rule_names = _resolve_rule_names(domain, description)
 
-    # Layer 0: Domain preamble
     preamble = _DOMAIN_PREAMBLES.get(domain, _DOMAIN_PREAMBLES["A"])
 
-    # Layer 1: Core universal rules
-    injected: set[str] = set()
-    core_parts = []
-    for name in _CORE_RULES:
-        core_parts.append(RULE_BLOCKS[name])
-        injected.add(name)
-    core_section = "UNIVERSAL RULES (apply to ALL domains): " + " ".join(core_parts)
+    core_blocks: list[str] = []
+    domain_blocks: list[str] = []
+    extra_blocks: list[str] = []
+    domain_rule_set = set(_DOMAIN_RULES.get(domain, _DOMAIN_RULES["A"]))
+    core_rule_set = set(_CORE_RULES)
+    for name in rule_names:
+        block = RULE_BLOCKS[name]
+        if name in core_rule_set:
+            core_blocks.append(block)
+        elif name in domain_rule_set:
+            domain_blocks.append(block)
+        else:
+            extra_blocks.append(block)
 
-    # Layer 2: Domain-specific rules
-    domain_parts = []
-    for name in _DOMAIN_RULES.get(domain, _DOMAIN_RULES["A"]):
-        if name not in injected:
-            domain_parts.append(RULE_BLOCKS[name])
-            injected.add(name)
-    domain_section = "\n\n".join(domain_parts)
-
-    # Layer 3: Keyword-triggered rules
-    extra_parts = []
-    if description:
-        for rule_name, keywords in _KEYWORD_TRIGGERS.items():
-            if rule_name not in injected:
-                if any(kw in desc_lower for kw in keywords):
-                    extra_parts.append(RULE_BLOCKS[rule_name])
-                    injected.add(rule_name)
-
-    sections = [preamble, core_section, domain_section]
-    if extra_parts:
-        sections.append(
-            "ADDITIONAL CONTEXT RULES: " + "\n\n".join(extra_parts)
-        )
+    sections = [
+        preamble,
+        "UNIVERSAL RULES (apply to ALL domains): " + " ".join(core_blocks),
+        "\n\n".join(domain_blocks),
+    ]
+    if extra_blocks:
+        sections.append("ADDITIONAL CONTEXT RULES: " + "\n\n".join(extra_blocks))
 
     return "\n\n".join(sections)
 

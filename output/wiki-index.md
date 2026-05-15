@@ -1,0 +1,190 @@
+# Index
+
+Master catalog of all wiki pages. Updated on every ingest.
+
+## Sources
+
+- [[Boundary Representation (Wikipedia)]] — Wikipedia overview of B-rep; topology + geometry, history, CSG comparison, STEP standardization
+- [[Parametric Curves and Surfaces (Rhino)]] — Rhino developer guide: NURBS in depth, curvature, continuity, polysurfaces, with Grasshopper snippets
+- [[Non-uniform rational B-spline (Wikipedia)]] — NURBS history, technical specs, basis function construction, circle example
+- [[What is BREP file format (CAD Exchanger)]] — CAD Exchanger page documenting .brep as OCCT-native plus its 30+ format conversion matrix
+- [[Surface Continuity (PLM Tech Talk)]] — G0/G1/G2/G3 explained with CATIA V5 framing and Class A Surface context
+- [[Introduction to OpenCascade and CAD Modelling Kernels (Analysis Situs)]] — Landscape tour of OCCT, Parasolid, ACIS, C3D, SMLib, RGK, CGM
+- [[Introduction to SOLIDWORKS Mates]] — GoEngineer walkthrough of Standard, Advanced, Mechanical mates
+- [[Mates (Onshape)]] — Onshape help page on one-mate-with-DoF architecture
+- [[OCCT BRep Format]] — Full OCCT 7.9 BREP file spec: BNF for locations, curves, surfaces
+- [[OCCT Bottle Tutorial]] — Canonical OCCT tutorial: profile → body → threading → compound
+- [[Semantic Mates Paper]] — TUM/fortiss paper introducing OWL-ontology-based symbolic connection types; user study shows 3× speedup
+- [[Text2CAD Paper]] — NeurIPS 2024 Spotlight: first Transformer-based text-to-parametric-CAD with multi-level prompts
+- [[Text2CAD Project Page]] — Landing page with architecture diagrams and win-rate breakdowns
+- [[Zoo: Introducing Text-to-CAD]] — Zoo's Dec 2023 alpha launch: B-Rep STEP generation (not mesh), example prompts, KCL roadmap
+- [[Zoo API: Generate a CAD Model from Text]] — API reference: async POST endpoint, STEP as source-of-truth, KCL output option
+- [[Zoo: Zookeeper — ML CAD Model Generator]] — Conversational CAD agent in Zoo Design Studio; reasoning + geometry inspection; enterprise fine-tuning
+- [[CADFusion: Text-to-CAD Through Visual Feedback]] — Microsoft Research: LLM backbone + alternating SL/VF (DPO) training; beats Text2CAD with 20K samples
+- [[ProCAD: Clarify Before You Draw]] — Georgia Tech two-agent system: proactive clarifier + CadQuery coder; 79.9% CD reduction vs. Claude Sonnet 4.5
+- [[A No-BS Guide to B2B SaaS GTM Strategies]] — Stratabeat: GTM components, three Gartner archetypes (PLG/sales-led/hybrid), ICP framework, Notion/Basecamp/Jasper examples
+- [[B2B SaaS Sales: Strategies for Technical Founders]] — Eleken: 6-stage sales cycle, value prop, cold outreach, niche focus, core SaaS metrics (MRR/CAC/LTV/churn)
+- [[Go To Market Strategy For B2B SaaS: A Simple Founder Playbook]] — Upleadium: ICP→Offer→Channels→Pricing→KPIs chain, full do's and don'ts, pivot signals
+- [[Text-to-CadQuery Paper]] — arXiv 2505.06507 (May 2025): CadQuery as text-to-CAD target; 170K dataset via Gemini self-correction; Qwen2.5-3B 69.3% exact match, 48.6% CD reduction
+- [[Onshape Assembly API]] — Onshape REST API mate structure: 9 mate types (Fastened/Revolute/Slider/Cylindrical/Pin Slot/Planar/Ball/Parallel/Tangent), getAssemblyDefinition, mate connector coordinate systems
+- [[CodeAct Paper]] — ICML 2024: executable Python as unified LLM agent action space; self-debugging via interpreter tracebacks; up to 20% gain over JSON-format agents
+- [[Self-Debugging Paper]] — ICLR 2024: rubber duck debugging for LLMs; generate → execute → explain → revise loop; plus companion paper finding self-repair gains are often modest
+- [[CADSmith Paper]] — arXiv 2603.26512 (March 2026): dual nested correction loops (execution errors + OCCT geometric validation + VLM judge); 100% execution rate, CD 28→0.74
+- [[ToolCAD Paper]] — arXiv 2604.07960 (April 2026): CAD modeling gym + curriculum RL trains open-source LLMs to match proprietary models on text-to-CAD
+- [[From Idea to CAD Paper]] — arXiv 2503.04417 (March 2025): V-Model-inspired multi-agent system; requirements engineering + CAD engineering + VLM visual QA agents
+- [[CAD-Recode Paper]] — arXiv 2412.14042 (ICCV 2025): point cloud → CadQuery Python via Qwen2-1.5B + linear projection + 1M synthetic training pairs; 10× CD improvement
+- [[CadVLM Paper]] — arXiv 2409.17457 (ECCV 2024): first multimodal LLM for parametric CAD; sketch images + primitive token sequences; autocompletion, autoconstraint, image-conditional generation
+- [[JoinABLe Paper]] — arXiv 2111.12772 (CVPR 2022): GNN over B-rep face/edge graphs predicts pairwise CAD joints; 79.53% accuracy (human: 80%); introduces Fusion 360 Gallery dataset
+- [[Don't Mesh with Me Paper]] — arXiv 2411.15279 (Nov 2024): first LLM fine-tuned for CSG generation; B-rep→CSG conversion pipeline creates 37K training pairs without human annotation
+- [[RLAIF for Code Generation Paper]] — arXiv 2406.20060 (June 2024): RLAIF for API-usage code in lightweight LLMs; AI preference + execution reward hybrid; no human annotators needed
+- [[MA-RLHF Paper]] — arXiv 2410.24539 (Oct 2024): macro-action credit assignment for RLHF; segments code into method-chain units via AST; reduces reward sparsity for long-horizon code generation
+- [[Outlines Library]] — Willard et al. (2023): grammar-constrained LLM decoding via CFG; eliminates structural generation errors at inference time; pip install outlines≥0.0.40
+
+## Entities
+
+- [[Open CASCADE Technology]] — Open-source C++ CAD kernel; OCCT. Only open-source entry in the top-tier B-rep kernel list
+- [[Parasolid]] — Commercial B-rep kernel; backbone of SOLIDWORKS
+- [[ACIS]] — Commercial B-rep kernel (.sat/.sab); backs SpaceClaim
+- [[C3D]] — Commercial kernel by C3D Labs; uniquely publishes docs without restrictions
+- [[SMLib]] — Commercial kernel that directly implements The NURBS Book; source available
+- [[RGK]] — Research/phantom kernel; never released but stimulated academic CAD research
+- [[Catia Geometric Modeller]] — Dassault's proprietary kernel; backbone of CATIA
+- [[SOLIDWORKS]] — Dassault feature-based MCAD on Parasolid; reference implementation for mates
+- [[Onshape]] — Cloud CAD with single-mate-with-DoF architecture
+- [[Rhinoceros 3D]] — McNeel NURBS modeler with Grasshopper parametric environment
+- [[CAD Exchanger]] — File-format conversion company; 30+ format interop around .brep
+- [[Analysis Situs]] — Educational project publishing CAD programming lessons
+- [[DeepCAD]] — Parametric CAD dataset + baseline model; substrate for Text2CAD
+- [[Text2CAD Framework]] — Transformer-based text-to-CAD system by Khan et al., NeurIPS 2024
+- [[fortiss]] — An-Institut of TU München; home of the Semantic Mates authors
+- [[TU München]] — Home university of Alois Knoll and the Semantic Mates lineage
+- [[DFKI]] — German Research Center for AI; lead affiliation on Text2CAD
+- [[RPTU Kaiserslautern-Landau]] — Co-affiliation on Text2CAD
+- [[Pierre Bézier]] — Renault engineer; namesake of Bézier curves
+- [[Paul de Casteljau]] — Citroën researcher; namesake of the de Casteljau algorithm
+- [[Ken Versprille]] — Syracuse PhD who generalized B-splines to non-uniform rational
+- [[Ian Braid]] — Cambridge researcher; B-rep pioneer; BUILD → ROMULUS → Parasolid/ACIS lineage
+- [[Bruce Baumgart]] — Stanford researcher; independent B-rep pioneer (for computer vision)
+- [[Isaac Jacob Schoenberg]] — Mathematician who formalized spline functions (1964)
+- [[Boeing]] — NURBS industry-standard champion; integrated Versprille's work into TIGER
+- [[Mohammad Sadil Khan]] — First author of Text2CAD; DFKI / RPTU / MindGarage
+- [[Alexander Perzylo]] — fortiss researcher; co-author of Semantic Mates + OntoBREP
+- [[Markus Rickert]] — fortiss researcher; co-author of Semantic Mates
+- [[Alois Knoll]] — TU München PI; senior author on Semantic Mates
+- [[Wikipedia]] — Source for two foundational reference articles
+- [[Robert McNeel & Associates]] — Creator of Rhinoceros 3D; authors of Essential Mathematics guide
+- [[GoEngineer]] — SOLIDWORKS reseller / training provider
+- [[Tata Technologies]] — Dassault/CATIA services firm; PLM Tech Talk publisher
+- [[Mirum]] — Kevin's assembly-first text-to-CAD generation model (this vault exists to support it)
+- [[ROMULUS]] — Ian Braid's commercial B-rep modeller (late 1970s); direct ancestor of both Parasolid and ACIS
+- [[C3D Labs]] — Russian company behind the C3D kernel; notable for unrestricted public API documentation
+- [[The NURBS Book]] — Canonical Piegl & Tiller NURBS textbook (Springer, 1997); implementation source for SMLib
+- [[Zoo.dev]] — Commercial text-to-CAD company; Text-to-CAD API (STEP) + Zookeeper conversational agent; direct Mirum competitor
+- [[CADFusion]] — Microsoft Research text-to-CAD framework; LLM backbone + alternating SL/visual feedback (DPO) stages
+- [[ProCAD]] — Georgia Tech two-agent text-to-CadQuery; proactive clarifier + coding agent; 0.9% IR with 1.6K training samples
+- [[Text-to-CadQuery]] — Research framework (arXiv 2505.06507, May 2025) formalizing CadQuery as text-to-CAD target; 170K dataset via Gemini self-correction; Qwen2.5-3B best model
+- [[Fusion 360 Gallery]] — Autodesk dataset: 8,251 real assemblies with 32,148 joint annotations; strongest public foundation for assembly training data
+- [[ABC Dataset]] — 1M parametric CAD models (CVPR 2019); single-part, no text; geometry diversity source
+- [[SketchGraphs]] — 15M 2D CAD sketches with geometric constraint graphs (Princeton, ICML 2020); constraint graph architecture reference
+- [[HistCAD]] — Constraint-aware parametric CAD dataset (arXiv 2602.19171, Feb 2026); 5-modality alignment; annotation pipeline reference
+- [[LLaVA-NeXT]] — VLM used in Text2CAD Stage 1 annotation pipeline; generates shape descriptions from renderings
+- [[Mixtral-50B]] — MoE LLM used in Text2CAD Stage 2 annotation pipeline; generates multi-level text annotations
+- [[t2cIII Codebase]] — Current Mirum implementation: agentic Gemini 2.5 Flash + CadQuery/OCCT; Planner → Machinist × N → Deterministic Assembler pipeline
+- [[CodeAct]] — ICML 2024 framework: Python code as unified LLM agent action space; foundational reference for code-as-actions agents including t2cIII
+- [[CADSmith]] — Multi-agent CadQuery system (March 2026): dual nested correction loops; OCCT geometric validation outer loop; 100% execution rate; most architecturally similar to Mirum
+- [[JoinABLe]] — Autodesk Research CVPR 2022 system: GNN pairwise joint prediction from B-rep graphs; 79.53% accuracy; discriminative baseline for Mirum's generative assembly problem
+- [[CAD-Recode]] — ICCV 2025 system: point cloud → CadQuery code via Qwen2-1.5B; confirms CadQuery as standard output for both text-to-CAD and reconstruction
+- [[SemanticMateGNN]] — T3-01 research module (`research/semantic_mate_classifier.py`): 3-layer GIN trained on Fusion 360 Gallery joint annotations; 48-dim feature vectors; 12 OntoBREP leaf types; rule-based bootstrap; >70% accuracy target
+- [[JoinABLe GNN Module]] — T3-02 research module (`research/joinable_gnn.py`): FaceGraph extraction from STEP + PyG GNN; MateConfidenceLevel enum; `score_mate_confidence()` geometric cross-check vs. Planner specs; async `run_mate_cross_check()` post-Machinist hook
+- [[SketchGraphs Pretrain Module]] — T3-03 research module (`research/sketchgraphs_pretrain.py`): GIN pre-training on 15M 2D CAD constraint graphs; `export_transfer_weights()` → `apply_transfer_weights()` bridge to JoinABLe; ablation harness measures ≥5% accuracy gain
+- [[RLAIF Machinist Module]] — T3-04 training module (`training/rlaif_machinist.py`): PPO fine-tuning with hybrid reward (0.7 execution + 0.3 preference); macro-action credit assignment via AST; KL early stopping; mines telemetry for failed generation seeds
+- [[Constrained Decoding Module]] — T3-05 inference module (`inference/constrained_decoding.py`): CadQuery EBNF grammar + Outlines CFG; structural error rate gate (deploy only if >20%); latency benchmark (<20s p50); 17 hallucinated method blacklist
+- [[Domain E Sheet Metal]] — T3-06 classifier/strategy extension: fifth CAD domain for thin-wall bent parts; design rules (bend radius ≥ 1× t, flange ≥ 2×(t+r), K=0.33); `make_bent_bracket()` and `make_enclosure_panel()` templates; immediately active
+- [[Geometry Analysis Module]] — T3-07 backend module (`backend/geometry_analysis.py`): Gaussian curvature via OCCT GeomLProp_SLProps; per-face saddle detection; <25% saddle threshold; wired into Domain C critic loop after G2 check
+- [[PMI Validation Module]] — T3-08 backend + API extension: `PMIAnnotation`/`PartPMI` Pydantic models; regex + LLM extraction; XCAF attachment with JSON sidecar fallback; `/pmi/extract` and `/pmi/annotate` endpoints; `pmi_detected` flag in `/generate` response
+
+## Concepts
+
+- [[Boundary Representation]] — Representing solids via connected boundary elements; dominant modern CAD scheme
+- [[Constructive Solid Geometry]] — Primitives + Boolean tree; lives on in feature-based modeling
+- [[NURBS]] — Non-uniform rational B-splines; the primary curve/surface representation in CAD
+- [[B-splines]] — Piecewise polynomial basis splines; foundation for NURBS
+- [[Bézier Curves]] — Polynomial curves defined by control points; special case of NURBS
+- [[Hermite Curves]] — Cubic curves defined by endpoints + tangents; smoother piecewise joins
+- [[De Casteljau Algorithm]] — Recursive evaluation for Bézier curves
+- [[De Boor Algorithm]] — Numerically stable recursive evaluation for NURBS/B-splines
+- [[Geometric Continuity]] — G0/G1/G2/G3 shape continuity between patches
+- [[Parametric Continuity]] — C^n derivative continuity; stronger than G^n
+- [[Class A Surface]] — Aesthetic-grade surface requiring minimum G2 continuity
+- [[Zebra Analysis]] — Striped reflection test for surface continuity (automotive origin)
+- [[Curvature]] — Rate of tangent change per arc length; foundation of continuity
+- [[Gaussian Curvature]] — Product of principal curvatures; classifies surface as bowl/saddle/flat
+- [[Parametric Curves]] — P(t) curves; foundation for NURBS and Béziers
+- [[Parametric Surfaces]] — P(u, v) surfaces; foundation for NURBS surfaces
+- [[Knot Vector]] — Parameter sequence defining NURBS control point activation zones
+- [[Control Points]] — Points defining NURBS/Bézier shape; the user's primary editing handle
+- [[Polysurfaces]] — Joined NURBS surfaces forming BRep structures
+- [[Trimmed Surfaces]] — NURBS surface + 2D trim curves defining outer/inner loops
+- [[NURBS Singularity]] — Collapsed-corner singular points (cone apex, sphere poles)
+- [[Topology vs Geometry]] — Core architectural split in every B-rep kernel
+- [[Winged-Edge]] — Baumgart's 1975 B-rep data structure; topological backbone behind all modern CAD kernels
+- [[Non-Manifold Models]] — B-rep extensions including sheet objects for thin plates
+- [[Features-Based Modeling]] — Grouping sub-elements into logical features for high-level reasoning
+- [[Point Membership Classification]] — Foundational inside/outside/on-boundary question
+- [[Faceted Representation]] — Mesh-based modeling; popular in graphics, inaccurate for CAD
+- [[Voxel Representation]] — Space decomposition; uniform or adaptive (ADF)
+- [[STEP / ISO 10303]] — B-rep neutral exchange standard; ISO 10303-42 anchors B-rep as the norm
+- [[IGES]] — Pre-STEP legacy exchange format
+- [[CAD Mates]] — Assembly constraints; three architectural models across SOLIDWORKS/Onshape/Semantic
+- [[Standard Mates]] — SOLIDWORKS base mate set (Coincident, Parallel, etc.)
+- [[Advanced Mates]] — SOLIDWORKS compound mates (Width, Path, Limit, etc.)
+- [[Mechanical Mates]] — SOLIDWORKS mechanism mates (Cam, Gear, Screw, etc.)
+- [[Semantic Mates]] — OWL-ontology-based symbolic connection types; preserve semantics at runtime
+- [[OntoBREP]] — OWL ontology for B-rep geometry and constraints (Perzylo et al., 2015)
+- [[Mate References]] — SOLIDWORKS predecessor to Semantic Mates; loses semantics when activated
+- [[Text-to-CAD]] — Research area: generating parametric CAD from natural-language prompts; updated with CADFusion, ProCAD, Zoo
+- [[Design History]] — Ordered sequence of parametric operations; target format for text-to-CAD generators
+- [[KittyCAD Language]] — Zoo.dev's proprietary parametric scripting language; the editable representation behind Text-to-CAD output
+- [[Go-to-Market Strategy]] — B2B SaaS GTM framework: ICP→Offer→Channels→Pricing→KPIs; three Gartner archetypes
+- [[Ideal Customer Profile]] — ICP definition, development, and validation; first building block of any B2B SaaS GTM
+- [[OntoBREP]] — fortiss/SemanticMates OWL ontology defining B-rep geometry + symbolic mate hierarchy; 12 leaf types including HingeMate, BallBearingMate, PressureFitMate, BoltedFlangeConnection
+- [[Graph Isomorphism Network]] — GIN (Xu et al., ICLR 2019); sum-aggregation GNN proven at least as expressive as the Weisfeiler-Leman test; backbone of SemanticMateGNN and JoinABLe modules
+- [[FaceGraph]] — NetworkX/PyG representation of OCCT B-rep faces and shared edges; input format for JoinABLe GNN cross-check
+- [[MateConfidenceLevel]] — HIGH/MEDIUM/LOW/VERY_LOW enum comparing GNN joint predictions vs. Planner-specified mates; drives post-Machinist verification queries
+- [[Transfer Learning 2D to 3D]] — Strategy: pre-train GIN on SketchGraphs 2D constraint graphs, transfer first k layers to JoinABLe 3D GNN; ablation target ≥5% accuracy improvement
+- [[RLAIF]] — Reinforcement Learning from AI Feedback; hybrid reward 0.7 × execution_reward + 0.3 × preference_reward; eliminates need for human annotators in PPO fine-tuning
+- [[Macro-Action Credit Assignment]] — MA-RLHF technique: segment CadQuery script into AST method-chain units; assign discounted rewards at macro-action level to reduce sparsity
+- [[Grammar-Constrained Decoding]] — Outlines CFG approach: enforce CadQuery EBNF grammar at token level during inference; eliminates structural generation errors; only deploy if error rate >20% post-SFT
+- [[Domain E Sheet Metal]] — Fifth t2cIII geometric domain: thin-wall bent parts (enclosures, PCB trays, chassis panels, L-brackets); bend radius / flange / K-factor design rules
+- [[Gaussian Curvature]] — K = k₁ × k₂ (product of principal curvatures); K > 0 = bowl, K = 0 = flat/cylindrical, K < 0 = saddle; used in Domain C critic loop to flag non-smooth surfaces
+- [[PMI]] — Product and Manufacturing Information; ISO 10303-242 AP242 GD&T/tolerance annotations on B-rep faces; embedded via OCCT XCAF or JSON sidecar fallback
+- [[Sheet Metal Design Rules]] — Bend radius ≥ 1× material thickness; flange ≥ 2× (thickness + bend_radius); K-factor 0.33 for neutral axis flat-pattern calculations; standard gauge thicknesses 0.8/1.0/1.2/1.5/2.0mm
+- [[SaaS Sales Cycle]] — Six-stage cycle (lead gen → qualification → demo → proposal → close → retention); metrics and pitch frameworks
+- [[SaaS Metrics]] — MRR, CAC, LTV, LTV:CAC ratio, churn, conversion, activation rate; with benchmarks
+- [[SaaS Pricing Strategy]] — Eight pricing models; principle: align with value metric, test, learn, iterate
+- [[Product-Market Fit]] — Signal: "must-have" vs "nice-to-have"; how to reach and measure PMF
+- [[T-Splines]] — Subdivision surface scheme extending NURBS with T-junctions; enables local refinement; Autodesk Fusion 360 Sculpt mode
+- [[Knot Insertion]] — Algorithm adding knots to a B-spline without changing shape; Boehm's algorithm; enables refinement and Bézier extraction
+- [[Degree Elevation]] — Algorithm raising B-spline polynomial degree without changing shape; companion to knot insertion; h/p-refinement
+- [[Point Cloud to CAD]] — Reverse engineering task: reconstruct editable parametric CadQuery code from 3D point clouds; CAD-Recode is the 2025 state of the art
+- [[Multimodal CAD]] — CAD generation conditioned on multiple input modalities (text, sketch, photo, point cloud); CadVLM first VLM for parametric CAD; future Mirum input extensions
+- [[CSG Generation]] — Generating CSG programs from text or geometry; simpler than CadQuery; B-rep→CSG pipeline creates training data without human annotation
+- [[RLAIF]] — Reinforcement Learning from AI Feedback; frontier LLM as preference signal; scalable alternative to RLHF; hybrid execution + AI reward for CadQuery generation
+
+## Synthesis
+
+- [[CAD Kernel Landscape]] — Commercial B-rep kernel market: ACIS, Parasolid, CGM, C3D, SMLib, RGK, OCCT
+- [[BRep vs CSG]] — Representation scheme comparison; they solve different sub-problems
+- [[Mates Across CAD Tools]] — SOLIDWORKS vs Onshape vs Semantic Mates; implications for Mirum's vocabulary
+- [[Continuity Summary]] — Consolidated G^n vs C^n cheat sheet across all three continuity sources
+- [[Text2CAD for Mirum]] — What to reuse, extend, and research for Mirum given Text2CAD's single-part scope
+- [[Mirum GTM]] — Draft GTM strategy for Mirum: ICP hypothesis, offer, channels, pricing, KPIs applied to assembly-first text-to-CAD
+- [[Text-to-CAD Landscape 2026]] — Side-by-side comparison of Text2CAD, CADFusion, ProCAD, Zoo.dev, and Mirum across output format, architecture, training data, assembly support, and commercial status
+- [[Assembly-First: The Open Problem]] — Structural analysis of why every current system stops at single parts; what solving assembly generation requires (dataset, vocabulary, architecture, evaluation); Mirum's thesis
+- [[Assembly Datasets for Mirum]] — Survey of Fusion 360 Gallery, DeepCAD, ABC, SketchGraphs, HistCAD; construction strategy for Mirum's assembly training dataset
+- [[Mirum Technical Architecture]] — Bridges t2cIII codebase to assembly-first design; covers output format, constraint-based assembly model, fine-tuning roadmap (v0→v4), evaluation suite
+- [[Agentic Architecture Landscape]] — Maps t2cIII to self-debugging, CodeAct, CADSmith, and ToolCAD literature; identifies 5 concrete Machinist improvement priorities; three-generation history of agentic CAD systems
+- [[Mirum Research Gaps]] — Comprehensive gap analysis across 8 dimensions (code quality, assembly, training data, evaluation, input modalities, model architecture, output format, commercialization); prioritized action matrix
+- [[Mirum — The Next Era of Text-to-CAD Generation]] — Full vault synthesis: diagnoses the structural single-part ceiling, establishes the theoretical foundation, defines Mirum's architectural thesis, maps the v0→v4 roadmap, articulates the competitive moat, and identifies five open questions
+- [[Mirum Capability Gaps]] — Full-vault audit of unexploited techniques across 8 dimensions (geometry, mate vocabulary, training, evaluation, data sources, code generation, agent design, GTM); 30+ gaps rated by impact/difficulty; priority summary table from Easy/High to Hard/High
+- [[Mirum Implementation To-Do]] — Developer-ready task list derived from capability gaps + technical architecture; 19 Tier-1/2 tasks (days–weeks) + 8 Tier-3 research bets; each task has implementation steps, files, dependencies, effort, and success criteria; includes dependency graph and quick-start sequence

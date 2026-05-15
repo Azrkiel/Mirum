@@ -46,7 +46,7 @@ from compiler import execute_cad_script
 from debug import log_error as debug_log_error
 from debug import log_event as debug_log_event
 from exporters import get_available_formats
-from postprocessing import parameterize_script
+from postprocessing import parameterize_script, has_tolerance_callouts, extract_pmi_from_prompt, attach_pmi_to_step  # T3-08
 
 logger = logging.getLogger("mirum.api")
 
@@ -58,13 +58,14 @@ logger = logging.getLogger("mirum.api")
 _WORK_DIR = pathlib.Path(os.environ.get("MIRUM_WORK_DIR", "/tmp/mirum/work"))
 _WORK_DIR.mkdir(parents=True, exist_ok=True)
 
-_GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
-if not _GEMINI_KEY:
+_GEMINI_KEY_HEAVY = os.environ.get("GEMINI_API_KEY_HEAVY")
+if not _GEMINI_KEY_HEAVY:
     raise RuntimeError(
-        "GEMINI_API_KEY environment variable is not set. "
-        "Server cannot start without a valid API key."
+        "GEMINI_API_KEY_HEAVY must be set. The orchestrator drives both "
+        "heavy (gemini-3-flash-preview) and lite (gemini-3.1-flash-lite-preview) "
+        "models off this single key — quota is metered per (model, key)."
     )
-genai.configure(api_key=_GEMINI_KEY)
+genai.configure(api_key=_GEMINI_KEY_HEAVY)
 
 
 def _safe_error(detail: str | Exception) -> str:
@@ -406,6 +407,9 @@ async def _pipeline(prompt: str) -> AsyncGenerator[str, None]:
     # Get parameters for single-part flow; multi-part doesn't have them (param_dict is undefined)
     param_dict_final = param_dict if single else {}
 
+    # T3-08: Check if prompt has tolerance callouts (inform frontend to offer /pmi/annotate)
+    pmi_detected = has_tolerance_callouts(prompt)
+
     complete_payload = {
         "step": "complete",
         "status": "done",
@@ -413,6 +417,7 @@ async def _pipeline(prompt: str) -> AsyncGenerator[str, None]:
         "script": final_script,
         "parameters": param_dict_final,  # T1-06
         "export_formats": get_available_formats(),  # T2-09
+        "pmi_detected": pmi_detected,   # T3-08: hints frontend to offer PMI annotation
     }
     yield f"data: {json.dumps(complete_payload)}\n\n"
 
@@ -450,11 +455,51 @@ async def plan_assembly(body: GenerateRequest, request: Request):
     Does NOT run Machinists. Allows the frontend to show the plan before execution.
     """
     import asyncio as _asyncio
+    plan_t0 = time.monotonic()
+    logger.info("/plan: received prompt (%d chars)", len(body.prompt))
     try:
-        rea_task = _asyncio.create_task(run_rea(body.prompt))
-        requirements = await rea_task
-        manifest = await run_planner(body.prompt, requirements=requirements)
+        rea_t0 = time.monotonic()
+        try:
+            requirements = await _asyncio.wait_for(run_rea(body.prompt), timeout=45)
+            logger.info(
+                "/plan: REA finished in %.1fs (requirements=%s)",
+                time.monotonic() - rea_t0,
+                "present" if requirements is not None else "none",
+            )
+        except _asyncio.TimeoutError:
+            logger.warning(
+                "/plan: REA timed out after %.1fs — continuing without requirements",
+                time.monotonic() - rea_t0,
+            )
+            requirements = None
+
+        planner_t0 = time.monotonic()
+        try:
+            manifest = await _asyncio.wait_for(
+                run_planner(body.prompt, requirements=requirements),
+                timeout=150,
+            )
+        except _asyncio.TimeoutError as e:
+            elapsed = time.monotonic() - planner_t0
+            logger.error("/plan: Planner timed out after %.1fs", elapsed)
+            debug_log_error(
+                "planner_preview",
+                TimeoutError(f"Planner timed out after {elapsed:.1f}s"),
+                {"prompt": body.prompt[:500]},
+            )
+            return {
+                "status": "error",
+                "detail": f"Planner timed out after {elapsed:.1f}s (Gemini call did not return)",
+            }
+        logger.info(
+            "/plan: Planner finished in %.1fs (%d parts, %d mates) — total %.1fs",
+            time.monotonic() - planner_t0,
+            len(manifest.parts),
+            len(manifest.mating_rules),
+            time.monotonic() - plan_t0,
+        )
     except Exception as e:
+        logger.exception("/plan: failed after %.1fs", time.monotonic() - plan_t0)
         debug_log_error("planner_preview", e, {"prompt": body.prompt[:500]})
         return {"status": "error", "detail": _safe_error(e)}
 
@@ -754,4 +799,118 @@ async def refine_assembly(body: RefineRequest, request: Request):
             "removed": diff.removed_parts,
             "mates_updated": len(diff.modified_mates),
         },
+    }
+
+
+# ---------------------------------------------------------------------------
+# T3-08: PMI extraction and STEP annotation endpoint
+# ---------------------------------------------------------------------------
+
+class PMIRequest(BaseModel):
+    """Request body for /pmi/extract and /pmi/annotate endpoints."""
+    prompt: str
+    part_id: str
+    script: str = ""
+    step_path: str = ""        # Server-side path; only valid within /tmp/mirum/work/
+
+
+@app.post("/pmi/extract")
+@limiter.limit("30/minute")
+async def extract_pmi(body: PMIRequest, request: Request):
+    """T3-08: Extract PMI annotations from a design prompt.
+
+    Uses regex-based extraction (fast) with optional LLM refinement.
+    Returns the extracted PMIAnnotation list in JSON format.
+
+    Use before /pmi/annotate to preview what PMI will be attached.
+    """
+    # Fast regex extraction
+    pmi = extract_pmi_from_prompt(body.prompt, body.part_id)
+    if pmi is None:
+        return {
+            "status": "ok",
+            "has_pmi": False,
+            "message": "No tolerance callouts detected in prompt.",
+            "annotations": [],
+        }
+
+    return {
+        "status": "ok",
+        "has_pmi": True,
+        "part_id": pmi.part_id,
+        "general_tolerance": pmi.general_tolerance,
+        "material_spec": pmi.material_spec,
+        "annotations": [
+            {
+                "face_selector": a.face_selector,
+                "tolerance_type": a.tolerance_type,
+                "value": a.value,
+                "reference_dimension": a.reference_dimension,
+                "datum_labels": a.datum_labels,
+            }
+            for a in pmi.annotations
+        ],
+    }
+
+
+@app.post("/pmi/annotate")
+@limiter.limit("10/minute")
+async def annotate_step_with_pmi(body: PMIRequest, request: Request):
+    """T3-08: Attach PMI annotations to an existing STEP file.
+
+    Takes a STEP file path (must be in /tmp/mirum/work/) and a design prompt,
+    extracts PMI from the prompt, attaches it to the STEP file using XCAF,
+    and returns the annotated STEP file as base64.
+
+    Falls back to writing a .pmi.json sidecar if XCAF is unavailable.
+    """
+    if not body.step_path:
+        return {"status": "error", "detail": "step_path is required"}
+
+    # Security: only allow paths under _WORK_DIR
+    step_resolved = pathlib.Path(body.step_path).resolve()
+    if not str(step_resolved).startswith(str(_WORK_DIR.resolve())):
+        return {"status": "error", "detail": "step_path must be within the work directory"}
+
+    if not step_resolved.exists():
+        return {"status": "error", "detail": f"STEP file not found: {body.step_path}"}
+
+    # Extract PMI
+    pmi = extract_pmi_from_prompt(body.prompt, body.part_id)
+    if pmi is None:
+        return {
+            "status": "ok",
+            "has_pmi": False,
+            "message": "No PMI annotations found in prompt — STEP file unchanged.",
+        }
+
+    # Attach PMI to STEP
+    output_path = str(_WORK_DIR / (uuid.uuid4().hex + "_pmi.step"))
+    success, result_path = attach_pmi_to_step(str(step_resolved), [pmi], output_path)
+
+    if not success:
+        return {"status": "error", "detail": result_path}
+
+    try:
+        with open(result_path, "rb") as f:
+            data_b64 = base64.b64encode(f.read()).decode("utf-8")
+    except Exception as e:
+        return {"status": "error", "detail": f"Could not read output file: {e}"}
+    finally:
+        try:
+            os.remove(result_path)
+        except OSError:
+            pass
+
+    return {
+        "status": "ok",
+        "has_pmi": True,
+        "n_annotations": len(pmi.annotations),
+        "data_b64": data_b64,
+        "filename": f"{body.part_id}_pmi.step",
+        "format": "step_ap242",
+        "annotations_summary": [
+            {"face": a.face_selector, "type": a.tolerance_type, "value": a.value}
+            for a in pmi.annotations
+        ],
     }

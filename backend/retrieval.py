@@ -9,6 +9,7 @@ The index is populated from the telemetry JSONL log on startup and
 updated incrementally as new successes are logged.
 """
 
+import ast
 import json
 import math
 import os
@@ -27,6 +28,52 @@ _INDEX: list[dict] = []
 _IDF: dict[str, float] = {}
 _TFIDF: list[dict[str, float]] = []
 _INDEX_BUILT = False
+
+
+_TECHNIQUE_METHODS: dict[str, str] = {
+    "loft":          "loft",
+    "polarArray":    "polar_array",
+    "makeThread":    "thread",
+    "makeHelix":     "thread",
+    "helix":         "thread",
+    "shell":         "shell",
+    "sweep":         "sweep",
+    "extrude":       "extrude",
+    "revolve":       "revolve",
+    "fillet":        "fillet",
+    "chamfer":       "chamfer",
+    "section":       "section",
+    "text":          "text",
+    "cut":           "boolean",
+    "union":         "boolean",
+    "intersect":     "boolean",
+    "combine":       "boolean",
+    "polyline":      "polyline",
+    "spline":        "spline",
+    "twistExtrude":  "extrude",
+    "cutThruAll":    "boolean",
+    "cutBlind":      "boolean",
+}
+
+
+def extract_techniques(code: str) -> list[str]:
+    """AST-scan a CadQuery script and return the techniques it uses (sorted, deduped).
+
+    Maps method names like ``.loft()``, ``.polarArray()``, ``.makeThread()`` to
+    technique tags so the retrieval index can be queried by failure mode at
+    Machinist retry time. Returns an empty list if the script doesn't parse.
+    """
+    techniques: set[str] = set()
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            tag = _TECHNIQUE_METHODS.get(node.func.attr)
+            if tag:
+                techniques.add(tag)
+    return sorted(techniques)
 
 
 def _tokenize(text: str) -> list[str]:
@@ -86,10 +133,12 @@ def build_index() -> None:
                         and r.get("generated_code")
                         and r.get("part_id")
                     ):
+                        code_str = r["generated_code"]
                         records.append({
                             "description": r.get("part_id", ""),  # part_id ≈ description key
-                            "code": r["generated_code"],
+                            "code": code_str,
                             "domain": r.get("domain_classification", "A"),
+                            "techniques": extract_techniques(code_str),
                         })
                 except json.JSONDecodeError:
                     continue
@@ -158,10 +207,73 @@ def add_to_index(description: str, code: str, domain: str) -> None:
     tokens = _tokenize(description)
     vec = _tfidf_vector(tokens, _IDF)
 
-    _INDEX.append({"description": description, "code": code, "domain": domain})
+    _INDEX.append({
+        "description": description,
+        "code": code,
+        "domain": domain,
+        "techniques": extract_techniques(code),
+    })
     _TFIDF.append(vec)
 
     # Trim to 500 entries
     if len(_INDEX) > 500:
         _INDEX.pop(0)
         _TFIDF.pop(0)
+
+
+# Maps a failure class (from failure_analysis.classify_failure) to the technique
+# tag used by extract_techniques. Used by retrieve_for_failure to find a working
+# example of the exact pattern that just blew up.
+_FAILURE_TO_TECHNIQUE: dict[str, str] = {
+    "loft":       "loft",
+    "thread":     "thread",
+    "fillet":     "fillet",
+    "chamfer":    "chamfer",
+    "shell":      "shell",
+    "boolean":    "boolean",
+    "polarArray": "polar_array",
+    "extrude":    "extrude",
+    "revolve":    "revolve",
+    "text":       "text",
+    "spline":     "spline",
+}
+
+
+def retrieve_for_failure(
+    failure_class: str,
+    techniques: list[str],
+    domain: str,
+    k: int = 3,
+) -> list[dict]:
+    """Retrieve few-shots that successfully used the technique that just failed.
+
+    On a Machinist retry, description-similarity retrieval is the wrong query —
+    the model needs a working example of the specific operation it just broke.
+    Strategy: prefer entries whose technique set contains the failure-class
+    technique; then fall back to entries that share any technique with the
+    failed code; same-domain entries rank above cross-domain.
+    """
+    global _INDEX_BUILT
+    if not _INDEX_BUILT:
+        build_index()
+    if not _INDEX:
+        return []
+
+    target = _FAILURE_TO_TECHNIQUE.get(failure_class)
+    failed_techniques = set(techniques)
+
+    primary: list[dict] = []
+    secondary: list[dict] = []
+    for record in _INDEX:
+        record_tags = set(record.get("techniques", []))
+        if target and target in record_tags:
+            primary.append(record)
+        elif failed_techniques and (record_tags & failed_techniques):
+            secondary.append(record)
+
+    def _domain_first(items: list[dict]) -> list[dict]:
+        return [r for r in items if r["domain"] == domain] + \
+               [r for r in items if r["domain"] != domain]
+
+    ordered = _domain_first(primary) + _domain_first(secondary)
+    return ordered[:k]

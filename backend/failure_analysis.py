@@ -51,6 +51,146 @@ def classify_failure(traceback: str, code: str = "") -> str:
     return "unknown"
 
 
+# Patterns where classify_failure's first-match-wins ordering produces the wrong
+# answer. classify_failure attributes any StdFail_NotDone to "fillet", which is
+# the right default but masks loft- and thread-specific failures.
+
+
+# Maps a failure operation to (likely-violated rule name, actionable retry hint).
+# The rule name must exist in strategies.RULE_BLOCKS — the critic loop highlights
+# it back to the Machinist as the rule to re-anchor on.
+OP_TO_RULE_HINT: dict[str, tuple[str, str]] = {
+    "loft": (
+        "rule_loft_chaining",
+        "Loft failed. The most common cause is assigning each cross-section to a "
+        "variable and then calling .loft() on the last one — that empties the "
+        "Workplane pending-wires stack. Re-read rule_loft_chaining: chain "
+        "Workplane().pushPoints()/section()/etc. into a single fluent pipeline "
+        "and call .loft(combine=True) at the end without intermediate variables.",
+    ),
+    "thread": (
+        "rule_fasteners",
+        "Threaded geometry failed. Helix sweeps are fragile under OCCT and the "
+        "Machinist should not roll its own. Re-read rule_fasteners and use the "
+        "deterministic helper from cad_utils (e.g. make_threaded_rod / "
+        "make_hex_bolt); fall back to a smooth cylinder of nominal diameter if "
+        "no helper exists.",
+    ),
+    "fillet": (
+        "rule_safe_filleting",
+        "Fillet failed (StdFail_NotDone). Either the radius is too large for an "
+        "adjacent edge, or the edge selector matched an empty set. Re-read "
+        "rule_safe_filleting: pick a radius < min(adjacent edge length)/2 and "
+        "verify the selector with a more specific filter.",
+    ),
+    "chamfer": (
+        "rule_safe_filleting",
+        "Chamfer failed for the same family of reasons as a fillet failure. "
+        "Re-read rule_safe_filleting and reduce the chamfer distance or narrow "
+        "the edge selector.",
+    ),
+    "shell": (
+        "rule_shell_api",
+        "Shell failed — most often from inventing API. The correct CadQuery "
+        "signature is .faces(SELECTOR).shell(thickness): select the open face(s) "
+        "on the workplane FIRST, then call .shell() with ONE positional arg "
+        "(positive grows outward, negative hollows inward). NEVER pass faces= "
+        "as a kwarg — it is not a parameter. "
+        "Canonical box-with-open-top: cq.Workplane('XY').box(L,W,H).faces('>Z').shell(-t). "
+        "Wall thickness must be much less than the smallest dimension or OCCT "
+        "raises StdFail_NotDone. Re-read rule_shell_api.",
+    ),
+    "boolean": (
+        "rule_face_reselection",
+        "Boolean operation failed (BRepAlgoAPI). The two operands either don't "
+        "intersect or share zero overlap volume, OR a face selector after the "
+        "boolean references a face that no longer exists. Re-read "
+        "rule_face_reselection and reselect from the current solid after every "
+        "boolean.",
+    ),
+    "selector": (
+        "rule_face_selectors",
+        "A face/edge selector returned an empty set or a stale reference. "
+        "Re-read rule_face_selectors and never reuse a selector across booleans "
+        "without reselecting from the new solid.",
+    ),
+    "polarArray": (
+        "rule_polar_array",
+        "Polar array failed. Use Workplane.polarArray() rather than building "
+        "a list of points and calling .pushPoints() in a loop. Re-read "
+        "rule_polar_array.",
+    ),
+    "text": (
+        "rule_text_api",
+        "Text/engraving failed. CadQuery's .text() requires a specific signature "
+        "and a mounted font. Re-read rule_text_api.",
+    ),
+}
+
+
+def get_rule_hint(traceback: str, code: str = "") -> tuple[str, str] | None:
+    """Pick the most likely violated rule + actionable retry hint.
+
+    Applies specific overrides for failure modes that classify_failure misattributes
+    (the fillet-StdFail bias swallows loft and thread failures), then falls back to
+    the generic operation classifier. Returns (rule_name, hint_text) or None.
+    """
+    combined = traceback + "\n" + code
+
+    # CadQuery's loft path raises UnboundLocalError on `newS` when its workplane
+    # pending-wires stack is empty — almost always a loft-chaining bug.
+    if re.search(r"UnboundLocalError.*newS", combined, re.IGNORECASE | re.DOTALL):
+        return OP_TO_RULE_HINT["loft"]
+    if re.search(r"Nothing to loft|ValueError.*loft", combined, re.IGNORECASE | re.DOTALL):
+        return OP_TO_RULE_HINT["loft"]
+
+    # Thread/helix mention plus an OCCT not-done signal beats the fillet-StdFail bias.
+    if re.search(r"makeThread|HelixSweep|\bhelix\b", combined, re.IGNORECASE) and \
+       re.search(r"StdFail|BRep_API: command not done", combined, re.IGNORECASE):
+        return OP_TO_RULE_HINT["thread"]
+
+    op = classify_failure(traceback, code)
+    return OP_TO_RULE_HINT.get(op)
+
+
+def build_retry_context(
+    traceback: str,
+    code: str = "",
+    active_rules: list[str] | None = None,
+) -> str:
+    """Build the enriched retry context handed to the Machinist on the next attempt.
+
+    Pieces:
+      1. The classified failure operation (e.g. "loft", "fillet", "thread").
+      2. The rule the model most likely violated, plus an actionable hint.
+      3. The full list of rules that were active in the system prompt — so the
+         model re-anchors on the rule it broke instead of guessing.
+      4. The raw traceback at the bottom (still useful for syntax errors etc.).
+    """
+    failure_op = classify_failure(traceback, code)
+    parts: list[str] = [f"Failure class: {failure_op}"]
+
+    hint = get_rule_hint(traceback, code)
+    if hint is not None:
+        rule_name, hint_text = hint
+        in_scope = active_rules is not None and rule_name in active_rules
+        marker = "(in your system prompt)" if in_scope else "(not currently injected)"
+        parts.append(f"Likely violated rule: {rule_name} {marker}")
+        parts.append(f"Hint: {hint_text}")
+
+    if active_rules:
+        parts.append(
+            "Rules that were active in your system prompt: "
+            + ", ".join(active_rules)
+        )
+
+    parts.append("")
+    parts.append("Raw traceback:")
+    parts.append(traceback.strip())
+
+    return "\n".join(parts)
+
+
 def generate_failure_report(log_path: Optional[str] = None) -> dict:
     """Read telemetry JSONL and generate a failure rate report by operation.
 
