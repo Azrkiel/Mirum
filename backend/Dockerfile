@@ -48,8 +48,11 @@ EXPOSE 8000
 ENV HOME=/tmp \
     XDG_CONFIG_HOME=/tmp/.config \
     CONDA_NO_PLUGINS=true \
-    PYTHONPATH=/app \
+    PYTHONPATH=/app:/opt \
     PYOPENGL_PLATFORM=osmesa
+# PYTHONPATH=/app:/opt — /opt is where docker-compose mounts the
+# analysis/ package (./analysis -> /opt/analysis). Phase 3 aero
+# stage does `from analysis.airfoil import ...`.
 # PYOPENGL_PLATFORM=osmesa: forces PyOpenGL (and therefore pyrender) to use
 # the OSMesa software renderer instead of an X11/EGL display.  Required for
 # headless Docker rendering in the T3-09 Zebra pipeline.
