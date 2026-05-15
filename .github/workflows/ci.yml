@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "worktree-*"]
+  pull_request:
+    branches: [main]
+
+env:
+  # Mock XFOIL binary so Group B golden-value tests always run in CI
+  # without requiring a real XFOIL installation.
+  MIRUM_XFOIL_BIN: analysis/tests/mock_xfoil
+  # Placeholder key — no live Gemini calls in CI test suite
+  GEMINI_API_KEY_HEAVY: ci-placeholder-not-used
+
+jobs:
+  schema-tests:
+    name: Schema gate (worktree-merge-gate § a)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pydantic (schema tests only, no cadquery)
+        run: pip install pydantic
+
+      - name: Run prompts schema tests
+        run: python backend/tests/test_prompts_schema.py
+
+      - name: Run runner filter tests
+        run: python backend/tests/test_runner_filters.py
+
+      - name: Run markdown report tests
+        run: python backend/tests/test_md_report.py
+
+  airfoil-unit-tests:
+    name: Airfoil unit tests (Group A + Group B via mock_xfoil)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Make mock_xfoil executable
+        run: chmod +x analysis/tests/mock_xfoil
+
+      - name: Run airfoil tests (all 24 — Group B uses mock_xfoil)
+        run: python analysis/tests/test_airfoil.py
+
+  aero-integration-tests:
+    name: Aero stage integration tests (Phase 3 schema + skip contracts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pydantic fastapi
+
+      - name: Run Phase 3 integration tests
+        run: python backend/tests/test_aero_integration.py

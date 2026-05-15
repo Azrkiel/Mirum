@@ -3,3 +3,11 @@ uvicorn==0.30.6
 pydantic==2.9.2
 google-generativeai==0.8.3
 slowapi==0.1.9
+# T3-09: Zebra rendering pipeline for VLM surface quality analysis.
+# pyrender uses OSMesa in headless Docker (PYOPENGL_PLATFORM=osmesa).
+# trimesh converts STEP → mesh for rendering.
+# imageio writes PNG output.
+# Set MIRUM_NO_PYRENDER=1 to skip pyrender and use the numpy synthetic fallback.
+pyrender==0.1.45
+trimesh==4.4.3
+imageio==2.34.2
