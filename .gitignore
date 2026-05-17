@@ -34,6 +34,11 @@ Thumbs.db
 # Pipeline runtime directories
 backend/tmp_parts/
 backend/telemetry_logs/
+
+# Local-only Docker overrides (per Compose convention, override.yml is
+# expected to be untracked — used for local image pins, read_only=false,
+# PYTHONPATH injection, and similar developer-machine adjustments).
+docker-compose.override.yml
 # XFOIL binary — installed via bin/install_xfoil_windows.ps1 on Win,
 # apt-get install xfoil on Linux. Never commit the binary itself.
 bin/xfoil.exe

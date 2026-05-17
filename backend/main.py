@@ -797,13 +797,14 @@ async def run_script(body: RunRequest, request: Request):
 
 
 @app.get("/stats")
-async def get_stats():
+@limiter.limit("30/minute")
+async def get_stats(request: Request):
     """Return failure rate statistics stratified by domain and operation type."""
     try:
         from failure_analysis import generate_failure_report
         return generate_failure_report()
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _safe_error(str(e))}
 
 
 # ---------------------------------------------------------------------------
