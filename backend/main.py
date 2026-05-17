@@ -74,21 +74,41 @@ def _safe_error(detail: str | Exception) -> str:
     Redacts:
     - Source filenames in tracebacks (`File "..."`)
     - Absolute paths that leak the host filesystem layout. Covers POSIX
-      (/app/, /opt/), Windows forward-slash (C:/), repr-escaped Windows
-      (C:\\\\) that come from str(PermissionError), AND plain single-
-      backslash Windows paths (C:\\) that come from Python launcher
-      stderr like `python.exe: can't open file 'C:\\path\\x.py'`.
+      (/app/, /opt/, /tmp/ — the last covers MIRUM_WORK_DIR=/tmp/mirum/work),
+      Windows forward-slash (C:/), repr-escaped Windows (C:\\\\) that come
+      from str(PermissionError), AND plain single-backslash Windows paths
+      (C:\\) that come from Python launcher stderr like
+      `python.exe: can't open file 'C:\\path\\x.py'`.
     """
     msg = str(detail)
     msg = re.sub(r'File ".*?"', 'File "<script>"', msg)
-    # Match /app/, /opt/, C:/, C:\ (single bs), or C:\\ (repr'd double bs),
-    # then greedily consume non-whitespace/non-quote chars.
+    # Match /app/, /opt/, /tmp/, C:/, C:\ (single bs), or C:\\ (repr'd double
+    # bs), then greedily consume non-whitespace/non-quote chars.
     msg = re.sub(
-        r"(/app/|/opt/|[A-Za-z]:(?:/|\\{1,2}))[^\s\"']+",
+        r"(/app/|/opt/|/tmp/|[A-Za-z]:(?:/|\\{1,2}))[^\s\"']+",
         "<internal>",
         msg,
     )
     return msg
+
+
+def _sanitize_cert(cert: dict | None) -> dict | None:
+    """Run a geometry certificate's free-text string fields through
+    `_safe_error` so server-side paths (e.g. /tmp/mirum/work/<uuid>) cannot
+    leak through the SSE payload. Recurses into ``per_part`` sub-certs."""
+    if not cert:
+        return cert
+    for key in ("errors", "warnings", "failures"):
+        values = cert.get(key)
+        if isinstance(values, list):
+            cert[key] = [_safe_error(s) for s in values]
+    pp = cert.get("per_part")
+    if isinstance(pp, dict):
+        for sub in pp.values():
+            if isinstance(sub, dict):
+                _sanitize_cert(sub)
+    return cert
+
 
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
@@ -649,6 +669,10 @@ async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, 
     except Exception as _cert_exc:
         logger.debug("geometry certificate generation failed: %s", _cert_exc)
         geometry_certificate = None
+
+    # M-S1: scrub host paths from cert error/warning strings before they hit
+    # the SSE payload (covers single-part top-level + multi-part per_part).
+    geometry_certificate = _sanitize_cert(geometry_certificate)
 
     complete_payload = {
         "step": "complete",
