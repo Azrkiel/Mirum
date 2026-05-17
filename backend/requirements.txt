@@ -11,3 +11,9 @@ slowapi==0.1.9
 pyrender==0.1.45
 trimesh==4.4.3
 imageio==2.34.2
+# fpdf2 + matplotlib: used by analysis/pdf_report.py and analysis/plots.py
+# for the post-/generate XFOIL aerodynamic report (POST /analysis/aero →
+# Cl/Cd/Cp PNGs + pdf_b64). fpdf2 (not fpdf) is the maintained fork — the
+# PyPI package name is "fpdf2" but the import name is "fpdf".
+fpdf2==2.7.9
+matplotlib==3.9.2
