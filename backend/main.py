@@ -1203,7 +1203,7 @@ async def analyze_aero(body: AnalyzeAeroRequest, request: Request):
         from schemas import PolarReport  # noqa: PLC0415
     except ImportError as imp_err:
         logger.error("/analysis/aero: import failed: %s", imp_err)
-        return {"status": "error", "detail": f"analysis module unavailable: {imp_err}"}
+        return {"status": "error", "detail": f"analysis module unavailable: {_safe_error(str(imp_err))}"}
 
     flight_env = {
         "alpha_start": body.alpha_start,
