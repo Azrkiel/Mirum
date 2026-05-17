@@ -27,12 +27,14 @@ logger = logging.getLogger("mirum.verification.material")
 # ---------------------------------------------------------------------------
 
 _DENSITY_TABLE: dict[str, float] = {
-    # Metals
-    "aluminum":        2700.0,   # 6061-T6 typ.
+    # Metals — aerospace-spec values; aligned with
+    # verification/geometry._MATERIAL_DENSITIES_KG_M3 so mass_g (this module)
+    # and mass_properties.mass (geometry.py) agree within rounding.
+    "aluminum":        2700.0,   # 6061-T6
     "aluminium":       2700.0,   # British spelling alias
-    "steel":           7850.0,   # mild / carbon steel
+    "steel":           7870.0,   # AISI 1018 carbon steel
     "stainless_steel": 7900.0,   # 304 austenitic
-    "titanium":        4500.0,   # Ti-6Al-4V typ.
+    "titanium":        4430.0,   # Ti-6Al-4V
     "brass":           8500.0,   # CuZn37 typ.
     "copper":          8960.0,   # C11000
     "magnesium":       1740.0,   # AZ31 wrought
@@ -40,7 +42,7 @@ _DENSITY_TABLE: dict[str, float] = {
     "inconel":         8190.0,   # IN625, nickel superalloy
     # Polymers / composites
     "plastic":         1200.0,   # generic / ABS
-    "abs":             1050.0,
+    "abs":             1040.0,
     "pla":             1240.0,
     "petg":            1270.0,
     "nylon":           1140.0,   # PA6
@@ -87,7 +89,7 @@ def resolve_material(material_class: str | None) -> tuple[str, float]:
 
     Examples:
         >>> resolve_material("titanium")
-        ('titanium', 4500.0)
+        ('titanium', 4430.0)
         >>> resolve_material("ALUMINIUM")   # case-insensitive
         ('aluminum', 2700.0)
         >>> resolve_material(None)
