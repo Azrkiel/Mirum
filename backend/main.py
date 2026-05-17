@@ -571,7 +571,10 @@ async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, 
             )
             _cert_exec = await execute_cad_script(_cert_script)
             if _cert_exec["status"] == "success" and os.path.exists(_cert_step_path):
-                geometry_certificate = dict(certify_geometry(_cert_step_path))
+                geometry_certificate = dict(certify_geometry(
+                    _cert_step_path,
+                    material=getattr(requirements, "material_class", None),
+                ))
                 try:
                     os.remove(_cert_step_path)
                 except OSError:
@@ -599,6 +602,12 @@ async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, 
                     if c:
                         for f in c.get("failures", []):
                             all_failures.append(f"{pid}: {f}")
+                _present_certs = [c for c in _part_certs.values() if c is not None]
+                if not _present_certs:
+                    all_failures.append(
+                        "All per-part geometry certificates failed; "
+                        "no per-part data available for aggregation"
+                    )
                 geometry_certificate = {
                     "passed": all_passed,
                     "volume_mm3": total_vol if total_vol > 0 else None,
@@ -610,6 +619,22 @@ async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, 
                     "per_part": {
                         pid: c for pid, c in _part_certs.items()
                     },
+                    "volume": (total_vol * 1e-9) if total_vol > 0 else None,
+                    "surface_area": (total_sa * 1e-6) if total_sa > 0 else None,
+                    "manifold": bool(_present_certs) and all(c.get("manifold", False) for c in _present_certs),
+                    "manifold_failures": [],
+                    # center_of_mass and principal_moments_of_inertia are part-local; aggregating
+                    # across parts requires mass-weighting per part. Left None here; clients
+                    # needing exact aggregate CoM should compute from per_part.
+                    "center_of_mass": None,
+                    "principal_moments_of_inertia": None,
+                    "bounding_box_corners": None,
+                    "mass_properties": None,
+                    "zero_thickness_features": [],
+                    "degenerate_edges": [],
+                    "checks_passed": all_passed,
+                    "warnings": [],
+                    "errors": [],
                 }
 
         # Augment cert with material mass if we have volume + requirements
