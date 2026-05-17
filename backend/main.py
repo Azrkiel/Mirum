@@ -584,10 +584,19 @@ async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, 
         if single:
             # Single-part: write a temp STEP from the validated code
             _cert_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_cert.step"))
+            # cq.exporters.export() doesn't accept cq.Assembly (raises
+            # AttributeError: 'str' object has no attribute 'wrapped'); the
+            # Planner's single-part classification can still hand us an
+            # Assembly when the LLM produces multi-piece geometry under one
+            # part_id (common for wing skin + ribs + spar). Branch on type
+            # and use Assembly.save() in that case — it writes STEP natively.
             _cert_script = (
                 f"{code}\n\n"
                 f"import cadquery as cq\n"
-                f"cq.exporters.export(result, r'{_cert_step_path}')\n"
+                f"if isinstance(result, cq.Assembly):\n"
+                f"    result.save(r'{_cert_step_path}')\n"
+                f"else:\n"
+                f"    cq.exporters.export(result, r'{_cert_step_path}')\n"
             )
             _cert_exec = await execute_cad_script(_cert_script)
             if _cert_exec["status"] == "success" and os.path.exists(_cert_step_path):
