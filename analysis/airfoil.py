@@ -579,6 +579,21 @@ def run_xfoil_polar(
         )
         logger.debug("XFOIL script:\n%s", script)
 
+        # KNOWN ISSUE (2026-05-17): the Debian-packaged xfoil binary
+        # (6.99.dfsg+1-3+b1) crashes with SIGFPE during "Calculating unit
+        # vorticity distributions" on every NACA invocation under Debian
+        # bookworm AND trixie. Conda-forge has no xfoil binary (only
+        # libxfoil, which requires Python 3.7-3.9 and exposes a
+        # low-level SWIG/Fortran API). pip `xfoil==1.1.1` has a broken
+        # CMake build. Resolution path (not yet taken): build XFOIL 6.99
+        # from source in the Dockerfile with -fno-stack-arrays, OR
+        # downgrade cadenv to Python 3.9 and rewrite this function
+        # around libxfoil's run_xfoil (substantial — needs aero-domain
+        # calibration to make XFOIL's BL solver converge consistently;
+        # initial POC produced correct CL at alpha=0 only, diverged
+        # for all positive alphas). The /analysis/aero endpoint's
+        # error-handling surface is solid, so this returns a
+        # well-formed XfoilRunError to clients.
         t0 = time.monotonic()
         try:
             proc = subprocess.run(
