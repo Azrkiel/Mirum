@@ -46,8 +46,7 @@ for key, default in [
     ("parameters", {}),
     ("last_manifest", None),   # T2-08: for refinement
     ("last_scripts", {}),      # T2-08: for refinement
-    ("run_aero", False),       # Phase 3: opt-in XFOIL polar
-    ("aero_report", None),     # Phase 3: PolarReport dict from /generate complete event
+    ("aero_report", None),     # PolarReport dict — populated by post-generate /analysis/aero button
     ("aero_plots", None),      # T2-16: cached {cl_alpha, cd_alpha, cp_dist} base64 PNGs
     ("geometry_certificate", None),  # G-05: GeometryCertificate dict from /generate
 ]:
@@ -195,15 +194,12 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     script_code, glb_bytes = "", None
     error_message = ""
     params = {}
-    aero_report = None
     geometry_cert = None  # G-05: geometry certificate
-    # Phase 3: opt-in aerodynamic analysis (checkbox state lives in session)
-    run_aero = bool(st.session_state.get("run_aero", False))
 
     try:
         with requests.post(
             f"{BACKEND_URL}/generate",
-            json={"prompt": prompt, "run_aero": run_aero},
+            json={"prompt": prompt},
             stream=True,
             timeout=300,
         ) as resp:
@@ -228,7 +224,6 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
                     if status == "done":
                         glb_bytes = base64.b64decode(ev.get("glb", ""))
                         params = ev.get("parameters", {})
-                        aero_report = ev.get("aero_report")  # Phase 3
                         geometry_cert = ev.get("geometry_certificate")  # G-05
                         # T2-08: store manifest for refinement
                         if ev.get("manifest"):
@@ -261,8 +256,10 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     st.session_state.script_code = script_code
     st.session_state.glb_bytes = glb_bytes
     st.session_state.parameters = params
-    st.session_state.aero_report = aero_report  # Phase 3
-    st.session_state.aero_plots = None          # T2-16: reset so plots are re-fetched
+    # Reset post-generate aero state so a fresh model doesn't show stale analysis
+    st.session_state.aero_report = None
+    st.session_state.aero_plots = None
+    st.session_state.xfoil_pdf_bytes = None
     st.session_state.geometry_certificate = geometry_cert  # G-05
     if script_code:
         st.session_state.script_version += 1
@@ -546,6 +543,17 @@ def _render_performance_card(report: dict) -> None:
             key="polar_csv_download",
         )
 
+    # PDF report download (populated by POST /analysis/aero)
+    pdf_bytes = st.session_state.get("xfoil_pdf_bytes")
+    if pdf_bytes:
+        st.download_button(
+            "⬇ Download XFOIL PDF report",
+            pdf_bytes,
+            f"xfoil_naca{naca}.pdf",
+            "application/pdf",
+            key="xfoil_pdf_download",
+        )
+
 
 # ── Page Layout ─────────────────────────────────────────────
 
@@ -558,17 +566,7 @@ prompt = st.text_area(
     height=80,
 )
 
-# 2) Options + Generate button
-st.checkbox(
-    "Run aerodynamic analysis (Domain D wings only — adds ~30s)",
-    key="run_aero",
-    help=(
-        "Opt-in. When the assembly is classified as Domain D (aerospace) and "
-        "has a NACA airfoil + chord + span, the backend slices the wing STEP "
-        "at mid-span and runs XFOIL for Cl/Cd/Cm vs angle of attack. Failure "
-        "is non-blocking — the GLB is delivered either way."
-    ),
-)
+# 2) Generate button (aero analysis moved to post-generate; see below)
 generate = st.button(
     "Generate (Ctrl+Enter)", type="primary", use_container_width=True
 )
@@ -642,31 +640,74 @@ if st.session_state.show_plan and st.session_state.pending_plan:
         st.session_state.show_plan = False
         stream_pipeline(st.session_state.pending_prompt, progress_ph)
 
-# 4) 3D viewer + PerformanceCard (T2-16: side-by-side when aero_report present)
+# 4) 3D viewer + .glb download (always full-width; aero analysis is on-demand below)
 if st.session_state.glb_bytes:
+    render_glb_viewer(st.session_state.glb_bytes)
+    st.download_button(
+        "Download .glb",
+        st.session_state.glb_bytes,
+        "assembly.glb",
+        "model/gltf-binary",
+    )
+
+    # On-demand aerodynamic analysis (XFOIL polar + downloadable PDF report)
+    with st.expander("🛩️ Aerodynamic Analysis (XFOIL)", expanded=False):
+        st.caption(
+            "Runs XFOIL on a NACA 4-digit airfoil to compute Cl/Cd/Cm polars and "
+            "Cp distribution. Provide the airfoil parameters below — XFOIL is 2D, "
+            "so span is informational only."
+        )
+        a_col1, a_col2, a_col3 = st.columns(3)
+        with a_col1:
+            naca_in = st.text_input("NACA code", value="2412", max_chars=4, key="aero_naca")
+        with a_col2:
+            chord_in = st.number_input(
+                "Chord (mm)", value=200.0, min_value=10.0, max_value=10_000.0,
+                step=10.0, key="aero_chord",
+            )
+        with a_col3:
+            span_in = st.number_input(
+                "Span (mm, info only)", value=100.0, min_value=10.0,
+                max_value=100_000.0, step=10.0, key="aero_span",
+            )
+
+        if st.button(
+            "Analyze Aerodynamics", type="primary", key="analyze_aero_btn",
+            use_container_width=True,
+        ):
+            with st.spinner("Running XFOIL polar + Cp + generating PDF (~15-30s)…"):
+                try:
+                    resp = requests.post(
+                        f"{BACKEND_URL}/analysis/aero",
+                        json={
+                            "naca_code": naca_in.strip(),
+                            "chord_mm": float(chord_in),
+                            "span_mm": float(span_in),
+                        },
+                        timeout=180,
+                    ).json()
+                except Exception as exc:
+                    st.error(f"Analysis request failed: {exc}")
+                    resp = {}
+                if resp.get("status") == "ok":
+                    st.session_state.aero_report = resp.get("aero_report")
+                    st.session_state.aero_plots = {
+                        "cl_alpha": resp.get("cl_alpha"),
+                        "cd_alpha": resp.get("cd_alpha"),
+                        "cp_dist": resp.get("cp_dist"),
+                    }
+                    pdf_b64 = resp.get("pdf_b64")
+                    st.session_state.xfoil_pdf_bytes = (
+                        base64.b64decode(pdf_b64) if pdf_b64 else None
+                    )
+                    st.rerun()
+                elif resp:
+                    st.error(f"XFOIL failed: {resp.get('detail', 'unknown error')}")
+
+    # Performance card rendered below the analyze panel when an aero run exists
     aero_report = st.session_state.get("aero_report")
     if aero_report:
-        # Side-by-side: viewer ~60 %, performance card ~40 %
-        viewer_col, card_col = st.columns([3, 2], gap="medium")
-        with viewer_col:
-            render_glb_viewer(st.session_state.glb_bytes, height=460)
-            st.download_button(
-                "⬇ Download .glb",
-                st.session_state.glb_bytes,
-                "assembly.glb",
-                "model/gltf-binary",
-            )
-        with card_col:
-            _render_performance_card(aero_report)
-    else:
-        # No aero report — full-width viewer
-        render_glb_viewer(st.session_state.glb_bytes)
-        st.download_button(
-            "Download .glb",
-            st.session_state.glb_bytes,
-            "assembly.glb",
-            "model/gltf-binary",
-        )
+        _render_performance_card(aero_report)
 
     # G-06: geometry certificate collapsible card (shown below viewer always)
     geo_cert = st.session_state.get("geometry_certificate")

@@ -133,14 +133,6 @@ async def audit_log(request: Request, call_next):
 
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., max_length=5000)
-    run_aero: bool = Field(
-        default=False,
-        description=(
-            "Phase 3 opt-in: when True and the assembly is Domain D (aerospace), "
-            "run XFOIL on the multi-part STEP after export and attach a polar "
-            "report. Failure is non-blocking — GLB delivery never depends on it."
-        ),
-    )
 
 
 class RunRequest(BaseModel):
@@ -272,7 +264,7 @@ async def _run_aero_stage(
     return _sanitize_floats(polar.model_dump()), msg
 
 
-async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, None]:
+async def _pipeline(prompt: str) -> AsyncGenerator[str, None]:
     """Run the full pipeline, yielding SSE progress events."""
 
     # --- Step 1: REA (parallel with Planner) + Planner ---
@@ -541,17 +533,9 @@ async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, 
     # T3-08: Check if prompt has tolerance callouts (inform frontend to offer /pmi/annotate)
     pmi_detected = has_tolerance_callouts(prompt)
 
-    # Phase 3 (XFOIL): optional aerodynamic polar. Gated on the opt-in flag;
-    # every failure path inside _run_aero_stage returns (None, reason) so this
-    # block can never prevent the "complete" event from being emitted.
-    aero_report: dict | None = None
-    if run_aero:
-        yield _event("aero", "running", "Running XFOIL polar analysis")
-        aero_report, aero_msg = await _run_aero_stage(step_files, requirements)
-        if aero_report is not None:
-            yield _event("aero", "done", aero_msg)
-        else:
-            yield _event("aero", "skipped", aero_msg)
+    # Aero analysis is now post-generate via POST /analysis/aero — the user
+    # opts in by clicking the Analyze button on the frontend, which lets the
+    # pipeline complete faster and avoids paying XFOIL cost on non-wing prompts.
 
     # Geometry certificate — aggregate across all parts.
     # Multi-part: use the certs collected during _build_part().
@@ -633,7 +617,6 @@ async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, 
         "parameters": param_dict_final,  # T1-06
         "export_formats": get_available_formats(),  # T2-09
         "pmi_detected": pmi_detected,   # T3-08: hints frontend to offer PMI annotation
-        "aero_report": aero_report,     # Phase 3: PolarReport dict or None
         "geometry_certificate": geometry_certificate,  # G-05: post-compile cert
     }
     yield f"data: {json.dumps(complete_payload)}\n\n"
@@ -760,7 +743,7 @@ async def plan_assembly(body: GenerateRequest, request: Request):
 @limiter.limit("5/minute")
 async def generate(body: GenerateRequest, request: Request):
     return StreamingResponse(
-        _pipeline(body.prompt, run_aero=body.run_aero),
+        _pipeline(body.prompt),
         media_type="text/event-stream",
     )
 
@@ -1166,6 +1149,135 @@ async def generate_analysis_plots(body: PlotsRequest, request: Request):
         "cl_alpha": cl_b64,
         "cd_alpha": cd_b64,
         "cp_dist": cp_b64,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Post-generate XFOIL: user clicks "Analyze Aerodynamics" after a model lands
+# ---------------------------------------------------------------------------
+
+class AnalyzeAeroRequest(BaseModel):
+    """Body for POST /analysis/aero — on-demand XFOIL run + PDF report."""
+    naca_code: str = Field(..., min_length=4, max_length=6,
+                           description="4-digit NACA code, e.g. '2412'.")
+    chord_mm: float = Field(..., gt=0.0, le=10_000.0,
+                            description="Chord length in millimetres.")
+    span_mm: float = Field(default=100.0, gt=0.0, le=100_000.0,
+                           description="Span (informational; XFOIL is 2D).")
+    reynolds: float = Field(default=1_000_000.0, gt=0)
+    mach: float = Field(default=0.0, ge=0.0, le=1.0)
+    n_crit: float = Field(default=9.0, ge=0.0, le=20.0)
+    alpha_start: float = Field(default=-4.0, ge=-30.0, le=30.0)
+    alpha_end: float = Field(default=16.0, ge=-30.0, le=30.0)
+    alpha_step: float = Field(default=1.0, gt=0.0, le=5.0)
+    design_alpha: float = Field(default=4.0, ge=-20.0, le=30.0,
+                                description="α at which to render the Cp distribution + PDF Cp page.")
+
+
+@app.post("/analysis/aero")
+@limiter.limit("5/minute")
+async def analyze_aero(body: AnalyzeAeroRequest, request: Request):
+    """Run XFOIL on a NACA airfoil and return polar + PDF report.
+
+    Frontend calls this after a 3D model has been generated, when the user
+    clicks the "Analyze Aerodynamics" button. No STEP file is required —
+    XFOIL works on the 2D NACA analytical profile.
+
+    Returns JSON: {status, aero_report, cl_alpha, cd_alpha, cp_dist, pdf_b64}
+    All fields populated on success. On XFOIL/PDF failure, returns
+    {status: "error", detail: "..."} without raising.
+    """
+    import asyncio as _asyncio
+    import base64 as _base64
+    import sys
+    from pathlib import Path as _Path
+
+    _repo_root = _Path(__file__).resolve().parent.parent
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
+
+    try:
+        from analysis.airfoil import analyze_naca  # noqa: PLC0415
+        from analysis.plots import plot_cl_alpha, plot_cd_alpha, plot_cp_dist  # noqa: PLC0415
+        from analysis.pdf_report import generate_xfoil_pdf  # noqa: PLC0415
+        from schemas import PolarReport  # noqa: PLC0415
+    except ImportError as imp_err:
+        logger.error("/analysis/aero: import failed: %s", imp_err)
+        return {"status": "error", "detail": f"analysis module unavailable: {imp_err}"}
+
+    flight_env = {
+        "alpha_start": body.alpha_start,
+        "alpha_end": body.alpha_end,
+        "alpha_step": body.alpha_step,
+        "reynolds": body.reynolds,
+        "mach": body.mach,
+        "n_crit": body.n_crit,
+    }
+
+    # --- XFOIL polar (alpha sweep) ---
+    try:
+        polar_result = await _asyncio.to_thread(
+            analyze_naca, body.naca_code, body.chord_mm, flight_env,
+        )
+    except Exception as e:
+        logger.exception("/analysis/aero: XFOIL polar failed")
+        return {"status": "error", "detail": f"XFOIL failed: {type(e).__name__}: {_safe_error(str(e))}"}
+
+    try:
+        polar = PolarReport(
+            naca_code=polar_result["naca_code"],
+            chord_mm=polar_result["chord_mm"],
+            reynolds=polar_result["reynolds"],
+            mach=polar_result["mach"],
+            n_crit=polar_result["n_crit"],
+            alphas=polar_result["alphas"],
+            Cl=polar_result["Cl"],
+            Cd=polar_result["Cd"],
+            Cm=polar_result["Cm"],
+            Cl_max=polar_result.get("Cl_max"),
+            stall_alpha=polar_result.get("stall_alpha"),
+            converged_count=polar_result.get("converged_count", 0),
+        )
+        polar_dict = _sanitize_floats(polar.model_dump())
+    except Exception as e:
+        logger.exception("/analysis/aero: polar parse failed")
+        return {"status": "error", "detail": f"polar parse failed: {_safe_error(str(e))}"}
+
+    # --- Plots (cl, cd, cp) ---
+    try:
+        cl_b64 = await _asyncio.to_thread(plot_cl_alpha, polar_dict)
+        cd_b64 = await _asyncio.to_thread(plot_cd_alpha, polar_dict)
+    except Exception as e:
+        logger.exception("/analysis/aero: chart generation failed")
+        return {"status": "error", "detail": _safe_error(str(e))}
+
+    cp_b64: str | None = None
+    try:
+        cp_b64 = await _asyncio.to_thread(
+            plot_cp_dist, body.naca_code, body.design_alpha,
+            body.reynolds, body.mach, body.n_crit,
+        )
+    except Exception as cp_err:
+        logger.debug("/analysis/aero: cp_dist skipped: %s", cp_err)
+
+    # --- PDF report ---
+    pdf_b64: str | None = None
+    try:
+        pdf_bytes = await _asyncio.to_thread(
+            generate_xfoil_pdf, polar_dict, cl_b64, cd_b64, cp_b64,
+        )
+        pdf_b64 = _base64.b64encode(pdf_bytes).decode("ascii")
+    except Exception as pdf_err:
+        logger.exception("/analysis/aero: PDF generation failed")
+        # Non-fatal — return polar + plots even if PDF fails
+
+    return {
+        "status": "ok",
+        "aero_report": polar_dict,
+        "cl_alpha": cl_b64,
+        "cd_alpha": cd_b64,
+        "cp_dist": cp_b64,
+        "pdf_b64": pdf_b64,
     }
 
 
