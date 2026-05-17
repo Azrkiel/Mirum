@@ -24,9 +24,12 @@ RUN apt-get update && \
 # Required by pyrender's OffscreenRenderer (T3-09 Zebra rendering pipeline).
 # PYOPENGL_PLATFORM=osmesa (set in ENV below) tells PyOpenGL to use OSMesa instead of X11.
 
-# Create conda environment with Python 3.10 and CadQuery from conda-forge
+# Create conda environment with Python 3.10, CadQuery and pythonocc-core
+# from conda-forge. pythonocc-core supplies the OCC.Core.* bindings that
+# verification/geometry.py uses for BRepCheck / TopExp_Explorer / mass props;
+# without it certify_geometry() degrades to _failed_cert("OCC not available").
 RUN conda create -n cadenv python=3.10 -y && \
-    conda install -n cadenv -c conda-forge cadquery -y && \
+    conda install -n cadenv -c conda-forge cadquery pythonocc-core -y && \
     conda clean -afy
 
 # Install Python dependencies inside the conda environment
