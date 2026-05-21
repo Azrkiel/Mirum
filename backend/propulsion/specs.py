@@ -19,6 +19,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from .rao_table import envelope as _rao_envelope
+
 
 # ---------------------------------------------------------------------------
 # Intent flag — gates downstream Critic strictness
@@ -147,11 +149,13 @@ class NozzleSpec(BaseModel):
                 raise ValueError(
                     f"{self.type} nozzle requires chamber_radius > throat_radius."
                 )
-            if self.length_fraction is not None and not (0.5 <= self.length_fraction <= 1.0):
-                raise ValueError(
-                    f"length_fraction must lie in [0.5, 1.0] "
-                    f"(got {self.length_fraction})."
-                )
+            if self.length_fraction is not None:
+                _lf_lo, _lf_hi = _rao_envelope()["length_fraction"]
+                if not (_lf_lo <= self.length_fraction <= _lf_hi):
+                    raise ValueError(
+                        f"length_fraction must lie in [{_lf_lo}, {_lf_hi}] "
+                        f"(got {self.length_fraction})."
+                    )
         return self
 
 
