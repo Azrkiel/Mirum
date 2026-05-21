@@ -44,8 +44,16 @@ _MAX_EXTENT_MM: float = 1e6         # bounding box larger than this is suspect
 # ---------------------------------------------------------------------------
 
 
-class GeometryCertificate(TypedDict):
-    """Full geometry certification result for a compiled STEP file."""
+class GeometryCertificate(TypedDict, total=False):
+    """Full geometry certification result for a compiled STEP file.
+
+    The four propulsion-specific fields (throat_area_mm2, exit_area_mm2,
+    geometric_expansion_ratio, channel_count_detected) are populated only
+    when ``certify_geometry`` is invoked with a non-null ``propulsion_spec``.
+    They default to ``None`` for non-Domain-F geometry and are flagged
+    ``total=False`` because Python TypedDicts otherwise require every key
+    on every instance.
+    """
 
     passed: bool
     """True when all 6 checks pass."""
@@ -64,6 +72,23 @@ class GeometryCertificate(TypedDict):
 
     failures: list[str]
     """Human-readable failure messages (empty list when passed=True)."""
+
+    # ----- Domain F (propulsion) additions -----
+    throat_area_mm2: float | None
+    """Throat cross-section area in mm^2. Derived from propulsion_spec when
+    available. None for non-propulsion geometry."""
+
+    exit_area_mm2: float | None
+    """Exit-plane cross-section area in mm^2. Derived from propulsion_spec
+    (r_t * sqrt(epsilon) for bells, or exit_radius for conicals). None for
+    non-propulsion geometry."""
+
+    geometric_expansion_ratio: float | None
+    """exit_area / throat_area. None for non-propulsion geometry."""
+
+    channel_count_detected: int | None
+    """Channel count read back from the spec. Future work: measure via OCC
+    cross-section topology. None for non-propulsion / non-regen geometry."""
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +143,42 @@ def _failed_cert(reason: str) -> GeometryCertificate:
             "is_solid": False,
         },
         failures=[reason],
+        throat_area_mm2=None,
+        exit_area_mm2=None,
+        geometric_expansion_ratio=None,
+        channel_count_detected=None,
     )
+
+
+def _propulsion_fields(propulsion_spec) -> dict:
+    """Derive (throat_area_mm2, exit_area_mm2, geometric_expansion_ratio,
+    channel_count_detected) from a ``PropulsionSpec`` instance.
+
+    Returns a dict ready to merge into the certificate. Returns all-None when
+    ``propulsion_spec`` is None or lacks a nozzle.
+    """
+    out = {
+        "throat_area_mm2": None,
+        "exit_area_mm2": None,
+        "geometric_expansion_ratio": None,
+        "channel_count_detected": None,
+    }
+    if propulsion_spec is None:
+        return out
+    if getattr(propulsion_spec, "nozzle", None) is not None:
+        nz = propulsion_spec.nozzle
+        if nz.throat_radius is not None:
+            out["throat_area_mm2"] = math.pi * nz.throat_radius ** 2
+            if nz.exit_radius is not None:
+                out["exit_area_mm2"] = math.pi * nz.exit_radius ** 2
+            elif nz.expansion_ratio is not None:
+                er = nz.expansion_ratio
+                out["exit_area_mm2"] = math.pi * nz.throat_radius ** 2 * er
+            if out["throat_area_mm2"] and out["exit_area_mm2"]:
+                out["geometric_expansion_ratio"] = out["exit_area_mm2"] / out["throat_area_mm2"]
+    if getattr(propulsion_spec, "cooling_channels", None) is not None:
+        out["channel_count_detected"] = propulsion_spec.cooling_channels.count
+    return out
 
 
 def _load_step(occ, path: str):
@@ -224,14 +284,23 @@ def _check_is_solid(occ, shape) -> tuple[bool, list[str]]:
 # Public API
 # ---------------------------------------------------------------------------
 
-def certify_geometry(step_path: str) -> GeometryCertificate:
+def certify_geometry(
+    step_path: str,
+    propulsion_spec=None,
+) -> GeometryCertificate:
     """Run all 6 OCC geometry checks on a STEP file.
 
     Args:
-        step_path: Absolute or relative path to a .step file.
+        step_path:        Absolute or relative path to a .step file.
+        propulsion_spec:  Optional ``propulsion.specs.PropulsionSpec``. When
+                          provided, the certificate gains the four propulsion
+                          fields (throat_area_mm2, exit_area_mm2,
+                          geometric_expansion_ratio, channel_count_detected)
+                          derived from the spec. Passed through opaquely so the
+                          import remains optional for non-propulsion paths.
 
     Returns:
-        GeometryCertificate — always returns a value, never raises.
+        GeometryCertificate -- always returns a value, never raises.
         On OCC import failure or file error, returns a failed certificate.
     """
     # --- Guard: file must exist ---
@@ -308,6 +377,8 @@ def certify_geometry(step_path: str) -> GeometryCertificate:
 
     all_passed = all(checks.values())
 
+    propulsion_fields = _propulsion_fields(propulsion_spec)
+
     return GeometryCertificate(
         passed=all_passed,
         volume_mm3=volume,
@@ -315,4 +386,5 @@ def certify_geometry(step_path: str) -> GeometryCertificate:
         bounding_box=bb,
         checks=checks,
         failures=failures,
+        **propulsion_fields,
     )
