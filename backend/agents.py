@@ -226,6 +226,92 @@ def _strip_markdown_fences(text: str) -> str:
     return text.strip()
 
 
+_REA_SCHEMA_BASE: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "primary_function": {"type": "string"},
+        "key_dimensions": {
+            "type": "object",
+            "description": "dimension_name -> value_in_mm",
+        },
+        "material_class": {"type": "string"},
+        "environment": {"type": "string"},
+        "connecting_interfaces": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "production_volume": {"type": "string"},
+        "inferred_domain": {"type": "string"},
+        "confidence": {"type": "number"},
+        # Phase 3 (XFOIL): only populate for Domain D when explicitly stated
+        "flight_env": {
+            "type": "object",
+            "description": (
+                "Domain D only. Populate ONLY if the prompt names "
+                "explicit aerodynamic conditions. Omit otherwise."
+            ),
+            "properties": {
+                "alpha_start": {"type": "number"},
+                "alpha_end":   {"type": "number"},
+                "alpha_step":  {"type": "number"},
+                "reynolds":    {"type": "number"},
+                "mach":        {"type": "number"},
+                "n_crit":      {"type": "number"},
+            },
+        },
+        "airfoil_spec": {
+            "type": "object",
+            "description": (
+                "Domain D only. Populate from the prompt when a NACA "
+                "airfoil and/or wing dimensions are named."
+            ),
+            "properties": {
+                "naca_code": {"type": "string"},
+                "chord_mm":  {"type": "number"},
+                "span_mm":   {"type": "number"},
+            },
+        },
+    },
+    "required": ["primary_function", "connecting_interfaces", "confidence"],
+}
+
+
+def _rea_schema_for(prompt: str) -> dict[str, Any]:
+    """Return the REA response_schema for ``prompt``, with the propulsion
+    extension merged in when the prompt mentions Domain F vocabulary.
+
+    The Pydantic+Gemini constraints from the handoff (no $ref, no anyOf,
+    no defaults) are honored by ``propulsion.rea_schema``'s hand-written
+    dict — we do not derive it from PropulsionSpec.
+    """
+    from propulsion.rea_schema import (  # noqa: PLC0415
+        mentions_propulsion,
+        propulsion_rea_schema_extension,
+    )
+    schema = {
+        "type": _REA_SCHEMA_BASE["type"],
+        "properties": dict(_REA_SCHEMA_BASE["properties"]),
+        "required": list(_REA_SCHEMA_BASE["required"]),
+    }
+    if mentions_propulsion(prompt):
+        schema["properties"].update(propulsion_rea_schema_extension())
+    return schema
+
+
+_REA_PROPULSION_INSTRUCTION = (
+    "If the prompt names ROCKET PROPULSION features (nozzle, throat, expansion "
+    "ratio, Rao bell, thrust chamber, combustion chamber, injector, regen / "
+    "regenerative / cooling channels, L*, impinging doublet, coaxial injector), "
+    "set inferred_domain to 'F' AND populate `propulsion_spec`. "
+    "Within propulsion_spec: set `intent` from cues ('for CFD' -> 'analysis'; "
+    "'machined' / 'manufactured' -> 'manufacturable'; otherwise 'analysis'). "
+    "Populate ONLY the sub-objects (nozzle / chamber / injector / "
+    "cooling_channels) the prompt actually describes; leave the rest absent. "
+    "All radii / diameters / channel sizes are in millimeters; L* is in meters. "
+    "NEVER invent numerical values not in the prompt. "
+)
+
+
 async def run_rea(prompt: str) -> "DesignRequirements | None":
     """T2-12: Requirements Engineering Agent.
 
@@ -235,104 +321,112 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
 
     The REA and Clarifier are independent — both can run concurrently.
     REA feeds forward to the Planner; Clarifier feeds back to the user.
+
+    Domain F (propulsion) extension: when the prompt mentions
+    propulsion vocabulary, the REA schema is augmented with ``propulsion_spec``
+    and physics validators are run after Gemini returns. If validators
+    fail, the REA is retried once with the error list folded into the
+    prompt context (Critic-loop-style feedback).
     """
-    _REA_SCHEMA = {
-        "type": "object",
-        "properties": {
-            "primary_function": {"type": "string"},
-            "key_dimensions": {
-                "type": "object",
-                "description": "dimension_name -> value_in_mm",
-            },
-            "material_class": {"type": "string"},
-            "environment": {"type": "string"},
-            "connecting_interfaces": {
-                "type": "array",
-                "items": {"type": "string"},
-            },
-            "production_volume": {"type": "string"},
-            "inferred_domain": {"type": "string"},
-            "confidence": {"type": "number"},
-            # Phase 3 (XFOIL): only populate for Domain D when explicitly stated
-            "flight_env": {
-                "type": "object",
-                "description": (
-                    "Domain D only. Populate ONLY if the prompt names "
-                    "explicit aerodynamic conditions. Omit otherwise."
-                ),
-                "properties": {
-                    "alpha_start": {"type": "number"},
-                    "alpha_end":   {"type": "number"},
-                    "alpha_step":  {"type": "number"},
-                    "reynolds":    {"type": "number"},
-                    "mach":        {"type": "number"},
-                    "n_crit":      {"type": "number"},
-                },
-            },
-            "airfoil_spec": {
-                "type": "object",
-                "description": (
-                    "Domain D only. Populate from the prompt when a NACA "
-                    "airfoil and/or wing dimensions are named."
-                ),
-                "properties": {
-                    "naca_code": {"type": "string"},
-                    "chord_mm":  {"type": "number"},
-                    "span_mm":   {"type": "number"},
-                },
-            },
-        },
-        "required": ["primary_function", "connecting_interfaces", "confidence"],
-    }
+    from propulsion.rea_schema import mentions_propulsion  # noqa: PLC0415
+    from propulsion.validation import validate_all as _validate_propulsion  # noqa: PLC0415
+
+    is_propulsion = mentions_propulsion(prompt)
+    response_schema = _rea_schema_for(prompt)
+
+    system_instruction = (
+        "You are a mechanical engineering requirements analyst. "
+        "Extract structured design requirements from the user's CAD design brief. "
+        "Be conservative — only include information explicitly stated or clearly implied. "
+        "Do NOT invent specifications not mentioned in the prompt. "
+        "Set confidence < 0.5 if the prompt is too vague to reliably extract requirements. "
+        # Phase 3 (XFOIL) — Domain D aerodynamic extraction
+        "If inferred_domain is 'D' (aerospace/aerodynamic) AND the prompt explicitly "
+        "names flight conditions, populate `flight_env` (alpha_start/end/step in degrees, "
+        "reynolds, mach, n_crit). NEVER guess Re or Mach from cruise descriptions alone — "
+        "only set fields the user gave numerically. If the prompt names a NACA airfoil or "
+        "wing dimensions, populate `airfoil_spec` (naca_code as a 4-digit string e.g. '2412', "
+        "chord_mm, span_mm). Leave both objects out entirely for non-D domains or when no "
+        "explicit values are given. "
+        + (_REA_PROPULSION_INSTRUCTION if is_propulsion else "")
+        + "Return JSON matching the DesignRequirements schema."
+    )
 
     model = genai.GenerativeModel(
         model_name=MODEL,
-        system_instruction=(
-            "You are a mechanical engineering requirements analyst. "
-            "Extract structured design requirements from the user's CAD design brief. "
-            "Be conservative — only include information explicitly stated or clearly implied. "
-            "Do NOT invent specifications not mentioned in the prompt. "
-            "Set confidence < 0.5 if the prompt is too vague to reliably extract requirements. "
-            # Phase 3 (XFOIL) — Domain D aerodynamic extraction
-            "If inferred_domain is 'D' (aerospace/aerodynamic) AND the prompt explicitly "
-            "names flight conditions, populate `flight_env` (alpha_start/end/step in degrees, "
-            "reynolds, mach, n_crit). NEVER guess Re or Mach from cruise descriptions alone — "
-            "only set fields the user gave numerically. If the prompt names a NACA airfoil or "
-            "wing dimensions, populate `airfoil_spec` (naca_code as a 4-digit string e.g. '2412', "
-            "chord_mm, span_mm). Leave both objects out entirely for non-D domains or when no "
-            "explicit values are given. "
-            "Return JSON matching the DesignRequirements schema."
-        ),
+        system_instruction=system_instruction,
     )
 
-    try:
-        rea_t0 = time.monotonic()
-        logger.info("run_rea: calling Gemini (prompt=%d chars)", len(prompt))
-        response = await model.generate_content_async(
-            f"Extract design requirements from this brief:\n\n{prompt}",
-            generation_config={
-                "response_mime_type": "application/json",
-                "response_schema": _REA_SCHEMA,
-            },
-        )
-        logger.info("run_rea: Gemini returned in %.1fs", time.monotonic() - rea_t0)
-        import json as _json
-        raw = _json.loads(response.text)
-        # Log token usage
+    base_user_message = f"Extract design requirements from this brief:\n\n{prompt}"
+
+    max_attempts = 2 if is_propulsion else 1
+    last_dr: "DesignRequirements | None" = None
+    feedback: str = ""
+
+    for attempt in range(1, max_attempts + 1):
         try:
-            usage = response.usage_metadata
-            from telemetry import log_token_usage
-            log_token_usage(
-                agent="rea",
-                prompt_tokens=usage.prompt_token_count or 0,
-                completion_tokens=usage.candidates_token_count or 0,
+            rea_t0 = time.monotonic()
+            logger.info(
+                "run_rea: calling Gemini (attempt=%d, prompt=%d chars, propulsion=%s)",
+                attempt, len(prompt), is_propulsion,
             )
+            user_message = base_user_message
+            if feedback:
+                user_message = (
+                    f"{base_user_message}\n\n"
+                    f"Previous attempt failed physics validation with the following errors. "
+                    f"Re-extract propulsion_spec so these are resolved without inventing values:\n"
+                    f"{feedback}"
+                )
+            response = await model.generate_content_async(
+                user_message,
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "response_schema": response_schema,
+                },
+            )
+            logger.info("run_rea: Gemini returned in %.1fs", time.monotonic() - rea_t0)
+            import json as _json
+            raw = _json.loads(response.text)
+            # Log token usage
+            try:
+                usage = response.usage_metadata
+                from telemetry import log_token_usage
+                log_token_usage(
+                    agent="rea",
+                    prompt_tokens=usage.prompt_token_count or 0,
+                    completion_tokens=usage.candidates_token_count or 0,
+                )
+            except Exception:
+                pass
+            dr = DesignRequirements(**raw)
+            last_dr = dr
+
+            # Physics-validator gate (Domain F only).
+            if dr.propulsion_spec is not None:
+                errors = _validate_propulsion(dr.propulsion_spec)
+                if errors and attempt < max_attempts:
+                    feedback = "\n".join(f"- {e}" for e in errors)
+                    logger.info(
+                        "run_rea: propulsion validation failed on attempt %d, retrying:\n%s",
+                        attempt, feedback,
+                    )
+                    continue
+                if errors:
+                    logger.warning(
+                        "run_rea: propulsion validation still failing after %d attempts; "
+                        "returning best-effort DesignRequirements with %d validator error(s).",
+                        attempt, len(errors),
+                    )
+            return dr
         except Exception:
-            pass
-        return DesignRequirements(**raw)
-    except Exception:
-        logger.exception("run_rea: failed — Planner will proceed without structured requirements")
-        return None  # Non-blocking — Planner proceeds without structured requirements
+            logger.exception(
+                "run_rea: failed on attempt %d — Planner will proceed without structured requirements",
+                attempt,
+            )
+            if attempt >= max_attempts:
+                return last_dr  # may be None
+    return last_dr
 
 
 async def run_clarifier(prompt: str) -> list[str]:
@@ -386,6 +480,173 @@ async def run_clarifier(prompt: str) -> list[str]:
         return []  # Fail silently — clarification is optional
 
 
+def _planner_from_propulsion_spec(
+    requirements: "DesignRequirements",
+    user_prompt: str,
+) -> "AssemblyManifest | None":
+    """Deterministic planner output for Domain F prompts.
+
+    Returns an ``AssemblyManifest`` built from ``requirements.propulsion_spec``
+    when the spec is rich enough to compose a thrust-chamber assembly. Returns
+    ``None`` when the spec lacks the minimum primitives (no nozzle and no
+    chamber and no injector and no cooling_channels) so the caller can fall
+    back to the Gemini planner.
+
+    Part order (foundation first, downstream last, axial alignment):
+        injector_plate -> combustion_chamber -> nozzle -> (cooling_jacket fused into nozzle)
+    Mate type for every join is FASTENED (axial bolt-circle anchors).
+    """
+    spec = requirements.propulsion_spec
+    if spec is None:
+        return None
+
+    parts: list[PartDefinition] = []
+    mates: list[Any] = []
+
+    intent = spec.intent
+
+    if spec.injector is not None:
+        ij = spec.injector
+        pattern = ij.pattern
+        ij_desc = (
+            f"Injector plate, intent='{intent}'. "
+            f"Generate by calling cad_utils.make_injector_plate(plate_radius="
+            f"{ij.plate_radius if ij.plate_radius is not None else 'None'}, "
+            f"plate_thickness={ij.plate_thickness}, "
+            f"orifice_count={ij.orifice_count}, "
+            f"orifice_diameter={ij.orifice_diameter}, "
+            f"pattern='{pattern}', "
+            f"distribution_radius={ij.distribution_radius}, "
+            f"impingement_angle_deg={ij.impingement_angle_deg if ij.impingement_angle_deg is not None else 30.0}, "
+            f"intent='{intent}')."
+        )
+        parts.append(PartDefinition(
+            part_id="injector_plate",
+            description=ij_desc,
+            anchor_tags=[">Z", "<Z"],
+        ))
+
+    if spec.chamber is not None and spec.nozzle is not None:
+        ch = spec.chamber
+        nz = spec.nozzle
+        parts.append(PartDefinition(
+            part_id="combustion_chamber",
+            description=(
+                f"Cylindrical combustion chamber sized by L*, intent='{intent}'. "
+                f"Generate by calling cad_utils.make_combustion_chamber(radius={ch.radius}, "
+                f"l_star={ch.l_star}, throat_radius={nz.throat_radius}, "
+                f"contraction_ratio={ch.contraction_ratio if ch.contraction_ratio is not None else 'None'}, "
+                f"include_converging_section=False, intent='{intent}'). "
+                f"Note: include_converging_section=False because the converging frustum is "
+                f"generated as part of the nozzle for proper anchor-tag alignment."
+            ),
+            anchor_tags=[">Z", "<Z"],
+        ))
+    elif spec.chamber is not None:
+        ch = spec.chamber
+        parts.append(PartDefinition(
+            part_id="combustion_chamber",
+            description=(
+                f"Standalone combustion chamber, intent='{intent}'. "
+                f"Generate by calling cad_utils.make_combustion_chamber(radius={ch.radius}, "
+                f"l_star={ch.l_star}, throat_radius={ch.radius / 2.0:.2f}, "
+                f"include_converging_section=True, intent='{intent}')."
+            ),
+            anchor_tags=[">Z", "<Z"],
+        ))
+
+    if spec.nozzle is not None:
+        nz = spec.nozzle
+        chamber_r = nz.chamber_radius if nz.chamber_radius is not None else (
+            spec.chamber.radius if spec.chamber is not None else 2.0 * nz.throat_radius
+        )
+        if nz.type == "conical":
+            exit_arg = (
+                f"exit_radius={nz.exit_radius}"
+                if nz.exit_radius is not None
+                else f"expansion_ratio={nz.expansion_ratio}"
+            )
+            nozzle_call = (
+                f"cad_utils.make_conical_nozzle(throat_radius={nz.throat_radius}, "
+                f"{exit_arg}, half_angle_deg={nz.half_angle_deg if nz.half_angle_deg is not None else 15.0}, "
+                f"converging_angle_deg={nz.converging_angle_deg if nz.converging_angle_deg is not None else 30.0}, "
+                f"chamber_radius={chamber_r}, intent='{intent}')"
+            )
+        else:  # rao_bell or truncated_bell
+            lf = nz.length_fraction if nz.length_fraction is not None else 0.8
+            nozzle_call = (
+                f"cad_utils.make_rao_bell_nozzle(throat_radius={nz.throat_radius}, "
+                f"expansion_ratio={nz.expansion_ratio}, length_fraction={lf}, "
+                f"chamber_radius={chamber_r}, intent='{intent}')"
+            )
+
+        if spec.cooling_channels is not None:
+            cc = spec.cooling_channels
+            outer_r = nz.throat_radius + cc.depth + 1.0
+            axial = cc.axial_length if cc.axial_length is not None else 2.0 * outer_r
+            nozzle_desc = (
+                f"Regeneratively-cooled bell nozzle, intent='{intent}'. "
+                f"FIRST build the bare nozzle by calling {nozzle_call} -- assign the "
+                f"result to a local variable `nozzle_solid`. THEN call "
+                f"cad_utils.make_helical_cooling_channels(nozzle_solid=nozzle_solid, "
+                f"nozzle_outer_radius={outer_r}, channel_count={cc.count}, "
+                f"channel_width={cc.width}, channel_depth={cc.depth}, "
+                f"helix_angle_deg={cc.helix_angle_deg}, axial_length={axial}, "
+                f"intent='{intent}'). Assign the cut result to `result`."
+            )
+        else:
+            nozzle_desc = (
+                f"Bell nozzle, intent='{intent}'. "
+                f"Generate by calling {nozzle_call}. Assign the result to `result`."
+            )
+
+        parts.append(PartDefinition(
+            part_id="nozzle",
+            description=nozzle_desc,
+            anchor_tags=[">Z", "<Z"],
+        ))
+
+    if not parts:
+        return None
+
+    # Build axial-FASTENED mates between consecutive parts.
+    from schemas import MatingRule as _MatingRule  # noqa: PLC0415
+    for prev, curr in zip(parts, parts[1:]):
+        mates.append(_MatingRule(
+            source_part_id=prev.part_id,
+            source_anchor="<Z",
+            target_part_id=curr.part_id,
+            target_anchor=">Z",
+            mate_type="FASTENED",
+            clearance=0.0,
+        ))
+    if not mates:
+        # Single-part assembly: self-referencing translation rule.
+        only = parts[0]
+        mates.append(_MatingRule(
+            source_part_id=only.part_id,
+            source_anchor=">Z",
+            target_part_id=only.part_id,
+            target_anchor="<Z",
+            translation="0, 0, 0",
+            clearance=0.0,
+        ))
+
+    assembly_name = "thrust_chamber_assembly" if len(parts) > 1 else parts[0].part_id
+
+    manifest = AssemblyManifest(
+        assembly_name=assembly_name,
+        parts=parts,
+        mating_rules=mates,
+    )
+    logger.info(
+        "run_planner[propulsion]: built deterministic manifest "
+        "(parts=%d, mates=%d, intent=%s)",
+        len(parts), len(mates), intent,
+    )
+    return manifest
+
+
 async def run_planner(
     user_prompt: str,
     requirements: "DesignRequirements | None" = None,
@@ -394,6 +655,11 @@ async def run_planner(
 
     Converts a natural-language mechanical request into a structured
     AssemblyManifest using Gemini's structured output mode.
+
+    Domain F extension: when ``requirements.propulsion_spec`` is non-null the
+    planner short-circuits to :func:`_planner_from_propulsion_spec` which
+    composes the manifest deterministically from the spec, avoiding a Gemini
+    round-trip that risks munging mm-precise dimensions.
     """
     model = genai.GenerativeModel(
         model_name=MODEL,
@@ -465,6 +731,16 @@ async def run_planner(
             "The base/first part is always at '0, 0, 0'. However, mate_type is now preferred for all new assemblies."
         ),
     )
+
+    # Domain F short-circuit: when the REA captured a complete propulsion_spec
+    # the topology is deterministic (injector / chamber / nozzle / cooling_jacket)
+    # and known to the Machinist via rule_domain_f_propulsion. Build the manifest
+    # straight from the spec instead of paying the Gemini round-trip + risking
+    # mis-translation of mm-precise dimensions.
+    if requirements is not None and requirements.propulsion_spec is not None:
+        deterministic = _planner_from_propulsion_spec(requirements, user_prompt)
+        if deterministic is not None:
+            return deterministic
 
     # Build planner input — prepend structured requirements if available (T2-12)
     if requirements is not None:

@@ -561,6 +561,10 @@ async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, 
         from verification.geometry import certify_geometry
         from verification.material import resolve_material, mass_properties as _mass_props
 
+        # Domain F: pass the propulsion_spec through so the cert gains the
+        # throat/exit area, geometric expansion ratio, and channel-count fields.
+        _prop_spec = getattr(requirements, "propulsion_spec", None) if requirements else None
+
         if single:
             # Single-part: write a temp STEP from the validated code
             _cert_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_cert.step"))
@@ -571,7 +575,9 @@ async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, 
             )
             _cert_exec = await execute_cad_script(_cert_script)
             if _cert_exec["status"] == "success" and os.path.exists(_cert_step_path):
-                geometry_certificate = dict(certify_geometry(_cert_step_path))
+                geometry_certificate = dict(
+                    certify_geometry(_cert_step_path, propulsion_spec=_prop_spec)
+                )
                 try:
                     os.remove(_cert_step_path)
                 except OSError:
@@ -611,6 +617,12 @@ async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, 
                         pid: c for pid, c in _part_certs.items()
                     },
                 }
+                # Domain F: derive aggregate throat/exit area + expansion ratio
+                # from propulsion_spec when available, so the cert card surfaces
+                # the same fields for multi-part thrust-chamber assemblies.
+                if _prop_spec is not None:
+                    from verification.geometry import _propulsion_fields
+                    geometry_certificate.update(_propulsion_fields(_prop_spec))
 
         # Augment cert with material mass if we have volume + requirements
         if geometry_certificate and geometry_certificate.get("volume_mm3"):

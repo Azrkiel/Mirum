@@ -203,7 +203,14 @@ RULE_BLOCKS = {
         "  from cad_utils import make_metric_thread "
         "  result = make_metric_thread(diameter=10.0, pitch=1.5, length=40.0) "
         "This returns a stable ribbed-cylinder approximation centered at the "
-        "origin. NEVER attempt helical sweeps — they crash the BRep kernel. "
+        "origin. In Domain B (mechanical parts), NEVER write a raw `.sweep()` "
+        "on `cq.Wire.makeHelix(...)` for threads — the ribbed-cylinder helper "
+        "is already the calibrated approximation. (Note: the historical claim "
+        "that all helical sweeps crash the BRep kernel was falsified on "
+        "2026-05-18 — helical sweeps are now permitted, but ONLY inside "
+        "Domain F propulsion helpers in cad_utils.py, see propulsion/__init__.py "
+        "for the reproduction record. Generated scripts in Domain B must still "
+        "use `make_metric_thread`, not raw helical sweeps.) "
         "NEVER approximate as a plain cylinder — the helper is already the "
         "reliable approximation. For complete HEX BOLTS and HEX NUTS, use the "
         "dedicated fastener helpers instead (see FASTENER RULE below). "
@@ -862,6 +869,62 @@ RULE_BLOCKS = {
         ".workplane('XZ').center(...).circle(r).cutThruAll(). "
         "DO NOT manually model the CO2 chamber."
     ),
+
+    "rule_domain_f_propulsion": (
+        "PROPULSION RULE (MANDATORY — USE THE LIBRARY). "
+        "Every propulsion part is built by calling ONE cad_utils helper and "
+        "passing the numeric values from propulsion_spec verbatim. NEVER write "
+        "raw .revolve(), .sweep(), or hand-rolled axisymmetric profiles in "
+        "this domain — the helpers handle the OCC quirks (axis-tangent edges, "
+        "Frenet helix paths). "
+        "\n"
+        "The available helpers (signatures): "
+        "  from cad_utils import make_conical_nozzle, make_rao_bell_nozzle, "
+        "  make_combustion_chamber, make_injector_plate, make_helical_cooling_channels "
+        "\n"
+        "  make_conical_nozzle(throat_radius, exit_radius=None, expansion_ratio=None, "
+        "  half_angle_deg=15.0, converging_angle_deg=30.0, chamber_radius=0.0, "
+        "  intent='analysis') "
+        "    USE FOR: any conical (straight divergent) bell nozzle. "
+        "\n"
+        "  make_rao_bell_nozzle(throat_radius, expansion_ratio, length_fraction=0.8, "
+        "  chamber_radius=None, converging_angle_deg=30.0, intent='analysis') "
+        "    USE FOR: optimum-thrust bell nozzles (Rao, parabolic skirt). "
+        "\n"
+        "  make_combustion_chamber(radius, l_star, throat_radius, "
+        "  contraction_ratio=None, include_converging_section=True, "
+        "  converging_angle_deg=30.0, intent='analysis') "
+        "    USE FOR: combustion chambers sized by L* (in meters). "
+        "\n"
+        "  make_injector_plate(plate_radius, plate_thickness, orifice_count, "
+        "  orifice_diameter, pattern='impinging_doublet', "
+        "  distribution_radius=None, impingement_angle_deg=30.0, intent='analysis') "
+        "    USE FOR: injector plates with impinging_doublet | like_doublet | "
+        "    coaxial | showerhead patterns. "
+        "\n"
+        "  make_helical_cooling_channels(nozzle_solid, nozzle_outer_radius, "
+        "  channel_count, channel_width, channel_depth, helix_angle_deg=0.0, "
+        "  axial_length=None, intent='analysis') "
+        "    USE FOR: regenerative cooling channels milled into a nozzle wall. "
+        "    Helix sweeps are PERMITTED INSIDE this helper (verdict 2026-05-18, "
+        "    see propulsion/__init__.py) but generated scripts must call the "
+        "    helper — never write raw cq.Wire.makeHelix(...).sweep(...). "
+        "\n"
+        "PARAMETER PASSING — VERBATIM. Take every numeric field from the supplied "
+        "propulsion_spec (throat_radius, expansion_ratio, chamber_radius, count, "
+        "width, depth, orifice_count, etc.) and pass it directly to the helper. "
+        "NEVER round, NEVER 're-derive', NEVER substitute approximate values. "
+        "If propulsion_spec.intent is 'manufacturable' or 'visualization', pass "
+        "that string through unchanged so the helper enables / disables the "
+        "right minimum-wall / fillet checks. "
+        "\n"
+        "ASSEMBLY-LEVEL TOPOLOGY (when present): "
+        "  - injector_plate -> combustion_chamber -> nozzle (FASTENED, axial). "
+        "  - cooling_jacket is a derived part: build the bare nozzle first, then "
+        "    call make_helical_cooling_channels(nozzle_solid, ...) to subtract "
+        "    the channels. The result IS the nozzle-plus-jacket; do NOT model it "
+        "    as a separate part. "
+    ),
 }
 
 
@@ -904,6 +967,12 @@ _DOMAIN_PREAMBLES = {
         "You are a CadQuery machinist specialized in SHEET METAL PARTS. "
         "The part you are generating is classified as Domain E (Sheet Metal/Thin-Wall). "
     ),
+    "F": (
+        "You are a CadQuery machinist specialized in ROCKET PROPULSION HARDWARE. "
+        "The part you are generating is classified as Domain F (Propulsion). "
+        "You MUST construct geometry by calling cad_utils helpers — never by "
+        "writing raw .revolve(), .sweep(), or hand-rolled axisymmetric profiles. "
+    ),
 }
 
 # Rules always injected for a given domain (on top of core rules)
@@ -924,6 +993,7 @@ _DOMAIN_RULES = {
         "rule_wire_to_solid",
         "rule_d_parameters",
     ],
+    "F": ["rule_domain_f_propulsion"],
 }
 
 # Keyword triggers — inject these rules when ANY keyword matches the description
