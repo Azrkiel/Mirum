@@ -877,5 +877,79 @@
     ],
     "expected_naca_code": "0018",
     "notes": "Tests that the Domain D strategy correctly handles non-wing applications of NACA profiles (fuselage body of revolution). Large span-to-chord ratio stresses the loft / extrude path."
+  },
+
+  {
+    "id": "F_conical_bell_nozzle",
+    "domain": "F",
+    "difficulty": "medium",
+    "description": "A conical bell nozzle for a hot-fire test stand: throat radius 25 mm, exit radius 75 mm (expansion ratio 9), divergent half-angle 15 degrees, converging section angle 30 degrees, combustion chamber inner radius 50 mm.",
+    "expected_features": [
+      "chamber",
+      "converging frustum",
+      "throat",
+      "diverging cone",
+      "expansion_ratio_9"
+    ],
+    "regression_for": ["F"],
+    "propulsion_intent": "analysis",
+    "physics_invariant": "geometric_expansion_ratio_within_5pct(9.0)",
+    "notes": "Reference prompt #1 from the propulsion-domain-f plan. Exercises make_conical_nozzle end-to-end."
+  },
+
+  {
+    "id": "F_rao_bell_full_chamber",
+    "domain": "F",
+    "difficulty": "medium",
+    "description": "A thrust-optimised Rao bell nozzle at 80 percent length: throat radius 20 mm, expansion ratio 16, chamber inner radius 60 mm. Include the converging section and the upstream combustion chamber portion (no injector).",
+    "expected_features": [
+      "chamber",
+      "converging frustum",
+      "throat arcs",
+      "rao parabolic skirt",
+      "exit_radius_80mm"
+    ],
+    "regression_for": ["F"],
+    "propulsion_intent": "analysis",
+    "physics_invariant": "exit_radius_within_0p5pct(80.0)",
+    "notes": "Reference prompt #2. Exercises rao_table.lookup + make_rao_bell_nozzle; verifies exit-radius lock."
+  },
+
+  {
+    "id": "F_regen_cooled_nozzle",
+    "domain": "F",
+    "difficulty": "hard",
+    "description": "A regeneratively-cooled bell nozzle: throat radius 25 mm, expansion ratio 12, sixty (60) helical cooling channels milled into the outer wall, each channel 2 mm wide and 3 mm deep, with a 15 degree helical twist along the nozzle length.",
+    "expected_features": [
+      "rao bell nozzle base",
+      "60 helical channels",
+      "channel_width_2mm",
+      "channel_depth_3mm",
+      "15deg helical twist"
+    ],
+    "regression_for": ["F"],
+    "propulsion_intent": "analysis",
+    "physics_invariant": "channel_count_detected_equals(60)",
+    "notes": "Reference prompt #3. Exercises make_helical_cooling_channels with 60 polar-arrayed sweeps -- watch the 30-second sandbox budget. Falsified the historic helix-sweep ban (see propulsion/__init__.py)."
+  },
+
+  {
+    "id": "F_full_thrust_chamber_assembly",
+    "domain": "F",
+    "difficulty": "hard",
+    "description": "A complete thrust chamber assembly. Injector plate with twenty-four (24) impinging-doublet orifices of 1.5 mm diameter on a 30 mm radius distribution circle. Cylindrical combustion chamber with L star = 1.0 metre and inner radius 40 mm. Converging section to a 20 mm throat radius. Rao bell nozzle at 80 percent length with expansion ratio 16 (exit radius 80 mm).",
+    "expected_features": [
+      "injector plate",
+      "24 impinging doublet orifices",
+      "combustion chamber",
+      "L_star_1m",
+      "rao bell nozzle",
+      "expansion_ratio_16",
+      "three parts minimum"
+    ],
+    "regression_for": ["F"],
+    "propulsion_intent": "analysis",
+    "physics_invariant": "parts_count_gte(3) and orifice_count_equals(24)",
+    "notes": "Reference prompt #4. End-to-end injector -> chamber -> nozzle, FASTENED axial mates. Validates the deterministic planner shortcut + helper chain."
   }
 ]
