@@ -1305,7 +1305,7 @@ def make_rao_bell_nozzle(
         cq.Workplane axisymmetric Rao bell solid, centered on the origin (axis = +Z,
         chamber on +Z side, exit on -Z side).
     """
-    from propulsion.rao_table import lookup as _rao_lookup  # noqa: PLC0415
+    from propulsion.rao_table import lookup as _rao_lookup, envelope as _rao_envelope  # noqa: PLC0415
 
     if throat_radius <= 0:
         raise ValueError("throat_radius must be > 0")
@@ -1315,8 +1315,11 @@ def make_rao_bell_nozzle(
         chamber_radius = max(2.0 * throat_radius, throat_radius + 5.0)
     if chamber_radius <= throat_radius:
         raise ValueError("chamber_radius must exceed throat_radius")
-    if not (0.5 <= length_fraction <= 1.0):
-        raise ValueError("length_fraction must be in [0.5, 1.0]")
+    # Guard against the Rao table envelope itself so a sub-envelope length_fraction
+    # is rejected here with a clear message rather than crashing inside _rao_lookup.
+    _lf_lo, _lf_hi = _rao_envelope()["length_fraction"]
+    if not (_lf_lo <= length_fraction <= _lf_hi):
+        raise ValueError(f"length_fraction must be in [{_lf_lo}, {_lf_hi}]")
 
     theta_n_deg, theta_e_deg = _rao_lookup(expansion_ratio, length_fraction)
     theta_n = math.radians(theta_n_deg)

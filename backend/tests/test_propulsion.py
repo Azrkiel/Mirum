@@ -230,8 +230,90 @@ def test_rao_bell_rejects_subcritical_epsilon() -> None:
     assert raised
 
 
+def test_make_rao_bell_rejects_length_fraction_below_envelope() -> None:
+    """The primitive guard must reject Lf below the Rao table envelope with a
+    clear length_fraction error, not pass the guard and crash inside lookup."""
+    import cad_utils
+    from propulsion.rao_table import envelope
+    lf_lo = envelope()["length_fraction"][0]            # 0.6
+    bad_lf = round(lf_lo - 0.05, 3)                      # 0.55: in old [0.5,1.0] guard, below table
+    raised = ""
+    try:
+        cad_utils.make_rao_bell_nozzle(
+            throat_radius=20.0, expansion_ratio=16.0,
+            length_fraction=bad_lf, chamber_radius=60.0,
+        )
+    except ValueError as exc:
+        raised = str(exc)
+    assert "length_fraction" in raised, (
+        f"guard should reject lf={bad_lf} with a length_fraction message, got: {raised!r}"
+    )
+    assert str(lf_lo) in raised, (
+        f"guard message should cite the table lower bound {lf_lo}, got: {raised!r}"
+    )
+
+
+def test_spec_rejects_length_fraction_below_envelope() -> None:
+    """NozzleSpec validation must match the Rao table envelope, not [0.5,1.0]."""
+    from propulsion.specs import NozzleSpec
+    from propulsion.rao_table import envelope
+    bad_lf = round(envelope()["length_fraction"][0] - 0.05, 3)   # 0.55
+    raised = False
+    try:
+        NozzleSpec(
+            type="rao_bell", throat_radius=20.0, expansion_ratio=16.0,
+            length_fraction=bad_lf, chamber_radius=60.0,
+        )
+    except Exception:
+        raised = True
+    assert raised, f"NozzleSpec should reject length_fraction={bad_lf} (below Rao envelope)"
+
+
+def test_mentions_propulsion_positive_reference_prompts() -> None:
+    """The four Domain F reference prompts must still route to propulsion."""
+    from propulsion.rea_schema import mentions_propulsion
+    prompts = [
+        "A conical bell nozzle for a hot-fire test stand: throat radius 25 mm, "
+        "exit radius 75 mm (expansion ratio 9), divergent half-angle 15 degrees.",
+        "A thrust-optimised Rao bell nozzle at 80 percent length: throat radius "
+        "20 mm, expansion ratio 16, chamber inner radius 60 mm.",
+        "A regeneratively-cooled bell nozzle: throat radius 25 mm, expansion ratio "
+        "12, sixty helical cooling channels milled into the outer wall.",
+        "A complete thrust chamber assembly. Injector plate with twenty-four "
+        "impinging-doublet orifices on a 30 mm radius distribution circle.",
+    ]
+    for p in prompts:
+        assert mentions_propulsion(p), f"reference propulsion prompt must trigger: {p[:48]!r}"
+
+
+def test_mentions_propulsion_rejects_benign_homographs() -> None:
+    """Benign prompts that merely contain 'bell'/'throat' substrings must NOT
+    force Domain F (the over-trigger the zero-context reviewer flagged)."""
+    from propulsion.rea_schema import mentions_propulsion
+    benign = [
+        "A bell crank lever with a 50 mm arm and two pivot holes.",
+        "A bellhousing adapter plate for a gearbox.",
+        "A throat lozenge mold cavity, 30 mm long.",
+        "A spur gear with 24 teeth, module 2.",
+    ]
+    for p in benign:
+        assert not mentions_propulsion(p), f"benign prompt must NOT trigger Domain F: {p!r}"
+
+
+def test_mentions_propulsion_two_weak_tokens_trigger() -> None:
+    """Two corroborating weak tokens (bell + throat) read as a nozzle even with
+    no strong token present."""
+    from propulsion.rea_schema import mentions_propulsion
+    assert mentions_propulsion("A bell contour blending into the throat region.")
+
+
 def _run_all() -> int:
     funcs = [
+        test_make_rao_bell_rejects_length_fraction_below_envelope,
+        test_spec_rejects_length_fraction_below_envelope,
+        test_mentions_propulsion_positive_reference_prompts,
+        test_mentions_propulsion_rejects_benign_homographs,
+        test_mentions_propulsion_two_weak_tokens_trigger,
         test_rao_table_in_range_returns_finite,
         test_rao_table_endpoint_values_match_table,
         test_rao_table_out_of_range_raises,

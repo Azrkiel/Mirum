@@ -15,24 +15,25 @@ caller merges this into ``_REA_SCHEMA`` properties.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
 # Vocabulary used by both REA (pre-trigger) and classifier (Domain F routing).
-# Keeping it in one place avoids the two paths drifting.
-PROPULSION_VOCAB: tuple[str, ...] = (
+# Two tiers so benign homographs ("bell crank", "bellhousing", "throat lozenge",
+# "regenerative braking") do not force Domain F:
+#   * strong tokens — a single occurrence routes to propulsion. Matched as a
+#     plain substring so plurals ("nozzles", "channels") still hit; none of
+#     these is a prefix of a common non-propulsion word.
+#   * weak tokens — ambiguous single words that also appear in unrelated parts.
+#     Matched as whole words and only corroborated: one weak hit is NOT enough;
+#     routing needs a strong hit or >= 2 distinct weak hits (e.g. "rao" + "bell").
+_STRONG_PROPULSION_VOCAB: tuple[str, ...] = (
     "nozzle",
-    "throat",
     "expansion ratio",
-    "rao",
-    "bell",
-    "injector",
     "thrust chamber",
     "combustion chamber",
-    "regen",
-    "regenerative",
     "cooling channel",
-    "l*",
     "characteristic length",
     "impinging doublet",
     "like doublet",
@@ -40,6 +41,24 @@ PROPULSION_VOCAB: tuple[str, ...] = (
     "propellant",
     "thruster",
     "rocket engine",
+    "injector",
+)
+
+# Notation token carrying a non-word character; matched as a literal substring.
+_STRONG_LITERAL_VOCAB: tuple[str, ...] = ("l*",)
+
+_WEAK_PROPULSION_VOCAB: tuple[str, ...] = (
+    "bell",
+    "throat",
+    "rao",
+    "regen",
+    "regenerative",
+)
+
+# Public, ordered vocabulary kept for the classifier's reasoning string and any
+# external callers that iterate it.
+PROPULSION_VOCAB: tuple[str, ...] = (
+    _STRONG_PROPULSION_VOCAB + _STRONG_LITERAL_VOCAB + _WEAK_PROPULSION_VOCAB
 )
 
 
@@ -62,7 +81,7 @@ _NOZZLE_SCHEMA: dict[str, Any] = {
         "expansion_ratio":      {"type": "number", "description": "A_e / A_t."},
         "half_angle_deg":       {"type": "number", "description": "Conical divergent half-angle (deg). Required for conical."},
         "converging_angle_deg": {"type": "number", "description": "Converging wall angle (deg). Required for conical."},
-        "length_fraction":      {"type": "number", "description": "Bell length fraction in [0.5, 1.0] (default 0.8)."},
+        "length_fraction":      {"type": "number", "description": "Bell length fraction in [0.6, 1.0] (default 0.8)."},
         "chamber_radius":       {"type": "number", "description": "Combustion chamber radius (mm)."},
     },
     "required": ["type", "throat_radius"],
@@ -146,7 +165,25 @@ def propulsion_rea_schema_extension() -> dict[str, Any]:
     return {"propulsion_spec": PROPULSION_SPEC_SCHEMA}
 
 
+def _whole_word_present(token: str, text: str) -> bool:
+    """True if ``token`` occurs as a standalone word, not a prefix of a longer
+    word (so 'bell' does not match 'bellhousing')."""
+    return re.search(rf"\b{re.escape(token)}\b", text) is not None
+
+
 def mentions_propulsion(text: str) -> bool:
-    """Cheap keyword trigger used by REA and classifier alike."""
+    """Cheap two-tier keyword trigger used by REA and classifier alike.
+
+    A single strong token (or the ``l*`` notation) routes to Domain F. Weak,
+    ambiguous tokens count only when corroborated: a strong hit, or at least
+    two distinct weak hits (e.g. 'rao' + 'bell'), is required. This stops
+    benign homographs ('bell crank', 'bellhousing', 'throat lozenge',
+    'regenerative braking') from forcing the propulsion domain.
+    """
     lo = text.lower()
-    return any(token in lo for token in PROPULSION_VOCAB)
+    if any(token in lo for token in _STRONG_LITERAL_VOCAB):
+        return True
+    if any(token in lo for token in _STRONG_PROPULSION_VOCAB):
+        return True
+    weak_hits = sum(1 for token in _WEAK_PROPULSION_VOCAB if _whole_word_present(token, lo))
+    return weak_hits >= 2
