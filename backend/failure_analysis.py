@@ -76,6 +76,15 @@ OP_TO_RULE_HINT: dict[str, tuple[str, str]] = {
         "make_hex_bolt); fall back to a smooth cylinder of nominal diameter if "
         "no helper exists.",
     ),
+    "cooling_channels": (
+        "rule_domain_f_propulsion",
+        "Helical cooling-channel geometry failed. Do NOT roll your own helix "
+        "sweep or thread for a regen-cooled nozzle — you MUST call the "
+        "deterministic helper make_helical_cooling_channels(nozzle_solid, "
+        "nozzle_outer_radius, channel_count, channel_width, channel_depth, "
+        "helix_angle_deg=...) from cad_utils and cut the result from the nozzle. "
+        "Re-read rule_domain_f_propulsion.",
+    ),
     "fillet": (
         "rule_safe_filleting",
         "Fillet failed (StdFail_NotDone). Either the radius is too large for an "
@@ -128,6 +137,23 @@ OP_TO_RULE_HINT: dict[str, tuple[str, str]] = {
 }
 
 
+# Domain F primitive calls that mark a generated script as nozzle/thrust-chamber
+# code, so a helix/thread failure routes to make_helical_cooling_channels rather
+# than the generic fastener hint.
+_PROPULSION_CODE_MARKERS: tuple[str, ...] = (
+    "make_helical_cooling_channels",
+    "make_rao_bell_nozzle",
+    "make_conical_nozzle",
+    "make_combustion_chamber",
+    "make_injector_plate",
+)
+
+
+def _is_propulsion_code(code: str) -> bool:
+    lo = code.lower()
+    return any(marker in lo for marker in _PROPULSION_CODE_MARKERS)
+
+
 def get_rule_hint(traceback: str, code: str = "") -> tuple[str, str] | None:
     """Pick the most likely violated rule + actionable retry hint.
 
@@ -147,9 +173,15 @@ def get_rule_hint(traceback: str, code: str = "") -> tuple[str, str] | None:
     # Thread/helix mention plus an OCCT not-done signal beats the fillet-StdFail bias.
     if re.search(r"makeThread|HelixSweep|\bhelix\b", combined, re.IGNORECASE) and \
        re.search(r"StdFail|BRep_API: command not done", combined, re.IGNORECASE):
+        # Domain F (propulsion) nozzle code must use make_helical_cooling_channels,
+        # not the generic fastener helpers the plain "thread" hint points at.
+        if _is_propulsion_code(code):
+            return OP_TO_RULE_HINT["cooling_channels"]
         return OP_TO_RULE_HINT["thread"]
 
     op = classify_failure(traceback, code)
+    if op == "thread" and _is_propulsion_code(code):
+        return OP_TO_RULE_HINT["cooling_channels"]
     return OP_TO_RULE_HINT.get(op)
 
 
