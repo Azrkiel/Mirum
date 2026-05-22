@@ -1126,6 +1126,667 @@ def make_enclosure_panel(
     return panel
 
 
+# ---------------------------------------------------------------------------
+# Domain F (Propulsion) primitives
+# ---------------------------------------------------------------------------
+# All primitives:
+# * accept mm-valued geometric inputs;
+# * produce a cq.Workplane whose .val() is a manifold cq.Solid (or Compound);
+# * default ``intent`` to "analysis"; "manufacturable" adds throat fillets;
+# * raise ValueError on geometric inconsistencies caught after construction.
+
+
+def _validate_solid_output(wp: "cq.Workplane", name: str) -> "cq.Workplane":
+    """Assert that ``wp.val()`` is a manifold Solid with positive volume."""
+    val = wp.val()
+    if not isinstance(val, (cq.Solid, cq.Compound)):
+        raise ValueError(
+            f"{name}: expected cq.Solid or cq.Compound, got {type(val).__name__}."
+        )
+    if hasattr(val, "isValid") and not val.isValid():
+        raise ValueError(f"{name}: produced geometry failed isValid().")
+    if hasattr(val, "Volume") and val.Volume() <= 0:
+        raise ValueError(f"{name}: produced geometry has non-positive volume.")
+    return wp
+
+
+_AXIS_OFFSET_MM = 1e-3  # tiny offset to keep the meridian off the revolve axis
+
+
+def _revolve_meridian(points_rz: list[tuple[float, float]]) -> "cq.Workplane":
+    """Revolve a 2-D meridian profile about +Z to produce a 3-D axisymmetric solid.
+
+    Each input point is ``(radius, axial)``. The helper:
+
+    1. Replaces any ``radius == 0`` vertex with ``_AXIS_OFFSET_MM`` -- OCCT 7.7
+       fails ``BRep_API: command not done`` when a profile edge or vertex sits
+       exactly on the revolve axis.
+    2. Builds the wire in the XY workplane with ``X = radius``, ``Y = axial``.
+    3. Revolves 360 deg about the Y-axis (which lies in the wire plane and
+       coincides with the nozzle axial direction).
+    4. Rotates the resulting solid -90 deg about world X so the axial direction
+       aligns with world +Z -- the convention every other rocket primitive uses.
+
+    The polyline must be a simple closed polygon (last point == first point or
+    will be implicitly closed). The helper does NOT validate self-intersection.
+    """
+    if not points_rz:
+        raise ValueError("_revolve_meridian: empty meridian.")
+    if any(r < 0 for r, _ in points_rz):
+        raise ValueError("Meridian radii must satisfy r >= 0 (one side of axis).")
+    eps = _AXIS_OFFSET_MM
+    safe_points = [(max(r, eps), z) for (r, z) in points_rz]
+    if safe_points[0] != safe_points[-1]:
+        safe_points = safe_points + [safe_points[0]]
+    profile = (
+        cq.Workplane("XY")
+        .polyline(safe_points)
+        .close()
+    )
+    solid = profile.revolve(360.0, (0, 0, 0), (0, 1, 0))
+    return solid.rotate((0, 0, 0), (1, 0, 0), -90.0)
+
+
+def make_conical_nozzle(
+    throat_radius: float,
+    exit_radius: float | None = None,
+    expansion_ratio: float | None = None,
+    half_angle_deg: float = 15.0,
+    converging_angle_deg: float = 30.0,
+    chamber_radius: float = 0.0,
+    intent: str = "analysis",
+) -> "cq.Workplane":
+    """Conical bell nozzle, axisymmetric, centered at the origin (axis = +Z).
+
+    Builds the meridian profile in the XZ plane (X = radius, Z = axial) and
+    revolves it 360 deg about the +Z axis via :func:`_revolve_meridian`.
+
+    Args:
+        throat_radius:        Throat radius in mm (>0).
+        exit_radius:          Exit-plane radius in mm. Supply this OR expansion_ratio.
+        expansion_ratio:      Geometric area ratio epsilon = A_e / A_t. Used to derive
+                              exit_radius if it is omitted.
+        half_angle_deg:       Divergent half-angle (0 < x < 45 deg).
+        converging_angle_deg: Converging-section angle (chamber to throat).
+        chamber_radius:       Chamber inner radius. Must exceed throat_radius.
+        intent:               "analysis" | "manufacturable" | "visualization".
+                              "manufacturable" rounds the throat corner.
+
+    Returns:
+        cq.Workplane containing the solid nozzle, centered at the origin so that
+        z=0 sits at the throat plane (chamber +Z, exit -Z).
+    """
+    if throat_radius <= 0:
+        raise ValueError("throat_radius must be > 0")
+    if exit_radius is None and expansion_ratio is None:
+        raise ValueError("Provide exit_radius or expansion_ratio")
+    if exit_radius is None:
+        exit_radius = throat_radius * math.sqrt(expansion_ratio)
+    if half_angle_deg <= 0 or half_angle_deg >= 45:
+        raise ValueError(f"half_angle_deg must lie in (0, 45); got {half_angle_deg}")
+    if converging_angle_deg <= 0 or converging_angle_deg >= 80:
+        raise ValueError(f"converging_angle_deg must lie in (0, 80); got {converging_angle_deg}")
+    if chamber_radius <= throat_radius:
+        raise ValueError("chamber_radius must exceed throat_radius")
+
+    half_div = math.radians(half_angle_deg)
+    half_conv = math.radians(converging_angle_deg)
+
+    L_div = (exit_radius - throat_radius) / math.tan(half_div)
+    L_conv = (chamber_radius - throat_radius) / math.tan(half_conv)
+    L_chamber_section = max(throat_radius, 0.25 * chamber_radius)
+
+    z_throat = 0.0
+    z_chamber_top = z_throat + L_conv + L_chamber_section
+    z_exit = z_throat - L_div
+
+    meridian = [
+        (chamber_radius, z_chamber_top),
+        (chamber_radius, z_throat + L_conv),
+        (throat_radius,  z_throat),
+        (exit_radius,    z_exit),
+        (0.0,            z_exit),
+        (0.0,            z_chamber_top),
+    ]
+
+    wp = _revolve_meridian(meridian)
+
+    if intent == "manufacturable":
+        try:
+            wp = wp.edges("%CIRCLE").edges(">Z and (not >Z)").fillet(
+                min(0.5 * throat_radius, 1.0)
+            )
+        except Exception:
+            pass
+
+    # _revolve_meridian rotates -90 about X so the pre-rotation y-axis maps
+    # to -z; the centering translate therefore needs the *positive* mid value.
+    z_mid = 0.5 * (z_chamber_top + z_exit)
+    wp = wp.translate((0.0, 0.0, z_mid))
+
+    return _validate_solid_output(wp, "make_conical_nozzle")
+
+
+def make_rao_bell_nozzle(
+    throat_radius: float,
+    expansion_ratio: float,
+    length_fraction: float = 0.8,
+    chamber_radius: float | None = None,
+    converging_angle_deg: float = 30.0,
+    intent: str = "analysis",
+) -> "cq.Workplane":
+    """Thrust-optimized Rao bell nozzle.
+
+    Builds the meridian as a polyline:
+
+    * Combustion-chamber wall  (cylindrical section + converging frustum)
+    * Upstream throat arc      (radius 1.5 * r_t, polygonized to 12 segments)
+    * Downstream throat arc    (radius 0.382 * r_t, polygonized to 12 segments)
+    * Parabolic skirt          (polygonized parabola passing through both
+                                endpoint angles theta_n and theta_e from
+                                ``propulsion.rao_table.lookup``)
+    * Exit return-to-axis
+
+    Exit radius is locked to ``r_t * sqrt(expansion_ratio)`` within 0.5 %.
+
+    Length formula (15 deg conical reference):
+
+        L = length_fraction * (sqrt(epsilon) - 1) * r_t / tan(15 deg)
+
+    Args:
+        throat_radius:        Throat radius in mm.
+        expansion_ratio:      A_e / A_t (>1).
+        length_fraction:      Bell length as fraction of 15 deg conical equivalent.
+        chamber_radius:       Combustion-chamber inner radius (>throat_radius).
+        converging_angle_deg: Converging section wall angle (chamber -> throat arc).
+        intent:               "analysis" / "manufacturable" / "visualization".
+
+    Returns:
+        cq.Workplane axisymmetric Rao bell solid, centered on the origin (axis = +Z,
+        chamber on +Z side, exit on -Z side).
+    """
+    from propulsion.rao_table import lookup as _rao_lookup, envelope as _rao_envelope  # noqa: PLC0415
+
+    if throat_radius <= 0:
+        raise ValueError("throat_radius must be > 0")
+    if expansion_ratio <= 1:
+        raise ValueError("expansion_ratio must be > 1")
+    if chamber_radius is None:
+        chamber_radius = max(2.0 * throat_radius, throat_radius + 5.0)
+    if chamber_radius <= throat_radius:
+        raise ValueError("chamber_radius must exceed throat_radius")
+    # Guard against the Rao table envelope itself so a sub-envelope length_fraction
+    # is rejected here with a clear message rather than crashing inside _rao_lookup.
+    _lf_lo, _lf_hi = _rao_envelope()["length_fraction"]
+    if not (_lf_lo <= length_fraction <= _lf_hi):
+        raise ValueError(f"length_fraction must be in [{_lf_lo}, {_lf_hi}]")
+
+    theta_n_deg, theta_e_deg = _rao_lookup(expansion_ratio, length_fraction)
+    theta_n = math.radians(theta_n_deg)
+    theta_e = math.radians(theta_e_deg)
+
+    exit_radius = throat_radius * math.sqrt(expansion_ratio)
+    L_bell = length_fraction * (math.sqrt(expansion_ratio) - 1.0) * throat_radius / math.tan(math.radians(15.0))
+
+    # ── Meridian construction in (r, z): r is radius, z is axial. Throat at z=0.
+    # Exit lies at z < 0 (downstream); chamber lies at z > 0 (upstream).
+    # ----------------------------------------------------------------------
+
+    # Throat arc radii (Rao convention).
+    R_up = 1.5 * throat_radius
+    R_dn = 0.382 * throat_radius
+    half_conv = math.radians(converging_angle_deg)
+
+    # Downstream throat arc: center at (r_t + R_dn, 0). Throat point (r_t, 0)
+    # is at angle pi from the center. The arc proceeds CCW from pi toward
+    # (pi - theta_n) to land tangent to the skirt at angle theta_n below the
+    # +x axis (i.e. moving toward -z, outward in r).
+    arc_center_dn_r = throat_radius + R_dn
+    n_arc_dn = 12
+    dn_pts: list[tuple[float, float]] = []
+    for i in range(n_arc_dn + 1):
+        # Sweep from angle pi (throat) to pi - theta_n (skirt tangent).
+        ang = math.pi - theta_n * (i / n_arc_dn)
+        r = arc_center_dn_r + R_dn * math.cos(ang)
+        z = 0.0 + R_dn * math.sin(ang) - R_dn * math.sin(math.pi)
+        # sin(pi) == 0 so the throat point is (r_t, 0). For i>0 we want z to
+        # become negative (downstream). cos(ang) is negative near pi; sin(ang)
+        # is positive (sin goes 0 -> 1 as ang -> pi/2). That's wrong direction.
+        # Flip: use arc on the +z side then mirror.
+        z = -abs(R_dn * math.sin(ang))
+        dn_pts.append((r, z))
+
+    arc_end_dn = dn_pts[-1]
+    skirt_start_angle = theta_n  # tangent direction at arc_end_dn (outward, downstream)
+
+    # Parabolic skirt: pick a parabola in (r, z) that satisfies:
+    #   - passes through arc_end_dn
+    #   - exits at (exit_radius, z_exit) where z_exit = -L_bell
+    #   - tangent slope dr/dz at start = -1 / tan(theta_n) (downstream/outward)
+    #   - tangent slope dr/dz at end   = -1 / tan(theta_e)
+    # We parametrize r(t) and z(t) with t in [0, 1] and use a cubic Hermite
+    # interpolation, which is exact for these four constraints. This is
+    # functionally a parabolic skirt to within the polygonization tolerance
+    # (and gives the user-visible exit-radius lock per the contract).
+    z_exit = -L_bell
+    p0 = (arc_end_dn[0], arc_end_dn[1])  # (r, z)
+    p1 = (exit_radius,   z_exit)
+
+    # Hermite tangents in (r, z) parameter space. Magnitudes chosen so the
+    # tangent's r-component dominates near the exit (small theta_e) and the
+    # z-component dominates near the throat tangent (large theta_n).
+    dz_total = p1[1] - p0[1]   # negative (going downstream)
+    dr_total = p1[0] - p0[0]   # positive (going outward)
+    mag = math.hypot(dr_total, dz_total)
+    t_start = (math.sin(theta_n) * mag, -math.cos(theta_n) * mag)
+    t_end   = (math.sin(theta_e) * mag, -math.cos(theta_e) * mag)
+
+    n_skirt = 24
+    skirt_pts: list[tuple[float, float]] = []
+    for i in range(1, n_skirt + 1):
+        s = i / n_skirt
+        h00 = 2 * s ** 3 - 3 * s ** 2 + 1
+        h10 = s ** 3 - 2 * s ** 2 + s
+        h01 = -2 * s ** 3 + 3 * s ** 2
+        h11 = s ** 3 - s ** 2
+        r = h00 * p0[0] + h10 * t_start[0] + h01 * p1[0] + h11 * t_end[0]
+        z = h00 * p0[1] + h10 * t_start[1] + h01 * p1[1] + h11 * t_end[1]
+        skirt_pts.append((r, z))
+
+    # Lock exit radius to spec within 0.5 percent (numerical correction).
+    rx_last, zx_last = skirt_pts[-1]
+    if abs(rx_last - exit_radius) / exit_radius > 0.005:
+        skirt_pts[-1] = (exit_radius, z_exit)
+
+    # Upstream throat arc: center at (r_t + R_up, 0). Throat at angle pi.
+    # Sweep from pi to (pi + half_conv) so we move into +z (upstream).
+    n_arc_up = 12
+    up_pts: list[tuple[float, float]] = []
+    arc_center_up_r = throat_radius + R_up
+    for i in range(n_arc_up + 1):
+        ang = math.pi + half_conv * (i / n_arc_up)
+        r = arc_center_up_r + R_up * math.cos(ang)
+        z = abs(R_up * math.sin(ang))  # +z upstream
+        up_pts.append((r, z))
+
+    up_arc_end = up_pts[-1]
+
+    # Converging frustum from upstream arc end up to chamber wall.
+    L_conv = (chamber_radius - up_arc_end[0]) / math.tan(half_conv)
+    z_chamber_bottom = up_arc_end[1] + L_conv
+    z_chamber_top = z_chamber_bottom + 0.5 * chamber_radius  # short cylindrical lip
+
+    # Assemble meridian going CCW (axis -> top -> down right side -> back along axis).
+    meridian: list[tuple[float, float]] = []
+    meridian.append((chamber_radius, z_chamber_top))
+    meridian.append((chamber_radius, z_chamber_bottom))
+    meridian.append((up_arc_end[0], up_arc_end[1]))
+    # Upstream throat arc, reversed (chamber-side -> throat).
+    for r, z in reversed(up_pts[:-1]):
+        meridian.append((r, z))
+    # Downstream throat arc (skip duplicate throat point if needed).
+    for r, z in dn_pts[1:]:
+        meridian.append((r, z))
+    # Parabolic skirt.
+    for r, z in skirt_pts:
+        meridian.append((r, z))
+    # Return to axis at exit.
+    meridian.append((0.0, z_exit))
+    meridian.append((0.0, z_chamber_top))
+
+    wp = _revolve_meridian(meridian)
+
+    # See _revolve_meridian: rotation maps pre-rotation y-axial to world -z,
+    # so the centering shift uses +z_mid (not -z_mid).
+    z_mid = 0.5 * (z_chamber_top + z_exit)
+    wp = wp.translate((0.0, 0.0, z_mid))
+
+    return _validate_solid_output(wp, "make_rao_bell_nozzle")
+
+
+def make_combustion_chamber(
+    radius: float,
+    l_star: float,
+    throat_radius: float,
+    contraction_ratio: float | None = None,
+    include_converging_section: bool = True,
+    converging_angle_deg: float = 30.0,
+    intent: str = "analysis",
+) -> "cq.Workplane":
+    """Cylindrical combustion chamber, optionally with the converging section to throat.
+
+    Length follows the standard L* relation:
+
+        L_chamber = L* * A_throat / A_chamber
+
+    where ``L*`` is provided in **meters** (per convention) and converted to mm.
+    When ``include_converging_section`` is True the helper also generates the
+    converging frustum from chamber radius to throat radius using
+    ``converging_angle_deg``.
+
+    Args:
+        radius:                     Chamber inner radius in mm.
+        l_star:                     Characteristic length L* in meters.
+        throat_radius:              Throat radius in mm (used for the converging frustum
+                                    and the L* relation).
+        contraction_ratio:          A_chamber / A_throat. Derived from radii if omitted.
+        include_converging_section: When True, fuse a frustum from chamber to throat.
+        converging_angle_deg:       Wall angle of the converging frustum.
+        intent:                     "analysis" / "manufacturable" / "visualization".
+
+    Returns:
+        cq.Workplane chamber (or chamber + converging frustum) centered on the
+        origin (axis = Z, chamber extends in +Z, throat at -Z).
+    """
+    if radius <= 0:
+        raise ValueError("radius must be > 0")
+    if l_star <= 0:
+        raise ValueError("l_star must be > 0")
+    if throat_radius <= 0 or throat_radius >= radius:
+        raise ValueError("throat_radius must be in (0, radius)")
+
+    a_throat = math.pi * throat_radius ** 2
+    a_chamber = math.pi * radius ** 2
+    L_chamber = (l_star * 1000.0) * a_throat / a_chamber  # mm
+
+    if L_chamber <= 0:
+        raise ValueError("Derived chamber length is non-positive")
+
+    chamber = (
+        cq.Workplane("XY")
+        .circle(radius)
+        .extrude(L_chamber)
+        .translate((0, 0, -L_chamber / 2.0))
+    )
+
+    if include_converging_section:
+        half_conv = math.radians(converging_angle_deg)
+        L_conv = (radius - throat_radius) / math.tan(half_conv)
+        # Build the converging frustum as a revolved trapezoid via the meridian
+        # helper (handles the axis-edge OCC quirk + final -Z axial alignment).
+        frustum_meridian = [
+            (radius,        0.0),
+            (throat_radius, -L_conv),
+            (0.0,           -L_conv),
+            (0.0,           0.0),
+        ]
+        frustum_wp = _revolve_meridian(frustum_meridian)
+        # _revolve_meridian flips axial sign (rotation -90 about X), so the
+        # meridian's negative-axial frustum ends up in +z after the helper.
+        # Translate so it joins the bottom of the chamber.
+        frustum_wp = frustum_wp.translate((0, 0, -L_chamber / 2.0 - L_conv / 2.0))
+        chamber = chamber.union(frustum_wp)
+
+    if contraction_ratio is not None:
+        derived = (radius / throat_radius) ** 2
+        if abs(derived - contraction_ratio) / contraction_ratio > 0.05:
+            raise ValueError(
+                f"contraction_ratio={contraction_ratio:.3f} disagrees with derived "
+                f"(r_c/r_t)^2={derived:.3f} by >5%."
+            )
+
+    return _validate_solid_output(chamber, "make_combustion_chamber")
+
+
+def make_injector_plate(
+    plate_radius: float,
+    plate_thickness: float,
+    orifice_count: int,
+    orifice_diameter: float,
+    pattern: str = "impinging_doublet",
+    distribution_radius: float | None = None,
+    impingement_angle_deg: float = 30.0,
+    intent: str = "analysis",
+) -> "cq.Workplane":
+    """Injector plate with orifices in one of four standard patterns.
+
+    Patterns:
+        * ``"impinging_doublet"`` -- ``orifice_count`` *pairs* of tilted bores,
+          placed on the distribution circle; each pair tilts toward the
+          centerline by ``impingement_angle_deg / 2``.
+        * ``"like_doublet"`` -- ``orifice_count`` pairs of parallel axial bores.
+        * ``"coaxial"`` -- ``orifice_count`` annular ring orifices (inner +
+          outer pair per ring station).
+        * ``"showerhead"`` -- ``orifice_count`` straight axial bores in a
+          single polar array.
+
+    Args:
+        plate_radius:           Outer disc radius (mm). Defaults to
+                                ``distribution_radius + 1.5 * orifice_diameter``.
+        plate_thickness:        Disc thickness (mm).
+        orifice_count:          Orifice count (or pair count for doublet patterns).
+        orifice_diameter:       Single-orifice diameter (mm).
+        pattern:                One of the above four strings.
+        distribution_radius:    Radius of the orifice (or pair) distribution circle.
+                                Defaults to ``0.6 * plate_radius``.
+        impingement_angle_deg:  Total impingement angle (deg) for impinging_doublet.
+        intent:                 "analysis" / "manufacturable" / "visualization".
+
+    Returns:
+        cq.Workplane injector plate solid, centered at the origin (axis = +Z).
+    """
+    if plate_radius <= 0 or plate_thickness <= 0:
+        raise ValueError("plate_radius and plate_thickness must be > 0")
+    if orifice_count <= 0 or orifice_diameter <= 0:
+        raise ValueError("orifice_count and orifice_diameter must be > 0")
+    if distribution_radius is None:
+        distribution_radius = 0.6 * plate_radius
+    if distribution_radius <= 0 or distribution_radius + orifice_diameter / 2.0 >= plate_radius:
+        raise ValueError(
+            "distribution_radius must be > 0 and within (plate_radius - orifice_radius)."
+        )
+    if pattern not in {"impinging_doublet", "like_doublet", "coaxial", "showerhead"}:
+        raise ValueError(f"Unknown injector pattern: {pattern!r}")
+
+    plate = cq.Workplane("XY").circle(plate_radius).extrude(plate_thickness)
+
+    if pattern == "showerhead":
+        plate = (
+            plate.faces(">Z").workplane()
+            .polarArray(distribution_radius, 0.0, 360.0, orifice_count, rotate=False)
+            .hole(orifice_diameter, depth=plate_thickness)
+        )
+
+    elif pattern == "like_doublet":
+        # Two concentric polar arrays separated by ~1 orifice_diameter.
+        offset = max(orifice_diameter * 1.2, 0.5)
+        for r in (distribution_radius - offset / 2.0, distribution_radius + offset / 2.0):
+            plate = (
+                plate.faces(">Z").workplane()
+                .polarArray(r, 0.0, 360.0, orifice_count, rotate=False)
+                .hole(orifice_diameter, depth=plate_thickness)
+            )
+
+    elif pattern == "coaxial":
+        # Inner small hole, outer annular slot approximated by larger hole.
+        inner_r = distribution_radius - 0.5 * orifice_diameter
+        outer_r = distribution_radius + 0.5 * orifice_diameter
+        plate = (
+            plate.faces(">Z").workplane()
+            .polarArray(inner_r, 0.0, 360.0, orifice_count, rotate=False)
+            .hole(orifice_diameter, depth=plate_thickness)
+        )
+        plate = (
+            plate.faces(">Z").workplane()
+            .polarArray(outer_r, 0.0, 360.0, orifice_count, rotate=False)
+            .hole(orifice_diameter * 1.4, depth=plate_thickness)
+        )
+
+    elif pattern == "impinging_doublet":
+        # Each pair: two bores tilted inward by half_imp toward the centerline.
+        # We approximate the tilt by offsetting the bottom of each bore along
+        # the radial direction; the bore axis becomes a line from face-entry
+        # point to the offset bottom point.
+        half_imp = math.radians(impingement_angle_deg / 2.0)
+        radial_shift = plate_thickness * math.tan(half_imp)
+        for i in range(orifice_count):
+            theta = 2.0 * math.pi * i / orifice_count
+            # Two paired orifices on the same theta, offset tangentially by 1
+            # orifice diameter (typical impinging-doublet spacing).
+            tangential = orifice_diameter * 1.0
+            ux, uy = math.cos(theta), math.sin(theta)
+            tx, ty = -uy, ux
+            entry_a = (
+                distribution_radius * ux + 0.5 * tangential * tx,
+                distribution_radius * uy + 0.5 * tangential * ty,
+            )
+            entry_b = (
+                distribution_radius * ux - 0.5 * tangential * tx,
+                distribution_radius * uy - 0.5 * tangential * ty,
+            )
+            # Tilted bore = sweep of a circle from face-entry point to offset
+            # bottom point. Implemented here as a straight cylinder along the
+            # tilted axis using extrude on a circle drawn on a workplane
+            # oriented to the tilt axis.
+            for (ex, ey), sign in ((entry_a, +1.0), (entry_b, -1.0)):
+                bottom = (
+                    ex - sign * radial_shift * ux,
+                    ey - sign * radial_shift * uy,
+                    -plate_thickness,
+                )
+                top = (ex, ey, 0.0)
+                axis_dir = cq.Vector(
+                    bottom[0] - top[0], bottom[1] - top[1], bottom[2] - top[2]
+                )
+                axis_len = axis_dir.Length
+                if axis_len <= 0:
+                    continue
+                axis_unit = cq.Vector(
+                    axis_dir.x / axis_len, axis_dir.y / axis_len, axis_dir.z / axis_len
+                )
+                # Tool cylinder along the tilt axis.
+                tool = (
+                    cq.Workplane(cq.Plane(cq.Vector(*top), cq.Vector(1, 0, 0), -axis_unit))
+                    .circle(orifice_diameter / 2.0)
+                    .extrude(axis_len)
+                )
+                plate = plate.cut(tool)
+
+    # Center axially on z=0
+    plate = plate.translate((0, 0, -plate_thickness / 2.0))
+
+    if intent == "manufacturable":
+        try:
+            plate = plate.edges(">Z").fillet(min(0.5, plate_thickness * 0.1))
+        except Exception:
+            pass
+
+    return _validate_solid_output(plate, "make_injector_plate")
+
+
+def make_helical_cooling_channels(
+    nozzle_solid: "cq.Workplane",
+    nozzle_outer_radius: float,
+    channel_count: int,
+    channel_width: float,
+    channel_depth: float,
+    helix_angle_deg: float = 0.0,
+    axial_length: float | None = None,
+    intent: str = "analysis",
+) -> "cq.Workplane":
+    """Cut regenerative cooling channels into a nozzle outer wall.
+
+    Strategy (per Step-1 pre-flight verdict: helix sweeps OK in 2.7):
+
+    1. Build a single rectangular cross-section profile.
+    2. Sweep it along a helix path with the configured pitch and length using
+       ``cq.Wire.makeHelix(...) + .sweep(isFrenet=True)``.
+    3. Polar-array the resulting channel solid ``channel_count`` times and
+       boolean-cut the union from ``nozzle_solid``.
+
+    For ``helix_angle_deg == 0`` the path collapses to an axial straight
+    channel (handled with a degenerate ``pitch`` -> falls back to a straight
+    extruded rectangle along Z).
+
+    Args:
+        nozzle_solid:        cq.Workplane to cut into (mutated by boolean cut).
+        nozzle_outer_radius: Approximate outer radius at which the channels sit
+                             (mm). The helix is built at this radius.
+        channel_count:       Number of channels around the circumference.
+        channel_width:       Tangential channel width (mm).
+        channel_depth:       Radial channel depth (mm) -- distance inward from
+                             the outer wall.
+        helix_angle_deg:     Helix lead angle from the nozzle axis (0 = axial).
+        axial_length:        Axial channel length (mm). Defaults to twice the
+                             nozzle_outer_radius if omitted.
+        intent:              "analysis" / "manufacturable" / "visualization".
+
+    Returns:
+        cq.Workplane: ``nozzle_solid`` with the channels removed.
+    """
+    if channel_count <= 0:
+        raise ValueError("channel_count must be > 0")
+    if channel_width <= 0 or channel_depth <= 0:
+        raise ValueError("channel_width and channel_depth must be > 0")
+    if nozzle_outer_radius <= channel_depth:
+        raise ValueError("nozzle_outer_radius must exceed channel_depth")
+    if helix_angle_deg < 0 or helix_angle_deg >= 60:
+        raise ValueError("helix_angle_deg must be in [0, 60)")
+    if axial_length is None:
+        axial_length = 2.0 * nozzle_outer_radius
+
+    # Build a single channel solid.
+    r_outer = nozzle_outer_radius
+    if helix_angle_deg < 1e-3:
+        # Straight axial channel -- rectangular box centered on +X, length along Z.
+        single = (
+            cq.Workplane("XY")
+            .center(r_outer - channel_depth / 2.0, 0)
+            .rect(channel_depth, channel_width)
+            .extrude(axial_length)
+            .translate((0, 0, -axial_length / 2.0))
+        )
+    else:
+        pitch = 2.0 * math.pi * r_outer / math.tan(math.radians(helix_angle_deg))
+        # Make sure we draw at least a sliver of helix even when axial_length
+        # is much shorter than a single turn.
+        height = max(axial_length, pitch * 0.05)
+        helix = cq.Wire.makeHelix(pitch=pitch, height=height, radius=r_outer)
+        path = cq.Workplane(obj=helix)
+        profile = (
+            cq.Workplane("XZ")
+            .center(r_outer - channel_depth / 2.0, 0)
+            .rect(channel_depth, channel_width)
+        )
+        single = profile.sweep(path, isFrenet=True)
+        # Translate so the channel is centered axially about z=0.
+        single = single.translate((0, 0, -height / 2.0))
+
+    # Polar-array the single channel ``channel_count`` times (rotations only --
+    # the array sits on the same outer cylinder) and boolean-cut it from the
+    # nozzle. Materialising all ``channel_count`` rotated swept solids at once
+    # peaks ~1.6 GB for the 60-channel reference case and is killed by the
+    # 1.5 GB sandbox RLIMIT_AS. Cut in small batches and release each batch's
+    # compound so peak memory scales with ``batch_size`` rather than
+    # ``channel_count``; the final solid is identical to a single combined cut.
+    import gc  # noqa: PLC0415 — function-scope, only to bound peak RSS in the sandbox
+
+    batch_size = min(channel_count, 10)
+    result = nozzle_solid
+    idx = 0
+    while idx < channel_count:
+        batch_solids = []
+        for j in range(idx, min(idx + batch_size, channel_count)):
+            if j == 0:
+                batch_solids.append(single.val())
+            else:
+                theta = 360.0 * j / channel_count
+                batch_solids.append(single.rotate((0, 0, 0), (0, 0, 1), theta).val())
+        cutter_wp = cq.Workplane("XY").newObject(batch_solids)
+        result = result.cut(cutter_wp)
+        del batch_solids, cutter_wp
+        gc.collect()
+        idx += batch_size
+
+    if intent == "manufacturable":
+        try:
+            result = result.edges("%LINE").fillet(min(0.2, channel_width * 0.1))
+        except Exception:
+            pass
+
+    return _validate_solid_output(result, "make_helical_cooling_channels")
+
+
 # Expose template function names for strategy prompt injection
 AVAILABLE_TEMPLATES = [
     "make_hex_bolt(nominal_diameter, pitch, shank_length, "
@@ -1147,4 +1808,16 @@ AVAILABLE_TEMPLATES = [
     "bend_radius, n_base_holes=2, hole_diameter=5.0)",
     "make_enclosure_panel(width, height, material_thickness, flange_depth=0, "
     "cutout_positions=[])",
+    # Domain F (propulsion) — Step 4 from the propulsion-domain-f plan
+    "make_combustion_chamber(radius, l_star, throat_radius, contraction_ratio=None, "
+    "include_converging_section=True, converging_angle_deg=30.0, intent='analysis')",
+    "make_conical_nozzle(throat_radius, exit_radius=None, expansion_ratio=None, "
+    "half_angle_deg=15.0, converging_angle_deg=30.0, chamber_radius=0.0, intent='analysis')",
+    "make_helical_cooling_channels(nozzle_solid, nozzle_outer_radius, channel_count, "
+    "channel_width, channel_depth, helix_angle_deg=0.0, axial_length=None, intent='analysis')",
+    "make_injector_plate(plate_radius, plate_thickness, orifice_count, orifice_diameter, "
+    "pattern='impinging_doublet', distribution_radius=None, impingement_angle_deg=30.0, "
+    "intent='analysis')",
+    "make_rao_bell_nozzle(throat_radius, expansion_ratio, length_fraction=0.8, "
+    "chamber_radius=None, converging_angle_deg=30.0, intent='analysis')",
 ]

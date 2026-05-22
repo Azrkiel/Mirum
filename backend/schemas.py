@@ -15,6 +15,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from propulsion.specs import PropulsionSpec
+
 
 class MateType(str, Enum):
     # Kinematic constraint types (core)
@@ -484,6 +486,17 @@ class DesignRequirements(BaseModel):
             "Domain D only: airfoil identification needed to slice the wing "
             "STEP and label the polar (NACA code, chord, span). Populate when "
             "the prompt names a NACA airfoil or wing dimensions."
+        ),
+    )
+
+    propulsion_spec: Optional[PropulsionSpec] = Field(
+        default=None,
+        description=(
+            "Domain F only: rocket-propulsion subsystem spec (nozzle, chamber, "
+            "injector, regen cooling channels). Populate when the prompt names "
+            "propulsion features (throat / expansion ratio / Rao / bell / "
+            "thrust chamber / L* / impinging doublet / regen). See "
+            "propulsion.specs.PropulsionSpec for the shape."
         ),
     )
 

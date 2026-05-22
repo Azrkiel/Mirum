@@ -103,6 +103,29 @@ def test_unknown_regression_tag_returns_empty() -> None:
     assert filter_prompts(prompts, regression_for="Z") == []
 
 
+def test_regression_for_f_returns_only_f_tagged() -> None:
+    """Domain F (propulsion) prompts must be selectable by the regression slice."""
+    prompts = load_prompts()
+    by_id = {p["id"]: p for p in prompts}
+    tagged_f_ids = {p["id"] for p in filter_prompts(prompts, regression_for="F")}
+    assert tagged_f_ids, "expected at least one entry tagged regression_for=F"
+    for pid in tagged_f_ids:
+        rf = by_id[pid].get("regression_for", [])
+        assert isinstance(rf, list) and "F" in rf, (
+            f"{pid} returned for regression_for=F but tag missing or wrong shape"
+        )
+
+
+def test_cli_accepts_regression_for_f() -> None:
+    """The runner CLI must accept `--regression-for F`. The Domain F branch added
+    F-tagged prompts and taught the schema/filter about F, but the argparse
+    `choices` originally hardcoded {A..E}, so the documented gate-(b) command
+    `--regression-for F` exited non-zero before this was fixed."""
+    from eval_harness.runner import _build_parser
+    args = _build_parser().parse_args(["--regression-for", "F", "--dry-run"])
+    assert args.regression_for == "F"
+
+
 def _run_all() -> int:
     funcs = [
         test_load_returns_nonempty_list,
@@ -110,6 +133,8 @@ def _run_all() -> int:
         test_regression_for_picks_only_tagged_entries,
         test_regression_for_does_not_select_by_domain,
         test_regression_for_b_returns_only_b_tagged,
+        test_regression_for_f_returns_only_f_tagged,
+        test_cli_accepts_regression_for_f,
         test_filter_combination_is_and,
         test_no_filter_returns_all,
         test_unknown_regression_tag_returns_empty,

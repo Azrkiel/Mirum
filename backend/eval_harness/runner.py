@@ -90,7 +90,11 @@ async def _run_one(
     }
     code: str | None = None
     try:
-        code, _ = await run_critic_loop(part, max_retries=max_retries, save_step=False)
+        # run_critic_loop returns (code, step_path, geometry_cert); the harness
+        # only needs the code. (Pre-existing main bug: this unpacked 2 of 3,
+        # raising "too many values to unpack" for every prompt — see main.py
+        # callers which already unpack 3.)
+        code, _step, _cert = await run_critic_loop(part, max_retries=max_retries, save_step=False)
         record["status"] = "pass"
         record["code_length"] = len(code)
     except Exception as exc:  # ScriptError or anything else
@@ -251,7 +255,7 @@ def _load_prompts(
     return filtered
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--max-retries", type=int, default=3)
@@ -259,7 +263,7 @@ def main() -> None:
                         help="Only run prompts whose id starts with this prefix.")
     parser.add_argument(
         "--regression-for", dest="regression_for", default=None,
-        choices=["A", "B", "C", "D", "E"],
+        choices=["A", "B", "C", "D", "E", "F"],
         help=(
             "Only run prompts whose `regression_for` array contains the given "
             "letter. Used by Worktree gates to run the regression slice tied "
@@ -294,7 +298,11 @@ def main() -> None:
             f"{_STRICT_LVM_THRESHOLD}. Default off so existing baselines stay comparable."
         ),
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = _build_parser().parse_args()
 
     # Dry-run path is dep-free (no Gemini, no heavy imports needed at runtime).
     # Resolve filters and exit before touching the pipeline.
