@@ -90,7 +90,11 @@ async def _run_one(
     }
     code: str | None = None
     try:
-        code, _ = await run_critic_loop(part, max_retries=max_retries, save_step=False)
+        # run_critic_loop returns (code, step_path, geometry_cert); the harness
+        # only needs the code. (Pre-existing main bug: this unpacked 2 of 3,
+        # raising "too many values to unpack" for every prompt — see main.py
+        # callers which already unpack 3.)
+        code, _step, _cert = await run_critic_loop(part, max_retries=max_retries, save_step=False)
         record["status"] = "pass"
         record["code_length"] = len(code)
     except Exception as exc:  # ScriptError or anything else

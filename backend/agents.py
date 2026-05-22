@@ -954,7 +954,7 @@ async def run_critic_loop(
     part_def: PartDefinition,
     max_retries: int = 3,
     save_step: bool = True,
-) -> tuple[str, str]:
+) -> tuple[str, str, dict | None]:
     """Subagent 3: The QA Inspector (Critic Loop).
 
     Runs the Machinist's code via subprocess with concurrency control.
