@@ -12,8 +12,8 @@ from pathlib import Path
 PROMPTS_PATH = Path(__file__).resolve().parents[1] / "eval_harness" / "prompts.json"
 
 REQUIRED_FIELDS = ("id", "domain", "difficulty", "description", "expected_features")
-ALLOWED_DOMAINS = {"A", "B", "C", "D", "E"}
-ALLOWED_REGRESSION_TAGS = {"A", "B", "C", "D", "E"}
+ALLOWED_DOMAINS = {"A", "B", "C", "D", "E", "F"}
+ALLOWED_REGRESSION_TAGS = {"A", "B", "C", "D", "E", "F"}
 
 # IDs that track every CSV-sourced failure prompt (Form Responses,
 # 4/27-4/30/2026) where the user-rated result was <= 3 OR the pipeline never
