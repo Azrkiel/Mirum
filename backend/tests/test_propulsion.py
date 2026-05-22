@@ -307,8 +307,33 @@ def test_mentions_propulsion_two_weak_tokens_trigger() -> None:
     assert mentions_propulsion("A bell contour blending into the throat region.")
 
 
+def test_helix_failure_hint_is_propulsion_aware() -> None:
+    """A helix/thread OCCT failure in propulsion (nozzle) code must steer the
+    Machinist to make_helical_cooling_channels, NOT the generic fastener helper.
+    Surfaced by the live regen-nozzle run, where the generic thread hint pointed
+    at make_threaded_rod and the Critic never recovered."""
+    from failure_analysis import get_rule_hint
+    tb = "StdFail_NotDone: BRep_API: command not done\n  during HelixSweep"
+    prop_code = (
+        "import cad_utils\n"
+        "nozzle = cad_utils.make_rao_bell_nozzle(throat_radius=25, expansion_ratio=12)\n"
+        "# 60 helical cooling channels milled into the wall\n"
+        "result = nozzle\n"
+    )
+    rule, hint = get_rule_hint(tb, prop_code)
+    assert rule == "rule_domain_f_propulsion", f"propulsion helix hint should anchor on rule_domain_f_propulsion, got {rule}"
+    assert "make_helical_cooling_channels" in hint, f"hint must point to the cooling-channel helper, got: {hint}"
+    assert "make_threaded_rod" not in hint, "propulsion hint must not misdirect to fastener helpers"
+
+    # A non-propulsion helix failure still gets the generic fastener hint.
+    bolt_code = "import cad_utils\nresult = cad_utils.make_hex_bolt(diameter=8)\n"
+    rule2, _ = get_rule_hint(tb, bolt_code)
+    assert rule2 == "rule_fasteners", f"non-propulsion helix should keep the fastener hint, got {rule2}"
+
+
 def _run_all() -> int:
     funcs = [
+        test_helix_failure_hint_is_propulsion_aware,
         test_make_rao_bell_rejects_length_fraction_below_envelope,
         test_spec_rejects_length_fraction_below_envelope,
         test_mentions_propulsion_positive_reference_prompts,
