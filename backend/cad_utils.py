@@ -1752,17 +1752,31 @@ def make_helical_cooling_channels(
         # Translate so the channel is centered axially about z=0.
         single = single.translate((0, 0, -height / 2.0))
 
-    # Polar-array the single channel ``channel_count`` times (rotations
-    # only -- the array sits on the same outer cylinder).
-    cutter_solids = [single.val()]
-    for i in range(1, channel_count):
-        theta = 360.0 * i / channel_count
-        # rotate a copy about Z by theta
-        rotated = single.rotate((0, 0, 0), (0, 0, 1), theta)
-        cutter_solids.append(rotated.val())
+    # Polar-array the single channel ``channel_count`` times (rotations only --
+    # the array sits on the same outer cylinder) and boolean-cut it from the
+    # nozzle. Materialising all ``channel_count`` rotated swept solids at once
+    # peaks ~1.6 GB for the 60-channel reference case and is killed by the
+    # 1.5 GB sandbox RLIMIT_AS. Cut in small batches and release each batch's
+    # compound so peak memory scales with ``batch_size`` rather than
+    # ``channel_count``; the final solid is identical to a single combined cut.
+    import gc  # noqa: PLC0415 — function-scope, only to bound peak RSS in the sandbox
 
-    cutter_wp = cq.Workplane("XY").newObject(cutter_solids)
-    result = nozzle_solid.cut(cutter_wp)
+    batch_size = min(channel_count, 10)
+    result = nozzle_solid
+    idx = 0
+    while idx < channel_count:
+        batch_solids = []
+        for j in range(idx, min(idx + batch_size, channel_count)):
+            if j == 0:
+                batch_solids.append(single.val())
+            else:
+                theta = 360.0 * j / channel_count
+                batch_solids.append(single.rotate((0, 0, 0), (0, 0, 1), theta).val())
+        cutter_wp = cq.Workplane("XY").newObject(batch_solids)
+        result = result.cut(cutter_wp)
+        del batch_solids, cutter_wp
+        gc.collect()
+        idx += batch_size
 
     if intent == "manufacturable":
         try:
