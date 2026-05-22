@@ -878,7 +878,6 @@
     "expected_naca_code": "0018",
     "notes": "Tests that the Domain D strategy correctly handles non-wing applications of NACA profiles (fuselage body of revolution). Large span-to-chord ratio stresses the loft / extrude path."
   },
-
   {
     "id": "F_conical_bell_nozzle",
     "domain": "F",
@@ -891,12 +890,13 @@
       "diverging cone",
       "expansion_ratio_9"
     ],
-    "regression_for": ["F"],
+    "regression_for": [
+      "F"
+    ],
     "propulsion_intent": "analysis",
     "physics_invariant": "geometric_expansion_ratio_within_5pct(9.0)",
     "notes": "Reference prompt #1 from the propulsion-domain-f plan. Exercises make_conical_nozzle end-to-end."
   },
-
   {
     "id": "F_rao_bell_full_chamber",
     "domain": "F",
@@ -909,12 +909,13 @@
       "rao parabolic skirt",
       "exit_radius_80mm"
     ],
-    "regression_for": ["F"],
+    "regression_for": [
+      "F"
+    ],
     "propulsion_intent": "analysis",
     "physics_invariant": "exit_radius_within_0p5pct(80.0)",
     "notes": "Reference prompt #2. Exercises rao_table.lookup + make_rao_bell_nozzle; verifies exit-radius lock."
   },
-
   {
     "id": "F_regen_cooled_nozzle",
     "domain": "F",
@@ -927,12 +928,13 @@
       "channel_depth_3mm",
       "15deg helical twist"
     ],
-    "regression_for": ["F"],
+    "regression_for": [
+      "F"
+    ],
     "propulsion_intent": "analysis",
     "physics_invariant": "channel_count_detected_equals(60)",
     "notes": "Reference prompt #3. Exercises make_helical_cooling_channels with 60 polar-arrayed sweeps -- watch the 30-second sandbox budget. Falsified the historic helix-sweep ban (see propulsion/__init__.py)."
   },
-
   {
     "id": "F_full_thrust_chamber_assembly",
     "domain": "F",
@@ -947,9 +949,28 @@
       "expansion_ratio_16",
       "three parts minimum"
     ],
-    "regression_for": ["F"],
+    "regression_for": [
+      "F"
+    ],
     "propulsion_intent": "analysis",
     "physics_invariant": "parts_count_gte(3) and orifice_count_equals(24)",
     "notes": "Reference prompt #4. End-to-end injector -> chamber -> nozzle, FASTENED axial mates. Validates the deterministic planner shortcut + helper chain."
+  },
+  {
+    "id": "F_qa_dense_cooling_channels",
+    "domain": "F",
+    "difficulty": "hard",
+    "description": "A regeneratively-cooled bell nozzle: throat radius 30 mm, expansion ratio 12, one hundred twenty (120) helical cooling channels milled into the outer wall, each 1.5 mm wide and 2 mm deep, with a 10 degree helical twist along the nozzle length.",
+    "expected_features": [
+      "bell contour",
+      "throat",
+      "120 cooling channels"
+    ],
+    "regression_for": [
+      "F"
+    ],
+    "propulsion_intent": "analysis",
+    "physics_invariant": "channel_count_equals(120)",
+    "notes": "QA-stress guard: 120-channel regen nozzle. Passes (lvm 4.7) and guards the batched helical-cut memory fix (2a8adfa) \u2014 reverting batching would OOM this against the 1.5GB sandbox RLIMIT_AS."
   }
 ]
