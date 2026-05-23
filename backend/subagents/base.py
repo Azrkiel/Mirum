@@ -81,7 +81,10 @@ class SubagentBase(TelemetryMixin, ABC):
         """
         try:
             from subagents.model_registry import ModelRegistry  # noqa: PLC0415
-            return ModelRegistry.instance().get(self.agent_type).model_id
+            model_id = ModelRegistry.instance().get(self.agent_type).model_id
+            # "" is the _NO_LLM sentinel (no LLM calls); expose as "none" to
+            # callers so the telemetry / test contract is uniform.
+            return model_id or "none"
         except Exception:  # noqa: BLE001
             return "none"
 

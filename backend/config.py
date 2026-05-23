@@ -15,8 +15,11 @@ Model strings were last validated 2026-05-13.  If a string starts returning
 # Gemini model identifiers
 # ---------------------------------------------------------------------------
 
-# Heavy tier — Machinist, Planner, REA, Refiner, LVM evaluation, VLM zebra
-GEMINI_MODEL_HEAVY: str = "gemini-3-flash-preview"
+# Pro tier — Planner, REA (deepest reasoning; slower, higher cost)
+GEMINI_MODEL_PRO: str = "gemini-3.1-pro-preview"
+
+# Heavy tier — Machinist, Critic, Refiner, eval (fast, capable flash)
+GEMINI_MODEL_HEAVY: str = "gemini-3.5-flash"
 
 # Lite tier — domain classifier, PMI LLM extraction (fast, cheap calls)
 GEMINI_MODEL_LITE: str = "gemini-3.1-flash-lite-preview"

@@ -49,6 +49,7 @@ for key, default in [
     ("run_aero", False),       # Phase 3: opt-in XFOIL polar
     ("aero_report", None),     # Phase 3: PolarReport dict from /generate complete event
     ("aero_plots", None),      # T2-16: cached {cl_alpha, cd_alpha, cp_dist} base64 PNGs
+    ("xfoil_pdf_bytes", None),      # PDF-04: cached PDF bytes for "Download XFOIL Results"
     ("geometry_certificate", None),  # G-05: GeometryCertificate dict from /generate
 ]:
     if key not in st.session_state:
@@ -263,6 +264,7 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     st.session_state.parameters = params
     st.session_state.aero_report = aero_report  # Phase 3
     st.session_state.aero_plots = None          # T2-16: reset so plots are re-fetched
+    st.session_state.xfoil_pdf_bytes = None    # PDF-04: reset so PDF is re-fetched
     st.session_state.geometry_certificate = geometry_cert  # G-05
     if script_code:
         st.session_state.script_version += 1
@@ -304,6 +306,7 @@ def run_script(script: str) -> None:
         # PerformanceCard doesn't show a polar that doesn't match the new model.
         st.session_state.aero_report = None
         st.session_state.aero_plots = None
+        st.session_state.xfoil_pdf_bytes = None  # PDF-04
         st.session_state.status = "Ready"
     except requests.ConnectionError:
         st.session_state.status = "Connection error"
@@ -406,6 +409,42 @@ def _fetch_aero_plots(report: dict) -> dict | None:
         st.warning("Could not reach backend for polar plots.")
     except Exception as _e:
         st.warning(f"Polar plot request failed: {_e}")
+    return None
+
+
+def _fetch_xfoil_pdf(report: dict) -> bytes | None:
+    """POST to /analysis/pdf and return raw PDF bytes, or None on failure.
+
+    Uses the same request body as _fetch_aero_plots so the server generates
+    a fresh set of charts and assembles the PDF in one round-trip.
+    """
+    naca_code = report.get("naca_code", "0012")
+    reynolds = float(report.get("reynolds") or 1_000_000.0)
+    mach = float(report.get("mach") or 0.0)
+    n_crit = float(report.get("n_crit") or 9.0)
+    stall_alpha = report.get("stall_alpha")
+    design_alpha = round(stall_alpha * 0.60, 1) if stall_alpha else 4.0
+    design_alpha = max(-5.0, min(design_alpha, 20.0))
+    try:
+        resp = requests.post(
+            f"{BACKEND_URL}/analysis/pdf",
+            json={
+                "naca_code": naca_code,
+                "polar": report,
+                "design_alpha": design_alpha,
+                "reynolds": reynolds,
+                "mach": mach,
+                "n_crit": n_crit,
+            },
+            timeout=45,
+        )
+        if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("application/pdf"):
+            return resp.content
+        st.warning(f"PDF generation failed (HTTP {resp.status_code})")
+    except requests.ConnectionError:
+        st.warning("Could not reach backend for PDF export.")
+    except Exception as _e:
+        st.warning(f"PDF request failed: {_e}")
     return None
 
 
@@ -546,6 +585,31 @@ def _render_performance_card(report: dict) -> None:
             key="polar_csv_download",
         )
 
+    # PDF download — click-triggered fetch, sentinel False on failure (not None)
+    re_val = float(report.get("reynolds") or 0)
+    pdf_cached = st.session_state.get("xfoil_pdf_bytes")  # None=unfetched, False=failed, bytes=ready
+
+    if pdf_cached is False:
+        st.caption("_PDF unavailable — backend returned an error_")
+        if st.button("Retry PDF", key="xfoil_pdf_retry"):
+            st.session_state.xfoil_pdf_bytes = None
+            st.rerun()
+    elif pdf_cached is None:
+        if st.button("📄 Generate PDF Report", key="xfoil_pdf_generate"):
+            with st.spinner("Building PDF report… (~10s)"):
+                pdf_bytes = _fetch_xfoil_pdf(report)
+                # Store False as failure sentinel so we don't retry on every rerun
+                st.session_state.xfoil_pdf_bytes = pdf_bytes if pdf_bytes else False
+            st.rerun()
+    else:
+        st.download_button(
+            "⬇ Download XFOIL Simulation Results",
+            pdf_cached,
+            f"mirum_naca{naca}_{re_val:.0e}.pdf",
+            "application/pdf",
+            key="xfoil_pdf_download",
+        )
+
 
 # ── Page Layout ─────────────────────────────────────────────
 
@@ -655,6 +719,7 @@ if st.session_state.glb_bytes:
                 st.session_state.glb_bytes,
                 "assembly.glb",
                 "model/gltf-binary",
+                key="glb_download_1",
             )
         with card_col:
             _render_performance_card(aero_report)
@@ -662,10 +727,11 @@ if st.session_state.glb_bytes:
         # No aero report — full-width viewer
         render_glb_viewer(st.session_state.glb_bytes)
         st.download_button(
-            "Download .glb",
+            "⬇ Download .glb",
             st.session_state.glb_bytes,
             "assembly.glb",
             "model/gltf-binary",
+            key="glb_download_2",
         )
 
     # G-06: geometry certificate collapsible card (shown below viewer always)

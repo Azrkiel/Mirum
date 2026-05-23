@@ -203,14 +203,7 @@ RULE_BLOCKS = {
         "  from cad_utils import make_metric_thread "
         "  result = make_metric_thread(diameter=10.0, pitch=1.5, length=40.0) "
         "This returns a stable ribbed-cylinder approximation centered at the "
-        "origin. In Domain B (mechanical parts), NEVER write a raw `.sweep()` "
-        "on `cq.Wire.makeHelix(...)` for threads — the ribbed-cylinder helper "
-        "is already the calibrated approximation. (Note: the historical claim "
-        "that all helical sweeps crash the BRep kernel was falsified on "
-        "2026-05-18 — helical sweeps are now permitted, but ONLY inside "
-        "Domain F propulsion helpers in cad_utils.py, see propulsion/__init__.py "
-        "for the reproduction record. Generated scripts in Domain B must still "
-        "use `make_metric_thread`, not raw helical sweeps.) "
+        "origin. NEVER attempt helical sweeps — they crash the BRep kernel. "
         "NEVER approximate as a plain cylinder — the helper is already the "
         "reliable approximation. For complete HEX BOLTS and HEX NUTS, use the "
         "dedicated fastener helpers instead (see FASTENER RULE below). "
@@ -870,69 +863,179 @@ RULE_BLOCKS = {
         "DO NOT manually model the CO2 chamber."
     ),
 
-    "rule_domain_f_propulsion": (
-        "PROPULSION RULE (MANDATORY — USE THE LIBRARY). "
-        "Every propulsion part is built by calling ONE cad_utils helper and "
-        "passing the numeric values from propulsion_spec verbatim. NEVER write "
-        "raw .revolve(), .sweep(), or hand-rolled axisymmetric profiles in "
-        "this domain — the helpers handle the OCC quirks (axis-tangent edges, "
-        "Frenet helix paths). "
+    # ── Domain F: Propulsion ──────────────────────────────────────────
+    "rule_domain_f": (
+        "DOMAIN F STRATEGY — Propulsion Geometry (Revolve-First Architecture): "
         "\n"
-        "The available helpers (signatures): "
-        "  from cad_utils import make_conical_nozzle, make_rao_bell_nozzle, "
-        "  make_combustion_chamber, make_injector_plate, make_helical_cooling_channels "
+        "Domain F parts (nozzles, combustion chambers, nacelles, inlet ducts) are "
+        "axisymmetric bodies of revolution. Every Domain F script follows this workflow: "
         "\n"
-        "  make_conical_nozzle(throat_radius, exit_radius=None, expansion_ratio=None, "
-        "  half_angle_deg=15.0, converging_angle_deg=30.0, chamber_radius=0.0, "
-        "  intent='analysis') "
-        "    USE FOR: any conical (straight divergent) bell nozzle. "
+        "STEP 1 — IMPORT THE PROPULSION LIBRARY: "
+        "  from cad_utils import make_nozzle_profile, make_combustion_chamber, make_nacelle_cowl "
         "\n"
-        "  make_rao_bell_nozzle(throat_radius, expansion_ratio, length_fraction=0.8, "
-        "  chamber_radius=None, converging_angle_deg=30.0, intent='analysis') "
-        "    USE FOR: optimum-thrust bell nozzles (Rao, parabolic skirt). "
+        "STEP 2 — USE THE CORRECT HELPER: "
+        "  • Rocket nozzle (De Laval / C-D):  make_nozzle_profile() "
+        "  • Combustion chamber + injector:   make_combustion_chamber() "
+        "  • Nacelle / inlet cowl:            make_nacelle_cowl() "
         "\n"
-        "  make_combustion_chamber(radius, l_star, throat_radius, "
-        "  contraction_ratio=None, include_converging_section=True, "
-        "  converging_angle_deg=30.0, intent='analysis') "
-        "    USE FOR: combustion chambers sized by L* (in meters). "
+        "STEP 3 — WRAP IN cq.Assembly AND EXPORT: "
+        "  If the helper returns a cq.Workplane (nozzle, nose cone): "
+        "    assembly = cq.Assembly() "
+        "    assembly.add(result, name='nozzle_body') "
+        "    result = assembly "
+        "  If the helper already returns a cq.Assembly (chamber, nacelle): "
+        "    result = make_combustion_chamber(...) "
         "\n"
-        "  make_injector_plate(plate_radius, plate_thickness, orifice_count, "
-        "  orifice_diameter, pattern='impinging_doublet', "
-        "  distribution_radius=None, impingement_angle_deg=30.0, intent='analysis') "
-        "    USE FOR: injector plates with impinging_doublet | like_doublet | "
-        "    coaxial | showerhead patterns. "
+        "FUEL INLETS — radial bore pattern: "
+        "  Fuel inlet ports are always drilled axially through the chamber "
+        "  wall using polarArray(). NEVER model them as tangential channels "
+        "  or spiral grooves (BRep kernel crashes on helical cuts). "
+        "  Pattern: .faces('<Z').workplane().polarArray(r, 0, 360, n).circle(d/2).cutThruAll() "
         "\n"
-        "  make_helical_cooling_channels(nozzle_solid, nozzle_outer_radius, "
-        "  channel_count, channel_width, channel_depth, helix_angle_deg=0.0, "
-        "  axial_length=None, intent='analysis') "
-        "    USE FOR: regenerative cooling channels milled into a nozzle wall. "
-        "    Helix sweeps are PERMITTED INSIDE this helper (verdict 2026-05-18, "
-        "    see propulsion/__init__.py) but generated scripts must call the "
-        "    helper — never write raw cq.Wire.makeHelix(...).sweep(...). "
+        "ASSEMBLY OUTPUT: "
+        "  Always export as cq.Assembly with named bodies. "
+        "  'nozzle_body', 'chamber_body', 'dome', 'inner_duct', 'outer_cowl' "
+        "  This allows the web viewer to isolate and inspect each component. "
         "\n"
-        "PARAMETER PASSING — VERBATIM. Take every numeric field from the supplied "
-        "propulsion_spec (throat_radius, expansion_ratio, chamber_radius, count, "
-        "width, depth, orifice_count, etc.) and pass it directly to the helper. "
-        "NEVER round, NEVER 're-derive', NEVER substitute approximate values. "
-        "If propulsion_spec.intent is 'manufacturable' or 'visualization', pass "
-        "that string through unchanged so the helper enables / disables the "
-        "right minimum-wall / fillet checks. "
+        "FORBIDDEN: "
+        "  - Attempting helical cooling channels (OCC BRep cannot reliably sweep a "
+        "    helix around a non-cylindrical surface — always crashes). "
+        "  - Using .shell() to hollow a revolved nozzle (StdFail_NotDone on cusps). "
+        "  - Manually building the nozzle profile as a sketch (model invents "
+        "    wrong convergence angles and misplaces the throat). "
+        "  - Placing the nozzle exit at a different axis than X "
+        "    (the revolve axis MUST be the X-axis). "
+    ),
+
+    # ── Domain G: Vehicle Bodies ──────────────────────────────────────
+    "rule_domain_g": (
+        "DOMAIN G STRATEGY — Vehicle Bodies (Multi-Station Loft Architecture): "
         "\n"
-        "ASSEMBLY-LEVEL TOPOLOGY (when present): "
-        "  - injector_plate -> combustion_chamber -> nozzle (FASTENED, axial). "
-        "  - cooling_jacket is a derived part: build the bare nozzle first, then "
-        "    call make_helical_cooling_channels(nozzle_solid, ...) to subtract "
-        "    the channels. The result IS the nozzle-plus-jacket; do NOT model it "
-        "    as a separate part. "
+        "Domain G parts (fuselages, nose cones, fairings, pod bodies) are "
+        "built from multi-station elliptical or circular lofts with optional "
+        "structural frame rings. "
+        "\n"
+        "STEP 1 — IMPORT THE BODY LIBRARY: "
+        "  from cad_utils import make_nose_cone, make_fuselage_loft "
+        "\n"
+        "STEP 2 — USE THE CORRECT HELPER: "
+        "  • Nose cone / fairing tip:  make_nose_cone(base_diameter, length, profile='ogive') "
+        "      profile choices: 'ogive', 'conical', 'parabolic', 'haack' "
+        "      Use 'haack' for minimum drag. Use 'ogive' for general purpose. "
+        "  • Fuselage section:         make_fuselage_loft(stations, wall_thickness, num_frames) "
+        "      stations = [(x_axial, width, height), ...] — at least 2 stations "
+        "\n"
+        "STEP 3 — COMBINE AND EXPORT: "
+        "  For a nose cone attached to a fuselage: "
+        "    nose = make_nose_cone(base_diameter=500, length=800, profile='ogive') "
+        "    body = make_fuselage_loft(stations=[...], num_frames=6) "
+        "    assembly = cq.Assembly() "
+        "    assembly.add(nose, name='nose_cone') "
+        "    body_result = body  # body already returns cq.Assembly "
+        "    result = body_result  # or build a combined assembly "
+        "\n"
+        "AXIS CONVENTION: "
+        "  X axis = axial (nose to tail) "
+        "  YZ plane = cross-section plane (width along Y, height along Z) "
+        "  This matches the fuselage loft convention. "
+        "\n"
+        "FORBIDDEN: "
+        "  - .shell() on a lofted fuselage solid (crashes on complex topology). "
+        "  - Manually drawing elliptical cross-sections with approximated splines "
+        "    (use .ellipse(a, b) only). "
+        "  - Using circular cross-sections when width != height is specified. "
+        "  - Non-monotonic station ordering (x_axial must increase tip to tail). "
+    ),
+
+    # ── DA: Planform variant rule (keyword-triggered for Domain D) ────
+    "rule_planform_variants": (
+        "PLANFORM VARIANT RULE — Swept / Delta / Dihedral Wings: "
+        "\n"
+        "When the wing has a leading-edge sweep angle, dihedral, or delta planform, "
+        "the agent MUST use make_planform_wires() instead of generating raw "
+        "make_naca_wire() calls and manually translating the tip wire. "
+        "\n"
+        "IMPORT AND USAGE: "
+        "  from cad_utils import make_planform_wires "
+        "  root_wire, tip_wire = make_planform_wires( "
+        "      naca_code='2412', "
+        "      root_chord=250.0, "
+        "      tip_chord=120.0, "
+        "      span=800.0, "
+        "      sweep_le_deg=35.0,   # positive = tip swept rearward "
+        "      dihedral_deg=5.0,    # positive = tip raised upward "
+        "      twist_tip_deg=2.0,   # positive = nose-down washout at tip "
+        "  ) "
+        "  oml_solid = cq.Workplane('XZ').newObject([ "
+        "      cq.Solid.makeLoft([tip_wire, root_wire]) "
+        "  ]) "
+        "\n"
+        "DELTA WINGS: set tip_chord to a small value (>= 5mm, never 0). "
+        "  root_wire, tip_wire = make_planform_wires( "
+        "      naca_code='0006', root_chord=600.0, tip_chord=10.0, span=400.0, "
+        "      sweep_le_deg=55.0 "
+        "  ) "
+        "\n"
+        "CANARDS: same as a normal wing — call make_planform_wires() with the "
+        "canard's own chord, span, and sweep values. "
+        "\n"
+        "RIB BLANKS FOR SWEPT WINGS: oversized blanks must be large enough to "
+        "span the full chord at the sweep-corrected station. Use root_chord * 1.5 "
+        "as the blank width to guarantee coverage at all sweep angles <= 60°. "
+        "\n"
+        "FORBIDDEN: "
+        "  - Manually translating tip wire along X without the sweep offset "
+        "  - Using .workplane(offset=y) for tip positioning on swept wings "
+        "  - sweep_le_deg > 60 or < -60 (loft singularities) "
+    ),
+
+    # ── DB: Twisted blade rule (keyword-triggered for Domain D) ───────
+    "rule_twisted_blade": (
+        "TWISTED BLADE RULE — Propellers, Rotors, Wind Turbine Blades: "
+        "\n"
+        "When a blade with varying pitch angle (washout/twist) is requested, "
+        "the agent MUST use make_twisted_blade() from cad_utils. "
+        "\n"
+        "IMPORT AND USAGE: "
+        "  from cad_utils import make_twisted_blade "
+        "  blade = make_twisted_blade( "
+        "      naca_code='4412', "
+        "      root_chord=60.0, "
+        "      tip_chord=25.0, "
+        "      span=300.0, "
+        "      root_pitch_deg=30.0,  # geometric pitch at root "
+        "      tip_pitch_deg=12.0,   # geometric pitch at tip (washout) "
+        "      num_stations=8,       # loft cross-sections; 6-12 is ideal "
+        "  ) "
+        "  assembly = cq.Assembly() "
+        "  assembly.add(blade, name='blade_1') "
+        "  result = assembly "
+        "\n"
+        "MULTI-BLADE PROPELLERS: use polar array of rotated blade copies. "
+        "  For a 3-blade prop, create one blade then: "
+        "  assembly = cq.Assembly() "
+        "  for i in range(3): "
+        "      assembly.add( "
+        "          blade, "
+        "          name=f'blade_{i+1}', "
+        "          loc=cq.Location(cq.Vector(0,0,0), cq.Vector(0,1,0), i*120) "
+        "      ) "
+        "  result = assembly "
+        "\n"
+        "PITCH CONVENTION: "
+        "  root_pitch_deg > tip_pitch_deg = washout (standard for propellers). "
+        "  Higher pitch = designed for higher speed/altitude. "
+        "  Typical values: root 20–40°, tip 8–15°. "
+        "\n"
+        "FORBIDDEN: "
+        "  - Using make_naca_wire() + manual pitch rotation for twisted blades "
+        "    (model consistently uses wrong rotation axis, producing flat blades) "
+        "  - Rotating the tip wire around X instead of Y "
+        "    (X rotation = within XZ plane, NOT pitch rotation) "
+        "  - num_stations < 4 (produces faceted geometry) "
     ),
 }
 
-
-# --------------------------------------------------------------------------
-# Dynamic strategy assembly configuration
-# --------------------------------------------------------------------------
-
-# Core rules — always injected regardless of domain or description
 _CORE_RULES = [
     "rule_imports",
     "rule_result_var",
@@ -968,10 +1071,12 @@ _DOMAIN_PREAMBLES = {
         "The part you are generating is classified as Domain E (Sheet Metal/Thin-Wall). "
     ),
     "F": (
-        "You are a CadQuery machinist specialized in ROCKET PROPULSION HARDWARE. "
-        "The part you are generating is classified as Domain F (Propulsion). "
-        "You MUST construct geometry by calling cad_utils helpers — never by "
-        "writing raw .revolve(), .sweep(), or hand-rolled axisymmetric profiles. "
+        "You are a CadQuery machinist specialized in PROPULSION COMPONENTS. "
+        "The part you are generating is classified as Domain F (Propulsion/Axisymmetric). "
+    ),
+    "G": (
+        "You are a CadQuery machinist specialized in VEHICLE BODY STRUCTURES. "
+        "The part you are generating is classified as Domain G (Vehicle Bodies/Fairings). "
     ),
 }
 
@@ -993,7 +1098,8 @@ _DOMAIN_RULES = {
         "rule_wire_to_solid",
         "rule_d_parameters",
     ],
-    "F": ["rule_domain_f_propulsion"],
+    "F": ["rule_feature_vocabulary", "rule_domain_f"],
+    "G": ["rule_feature_vocabulary", "rule_domain_g"],
 }
 
 # Keyword triggers — inject these rules when ANY keyword matches the description
@@ -1043,6 +1149,20 @@ _KEYWORD_TRIGGERS = {
         "chassis panel", "metal gauge", "steel gauge", "aluminum gauge",
         "bend radius", "flange height", "k-factor", "flat pattern",
         "bend allowance", "metal bracket", "stamped",
+    ],
+    # DA: Planform variants — inject when Domain D prompt mentions sweep/dihedral/delta
+    "rule_planform_variants": [
+        "swept wing", "swept-wing", "delta wing", "delta-wing", "delta planform",
+        "canard", "dihedral", "anhedral", "leading-edge sweep", "leading edge sweep",
+        "sweep angle", "taper ratio", "swept", "sweep", "swept back",
+        "low-sweep", "high-sweep", "variable sweep",
+    ],
+    # DB: Twisted blades — inject when Domain D prompt mentions propeller/rotor/twist
+    "rule_twisted_blade": [
+        "propeller", "prop blade", "rotor blade", "helicopter blade", "rotor",
+        "wind turbine blade", "turbine blade", "twisted blade", "pitch angle",
+        "geometric pitch", "washout", "variable pitch", "blade twist",
+        "fixed pitch prop", "fixed-pitch", "variable-pitch",
     ],
     # Low-poly / game-asset override for Domain C. When any of these match
     # the part description, _resolve_rule_names substitutes rule_domain_c
@@ -1134,7 +1254,7 @@ def get_strategy(domain: str, description: str = "") -> str:
       3. Keyword-triggered rules (injected only when the description matches)
 
     Args:
-        domain: Geometric domain classification ("A", "B", "C", or "D").
+        domain: Geometric domain classification ("A", "B", "C", "D", "E", "F", or "G").
         description: The part's physical description for keyword matching.
 
     Returns:

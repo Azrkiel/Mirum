@@ -12,7 +12,6 @@ Domains:
   C (Organic/Ergonomic)        — handles, shells, fairings, grips, spoons
   D (Aerospace/Aerodynamics)   — wings, airfoils, NACA profiles, ribs, spars
   E (Sheet Metal/Thin-Wall)    — bent plates, enclosure panels, PCB trays (T3-06)
-  F (Propulsion)               — nozzles, thrust chambers, injectors, regen cooling
 """
 
 import os
@@ -20,7 +19,6 @@ import os
 import google.generativeai as genai
 
 from config import GEMINI_MODEL_LITE
-from propulsion.rea_schema import PROPULSION_VOCAB, mentions_propulsion
 
 MODEL = GEMINI_MODEL_LITE
 
@@ -30,19 +28,23 @@ _CLASSIFICATION_SCHEMA = {
     "properties": {
         "domain": {
             "type": "string",
-            "enum": ["A", "B", "C", "D", "E", "F"],
+            "enum": ["A", "B", "C", "D", "E", "F", "G"],
             "description": (
                 "The geometric domain: "
                 "'A' for primitives/structural (boxes, plates, enclosures, brackets, frames). "
                 "'B' for mechanical/parametric (gears, bearings, threads, cams, pulleys, springs, fasteners). "
                 "'C' for organic/ergonomic (handles, mouse shells, grips, bottles, spoons, helmets, CO2 dragsters, derby cars). "
                 "'D' for aerospace/aerodynamics (wings, airfoils, NACA profiles, ribs, spars, "
-                "camber, leading edge, trailing edge, wing segments, aerostructures). "
+                "camber, leading edge, trailing edge, wing segments, aerostructures, swept wings, "
+                "delta wings, propellers, rotor blades, turbine blade blanks). "
                 "'E' for sheet metal/thin-wall (bent plates, enclosure panels, PCB mounting trays, "
                 "chassis panels, steel/aluminum gauges, flanged sheet parts, stampings). "
-                "'F' for propulsion (rocket nozzles, thrust chambers, injector plates, "
-                "regen / regenerative cooling channels, throat/expansion ratio/Rao bell, "
-                "L*, impinging doublet)."
+                "'F' for propulsion/axisymmetric (rocket nozzles, De Laval nozzles, combustion chambers, "
+                "fuel inlets, oxidizer inlets, afterburner ducts, nacelle cowlings, inlet ducts, "
+                "thrust chambers, injector faces). "
+                "'G' for vehicle bodies/fairings (aircraft fuselages, nose cones, payload fairings, "
+                "rocket body tubes, re-entry capsules, crew capsules, pod bodies, shrouds, "
+                "streamlined enclosures with varying cross-sections)."
             ),
         },
         "reasoning": {
@@ -71,22 +73,8 @@ async def classify_part(description: str) -> dict:
         description: The part's physical description from PartDefinition.
 
     Returns:
-        {"domain": "A"|"B"|"C"|"D"|"E"|"F", "reasoning": str, "key_params": str}
+        {"domain": "A"|"B"|"C"|"D", "reasoning": str, "key_params": str}
     """
-    # Deterministic short-circuit for Domain F (propulsion). The Domain F
-    # primitives are all in cad_utils with rule_domain_f_propulsion guiding
-    # the Machinist; an LLM round-trip here just adds latency and the chance
-    # of mis-classification to Domain B (regen channels) or D (nozzle vs wing).
-    if mentions_propulsion(description):
-        return {
-            "domain": "F",
-            "reasoning": (
-                "Deterministic match on propulsion vocabulary "
-                f"(any of: {', '.join(PROPULSION_VOCAB[:5])}, ...)."
-            ),
-            "key_params": "",
-        }
-
     model = genai.GenerativeModel(
         model_name=MODEL,
         system_instruction=(
@@ -114,15 +102,16 @@ async def classify_part(description: str) -> dict:
             "Domain D (Aerospace/Aerodynamics): Wing sections, airfoil profiles, and "
             "aerostructural components with internal reinforcement. Examples: NACA airfoil "
             "extrusions, wing segments with ribs/spars, aerodynamic control surfaces, "
-            "stabilizer fins, turbine blade blanks, leading/trailing edge assemblies. "
+            "stabilizer fins, turbine blade blanks, propeller blades, swept wings, "
+            "delta wings, canards, horizontal stabilizers, and leading/trailing edge assemblies. "
             "Key signal: mentions 'wing', 'airfoil', 'NACA', 'camber', 'chord', 'span', "
-            "'ribs', 'spars', 'leading edge', 'trailing edge', 'aerofoil', or any "
-            "standard airfoil designation (e.g., '2412', '0012', '4415'). "
+            "'ribs', 'spars', 'leading edge', 'trailing edge', 'aerofoil', 'swept', "
+            "'propeller', 'rotor blade', 'turbine blade', or any airfoil code (e.g., '2412'). "
             "\n"
             "PRIORITY: Domain D takes precedence over ALL other domains when aerospace "
             "keywords are present. A 'wing rib' is Domain D, NOT Domain A. An 'airfoil "
-            "fairing' is Domain D, NOT Domain C. A 'turbine blade blank' is Domain D, "
-            "NOT Domain B. "
+            "fairing' is Domain D, NOT Domain C. A 'turbine blade blank' or 'propeller "
+            "blade' is Domain D, NOT Domain B. "
             "\n"
             "Domain E (Sheet Metal/Thin-Wall): Parts made from thin sheet stock that are "
             "bent, stamped, or formed rather than machined. Examples: enclosure panels, "
@@ -132,23 +121,31 @@ async def classify_part(description: str) -> dict:
             "'bend radius', 'flange depth', 'PCB tray', 'enclosure panel', 'stamped', "
             "or gives thickness as a standard gauge (0.8mm, 1.0mm, 1.2mm, 1.5mm, 2.0mm). "
             "\n"
-            "Domain F (Propulsion): Rocket-engine hardware -- nozzles (conical, Rao bell), "
-            "thrust chambers, injector plates, regenerative cooling channels. "
-            "Key signal: mentions 'nozzle', 'throat', 'expansion ratio', 'Rao', 'bell', "
-            "'thrust chamber', 'combustion chamber', 'injector', 'regen', 'regenerative', "
-            "'cooling channel', 'L*', 'characteristic length', 'impinging doublet', "
-            "'coaxial injector', 'propellant', 'thruster', 'rocket engine'. "
+            "Domain F (Propulsion/Axisymmetric): Propulsion components built primarily "
+            "from axisymmetric bodies of revolution — converging-diverging nozzles, "
+            "combustion chambers, fuel inlets, afterburner ducts, nacelle cowlings, "
+            "inlet ducts, and injector faces. "
+            "Key signal: mentions 'nozzle', 'throat', 'De Laval', 'converging-diverging', "
+            "'combustion chamber', 'fuel inlet', 'oxidizer inlet', 'injector', "
+            "'afterburner', 'thrust chamber', 'nacelle', 'inlet duct', 'cowling', "
+            "'bypass ratio', 'fan face', 'highlight radius'. "
             "\n"
-            "PRIORITY: Domain D takes precedence over ALL other domains when aerospace "
-            "keywords are present. A 'wing rib' is Domain D, NOT Domain A. An 'airfoil "
-            "fairing' is Domain D, NOT Domain C. A 'turbine blade blank' is Domain D, "
+            "Domain G (Vehicle Bodies/Fairings): Large-scale bodies of revolution or "
+            "multi-station lofted vehicle structures — fuselages, nose cones, payload "
+            "fairings, rocket body tubes, re-entry capsules, pod bodies, and shrouds. "
+            "Key signal: mentions 'fuselage', 'nose cone', 'ogive', 'fairing', 'shroud', "
+            "'payload section', 'rocket body', 'body tube', 'capsule', 'pod body', "
+            "'fuselage section', 'Haack series', 'parabolic nose', 'tangent ogive'. "
+            "\n"
+            "PRIORITY: Domain F takes precedence over Domain B when 'nozzle', 'combustion', "
+            "'thrust', or 'injector' keywords are present. A 'rocket nozzle' is Domain F, "
             "NOT Domain B. "
+            "Domain G takes precedence over Domain C when 'fuselage', 'nose cone', "
+            "'fairing', or 'body tube' keywords are present. A 'nose cone' is Domain G, "
+            "NOT Domain C. "
+            "Domain D takes precedence over ALL other domains when aerospace lifting-surface "
+            "keywords are present. "
             "Domain E takes precedence over Domain A when sheet metal keywords are present. "
-            "A 'sheet metal bracket' is Domain E, NOT Domain A. "
-            "Domain F takes precedence over Domain B AND Domain D when propulsion "
-            "keywords are present. A 'Rao bell nozzle' is Domain F, NOT Domain D. "
-            "A 'regen cooling channel' is Domain F, NOT Domain B (despite being mechanical). "
-            "An 'injector plate' is Domain F, NOT Domain A. "
             "\n"
             "When in doubt between A and B, choose B (parametric is safer than primitive). "
             "When in doubt between A and C, choose A (structural is more reliable). "

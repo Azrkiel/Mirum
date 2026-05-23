@@ -23,7 +23,11 @@ Mirum is a multi-agent text-to-CAD orchestrator: `Planner → REA → [Machinist
 
 ## Runtime facts
 
-- **Single Gemini key**: `GEMINI_API_KEY_HEAVY` is the only key the orchestrator requires (set globally at `backend/main.py:61-68`). Model-tier separation, not key-tier separation: use `gemini-3-flash-preview` for Machinist/Planner/REA/Refiner/eval and `gemini-3.1-flash-lite-preview` for classifier/PMI extraction. Both call sites read the same env var. The `GEMINI_API_KEY_LITE` references that remain in `data_pipeline/` are for offline dataset scripts, not the live pipeline.
+- **Three-tier model layout** (strings live in `backend/config.py`):
+  - `GEMINI_MODEL_PRO = "gemini-3.1-pro-preview"` — Planner, REA (architecture reasoning). Key: `GEMINI_API_KEY_PRO` (optional; falls back to `GEMINI_API_KEY_HEAVY` if unset).
+  - `GEMINI_MODEL_HEAVY = "gemini-3.5-flash"` — Machinist, Critic, Refiner, eval. Key: `GEMINI_API_KEY_HEAVY` (required).
+  - `GEMINI_MODEL_LITE = "gemini-3.1-flash-lite-preview"` — domain classifier, PMI extraction, clarifier. Uses the same key as Heavy.
+  - `GEMINI_API_KEY_HEAVY` is the only **required** env var. `GEMINI_API_KEY_PRO` is optional — set it only if your Pro quota bucket is on a separate key. The `GEMINI_API_KEY_LITE` references in `data_pipeline/` are for offline dataset scripts, not the live pipeline.
 - **Writable scratch**: `/tmp/mirum/work` (env: `MIRUM_WORK_DIR`). The container's `/app` is read-only; named volumes are root-owned. Never write outside `/tmp/mirum/...`.
 - **Run**: `docker compose up --build` → backend at `:8000`, frontend at `:8501`.
 - **Sandbox is Linux-only enforcement**: on Windows the `resource` module is missing, so `RLIMIT_AS` doesn't apply. Production must run in Docker.
