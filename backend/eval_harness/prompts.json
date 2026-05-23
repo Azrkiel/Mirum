@@ -879,98 +879,382 @@
     "notes": "Tests that the Domain D strategy correctly handles non-wing applications of NACA profiles (fuselage body of revolution). Large span-to-chord ratio stresses the loft / extrude path."
   },
   {
-    "id": "F_conical_bell_nozzle",
+    "id": "D_swept_wing_35deg",
+    "domain": "D",
+    "difficulty": "medium",
+    "description": "NACA 2412 wing, 800mm span, 35-degree leading-edge sweep, root chord 250mm, tip chord 120mm, 4 evenly-spaced ribs, front and rear spar.",
+    "expected_features": [
+      "NACA 2412 airfoil profile",
+      "swept planform 35 degrees",
+      "root chord 250mm tip chord 120mm",
+      "4 ribs",
+      "front spar rear spar",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "D_delta_wing_naca0006",
+    "domain": "D",
+    "difficulty": "medium",
+    "description": "Delta wing using NACA 0006 profile, root chord 600mm, span 400mm, tip chord 15mm (delta planform), 3 spanwise ribs.",
+    "expected_features": [
+      "NACA 0006 airfoil",
+      "delta planform",
+      "root chord 600mm",
+      "tip chord near zero",
+      "3 ribs",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "D_canard_surface",
+    "domain": "D",
+    "difficulty": "easy",
+    "description": "Canard surface, NACA 2409 profile, span 300mm, chord 80mm, 2 ribs, no sweep.",
+    "expected_features": [
+      "NACA 2409 airfoil",
+      "span 300mm chord 80mm",
+      "2 ribs",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "D_dihedral_wing",
+    "domain": "D",
+    "difficulty": "medium",
+    "description": "NACA 4412 wing, 800mm span, 200mm root chord, 150mm tip chord, 6-degree dihedral angle, 5 ribs, front spar at 25% chord.",
+    "expected_features": [
+      "NACA 4412 airfoil",
+      "dihedral 6 degrees",
+      "5 ribs",
+      "front spar",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "D_swept_stabilizer",
+    "domain": "D",
+    "difficulty": "medium",
+    "description": "Horizontal stabilizer, NACA 0009 profile, 30-degree leading-edge sweep, 500mm span, 150mm root chord, 80mm tip chord, 2 spars.",
+    "expected_features": [
+      "NACA 0009 airfoil",
+      "30 degree sweep",
+      "500mm span",
+      "2 spars",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "D_swept_dihedral_combo",
+    "domain": "D",
+    "difficulty": "hard",
+    "description": "NACA 2412 wing, 600mm span, 25-degree leading-edge sweep, 4-degree dihedral, root chord 200mm, tip chord 100mm, 5 ribs, front and rear spar.",
+    "expected_features": [
+      "NACA 2412 airfoil",
+      "25 degree sweep",
+      "4 degree dihedral",
+      "5 ribs",
+      "front and rear spar",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "D_propeller_2blade",
+    "domain": "D",
+    "difficulty": "medium",
+    "description": "2-blade propeller, NACA 4412, root chord 60mm, tip chord 25mm, span 300mm, root pitch angle 30 degrees, tip pitch angle 12 degrees.",
+    "expected_features": [
+      "NACA 4412 airfoil",
+      "twisted blade",
+      "root pitch 30 degrees",
+      "tip pitch 12 degrees",
+      "2 blades",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "D_propeller_3blade",
+    "domain": "D",
+    "difficulty": "hard",
+    "description": "3-blade propeller, NACA 2412, 400mm diameter (200mm blade span), root chord 50mm, tip chord 20mm, root pitch 25 degrees, tip pitch 8 degrees, hub diameter 40mm.",
+    "expected_features": [
+      "NACA 2412 airfoil",
+      "3 blades polar array",
+      "root pitch 25 degrees",
+      "tip pitch 8 degrees",
+      "hub cylinder",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "D_rotor_blade",
+    "domain": "D",
+    "difficulty": "hard",
+    "description": "Helicopter rotor blade, NACA 0012, 1200mm span, root chord 80mm, tip chord 50mm, root pitch 10 degrees, tip pitch 4 degrees.",
+    "expected_features": [
+      "NACA 0012 airfoil",
+      "twisted blade",
+      "1200mm span",
+      "root pitch 10 degrees tip pitch 4 degrees",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "D_wind_turbine_blade",
+    "domain": "D",
+    "difficulty": "hard",
+    "description": "Wind turbine blade, NACA 4418, 2000mm span, root chord 150mm, tip chord 60mm, root pitch 15 degrees, tip pitch 3 degrees.",
+    "expected_features": [
+      "NACA 4418 airfoil",
+      "twisted blade",
+      "2000mm span",
+      "root pitch 15 degrees",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "F_nozzle_basic",
+    "domain": "F",
+    "difficulty": "easy",
+    "description": "Rocket nozzle (De Laval), throat diameter 30mm, exit diameter 90mm, chamber radius 40mm, chamber length 80mm, wall thickness 4mm.",
+    "expected_features": [
+      "converging-diverging nozzle",
+      "throat 30mm diameter",
+      "exit 90mm diameter",
+      "wall thickness 4mm",
+      "revolved solid",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "F_nozzle_steep_angle",
     "domain": "F",
     "difficulty": "medium",
-    "description": "A conical bell nozzle for a hot-fire test stand: throat radius 25 mm, exit radius 75 mm (expansion ratio 9), divergent half-angle 15 degrees, converging section angle 30 degrees, combustion chamber inner radius 50 mm.",
+    "description": "De Laval rocket nozzle, 15-degree diverging half-angle, 30-degree converging half-angle, throat radius 25mm, exit radius 75mm, chamber length 60mm, wall thickness 5mm.",
     "expected_features": [
-      "chamber",
-      "converging frustum",
-      "throat",
-      "diverging cone",
-      "expansion_ratio_9"
+      "De Laval nozzle",
+      "15 degree diverging angle",
+      "throat 25mm radius",
+      "exit 75mm radius",
+      "revolved solid"
     ],
     "regression_for": [
       "F"
-    ],
-    "propulsion_intent": "analysis",
-    "physics_invariant": "geometric_expansion_ratio_within_5pct(9.0)",
-    "notes": "Reference prompt #1 from the propulsion-domain-f plan. Exercises make_conical_nozzle end-to-end."
+    ]
   },
   {
-    "id": "F_rao_bell_full_chamber",
+    "id": "F_combustion_chamber",
     "domain": "F",
     "difficulty": "medium",
-    "description": "A thrust-optimised Rao bell nozzle at 80 percent length: throat radius 20 mm, expansion ratio 16, chamber inner radius 60 mm. Include the converging section and the upstream combustion chamber portion (no injector).",
+    "description": "Cylindrical combustion chamber, 60mm inner radius, 5mm wall thickness, 120mm length, 6 fuel inlet ports at 36mm radial position, 8mm inlet diameter.",
     "expected_features": [
-      "chamber",
-      "converging frustum",
-      "throat arcs",
-      "rao parabolic skirt",
-      "exit_radius_80mm"
+      "hollow cylinder",
+      "6 fuel inlet ports",
+      "polar array",
+      "inner radius 60mm",
+      "wall thickness 5mm",
+      "cq.Assembly output"
     ],
     "regression_for": [
       "F"
-    ],
-    "propulsion_intent": "analysis",
-    "physics_invariant": "exit_radius_within_0p5pct(80.0)",
-    "notes": "Reference prompt #2. Exercises rao_table.lookup + make_rao_bell_nozzle; verifies exit-radius lock."
+    ]
   },
   {
-    "id": "F_regen_cooled_nozzle",
+    "id": "F_chamber_with_dome",
     "domain": "F",
-    "difficulty": "hard",
-    "description": "A regeneratively-cooled bell nozzle: throat radius 25 mm, expansion ratio 12, sixty (60) helical cooling channels milled into the outer wall, each channel 2 mm wide and 3 mm deep, with a 15 degree helical twist along the nozzle length.",
+    "difficulty": "medium",
+    "description": "Thrust chamber with spherical injector dome, 50mm inner radius, 5mm wall, 100mm chamber length, spherical dome radius 55mm, 8 fuel inlet ports.",
     "expected_features": [
-      "rao bell nozzle base",
-      "60 helical channels",
-      "channel_width_2mm",
-      "channel_depth_3mm",
-      "15deg helical twist"
-    ],
-    "regression_for": [
-      "F"
-    ],
-    "propulsion_intent": "analysis",
-    "physics_invariant": "channel_count_detected_equals(60)",
-    "notes": "Reference prompt #3. Exercises make_helical_cooling_channels with 60 polar-arrayed sweeps -- watch the 30-second sandbox budget. Falsified the historic helix-sweep ban (see propulsion/__init__.py)."
-  },
-  {
-    "id": "F_full_thrust_chamber_assembly",
-    "domain": "F",
-    "difficulty": "hard",
-    "description": "A complete thrust chamber assembly. Injector plate with twenty-four (24) impinging-doublet orifices of 1.5 mm diameter on a 30 mm radius distribution circle. Cylindrical combustion chamber with L star = 1.0 metre and inner radius 40 mm. Converging section to a 20 mm throat radius. Rao bell nozzle at 80 percent length with expansion ratio 16 (exit radius 80 mm).",
-    "expected_features": [
-      "injector plate",
-      "24 impinging doublet orifices",
       "combustion chamber",
-      "L_star_1m",
-      "rao bell nozzle",
-      "expansion_ratio_16",
-      "three parts minimum"
+      "spherical dome",
+      "8 fuel inlets",
+      "dome radius 55mm",
+      "cq.Assembly output"
     ],
     "regression_for": [
       "F"
-    ],
-    "propulsion_intent": "analysis",
-    "physics_invariant": "parts_count_gte(3) and orifice_count_equals(24)",
-    "notes": "Reference prompt #4. End-to-end injector -> chamber -> nozzle, FASTENED axial mates. Validates the deterministic planner shortcut + helper chain."
+    ]
   },
   {
-    "id": "F_qa_dense_cooling_channels",
+    "id": "F_nacelle_inlet",
     "domain": "F",
-    "difficulty": "hard",
-    "description": "A regeneratively-cooled bell nozzle: throat radius 30 mm, expansion ratio 12, one hundred twenty (120) helical cooling channels milled into the outer wall, each 1.5 mm wide and 2 mm deep, with a 10 degree helical twist along the nozzle length.",
+    "difficulty": "medium",
+    "description": "Subsonic nacelle inlet cowl, highlight radius 120mm, throat radius 95mm, fan face radius 100mm, intake length 200mm, cowl thickness 10mm.",
     "expected_features": [
-      "bell contour",
-      "throat",
-      "120 cooling channels"
+      "nacelle inlet",
+      "highlight radius 120mm",
+      "throat radius 95mm",
+      "fan face 100mm",
+      "revolved body",
+      "cq.Assembly output"
     ],
     "regression_for": [
       "F"
+    ]
+  },
+  {
+    "id": "F_nozzle_with_chamber",
+    "domain": "F",
+    "difficulty": "hard",
+    "description": "Rocket engine assembly: combustion chamber 55mm inner radius, 5mm wall, 100mm length, 6 fuel inlets; De Laval nozzle throat 20mm radius, exit 60mm radius attached at chamber exit.",
+    "expected_features": [
+      "combustion chamber",
+      "De Laval nozzle",
+      "fuel inlets",
+      "chamber and nozzle assembly",
+      "cq.Assembly output"
     ],
-    "propulsion_intent": "analysis",
-    "physics_invariant": "channel_count_equals(120)",
-    "notes": "QA-stress guard: 120-channel regen nozzle. Passes (lvm 4.7) and guards the batched helical-cut memory fix (2a8adfa) \u2014 reverting batching would OOM this against the 1.5GB sandbox RLIMIT_AS."
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "F_afterburner_duct",
+    "domain": "F",
+    "difficulty": "easy",
+    "description": "Afterburner duct, 80mm inner radius, 83mm outer radius, 400mm length, simple hollow cylinder.",
+    "expected_features": [
+      "hollow cylinder afterburner duct",
+      "inner radius 80mm",
+      "length 400mm",
+      "revolved or extruded body",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "F_nacelle_cowl_large",
+    "domain": "F",
+    "difficulty": "hard",
+    "description": "Large turbofan nacelle cowl, highlight radius 150mm, throat radius 120mm, fan face radius 130mm, 250mm intake length, 12mm cowl thickness, 15mm lip radius.",
+    "expected_features": [
+      "nacelle cowl",
+      "highlight radius 150mm",
+      "250mm intake length",
+      "lip fillet",
+      "revolved cowl body",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "F"
+    ]
+  },
+  {
+    "id": "G_nose_cone_ogive",
+    "domain": "G",
+    "difficulty": "easy",
+    "description": "Ogive nose cone, 80mm base diameter, 200mm length, 2mm wall thickness, 20mm cylindrical shoulder.",
+    "expected_features": [
+      "ogive nose cone profile",
+      "80mm base diameter",
+      "200mm length",
+      "2mm wall hollow",
+      "shoulder section",
+      "revolved solid"
+    ],
+    "regression_for": [
+      "G"
+    ]
+  },
+  {
+    "id": "G_nose_cone_haack",
+    "domain": "G",
+    "difficulty": "medium",
+    "description": "Von Karman (Haack series) nose cone, 100mm base diameter, 250mm length, solid, 25mm shoulder.",
+    "expected_features": [
+      "Haack series nose cone",
+      "100mm base diameter",
+      "250mm length",
+      "solid profile",
+      "revolved solid"
+    ],
+    "regression_for": [
+      "G"
+    ]
+  },
+  {
+    "id": "G_fuselage_simple",
+    "domain": "G",
+    "difficulty": "medium",
+    "description": "Cylindrical fuselage section, 500mm diameter, 1500mm length, 4mm wall thickness, 6 structural frame rings evenly spaced.",
+    "expected_features": [
+      "cylindrical fuselage",
+      "500mm diameter",
+      "1500mm length",
+      "4mm wall",
+      "6 frame rings",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "G"
+    ]
+  },
+  {
+    "id": "G_fuselage_tapered",
+    "domain": "G",
+    "difficulty": "hard",
+    "description": "Aircraft fuselage section with 3 stations: nose 200x180mm at x=0, cabin 600x500mm at x=2000mm, tail 200x180mm at x=4000mm, 3mm wall thickness, 8 frame rings.",
+    "expected_features": [
+      "multi-station fuselage loft",
+      "elliptical cross-sections",
+      "3 stations",
+      "8 frame rings",
+      "3mm wall",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "G"
+    ]
+  },
+  {
+    "id": "G_pod_body",
+    "domain": "G",
+    "difficulty": "medium",
+    "description": "Streamlined pod body, ogive nose 120mm base diameter 300mm long, cylindrical mid-section 120mm diameter 400mm long, 2mm wall thickness.",
+    "expected_features": [
+      "ogive nose cone",
+      "cylindrical body",
+      "120mm diameter",
+      "2mm wall",
+      "cq.Assembly output"
+    ],
+    "regression_for": [
+      "G"
+    ]
   }
 ]

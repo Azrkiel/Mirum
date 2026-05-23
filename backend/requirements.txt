@@ -1,8 +1,12 @@
 fastapi==0.115.0
+fpdf2>=2.7.9
 uvicorn==0.30.6
 pydantic==2.9.2
 google-generativeai==0.8.3
 slowapi==0.1.9
+# analysis/plots.py and analysis/airfoil.py dependencies
+matplotlib>=3.7.0
+numpy>=1.24.0
 # T3-09: Zebra rendering pipeline for VLM surface quality analysis.
 # pyrender uses OSMesa in headless Docker (PYOPENGL_PLATFORM=osmesa).
 # trimesh converts STEP → mesh for rendering.

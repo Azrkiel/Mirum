@@ -19,14 +19,14 @@ Default table (from config.py constants):
 
   agent_type    model              temperature  max_tokens  lite_fallback
   ----------    -----              -----------  ----------  -------------
-  planner       GEMINI_HEAVY       0.3          4096        GEMINI_LITE
-  machinist     GEMINI_HEAVY       0.2          8192        None
-  critic        GEMINI_HEAVY       0.1          4096        None
+  planner       GEMINI_PRO         0.3          4096        GEMINI_HEAVY
+  machinist     GEMINI_HEAVY→PRO   0.2          8192        None   (escalates to PRO on retry)
+  critic        GEMINI_PRO         0.1          4096        None   (orchestrates machinist retries)
   assembler     —  (no LLM)        n/a          n/a         None
-  rea           GEMINI_LITE        0.2          2048        None
+  rea           GEMINI_PRO         0.2          2048        GEMINI_HEAVY
   clarifier     GEMINI_LITE        0.4          1024        None
   aero          —  (no LLM)        n/a          n/a         None
-  refiner       GEMINI_HEAVY       0.3          8192        None
+  refiner       GEMINI_PRO         0.3          8192        None
 """
 
 from __future__ import annotations
@@ -86,33 +86,38 @@ class ModelRegistry:
     def _init_defaults(self) -> None:
         """Populate the registry from config.py constants."""
         # Late import to avoid circular dependency at module load time.
-        from config import GEMINI_MODEL_HEAVY, GEMINI_MODEL_LITE  # noqa: PLC0415
+        from config import GEMINI_MODEL_HEAVY, GEMINI_MODEL_LITE, GEMINI_MODEL_PRO  # noqa: PLC0415
 
         self._registry = {
+            # Pro tier: deep reasoning for architecture decisions
             "planner": ModelConfig(
-                model_id=GEMINI_MODEL_HEAVY,
+                model_id=GEMINI_MODEL_PRO,
                 temperature=0.3,
                 max_tokens=4096,
-                lite_fallback=GEMINI_MODEL_LITE,
+                lite_fallback=GEMINI_MODEL_HEAVY,  # falls back to heavy, not lite
             ),
+            # Heavy tier first attempt; escalates to Pro on retry in run_machinist()
             "machinist": ModelConfig(
                 model_id=GEMINI_MODEL_HEAVY,
                 temperature=0.2,
                 max_tokens=8192,
                 lite_fallback="",
             ),
+            # Critic orchestrates machinist retries; Pro-level escalation is
+            # handled inside run_machinist() when error_context is present.
             "critic": ModelConfig(
-                model_id=GEMINI_MODEL_HEAVY,
+                model_id=GEMINI_MODEL_PRO,
                 temperature=0.1,
                 max_tokens=4096,
                 lite_fallback="",
             ),
             "assembler": _NO_LLM,
+            # Pro tier: REA needs careful multi-field structured extraction
             "rea": ModelConfig(
-                model_id=GEMINI_MODEL_LITE,
+                model_id=GEMINI_MODEL_PRO,
                 temperature=0.2,
                 max_tokens=2048,
-                lite_fallback="",
+                lite_fallback=GEMINI_MODEL_HEAVY,
             ),
             "clarifier": ModelConfig(
                 model_id=GEMINI_MODEL_LITE,
@@ -122,7 +127,7 @@ class ModelRegistry:
             ),
             "aero": _NO_LLM,
             "refiner": ModelConfig(
-                model_id=GEMINI_MODEL_HEAVY,
+                model_id=GEMINI_MODEL_PRO,
                 temperature=0.3,
                 max_tokens=8192,
                 lite_fallback="",

@@ -61,11 +61,21 @@ _WORK_DIR.mkdir(parents=True, exist_ok=True)
 _GEMINI_KEY_HEAVY = os.environ.get("GEMINI_API_KEY_HEAVY")
 if not _GEMINI_KEY_HEAVY:
     raise RuntimeError(
-        "GEMINI_API_KEY_HEAVY must be set. The orchestrator drives both "
-        "heavy (gemini-3-flash-preview) and lite (gemini-3.1-flash-lite-preview) "
-        "models off this single key — quota is metered per (model, key)."
+        "GEMINI_API_KEY_HEAVY must be set. The orchestrator uses this key for "
+        "Machinist (gemini-3.5-flash), Critic, Refiner, and Lite-tier calls. "
+        "Set GEMINI_API_KEY_PRO separately if your Pro key differs from Heavy."
     )
-genai.configure(api_key=_GEMINI_KEY_HEAVY)
+
+# Pro key is optional — falls back to the Heavy key if not set.
+# Used by Planner and REA (gemini-3.1-pro-preview). If your Google Cloud
+# project exposes all model tiers under one API key, leave PRO unset.
+_GEMINI_KEY_PRO = os.environ.get("GEMINI_API_KEY_PRO") or _GEMINI_KEY_HEAVY
+
+# Configure the global genai client. We use the Pro key when it differs so
+# that the heavier Pro quota bucket is charged for Planner/REA calls.
+# The Heavy key is still active for Machinist/Critic/Refiner via the same
+# global client — both keys must belong to the same Google Cloud project.
+genai.configure(api_key=_GEMINI_KEY_PRO)
 
 
 def _safe_error(detail: str | Exception) -> str:
@@ -546,8 +556,32 @@ async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, 
     # block can never prevent the "complete" event from being emitted.
     aero_report: dict | None = None
     if run_aero:
+        # Single-part fast path never calls _save_part_step, so step_files is
+        # empty.  For Domain D (wing) single-part prompts we need a STEP for
+        # XFOIL's geometry extraction.  Generate a temporary one on the fly
+        # using the same pattern as the geometry-cert block below.
+        if single and not step_files:
+            _aero_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_aero.step"))
+            _aero_script = (
+                f"{code}\n\n"
+                f"import cadquery as cq\n"
+                f"cq.exporters.export(result, r'{_aero_step_path}')\n"
+            )
+            _aero_exec = await execute_cad_script(_aero_script)
+            if _aero_exec["status"] == "success" and os.path.exists(_aero_step_path):
+                step_files = {manifest.parts[0].part_id: _aero_step_path}
+            # If export fails step_files stays empty and _run_aero_stage will
+            # return a skip message — the GLB has already been sent so this is
+            # non-fatal.
+
         yield _event("aero", "running", "Running XFOIL polar analysis")
         aero_report, aero_msg = await _run_aero_stage(step_files, requirements)
+        # Clean up the temporary STEP file generated for single-part aero.
+        if single and "_aero_step_path" in locals():
+            try:
+                os.remove(_aero_step_path)
+            except OSError:
+                pass
         if aero_report is not None:
             yield _event("aero", "done", aero_msg)
         else:
@@ -1179,6 +1213,84 @@ async def generate_analysis_plots(body: PlotsRequest, request: Request):
         "cd_alpha": cd_b64,
         "cp_dist": cp_b64,
     }
+
+
+@app.post("/analysis/pdf")
+@limiter.limit("5/minute")
+async def generate_xfoil_pdf_report(body: PlotsRequest, request: Request):
+    """PDF-03: Generate and stream an XFOIL aerodynamic report as a PDF.
+
+    Accepts the same request body as /analysis/plots.  Generates all three
+    matplotlib charts server-side, then calls analysis/pdf_report.py to
+    assemble a multi-page branded PDF and streams the raw bytes back to the
+    client with Content-Disposition: attachment.
+
+    Rate-limited to 5/min (heavier than /analysis/plots) because PDF
+    generation invokes matplotlib twice plus an optional XFOIL Cp run.
+
+    Returns
+    -------
+    application/pdf stream with filename mirum_naca{code}_re{re:.0e}.pdf
+    """
+    import asyncio as _asyncio
+    import sys
+    from fastapi.responses import Response as _Response
+    from pathlib import Path as _Path
+
+    # Ensure analysis/ is importable (repo root is parent of backend/)
+    _repo_root = _Path(__file__).resolve().parent.parent
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
+
+    try:
+        from analysis.plots import plot_cl_alpha, plot_cd_alpha, plot_cp_dist  # noqa: PLC0415
+        from analysis.pdf_report import generate_xfoil_pdf  # noqa: PLC0415
+    except ImportError as imp_err:
+        logger.error("/analysis/pdf: import failed: %s", imp_err)
+        return {"status": "error", "detail": f"pdf module unavailable: {imp_err}"}
+
+    polar = body.polar
+
+    # Generate Cl and Cd charts in a thread (blocking matplotlib)
+    try:
+        cl_b64 = await _asyncio.to_thread(plot_cl_alpha, polar)
+        cd_b64 = await _asyncio.to_thread(plot_cd_alpha, polar)
+    except Exception as chart_err:
+        logger.exception("/analysis/pdf: chart generation failed")
+        return {"status": "error", "detail": _safe_error(chart_err)}
+
+    # Cp distribution — best-effort, XFOIL may be absent
+    cp_b64: str | None = None
+    try:
+        cp_b64 = await _asyncio.to_thread(
+            plot_cp_dist,
+            body.naca_code,
+            body.design_alpha,
+            body.reynolds,
+            body.mach,
+            body.n_crit,
+        )
+    except Exception as cp_err:
+        logger.warning("/analysis/pdf: Cp plot failed (skipped): %s", cp_err)
+
+    # Assemble PDF in a thread (fpdf2 is CPU-bound)
+    try:
+        pdf_bytes = await _asyncio.to_thread(
+            generate_xfoil_pdf, polar, cl_b64, cd_b64, cp_b64
+        )
+    except Exception as pdf_err:
+        logger.exception("/analysis/pdf: PDF generation failed")
+        return {"status": "error", "detail": _safe_error(pdf_err)}
+
+    naca = body.naca_code
+    re = body.reynolds
+    filename = f"mirum_naca{naca}_re{re:.0e}.pdf"
+
+    return _Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.post("/pmi/annotate")

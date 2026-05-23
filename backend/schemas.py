@@ -266,8 +266,36 @@ class AirfoilSpec(BaseModel):
         max_length=4,
         description="4-digit NACA code (e.g. '0012', '2412'). Used for label + fallback.",
     )
-    chord_mm:  Optional[float] = Field(default=None, description="Representative chord length (mm).")
-    span_mm:   Optional[float] = Field(default=None, description="Total wing span (mm). Mid-span is span_mm/2.")
+    chord_mm:      Optional[float] = Field(default=None, description="Representative chord length (mm).")
+    span_mm:       Optional[float] = Field(default=None, description="Total wing span (mm). Mid-span is span_mm/2.")
+    sweep_le_deg:  Optional[float] = Field(default=None, description="Leading-edge sweep angle (degrees). DA planform variants.")
+    dihedral_deg:  Optional[float] = Field(default=None, description="Dihedral angle (degrees). Positive = tip raised upward.")
+    root_pitch_deg: Optional[float] = Field(default=None, description="Geometric pitch angle at blade root (degrees). DB twisted blades.")
+    tip_pitch_deg:  Optional[float] = Field(default=None, description="Geometric pitch angle at blade tip (degrees). DB twisted blades.")
+
+
+class PropulsionSpec(BaseModel):
+    """Propulsion geometry parameters for Domain F parts.
+
+    Populated by the REA from Domain F prompts (rocket nozzles, combustion
+    chambers, nacelle inlets). Used by the Machinist to parameterize the
+    correct propulsion helper from cad_utils.
+    """
+
+    propulsion_type: Optional[str] = Field(
+        default=None,
+        description="Component type: 'nozzle', 'chamber', 'nacelle', 'duct', or 'generic'.",
+    )
+    throat_diameter_mm:    Optional[float] = Field(default=None, description="Nozzle throat diameter (mm).")
+    exit_diameter_mm:      Optional[float] = Field(default=None, description="Nozzle exit plane diameter (mm).")
+    chamber_radius_mm:     Optional[float] = Field(default=None, description="Combustion chamber inner radius (mm).")
+    chamber_length_mm:     Optional[float] = Field(default=None, description="Combustion chamber cylindrical length (mm).")
+    wall_thickness_mm:     Optional[float] = Field(default=None, description="Component wall thickness (mm).")
+    num_fuel_inlets:       Optional[int]   = Field(default=None, description="Number of fuel inlet ports.")
+    highlight_radius_mm:   Optional[float] = Field(default=None, description="Nacelle inlet highlight outer radius (mm).")
+    fan_face_radius_mm:    Optional[float] = Field(default=None, description="Nacelle fan face inner radius (mm).")
+    conv_half_angle_deg:   Optional[float] = Field(default=None, description="Nozzle converging section half-angle (degrees).")
+    div_half_angle_deg:    Optional[float] = Field(default=None, description="Nozzle diverging section half-angle (degrees).")
 
 
 class PolarReport(BaseModel):
@@ -484,8 +512,18 @@ class DesignRequirements(BaseModel):
         default=None,
         description=(
             "Domain D only: airfoil identification needed to slice the wing "
-            "STEP and label the polar (NACA code, chord, span). Populate when "
-            "the prompt names a NACA airfoil or wing dimensions."
+            "STEP and label the polar (NACA code, chord, span, sweep, dihedral, "
+            "pitch angles for twisted blades). Populate when the prompt names "
+            "a NACA airfoil or wing dimensions."
+        ),
+    )
+
+    propulsion_spec: Optional[PropulsionSpec] = Field(
+        default=None,
+        description=(
+            "Domain F only: propulsion geometry parameters extracted from the prompt "
+            "(nozzle throat/exit diameters, chamber dimensions, fuel inlet count, "
+            "nacelle highlight radius, etc.). Populate when inferred_domain is 'F'."
         ),
     )
 
