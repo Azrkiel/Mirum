@@ -294,7 +294,7 @@ async def test_machinist(case: QACase, sem: asyncio.Semaphore) -> TestResult:
                 dimensions={},
                 anchor_tags=[],
             )
-            code, _step, _cert = await run_machinist(part, domain_override=case.expected_domain)
+            code = await run_machinist(part, domain=case.expected_domain)
             # Syntax check the generated code
             try:
                 ast.parse(code)
