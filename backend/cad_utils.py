@@ -1543,8 +1543,20 @@ def make_nacelle_cowl(
     # Outer cowl profile: offset by cowl_thickness
     outer_pts = [(x, r + cowl_thickness) for x, r in inner_pts]
 
-    # Close the profile: fan face inner → fan face outer → outer cowl reversed
-    all_pts = inner_pts + [(intake_length, fan_face_radius + cowl_thickness)] + list(reversed(outer_pts))
+    # Close the profile: inner duct (highlight → fan face) + outer cowl reversed
+    # (fan face → highlight).  outer_pts[-1] is already (intake_length,
+    # fan_face_radius + cowl_thickness), so we must NOT add that point explicitly
+    # — doing so would create a zero-length edge which causes
+    # BRepBuilderAPI_MakeEdge to raise OCP.StdFail.StdFail_NotDone.
+    all_pts = inner_pts + list(reversed(outer_pts))
+
+    # Safety: remove consecutive duplicates (zero-length edges crash OCCT).
+    # Guards against floating-point coincidence or degenerate input combinations.
+    deduped: list = [all_pts[0]]
+    for pt in all_pts[1:]:
+        if abs(pt[0] - deduped[-1][0]) > 1e-9 or abs(pt[1] - deduped[-1][1]) > 1e-9:
+            deduped.append(pt)
+    all_pts = deduped
 
     profile = (
         cq.Workplane("XZ")
