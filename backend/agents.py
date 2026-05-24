@@ -611,9 +611,8 @@ async def run_machinist(
     """
     system_prompt = get_strategy(domain, part_def.description)
 
-    # Escalate to Pro on retries — error_context signals a prior failure
-    # that requires deeper reasoning to fix (logic errors, geometry issues).
-    active_model = MODEL_PRO if error_context else MODEL
+    # Always use Heavy (gemini-3.5-flash) — Pro escalation on retries removed.
+    active_model = MODEL
     model = genai.GenerativeModel(
         model_name=active_model,
         system_instruction=system_prompt,
