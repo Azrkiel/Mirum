@@ -1112,6 +1112,50 @@ RULE_BLOCKS = {
         "    (X rotation = within XZ plane, NOT pitch rotation) "
         "  - num_stations < 4 (produces faceted geometry) "
     ),
+
+    # ── Domain H: Aerospace Analysis Pipeline ─────────────────────────
+    "rule_domain_h": (
+        "DOMAIN H STRATEGY — Aerospace Analysis Pipeline: "
+        "\n"
+        "Domain H generates a complete aerospace wing analysis using the pipeline in backend/aero/pipeline.py. "
+        "Output is structured numerical results, NOT CadQuery geometry. "
+        "\n"
+        "REQUIRED IMPORTS: "
+        "  import sys "
+        "  sys.path.insert(0, '/opt') "
+        "  from backend.aero.pipeline import run, WingSpec "
+        "  from backend.aero.isa import isa "
+        "\n"
+        "MINIMAL COMPLETE EXAMPLE — ALWAYS use this pattern: "
+        "  spec = WingSpec( "
+        "      airfoil='NACA2412', "
+        "      MTOW=5000.0,          # kg "
+        "      cruise_V=150.0,       # m/s TAS "
+        "      cruise_alt=8000.0,    # m "
+        "      chord=1.8,            # m — mean aerodynamic chord "
+        "      AR=8.0, "
+        "      taper=0.45, "
+        "      load_factors=(2.5, -1.0), "
+        "      naca_cambered=True, "
+        "  ) "
+        "  result = run(spec, CL_cruise=0.4) "
+        "\n"
+        "OUTPUT — always print structured results: "
+        "  print(f'Wingspan: {result.sizing.b:.2f} m') "
+        "  print(f'Wing area: {result.sizing.S:.2f} m²') "
+        "  print(f'L/D: {result.sizing.LD:.1f}') "
+        "  print(f'Stall speed: {result.vn.V_S:.1f} m/s') "
+        "  print(f'Corner speed: {result.vn.V_A:.1f} m/s') "
+        "  print(f'Box weight: {result.box.W_box:.1f} kg') "
+        "  print(f'Converged: {result.converged} in {result.iterations} iterations') "
+        "  if result.warnings: "
+        "      for w in result.warnings: "
+        "          print(f'[WARN] {w}') "
+        "\n"
+        "IMPORTANT: result is a PipelineResult dataclass, not a CadQuery workplane. "
+        "Do NOT assign result to a 'result' variable expected to be a CadQuery object. "
+        "Domain H scripts run analytical pipelines and produce text output. "
+    ),
 }
 
 _CORE_RULES = [
@@ -1156,6 +1200,11 @@ _DOMAIN_PREAMBLES = {
         "You are a CadQuery machinist specialized in VEHICLE BODY STRUCTURES. "
         "The part you are generating is classified as Domain G (Vehicle Bodies/Fairings). "
     ),
+    "H": (
+        "You are an aerospace engineering analyst. "
+        "The task is classified as Domain H (Aerospace Analysis Pipeline). "
+        "You are running a full aero-structural analysis, NOT generating CadQuery geometry. "
+    ),
 }
 
 # Rules always injected for a given domain (on top of core rules)
@@ -1178,6 +1227,7 @@ _DOMAIN_RULES = {
     ],
     "F": ["rule_feature_vocabulary", "rule_domain_f"],
     "G": ["rule_feature_vocabulary", "rule_domain_g"],
+    "H": ["rule_domain_h"],
 }
 
 # Keyword triggers — inject these rules when ANY keyword matches the description

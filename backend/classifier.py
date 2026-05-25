@@ -12,6 +12,7 @@ Domains:
   C (Organic/Ergonomic)        — handles, shells, fairings, grips, spoons
   D (Aerospace/Aerodynamics)   — wings, airfoils, NACA profiles, ribs, spars
   E (Sheet Metal/Thin-Wall)    — bent plates, enclosure panels, PCB trays (T3-06)
+  H (Aerospace Analysis)       — aerospace analysis pipeline (wing sizing, structural analysis, V-n diagram, FEA)
 """
 
 import os
@@ -28,7 +29,7 @@ _CLASSIFICATION_SCHEMA = {
     "properties": {
         "domain": {
             "type": "string",
-            "enum": ["A", "B", "C", "D", "E", "F", "G"],
+            "enum": ["A", "B", "C", "D", "E", "F", "G", "H"],
             "description": (
                 "The geometric domain: "
                 "'A' for primitives/structural (boxes, plates, enclosures, brackets, frames). "
@@ -44,7 +45,10 @@ _CLASSIFICATION_SCHEMA = {
                 "thrust chambers, injector faces). "
                 "'G' for vehicle bodies/fairings (aircraft fuselages, nose cones, payload fairings, "
                 "rocket body tubes, re-entry capsules, crew capsules, pod bodies, shrouds, "
-                "streamlined enclosures with varying cross-sections)."
+                "streamlined enclosures with varying cross-sections). "
+                "'H' for aerospace analysis pipeline (wing sizing, structural analysis, V-n diagram, "
+                "spar sizing, rib design, wing loading, buckling analysis, FEA, wing box, XFOIL, "
+                "spanwise load distribution, aero-structural coupling, Raymer sizing)."
             ),
         },
         "reasoning": {
@@ -73,7 +77,7 @@ async def classify_part(description: str) -> dict:
         description: The part's physical description from PartDefinition.
 
     Returns:
-        {"domain": "A"|"B"|"C"|"D", "reasoning": str, "key_params": str}
+        {"domain": "A"|"B"|"C"|"D"|"E"|"F"|"G"|"H", "reasoning": str, "key_params": str}
     """
     model = genai.GenerativeModel(
         model_name=MODEL,
@@ -136,6 +140,16 @@ async def classify_part(description: str) -> dict:
             "Key signal: mentions 'fuselage', 'nose cone', 'ogive', 'fairing', 'shroud', "
             "'payload section', 'rocket body', 'body tube', 'capsule', 'pod body', "
             "'fuselage section', 'Haack series', 'parabolic nose', 'tangent ogive'. "
+            "\n"
+            "Domain H (Aerospace Analysis Pipeline): Full aero-structural wing analysis — "
+            "wing sizing, V-n diagrams, structural load computation, spar/rib sizing, "
+            "buckling analysis, FEA mesh generation, XFOIL polar sweeps, spanwise load "
+            "distribution. Use when the user wants numerical results (weights, speeds, "
+            "margins of safety) rather than a 3D geometry export. "
+            "Key signal: mentions 'structural sizing', 'V-n diagram', 'spar sizing', "
+            "'rib design', 'wing loading', 'buckling', 'FEA', 'wing box', 'XFOIL', "
+            "'spanwise load', 'aero-structural', 'margin of safety', 'Raymer', "
+            "'stall speed', 'corner speed', 'gust load factor'. "
             "\n"
             "PRIORITY: Domain F takes precedence over Domain B when 'nozzle', 'combustion', "
             "'thrust', or 'injector' keywords are present. A 'rocket nozzle' is Domain F, "

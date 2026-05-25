@@ -1256,5 +1256,35 @@
     "regression_for": [
       "G"
     ]
+  },
+  {
+    "id": "H_wing_sizing_basic",
+    "domain": "H",
+    "difficulty": "easy",
+    "description": "Size a wing for a 5000 kg transport aircraft cruising at 150 m/s at 8000 m altitude. Use NACA2412, AR=8, taper=0.45. Report wingspan, wing area, L/D, stall speed, and structural box weight.",
+    "expected_features": ["WingSpec", "run(", "sizing.b", "vn.V_S", "box.W_box"],
+    "regression_for": ["H"],
+    "required_helpers": [],
+    "required_keywords": ["WingSpec", "run("]
+  },
+  {
+    "id": "H_wing_sizing_loaded",
+    "domain": "H",
+    "difficulty": "medium",
+    "description": "Perform a full aero-structural sizing for a 12000 kg regional aircraft. Cruise: 200 m/s TAS at 10000 m, NACA4412 airfoil, AR=9, taper=0.4, load factors +3.5/-1.5. Report: V-n corner speed, stall speed, positive gust load factor, wing box structural weight, and whether the sizing converged.",
+    "expected_features": ["WingSpec", "run(", "load_factors", "vn.V_A", "vn.V_S", "box.W_box", "converged"],
+    "regression_for": ["H"],
+    "required_helpers": [],
+    "required_keywords": ["WingSpec", "run(", "load_factors"]
+  },
+  {
+    "id": "H_pipeline_warnings",
+    "domain": "H",
+    "difficulty": "hard",
+    "description": "Size a supersonic wing (cruise 400 m/s at 12000 m, MTOW 8000 kg, NACA0006 symmetric, AR=3, taper=0.3, naca_cambered=False). The pipeline should warn about XFOIL Mach limit. Report M_cruise, any pipeline warnings, corner speed, and structural box weight.",
+    "expected_features": ["WingSpec", "run(", "naca_cambered", "warnings", "M_cruise"],
+    "regression_for": ["H"],
+    "required_helpers": [],
+    "required_keywords": ["WingSpec", "run(", "naca_cambered"]
   }
 ]
