@@ -1025,6 +1025,77 @@ RULE_BLOCKS = {
         "  - Non-monotonic station ordering (x_axial must strictly increase tip to tail). "
     ),
 
+    # ── Domain H: Full Aerospace Analysis Pipeline ────────────────────
+    "rule_aero_pipeline": (
+        "DOMAIN H STRATEGY — Aerospace Wing Analysis Pipeline: "
+        "\n"
+        "Domain H requests require the full engineering analysis pipeline. "
+        "The pipeline MUST be called in module order; never skip steps. "
+        "\n"
+        "IMPORT THE PIPELINE PACKAGE: "
+        "  from aero.regime import WingSpec "
+        "  from aero.pipeline import run as run_pipeline "
+        "\n"
+        "STEP 1 — BUILD WINGSPEC (all SI units): "
+        "  spec = WingSpec( "
+        "      airfoil='NACA2412',     # 4-digit NACA code (string, no spaces) "
+        "      MTOW=500.0,             # kg maximum take-off weight "
+        "      cruise_V=50.0,          # m/s true airspeed "
+        "      cruise_alt=2000.0,      # m geometric altitude "
+        "      chord=1.2,              # m mean aerodynamic chord (initial estimate) "
+        "      AR=8.0,                 # aspect ratio "
+        "      taper=0.45,             # taper ratio "
+        "      load_factors=(2.5, -1.0),  # (n_max, n_min) "
+        "  ) "
+        "\n"
+        "STEP 2 — RUN PIPELINE: "
+        "  result = run_pipeline(spec, CL_cruise=0.4) "
+        "\n"
+        "STEP 3 — REPORT KEY OUTPUTS (always include ALL of these): "
+        "  Wing area: {result.sizing.S:.2f} m2 "
+        "  Span: {result.sizing.b:.2f} m "
+        "  Root chord: {result.sizing.c_root:.3f} m "
+        "  Tip chord: {result.sizing.c_tip:.3f} m "
+        "  MAC: {result.sizing.MAC:.3f} m "
+        "  Wing weight (Raymer): {result.sizing.W_wing_raymer:.1f} kg "
+        "  Mach: {result.Mach:.3f}, Re: {result.Re:.2e} "
+        "  Regime: {result.regime} "
+        "  n_max applied: {result.load_case.n} "
+        "  Root BM: {result.load_case.BM[0]:.0f} N·m "
+        "  Root shear: {result.load_case.V_shear[0]:.0f} N "
+        "  Root torsion: {result.load_case.torsion[0]:.0f} N·m "
+        "  Spar cap area (root): {result.box.cap_area[0]*1e6:.1f} mm2 "
+        "  Skin thickness (root): {result.box.skin_t_upper[0]*1e3:.2f} mm "
+        "  Web thickness (root): {result.box.web_t_front[0]*1e3:.2f} mm "
+        "  MS_bending (min): {result.box.MS_bending.min():.3f} "
+        "  MS_shear (min): {result.box.MS_shear.min():.3f} "
+        "  MS_torsion (min): {result.box.MS_torsion.min():.3f} "
+        "  MS_buckling (min): {result.box.MS_buckling.min():.3f} "
+        "  Converged: {result.converged} ({result.iterations} iterations) "
+        "  Warnings: {result.warnings} "
+        "\n"
+        "GEOMETRY OUTPUT (when a 3D model is requested alongside analysis): "
+        "  from aero.wing_geometry import make_wing_oml, make_rib "
+        "  from aero.airfoil import NACAProfile "
+        "  import numpy as np "
+        "  airfoil = NACAProfile(spec.airfoil, chord=1.0) "
+        "  # Normalised coords (chord=1) scaled inside make_wing_oml "
+        "  oml = make_wing_oml( "
+        "      airfoil_pts=airfoil.coords, "
+        "      chords=[result.sizing.c_root, result.sizing.c_tip], "
+        "      y_stations=[0.0, result.sizing.b / 2], "
+        "      twists_deg=[0.0, result.sizing.twist_tip], "
+        "      dihedrals_deg=[0.0, 0.0], "
+        "  ) "
+        "  result_geom = oml "
+        "\n"
+        "FORBIDDEN: "
+        "  - Skipping the pipeline and hard-coding sizing outputs. "
+        "  - Using Domain D geometry helpers (make_naca_wire) for analysis output. "
+        "  - Reporting any margin of safety without running size_box(). "
+        "  - Running XFOIL in CL-sweep mode without regime.validate_regime() first. "
+    ),
+
     # ── DA: Planform variant rule (keyword-triggered for Domain D) ────
     "rule_planform_variants": (
         "PLANFORM VARIANT RULE — Swept / Delta / Dihedral Wings: "
@@ -1178,6 +1249,7 @@ _DOMAIN_RULES = {
     ],
     "F": ["rule_feature_vocabulary", "rule_domain_f"],
     "G": ["rule_feature_vocabulary", "rule_domain_g"],
+    "H": ["rule_aero_pipeline"],
 }
 
 # Keyword triggers — inject these rules when ANY keyword matches the description
@@ -1227,6 +1299,19 @@ _KEYWORD_TRIGGERS = {
         "chassis panel", "metal gauge", "steel gauge", "aluminum gauge",
         "bend radius", "flange height", "k-factor", "flat pattern",
         "bend allowance", "metal bracket", "stamped",
+    ],
+    # DH: Full aerospace analysis pipeline — inject when analysis keywords present
+    "rule_aero_pipeline": [
+        "structural sizing", "v-n diagram", "v-n", "vn diagram",
+        "spar sizing", "spar cap", "spar web", "rib design",
+        "wing loading", "wing box", "buckling analysis", "panel buckling",
+        "fea", "finite element", "calculix",
+        "raymer", "xfoil", "avl", "schrenk",
+        "spanwise load", "spanwise loading",
+        "bending moment diagram", "shear force diagram",
+        "margin of safety", "ms bending", "ms shear",
+        "maneuver speed", "corner speed", "dive speed",
+        "oswald efficiency", "induced drag",
     ],
     # DA: Planform variants — inject when Domain D prompt mentions sweep/dihedral/delta
     "rule_planform_variants": [
@@ -1332,7 +1417,7 @@ def get_strategy(domain: str, description: str = "") -> str:
       3. Keyword-triggered rules (injected only when the description matches)
 
     Args:
-        domain: Geometric domain classification ("A", "B", "C", "D", "E", "F", or "G").
+        domain: Geometric domain classification ("A", "B", "C", "D", "E", "F", "G", or "H").
         description: The part's physical description for keyword matching.
 
     Returns:

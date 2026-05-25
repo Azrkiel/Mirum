@@ -836,7 +836,7 @@
     "regression_for": [
       "D"
     ],
-    "notes": "Multi-part Domain D path \u2014 tests that Planner decomposes wing into skin + ribs + spar and that the assembler applies FASTENED mates correctly."
+    "notes": "Multi-part Domain D path — tests that Planner decomposes wing into skin + ribs + spar and that the assembler applies FASTENED mates correctly."
   },
   {
     "id": "D_aero_sweep_naca0012",
@@ -858,7 +858,7 @@
     ],
     "expected_naca_code": "0012",
     "min_converged_alpha": 14,
-    "notes": "Primary XFOIL integration test \u2014 validates the full aero pipeline: generate wing geometry, run XFOIL, return PolarReport. Stall should be \u226514 alpha-points converged."
+    "notes": "Primary XFOIL integration test — validates the full aero pipeline: generate wing geometry, run XFOIL, return PolarReport. Stall should be ≥14 alpha-points converged."
   },
   {
     "id": "D_fuselage_cross_section",
@@ -1255,6 +1255,57 @@
     ],
     "regression_for": [
       "G"
+    ]
+  },
+  {
+    "id": "H_wing_sizing_basic",
+    "domain": "H",
+    "difficulty": "easy",
+    "description": "Design a NACA 2412 wing for a 500kg aircraft cruising at 50 m/s at 2000m altitude. AR=8, taper=0.45. Provide wing area, span, root and tip chords.",
+    "expected_features": [
+      "wing area m2",
+      "span m",
+      "root chord m",
+      "tip chord m",
+      "CL cruise"
+    ],
+    "regression_for": [
+      "H"
+    ]
+  },
+  {
+    "id": "H_wing_sizing_loaded",
+    "domain": "H",
+    "difficulty": "medium",
+    "description": "Size the wing box structure for a 1200kg aircraft with NACA 4412 wing, cruise 70 m/s at 3000m, AR=9, taper=0.4, load factor 3.5g. Provide spar cap areas, skin thickness, web thickness, and margins of safety.",
+    "expected_features": [
+      "spar cap area",
+      "skin thickness",
+      "web thickness",
+      "MS_bending",
+      "MS_shear",
+      "MS_torsion",
+      "MS_buckling"
+    ],
+    "regression_for": [
+      "H"
+    ]
+  },
+  {
+    "id": "H_rib_with_cutouts",
+    "domain": "H",
+    "difficulty": "hard",
+    "description": "Generate a rib for a NACA 2412 wing section at 1.5m span station, chord 0.8m, front spar at 15% chord, rear spar at 60% chord, skin thickness 2mm, with spar cutouts, stringer mouse holes, and a central lightening hole.",
+    "expected_features": [
+      "rib at y=1.5m",
+      "NACA 2412 contour",
+      "front spar cutout at 15%",
+      "rear spar cutout at 60%",
+      "lightening hole",
+      "skin_t=0.002m"
+    ],
+    "regression_for": [
+      "H"
     ]
   }
 ]

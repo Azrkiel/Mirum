@@ -73,7 +73,7 @@ async def classify_part(description: str) -> dict:
         description: The part's physical description from PartDefinition.
 
     Returns:
-        {"domain": "A"|"B"|"C"|"D", "reasoning": str, "key_params": str}
+        {"domain": "A"|"B"|"C"|"D"|"E"|"F"|"G"|"H", "reasoning": str, "key_params": str}
     """
     model = genai.GenerativeModel(
         model_name=MODEL,
@@ -147,9 +147,27 @@ async def classify_part(description: str) -> dict:
             "keywords are present. "
             "Domain E takes precedence over Domain A when sheet metal keywords are present. "
             "\n"
+            "Domain H (Full Aerospace Analysis Pipeline): Requests that require structural "
+            "sizing, V-n diagram computation, spar/rib design, wing box analysis, FEA, "
+            "margins of safety, Raymer weight estimation, XFOIL polar, or spanwise load "
+            "distribution. Domain H is distinct from Domain D — D produces geometry only, "
+            "H runs the full engineering analysis pipeline and reports numeric results. "
+            "Key signal: mentions 'structural sizing', 'spar cap area', 'skin thickness', "
+            "'margin of safety', 'bending moment diagram', 'V-n diagram', 'wing box', "
+            "'FEA', 'Raymer', 'XFOIL polar', 'spanwise loading', 'Schrenk', 'Oswald', "
+            "'induced drag coefficient', 'maneuver speed', or 'buckling analysis'. "
+            "PRIORITY: Domain H takes precedence over Domain D when structural analysis "
+            "output (margins, thicknesses, loads) is the primary deliverable rather than "
+            "a 3D geometry file. "
+            "\n"
+            "PRIORITY: Domain F takes precedence over Domain B when 'nozzle', 'combustion', "
+            "'thrust', or 'injector' keywords are present. A 'rocket nozzle' is Domain F, "
+            "NOT Domain B. "
+            "\n"
             "When in doubt between A and B, choose B (parametric is safer than primitive). "
             "When in doubt between A and C, choose A (structural is more reliable). "
             "When in doubt between A and E, choose E if any gauge/bend/sheet keywords present. "
+            "When in doubt between D and H, choose H if numeric analysis output is expected. "
             "Extract all numeric parameters you can find from the description."
         ),
     )
