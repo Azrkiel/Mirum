@@ -16,6 +16,7 @@ involvement. Telemetry is captured for every Machinist attempt.
 """
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -31,6 +32,11 @@ logger = logging.getLogger("mirum.agents")
 from classifier import classify_part
 from compiler import execute_cad_script
 from failure_analysis import build_retry_context, classify_failure
+from propulsion.rea_schema import (
+    mentions_propulsion,
+    propulsion_rea_schema_extension,
+)
+from propulsion.validation import validate_all as validate_propulsion_spec
 from retrieval import (
     add_to_index,
     extract_techniques,
@@ -231,6 +237,77 @@ def _strip_markdown_fences(text: str) -> str:
     return text.strip()
 
 
+# Base REA response schema (Gemini-safe: no $ref / anyOf / defaults). The Domain F
+# `propulsion_spec` field is NOT part of the base — it is merged in only for
+# propulsion prompts by `_rea_schema_for`, keeping the schema lean otherwise.
+_REA_BASE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "primary_function": {"type": "string"},
+        "key_dimensions": {
+            "type": "object",
+            "description": "dimension_name -> value_in_mm",
+        },
+        "material_class": {"type": "string"},
+        "environment": {"type": "string"},
+        "connecting_interfaces": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "production_volume": {"type": "string"},
+        "inferred_domain": {"type": "string"},
+        "confidence": {"type": "number"},
+        # Phase 3 (XFOIL): only populate for Domain D when explicitly stated
+        "flight_env": {
+            "type": "object",
+            "description": (
+                "Domain D only. Populate ONLY if the prompt names "
+                "explicit aerodynamic conditions. Omit otherwise."
+            ),
+            "properties": {
+                "alpha_start": {"type": "number"},
+                "alpha_end":   {"type": "number"},
+                "alpha_step":  {"type": "number"},
+                "reynolds":    {"type": "number"},
+                "mach":        {"type": "number"},
+                "n_crit":      {"type": "number"},
+            },
+        },
+        "airfoil_spec": {
+            "type": "object",
+            "description": (
+                "Domain D only. Populate from the prompt when a NACA "
+                "airfoil and/or wing dimensions are named."
+            ),
+            "properties": {
+                "naca_code":      {"type": "string"},
+                "chord_mm":       {"type": "number"},
+                "span_mm":        {"type": "number"},
+                "sweep_le_deg":   {"type": "number"},
+                "dihedral_deg":   {"type": "number"},
+                "root_pitch_deg": {"type": "number"},
+                "tip_pitch_deg":  {"type": "number"},
+            },
+        },
+    },
+    "required": ["primary_function", "connecting_interfaces", "confidence"],
+}
+
+
+def _rea_schema_for(prompt: str) -> dict[str, Any]:
+    """Build the REA response schema for ``prompt``.
+
+    The Domain F ``propulsion_spec`` field (owned by the propulsion package, so the
+    REA, classifier vocab, and validators share one source of truth) is merged in
+    only when the prompt mentions propulsion — keeping the schema minimal for the
+    other domains. Returns a fresh copy so callers may mutate it freely.
+    """
+    schema = copy.deepcopy(_REA_BASE_SCHEMA)
+    if mentions_propulsion(prompt):
+        schema["properties"].update(propulsion_rea_schema_extension())
+    return schema
+
+
 async def run_rea(prompt: str) -> "DesignRequirements | None":
     """T2-12: Requirements Engineering Agent.
 
@@ -241,78 +318,7 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
     The REA and Clarifier are independent — both can run concurrently.
     REA feeds forward to the Planner; Clarifier feeds back to the user.
     """
-    _REA_SCHEMA = {
-        "type": "object",
-        "properties": {
-            "primary_function": {"type": "string"},
-            "key_dimensions": {
-                "type": "object",
-                "description": "dimension_name -> value_in_mm",
-            },
-            "material_class": {"type": "string"},
-            "environment": {"type": "string"},
-            "connecting_interfaces": {
-                "type": "array",
-                "items": {"type": "string"},
-            },
-            "production_volume": {"type": "string"},
-            "inferred_domain": {"type": "string"},
-            "confidence": {"type": "number"},
-            # Phase 3 (XFOIL): only populate for Domain D when explicitly stated
-            "flight_env": {
-                "type": "object",
-                "description": (
-                    "Domain D only. Populate ONLY if the prompt names "
-                    "explicit aerodynamic conditions. Omit otherwise."
-                ),
-                "properties": {
-                    "alpha_start": {"type": "number"},
-                    "alpha_end":   {"type": "number"},
-                    "alpha_step":  {"type": "number"},
-                    "reynolds":    {"type": "number"},
-                    "mach":        {"type": "number"},
-                    "n_crit":      {"type": "number"},
-                },
-            },
-            "airfoil_spec": {
-                "type": "object",
-                "description": (
-                    "Domain D only. Populate from the prompt when a NACA "
-                    "airfoil and/or wing dimensions are named."
-                ),
-                "properties": {
-                    "naca_code":      {"type": "string"},
-                    "chord_mm":       {"type": "number"},
-                    "span_mm":        {"type": "number"},
-                    "sweep_le_deg":   {"type": "number"},
-                    "dihedral_deg":   {"type": "number"},
-                    "root_pitch_deg": {"type": "number"},
-                    "tip_pitch_deg":  {"type": "number"},
-                },
-            },
-            "propulsion_spec": {
-                "type": "object",
-                "description": (
-                    "Domain F only. Populate from the prompt when propulsion "
-                    "geometry parameters are named (nozzle, chamber, nacelle)."
-                ),
-                "properties": {
-                    "propulsion_type":     {"type": "string"},
-                    "throat_diameter_mm":  {"type": "number"},
-                    "exit_diameter_mm":    {"type": "number"},
-                    "chamber_radius_mm":   {"type": "number"},
-                    "chamber_length_mm":   {"type": "number"},
-                    "wall_thickness_mm":   {"type": "number"},
-                    "num_fuel_inlets":     {"type": "integer"},
-                    "highlight_radius_mm": {"type": "number"},
-                    "fan_face_radius_mm":  {"type": "number"},
-                    "conv_half_angle_deg": {"type": "number"},
-                    "div_half_angle_deg":  {"type": "number"},
-                },
-            },
-        },
-        "required": ["primary_function", "connecting_interfaces", "confidence"],
-    }
+    _REA_SCHEMA = _rea_schema_for(prompt)
 
     model = genai.GenerativeModel(
         model_name=MODEL_PRO,
@@ -363,7 +369,20 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
             )
         except Exception:
             pass
-        return DesignRequirements(**raw)
+        requirements = DesignRequirements(**raw)
+        # Deterministic Domain F physics validation. Non-blocking: the REA feeds
+        # the Planner regardless, but contradictory propulsion geometry (e.g. an
+        # exit narrower than the throat, or a cowl inside its fan face) is surfaced
+        # in telemetry so it can be triaged.
+        if requirements.propulsion_spec is not None:
+            prop_issues = validate_propulsion_spec(requirements.propulsion_spec)
+            if prop_issues:
+                logger.warning(
+                    "run_rea: propulsion_spec failed %d physics check(s): %s",
+                    len(prop_issues),
+                    "; ".join(prop_issues),
+                )
+        return requirements
     except Exception:
         logger.exception("run_rea: failed — Planner will proceed without structured requirements")
         return None  # Non-blocking — Planner proceeds without structured requirements
@@ -718,7 +737,7 @@ async def run_critic_loop(
     part_def: PartDefinition,
     max_retries: int = 3,
     save_step: bool = True,
-) -> tuple[str, str]:
+) -> tuple[str, str, dict | None]:
     """Subagent 3: The QA Inspector (Critic Loop).
 
     Runs the Machinist's code via subprocess with concurrency control.

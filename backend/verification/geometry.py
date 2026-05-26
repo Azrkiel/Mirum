@@ -152,10 +152,11 @@ def _failed_cert(reason: str) -> GeometryCertificate:
 
 def _propulsion_fields(propulsion_spec) -> dict:
     """Derive (throat_area_mm2, exit_area_mm2, geometric_expansion_ratio,
-    channel_count_detected) from a ``PropulsionSpec`` instance.
+    channel_count_detected) from an aerospace ``PropulsionSpec`` instance.
 
     Returns a dict ready to merge into the certificate. Returns all-None when
-    ``propulsion_spec`` is None or lacks a nozzle.
+    ``propulsion_spec`` is None or carries no nozzle diameters. ``channel_count_detected``
+    is a rocket regen-cooling concept with no aerospace analogue and stays None.
     """
     out = {
         "throat_area_mm2": None,
@@ -165,19 +166,14 @@ def _propulsion_fields(propulsion_spec) -> dict:
     }
     if propulsion_spec is None:
         return out
-    if getattr(propulsion_spec, "nozzle", None) is not None:
-        nz = propulsion_spec.nozzle
-        if nz.throat_radius is not None:
-            out["throat_area_mm2"] = math.pi * nz.throat_radius ** 2
-            if nz.exit_radius is not None:
-                out["exit_area_mm2"] = math.pi * nz.exit_radius ** 2
-            elif nz.expansion_ratio is not None:
-                er = nz.expansion_ratio
-                out["exit_area_mm2"] = math.pi * nz.throat_radius ** 2 * er
-            if out["throat_area_mm2"] and out["exit_area_mm2"]:
-                out["geometric_expansion_ratio"] = out["exit_area_mm2"] / out["throat_area_mm2"]
-    if getattr(propulsion_spec, "cooling_channels", None) is not None:
-        out["channel_count_detected"] = propulsion_spec.cooling_channels.count
+    throat_d = getattr(propulsion_spec, "throat_diameter_mm", None)
+    exit_d = getattr(propulsion_spec, "exit_diameter_mm", None)
+    if throat_d is not None:
+        out["throat_area_mm2"] = math.pi * (throat_d / 2.0) ** 2
+    if exit_d is not None:
+        out["exit_area_mm2"] = math.pi * (exit_d / 2.0) ** 2
+    if out["throat_area_mm2"] and out["exit_area_mm2"]:
+        out["geometric_expansion_ratio"] = out["exit_area_mm2"] / out["throat_area_mm2"]
     return out
 
 
