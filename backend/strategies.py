@@ -66,7 +66,12 @@ RULE_BLOCKS = {
         "domain rules below. "
         "Workplane.shell() takes ONE positional argument (thickness) — it does "
         "NOT accept a faces= kwarg. Faces are selected BEFORE the call: "
-        ".faces('>Z').shell(thickness). See rule_shell_api for the full pattern."
+        ".faces('>Z').shell(thickness). See rule_shell_api for the full pattern. "
+        "BoundingBox attributes are LOWERCASE: bb = solid.BoundingBox(); use "
+        "bb.xmin/bb.xmax/bb.ymin/bb.ymax/bb.zmin/bb.zmax, bb.xlen/bb.ylen/bb.zlen, "
+        "and bb.center — NOT bb.xMax/bb.XMax/bb.XLen (those do not exist and raise "
+        "AttributeError). The Vector from solid.Center() IS capitalised, but the "
+        "BoundBox accessors are not."
     ),
     "rule_shell_api": (
         "SHELL OPERATION — exact CadQuery API. Workplane.shell(thickness) takes "
