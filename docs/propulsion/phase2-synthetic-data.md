@@ -1,12 +1,15 @@
 # Plan: Propulsion Phase 2 — Synthetic Prompt / CAD Data Generation
 
-> **Scope:** Draft only. Phase 1 (capability) is implemented in branch
-> `worktree-mirum+propulsion-domain-f`. Phase 2 layers synthetic-data
-> generation on top of that capability so the Machinist (and downstream
-> fine-tuned models) can be trained on a diverse Domain F corpus.
-> **Status:** Scoping. Implementation has not started.
-> **Companion:** `jazzy-exploring-sunset.md` (Phase 1 plan) and
-> `jazzy-exploring-sunset-handoff.md`.
+> **Scope:** Phase 2 layers synthetic-data generation on the Domain F
+> capability so the Machinist (and downstream fine-tuned models) can be
+> trained on a diverse Domain F corpus.
+> **Status:** Re-scoped to **aerospace** (2026-05-26). Domain F was rebuilt
+> from rocket propulsion to aerospace (nozzles, combustion chambers, nacelle
+> inlets, afterburner ducts); the rocket sampler/spec were replaced. Step 1
+> (sampler) is implemented against the aerospace `PropulsionSpec`; Steps 2–6
+> remain scoping.
+> **Companion:** `jazzy-exploring-sunset.md` (Phase 1 plan) and the
+> `propulsion-domain-f-handoff-2026-05-26.md` aerospace-pivot handoff.
 
 ---
 
@@ -19,11 +22,11 @@ for Domain F. The corpus seeds:
 1. **Machinist fine-tuning** (per architecture.md): preference pairs of
    `(prompt -> generated CadQuery code)` with the spec as the ground truth.
 2. **REA evaluation**: regression set for the prompt -> `PropulsionSpec`
-   extraction.
-3. **Planner evaluation**: regression set for the deterministic
-   `_planner_from_propulsion_spec` topology branch.
-4. **Coverage diagnostics**: which envelope regions (eg `epsilon < 10`,
-   `length_fraction = 1.0`, helix-only injectors) are under-represented.
+   extraction (the aerospace flat spec).
+3. **Classifier evaluation**: regression set for Domain F routing (the
+   deterministic `mentions_propulsion` short-circuit + the LLM classifier).
+4. **Coverage diagnostics**: which regions (e.g. high expansion-ratio nozzles,
+   large-diameter nacelles, thin-wall ducts) are under-represented.
 
 ## 2. Pipeline shape
 
@@ -40,24 +43,26 @@ poison the corpus.
 
 ### Step 1 -- Spec sampler
 
-* New module `data_pipeline/propulsion_sampler.py`. Pure-Python; no Gemini.
+* Module `data_pipeline/propulsion_sampler.py`. Pure-Python; no Gemini.
+  **Implemented** against the aerospace `PropulsionSpec`.
 * Sample `PropulsionSpec` instances by:
-  * Pick a topology profile: `nozzle_only`, `chamber_plus_nozzle`,
-    `full_assembly_no_regen`, `full_assembly_with_regen`, `injector_only`.
-  * Within the profile, sample sub-spec fields uniformly inside the
-    envelope `propulsion.validation.validate_all` accepts (epsilon in
-    [5, 100], Lf in [0.6, 1.0], etc.).
+  * Pick a shape profile: `nozzle`, `nozzle_with_chamber`,
+    `combustion_chamber`, `nacelle_inlet`, `afterburner_duct`.
+  * Within the profile, sample the flat aerospace fields uniformly inside the
+    envelope `propulsion.validation.validate_all` accepts: nozzle exit wider
+    than throat (1.5–4× diameter), conv/div half-angles in physical range,
+    nacelle highlight outside the fan face, positive wall/length.
   * For each sample, call `validate_all`; **reject** failing samples.
-    Track rejection rate per profile; this surfaces sampler bugs and
-    envelope gaps.
+    Track rejection rate per profile (currently ~0%, surfacing no envelope gaps).
 * Output: stream of valid `PropulsionSpec` instances.
 
 ### Step 2 -- Templated prompt builder
 
 * New `data_pipeline/propulsion_prompt_template.py`.
 * For each spec, emit a deterministic NL prompt using a small template
-  library (`"A {nozzle.type} bell nozzle: throat radius {r_t} mm,
-  expansion ratio {eps}, ..."` etc.).
+  library (`"A De Laval nozzle: throat diameter {throat_d} mm, exit diameter
+  {exit_d} mm, {div} deg divergent half-angle..."`, `"A subsonic nacelle
+  inlet cowl: highlight radius {hr} mm, fan-face radius {ffr} mm..."` etc.).
 * Templates cover ~6 stylistic variations (terse spec sheet, narrative
   engineer-to-engineer, third-person dispatch from a fictional client, ...).
 * This gives a baseline prompt that is by construction lossless against
@@ -88,9 +93,9 @@ poison the corpus.
 ### Step 5 -- Coverage diagnostics + retrieval index
 
 * New `data_pipeline/propulsion_coverage.py` -- compute histograms over
-  the corpus (epsilon, length_fraction, channel_count, injector pattern,
-  intent) and write a markdown report. Identifies envelope gaps for the
-  next sampling round.
+  the corpus (propulsion_type, throat/exit diameter, expansion ratio,
+  nacelle highlight/fan-face, wall thickness) and write a markdown report.
+  Identifies envelope gaps for the next sampling round.
 * Index the corpus into the existing retrieval store (`backend/retrieval.py`)
   with `domain="F"` and `technique` set from
   `extract_techniques(part_script)`.
@@ -105,9 +110,10 @@ poison the corpus.
 
 * Gemini Lite: ~0.3 s per call; at 30/min rate-limit a 10k corpus takes
   ~6 h wall-clock (rewriter dominates).
-* CadQuery compile per tuple: ~5 s for the heaviest case (regen-cooled
-  Rao bell with 60 channels). At 3-way concurrency this dominates total
-  wall-clock at ~5 h.
+* CadQuery compile per tuple: ~1–2 s for the revolve-first helpers (the
+  heaviest live Domain F prompt observed end-to-end was ~20 s including the
+  full Gemini pipeline). At 3-way concurrency CadQuery is no longer the
+  bottleneck — the Gemini rewriter dominates.
 * Storage per tuple: ~250 KB STEP + 100 KB GLB + 5 KB JSONL row -> 350 MB
   for 1k tuples; 3.5 GB for 10k.
 
@@ -120,11 +126,10 @@ poison the corpus.
   specification despite the system instruction. The
   re-run-REA-and-compare validation in Step 3 catches this but inflates
   cost ~2x.
-* **Helix-cut throughput.** 60-channel regen samples are the slowest.
-  If Phase 2.1 needs them to dominate the corpus, profile
-  `make_helical_cooling_channels` and consider the
-  one-channel-then-array-then-cut optimisation (see Phase 1 plan, risk
-  list).
+* **Helper coverage.** The aerospace helpers cover nozzles, chambers,
+  nacelle/inlet cowls, and (via the straight-bore cowl) afterburner ducts.
+  Shapes outside this set (e.g. multi-stage / annular nozzles) are out of
+  envelope for Phase 2 and would need new helpers first.
 
 ## 6. Acceptance criteria
 
@@ -134,8 +139,10 @@ A Phase 2 run is "successful" when:
 * Validator-rejection rate < 10 % (sampler is producing physical specs).
 * REA round-trip pass rate >= 90 % (the rewriter is not dropping specs
   too often).
-* All four reference prompts from Phase 1 are recoverable from the
-  retrieval index by description-substring match.
+* All eight Domain F reference prompts (F_nozzle_basic, F_nozzle_steep_angle,
+  F_nozzle_with_chamber, F_combustion_chamber, F_chamber_with_dome,
+  F_nacelle_inlet, F_nacelle_cowl_large, F_afterburner_duct) are recoverable
+  from the retrieval index by description-substring match.
 
 ---
 
