@@ -26,7 +26,7 @@ Mirum is a multi-agent text-to-CAD orchestrator: `Planner → REA → [Machinist
 - **Three-tier model layout** (strings live in `backend/config.py`):
   - `GEMINI_MODEL_PRO = "gemini-3.1-pro-preview"` — Planner, REA (architecture reasoning). Key: `GEMINI_API_KEY_PRO` (optional; falls back to `GEMINI_API_KEY_HEAVY` if unset).
   - `GEMINI_MODEL_HEAVY = "gemini-3.5-flash"` — Machinist, Critic, Refiner, eval. Key: `GEMINI_API_KEY_HEAVY` (required).
-  - `GEMINI_MODEL_LITE = "gemini-3.1-flash-lite-preview"` — domain classifier, PMI extraction, clarifier. Uses the same key as Heavy.
+  - `GEMINI_MODEL_LITE = "gemini-3.5-flash"` — domain classifier, PMI extraction, clarifier. Uses the same key as Heavy. (Was `gemini-3.1-flash-lite-preview`, retired by Google 404 in May 2026.)
   - `GEMINI_API_KEY_HEAVY` is the only **required** env var. `GEMINI_API_KEY_PRO` is optional — set it only if your Pro quota bucket is on a separate key. The `GEMINI_API_KEY_LITE` references in `data_pipeline/` are for offline dataset scripts, not the live pipeline.
 - **Writable scratch**: `/tmp/mirum/work` (env: `MIRUM_WORK_DIR`). The container's `/app` is read-only; named volumes are root-owned. Never write outside `/tmp/mirum/...`.
 - **Run**: `docker compose up --build` → backend at `:8000`, frontend at `:8501`.
