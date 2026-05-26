@@ -21,8 +21,10 @@ GEMINI_MODEL_PRO: str = "gemini-3.1-pro-preview"
 # Heavy tier — Machinist, Critic, Refiner, eval (fast, capable flash)
 GEMINI_MODEL_HEAVY: str = "gemini-3.5-flash"
 
-# Lite tier — domain classifier, PMI LLM extraction (fast, cheap calls)
-GEMINI_MODEL_LITE: str = "gemini-3.1-flash-lite-preview"
+# Lite tier — domain classifier, PMI LLM extraction (fast, cheap calls).
+# Was gemini-3.1-flash-lite-preview, retired by Google (404) on/before 2026-05-26;
+# migrated to gemini-3.5-flash (same as Heavy) — the cheapest reachable model.
+GEMINI_MODEL_LITE: str = "gemini-3.5-flash"
 
 # ---------------------------------------------------------------------------
 # Pipeline tuning knobs
