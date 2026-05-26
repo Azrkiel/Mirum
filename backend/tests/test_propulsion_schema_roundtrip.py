@@ -1,13 +1,13 @@
 """Schema round-trip tests for the propulsion REA extension.
 
 Asserts that:
-* The hand-written ``PROPULSION_SPEC_SCHEMA`` is Gemini-safe (no $ref, no
-  anyOf, no default / minItems / maxItems / minimum / maximum / title / $defs).
-* ``_rea_schema_for(prompt)`` selects the right shape (with/without
-  propulsion_spec depending on prompt vocabulary).
-* The Pydantic ``DesignRequirements`` schema, after the existing
-  ``agents._inline_refs`` + ``agents._sanitize_schema`` passes, also leaves no
-  forbidden keys -- proving the propulsion field addition does not regress the
+* The hand-written ``PROPULSION_SPEC_SCHEMA`` (aerospace flat shape) is Gemini-safe
+  (no $ref, anyOf, default, min/max, title, $defs).
+* ``agents._rea_schema_for(prompt)`` selects the right shape: ``propulsion_spec`` is
+  present only when the prompt mentions propulsion vocabulary.
+* The Pydantic ``DesignRequirements`` schema, after ``agents._inline_refs`` +
+  ``agents._sanitize_schema``, leaves no forbidden keys and still carries
+  ``propulsion_spec`` — proving the propulsion field does not regress the
   AssemblyManifest sanitization machinery.
 
 Runnable via `python backend/tests/test_propulsion_schema_roundtrip.py` or pytest.
@@ -37,6 +37,14 @@ FORBIDDEN_KEYS = (
     "minLength", "maxLength", "$defs",
 )
 
+# The aerospace flat PropulsionSpec fields the REA schema must expose.
+_EXPECTED_PROPULSION_FIELDS = (
+    "propulsion_type", "throat_diameter_mm", "exit_diameter_mm",
+    "chamber_radius_mm", "chamber_length_mm", "wall_thickness_mm",
+    "num_fuel_inlets", "highlight_radius_mm", "fan_face_radius_mm",
+    "conv_half_angle_deg", "div_half_angle_deg",
+)
+
 
 def _walk_assert_no_forbidden(obj: object, path: str = "$") -> None:
     if isinstance(obj, dict):
@@ -58,12 +66,10 @@ def test_propulsion_spec_schema_is_gemini_safe() -> None:
     _walk_assert_no_forbidden(PROPULSION_SPEC_SCHEMA)
 
 
-def test_extension_carries_no_required_marker_at_rea_top_level() -> None:
+def test_extension_carries_one_top_level_field() -> None:
     from propulsion.rea_schema import propulsion_rea_schema_extension
     ext = propulsion_rea_schema_extension()
-    assert set(ext.keys()) == {"propulsion_spec"}, (
-        "extension must add exactly one top-level field"
-    )
+    assert set(ext.keys()) == {"propulsion_spec"}, "extension must add exactly one top-level field"
     _walk_assert_no_forbidden(ext)
 
 
@@ -79,22 +85,20 @@ def test_rea_schema_omits_propulsion_for_non_propulsion_prompts() -> None:
 def test_rea_schema_includes_propulsion_for_propulsion_prompts() -> None:
     from agents import _rea_schema_for
     schema = _rea_schema_for(
-        "Rao bell nozzle, throat r=20mm, expansion ratio 16, chamber r=60mm"
+        "A De Laval nozzle, throat diameter 40 mm, exit diameter 130 mm, chamber radius 60 mm"
     )
     assert "propulsion_spec" in schema["properties"]
     spec_node = schema["properties"]["propulsion_spec"]
     assert spec_node["type"] == "object"
-    for sub in ("intent", "nozzle", "chamber", "injector", "cooling_channels"):
-        assert sub in spec_node["properties"], f"missing sub-schema: {sub}"
+    for field in _EXPECTED_PROPULSION_FIELDS:
+        assert field in spec_node["properties"], f"missing field: {field}"
     _walk_assert_no_forbidden(schema)
 
 
 def test_design_requirements_pydantic_schema_sanitizes_to_gemini_safe() -> None:
-    """Even though run_rea uses a hand-written dict, downstream code paths
-    (planner, refiner) may auto-derive from Pydantic. After existing
-    _inline_refs + _sanitize_schema passes there must be no $ref / anyOf /
-    default left, including in the propulsion_spec subtree.
-    """
+    """Downstream code paths (planner, refiner) may auto-derive from Pydantic.
+    After _inline_refs + _sanitize_schema there must be no $ref / anyOf / default
+    left, including in the propulsion_spec subtree."""
     import agents
     from schemas import DesignRequirements
     raw = DesignRequirements.model_json_schema()
@@ -121,7 +125,7 @@ def test_propulsion_spec_subtree_present_after_sanitization() -> None:
 def _run_all() -> int:
     funcs = [
         test_propulsion_spec_schema_is_gemini_safe,
-        test_extension_carries_no_required_marker_at_rea_top_level,
+        test_extension_carries_one_top_level_field,
         test_rea_schema_omits_propulsion_for_non_propulsion_prompts,
         test_rea_schema_includes_propulsion_for_propulsion_prompts,
         test_design_requirements_pydantic_schema_sanitizes_to_gemini_safe,

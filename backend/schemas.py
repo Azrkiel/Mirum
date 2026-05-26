@@ -274,28 +274,11 @@ class AirfoilSpec(BaseModel):
     tip_pitch_deg:  Optional[float] = Field(default=None, description="Geometric pitch angle at blade tip (degrees). DB twisted blades.")
 
 
-class PropulsionSpec(BaseModel):
-    """Propulsion geometry parameters for Domain F parts.
-
-    Populated by the REA from Domain F prompts (rocket nozzles, combustion
-    chambers, nacelle inlets). Used by the Machinist to parameterize the
-    correct propulsion helper from cad_utils.
-    """
-
-    propulsion_type: Optional[str] = Field(
-        default=None,
-        description="Component type: 'nozzle', 'chamber', 'nacelle', 'duct', or 'generic'.",
-    )
-    throat_diameter_mm:    Optional[float] = Field(default=None, description="Nozzle throat diameter (mm).")
-    exit_diameter_mm:      Optional[float] = Field(default=None, description="Nozzle exit plane diameter (mm).")
-    chamber_radius_mm:     Optional[float] = Field(default=None, description="Combustion chamber inner radius (mm).")
-    chamber_length_mm:     Optional[float] = Field(default=None, description="Combustion chamber cylindrical length (mm).")
-    wall_thickness_mm:     Optional[float] = Field(default=None, description="Component wall thickness (mm).")
-    num_fuel_inlets:       Optional[int]   = Field(default=None, description="Number of fuel inlet ports.")
-    highlight_radius_mm:   Optional[float] = Field(default=None, description="Nacelle inlet highlight outer radius (mm).")
-    fan_face_radius_mm:    Optional[float] = Field(default=None, description="Nacelle fan face inner radius (mm).")
-    conv_half_angle_deg:   Optional[float] = Field(default=None, description="Nozzle converging section half-angle (degrees).")
-    div_half_angle_deg:    Optional[float] = Field(default=None, description="Nozzle diverging section half-angle (degrees).")
+# PropulsionSpec (Domain F) is the canonical aerospace model owned by the
+# propulsion package and imported at the top of this module
+# (`from propulsion.specs import PropulsionSpec`). It is no longer redefined
+# here so the REA schema, classifier vocab, validators, and the Phase 2 sampler
+# all share one source of truth.
 
 
 class PolarReport(BaseModel):
@@ -524,17 +507,6 @@ class DesignRequirements(BaseModel):
             "Domain F only: propulsion geometry parameters extracted from the prompt "
             "(nozzle throat/exit diameters, chamber dimensions, fuel inlet count, "
             "nacelle highlight radius, etc.). Populate when inferred_domain is 'F'."
-        ),
-    )
-
-    propulsion_spec: Optional[PropulsionSpec] = Field(
-        default=None,
-        description=(
-            "Domain F only: rocket-propulsion subsystem spec (nozzle, chamber, "
-            "injector, regen cooling channels). Populate when the prompt names "
-            "propulsion features (throat / expansion ratio / Rao / bell / "
-            "thrust chamber / L* / impinging doublet / regen). See "
-            "propulsion.specs.PropulsionSpec for the shape."
         ),
     )
 
