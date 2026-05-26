@@ -1,4 +1,5 @@
-"""Tests for the Phase 2 propulsion spec sampler (data_pipeline/propulsion_sampler.py).
+"""Tests for the Phase 2 aerospace propulsion spec sampler
+(data_pipeline/propulsion_sampler.py).
 
 Pure-Python (pydantic only, no cadquery). Runnable via
 `python backend/tests/test_propulsion_sampler.py` or pytest.
@@ -27,8 +28,8 @@ def _first(sampler: "ps.PropulsionSampler", profile: str, tries: int = 40) -> Pr
 
 def test_all_profiles_known() -> None:
     assert set(ps.PROFILES) == {
-        "nozzle_only", "chamber_plus_nozzle", "full_assembly_no_regen",
-        "full_assembly_with_regen", "injector_only",
+        "nozzle", "nozzle_with_chamber", "combustion_chamber",
+        "nacelle_inlet", "afterburner_duct",
     }
 
 
@@ -40,18 +41,28 @@ def test_each_profile_samples_valid_spec() -> None:
         assert validate_all(spec) == [], f"{profile}: validate_all not empty: {validate_all(spec)}"
 
 
-def test_profiles_populate_expected_subsystems() -> None:
+def test_profiles_populate_expected_fields() -> None:
     s = ps.PropulsionSampler(seed=2)
-    n = _first(s, "nozzle_only")
-    assert n.nozzle and not n.chamber and not n.injector and not n.cooling_channels
-    inj = _first(s, "injector_only")
-    assert inj.injector and not inj.nozzle and not inj.chamber and not inj.cooling_channels
-    cpn = _first(s, "chamber_plus_nozzle")
-    assert cpn.nozzle and cpn.chamber and not cpn.injector and not cpn.cooling_channels
-    fa = _first(s, "full_assembly_no_regen")
-    assert fa.nozzle and fa.chamber and fa.injector and not fa.cooling_channels
-    far = _first(s, "full_assembly_with_regen")
-    assert far.nozzle and far.chamber and far.injector and far.cooling_channels
+    n = _first(s, "nozzle")
+    assert n.propulsion_type == "nozzle"
+    assert n.throat_diameter_mm and n.exit_diameter_mm
+    assert n.exit_diameter_mm > n.throat_diameter_mm
+
+    nwc = _first(s, "nozzle_with_chamber")
+    assert nwc.propulsion_type == "nozzle"
+    assert nwc.throat_diameter_mm and nwc.chamber_radius_mm and nwc.chamber_length_mm
+
+    cc = _first(s, "combustion_chamber")
+    assert cc.propulsion_type == "chamber"
+    assert cc.chamber_radius_mm and cc.chamber_length_mm and cc.num_fuel_inlets
+
+    nac = _first(s, "nacelle_inlet")
+    assert nac.propulsion_type == "nacelle"
+    assert nac.highlight_radius_mm > nac.fan_face_radius_mm
+
+    duct = _first(s, "afterburner_duct")
+    assert duct.propulsion_type == "duct"
+    assert duct.highlight_radius_mm > duct.fan_face_radius_mm
 
 
 def test_generate_yields_requested_count_all_valid() -> None:
@@ -80,7 +91,7 @@ def _run_all() -> int:
     funcs = [
         test_all_profiles_known,
         test_each_profile_samples_valid_spec,
-        test_profiles_populate_expected_subsystems,
+        test_profiles_populate_expected_fields,
         test_generate_yields_requested_count_all_valid,
         test_rejection_rate_below_10pct,
         test_seeded_reproducible,
