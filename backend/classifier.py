@@ -15,12 +15,23 @@ Domains:
 """
 
 import os
+import re
 
 import google.generativeai as genai
 
 from config import GEMINI_MODEL_LITE
+from propulsion.rea_schema import mentions_propulsion
 
 MODEL = GEMINI_MODEL_LITE
+
+# Decisive lifting-surface (Domain D) and vehicle-body (Domain G) tokens. When
+# any of these is present we defer Domain F routing to the LLM classifier, so a
+# "wing with engine nacelle" stays Domain D and a "fairing over an inlet duct"
+# stays Domain G rather than being hijacked by the deterministic F short-circuit.
+_NON_F_GUARD = re.compile(
+    r"\b(wing|airfoil|aerofoil|naca|camber|chord|span|spar|rib|"
+    r"fuselage|nose cone|ogive|fairing|shroud|capsule|body tube|haack)\b"
+)
 
 # Gemini-compatible schema (no unsupported fields)
 _CLASSIFICATION_SCHEMA = {
@@ -75,6 +86,18 @@ async def classify_part(description: str) -> dict:
     Returns:
         {"domain": "A"|"B"|"C"|"D", "reasoning": str, "key_params": str}
     """
+    # Deterministic Domain F short-circuit: the two-tier propulsion vocab is
+    # homograph-guarded (a single strong token like 'nozzle'/'nacelle'/'afterburner',
+    # or two corroborating weak tokens). It saves a Gemini call and makes Domain F
+    # routing reproducible — unless a decisive Domain D/G token is also present, in
+    # which case we let the LLM classifier apply its priority rules.
+    if mentions_propulsion(description) and not _NON_F_GUARD.search(description.lower()):
+        return {
+            "domain": "F",
+            "reasoning": "Deterministic propulsion-vocabulary match (Domain F short-circuit).",
+            "key_params": "",
+        }
+
     model = genai.GenerativeModel(
         model_name=MODEL,
         system_instruction=(

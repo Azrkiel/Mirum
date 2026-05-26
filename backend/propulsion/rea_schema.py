@@ -1,16 +1,14 @@
-"""Hand-written Gemini ``response_schema`` for the propulsion REA branch.
+"""Hand-written Gemini ``response_schema`` + classifier vocab for Domain F.
 
-We deliberately do NOT derive this from the Pydantic models. Gemini's
-structured-output mode rejects ``$ref``, ``anyOf``, ``default``, ``title``,
-``minItems``, ``maxItems``, etc., and the existing ``_get_gemini_schema``
-sanitizer in ``agents.py`` is bespoke to ``AssemblyManifest``. Keeping the
-REA schemas hand-written mirrors the existing ``_REA_SCHEMA`` pattern at
-``agents.py:239-286`` and avoids feeding Pydantic's anyOf-laden output through
-a second sanitization path.
+We deliberately do NOT derive the schema from the Pydantic model. Gemini's
+structured-output mode rejects ``$ref``, ``anyOf``, ``default``, ``title``, etc.,
+and the ``_get_gemini_schema`` sanitizer in ``agents.py`` is bespoke to
+``AssemblyManifest``. Keeping this schema hand-written mirrors the ``_REA_SCHEMA``
+pattern in ``agents.py`` and keeps the propulsion spec shape in one place.
 
-The shape returned here is the **delta** added to the existing REA schema:
-``propulsion_spec`` becomes a top-level optional dict on the response. The
-caller merges this into ``_REA_SCHEMA`` properties.
+The shape here is the **delta** merged into the REA schema:
+``propulsion_spec`` becomes an optional top-level dict on the response. It mirrors
+``specs.PropulsionSpec`` field-for-field.
 """
 
 from __future__ import annotations
@@ -19,170 +17,104 @@ import re
 from typing import Any
 
 
-# Vocabulary used by both REA (pre-trigger) and classifier (Domain F routing).
+# ---------------------------------------------------------------------------
+# Classifier vocabulary (two-tier, used by ``mentions_propulsion``)
+# ---------------------------------------------------------------------------
 # Two tiers so benign homographs ("bell crank", "bellhousing", "throat lozenge",
-# "regenerative braking") do not force Domain F:
+# "air duct", "inlet manifold") do not force Domain F:
 #   * strong tokens — a single occurrence routes to propulsion. Matched as a
-#     plain substring so plurals ("nozzles", "channels") still hit; none of
+#     plain substring (so plurals like "nozzles"/"nacelles" still hit). None of
 #     these is a prefix of a common non-propulsion word.
 #   * weak tokens — ambiguous single words that also appear in unrelated parts.
 #     Matched as whole words and only corroborated: one weak hit is NOT enough;
-#     routing needs a strong hit or >= 2 distinct weak hits (e.g. "rao" + "bell").
+#     routing needs a strong hit or >= 2 distinct weak hits (e.g. "throat" + "bell").
 _STRONG_PROPULSION_VOCAB: tuple[str, ...] = (
     "nozzle",
-    "expansion ratio",
-    "thrust chamber",
+    "de laval",
+    "converging-diverging",
+    "convergent-divergent",
     "combustion chamber",
-    "cooling channel",
-    "characteristic length",
-    "impinging doublet",
-    "like doublet",
-    "coaxial injector",
-    "propellant",
-    "thruster",
-    "rocket engine",
+    "thrust chamber",
+    "afterburner",
+    "nacelle",
+    "inlet duct",
+    "fuel inlet",
+    "oxidizer inlet",
     "injector",
+    "bypass ratio",
+    "fan face",
+    "highlight radius",
 )
 
-# Notation token carrying a non-word character; matched as a literal substring.
-_STRONG_LITERAL_VOCAB: tuple[str, ...] = ("l*",)
-
 _WEAK_PROPULSION_VOCAB: tuple[str, ...] = (
-    "bell",
     "throat",
-    "rao",
-    "regen",
-    "regenerative",
+    "bell",
+    "cowl",
+    "cowling",
+    "inlet",
+    "duct",
+    "dome",
 )
 
 # Public, ordered vocabulary kept for the classifier's reasoning string and any
 # external callers that iterate it.
 PROPULSION_VOCAB: tuple[str, ...] = (
-    _STRONG_PROPULSION_VOCAB + _STRONG_LITERAL_VOCAB + _WEAK_PROPULSION_VOCAB
+    _STRONG_PROPULSION_VOCAB + _WEAK_PROPULSION_VOCAB
 )
 
 
-# Sub-schemas mirroring the Pydantic models in ``specs.py`` but in the
-# Gemini-safe dict shape (no $ref, no anyOf, no defaults).
-_NOZZLE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "description": (
-        "Nozzle geometry. Populate when the prompt names a nozzle, bell, "
-        "or throat dimension."
-    ),
-    "properties": {
-        "type": {
-            "type": "string",
-            "enum": ["conical", "rao_bell", "truncated_bell"],
-            "description": "Nozzle topology.",
-        },
-        "throat_radius":        {"type": "number", "description": "Throat radius (mm)."},
-        "exit_radius":          {"type": "number", "description": "Exit radius (mm)."},
-        "expansion_ratio":      {"type": "number", "description": "A_e / A_t."},
-        "half_angle_deg":       {"type": "number", "description": "Conical divergent half-angle (deg). Required for conical."},
-        "converging_angle_deg": {"type": "number", "description": "Converging wall angle (deg). Required for conical."},
-        "length_fraction":      {"type": "number", "description": "Bell length fraction in [0.6, 1.0] (default 0.8)."},
-        "chamber_radius":       {"type": "number", "description": "Combustion chamber radius (mm)."},
-    },
-    "required": ["type", "throat_radius"],
-}
-
-_COOLING_CHANNELS_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "description": "Regenerative cooling channels milled into the nozzle outer wall.",
-    "properties": {
-        "count":           {"type": "integer", "description": "Number of channels around circumference."},
-        "width":           {"type": "number",  "description": "Tangential channel width (mm)."},
-        "depth":           {"type": "number",  "description": "Radial channel depth (mm)."},
-        "helix_angle_deg": {"type": "number",  "description": "Helix lead angle from nozzle axis (deg, 0 = axial)."},
-        "axial_length":    {"type": "number",  "description": "Axial length of channels (mm). Omit to use full nozzle length."},
-    },
-    "required": ["count", "width", "depth"],
-}
-
-_INJECTOR_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "description": "Injector plate orifice pattern.",
-    "properties": {
-        "orifice_count":         {"type": "integer", "description": "Orifice count (or count of impinging pairs)."},
-        "orifice_diameter":      {"type": "number",  "description": "Orifice diameter (mm)."},
-        "pattern": {
-            "type": "string",
-            "enum": ["impinging_doublet", "like_doublet", "coaxial", "showerhead"],
-            "description": "Injector pattern family.",
-        },
-        "distribution_radius":   {"type": "number",  "description": "Radius of orifice (or pair) distribution circle (mm)."},
-        "impingement_angle_deg": {"type": "number",  "description": "Total angle between an impinging pair (deg)."},
-        "plate_radius":          {"type": "number",  "description": "Injector plate outer radius (mm)."},
-        "plate_thickness":       {"type": "number",  "description": "Injector plate thickness (mm)."},
-    },
-    "required": ["orifice_count", "orifice_diameter", "pattern", "distribution_radius"],
-}
-
-_CHAMBER_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "description": "Combustion chamber and L* sizing.",
-    "properties": {
-        "radius":            {"type": "number", "description": "Chamber inner radius (mm)."},
-        "l_star":            {"type": "number", "description": "Characteristic length L* (meters)."},
-        "contraction_ratio": {"type": "number", "description": "A_chamber / A_throat. Derived if omitted."},
-    },
-    "required": ["radius", "l_star"],
-}
-
+# ---------------------------------------------------------------------------
+# Gemini response_schema (aerospace flat shape — mirrors specs.PropulsionSpec)
+# ---------------------------------------------------------------------------
 PROPULSION_SPEC_SCHEMA: dict[str, Any] = {
     "type": "object",
     "description": (
-        "Propulsion subsystem spec (Domain F). Populate ONLY when the prompt "
-        "names rocket-propulsion features (nozzle/throat/expansion ratio/Rao/bell, "
-        "thrust chamber/injector/L*, regen cooling)."
+        "Domain F only. Populate from the prompt when propulsion geometry "
+        "parameters are named (nozzle, combustion chamber, nacelle/inlet cowl, "
+        "afterburner duct). Omit fields not explicitly stated."
     ),
     "properties": {
-        "intent": {
-            "type": "string",
-            "enum": ["analysis", "manufacturable", "visualization"],
-            "description": (
-                "Downstream use. Infer: 'for CFD' -> analysis, "
-                "'machined/manufactured' -> manufacturable, otherwise analysis."
-            ),
-        },
-        "nozzle":           _NOZZLE_SCHEMA,
-        "chamber":          _CHAMBER_SCHEMA,
-        "injector":         _INJECTOR_SCHEMA,
-        "cooling_channels": _COOLING_CHANNELS_SCHEMA,
+        "propulsion_type":     {"type": "string",  "description": "'nozzle' / 'chamber' / 'nacelle' / 'duct' / 'generic'."},
+        "throat_diameter_mm":  {"type": "number",  "description": "Nozzle throat diameter (mm)."},
+        "exit_diameter_mm":    {"type": "number",  "description": "Nozzle exit-plane diameter (mm)."},
+        "chamber_radius_mm":   {"type": "number",  "description": "Combustion chamber inner radius (mm)."},
+        "chamber_length_mm":   {"type": "number",  "description": "Combustion chamber cylindrical length (mm)."},
+        "wall_thickness_mm":   {"type": "number",  "description": "Component wall thickness (mm)."},
+        "num_fuel_inlets":     {"type": "integer", "description": "Number of fuel inlet ports."},
+        "highlight_radius_mm": {"type": "number",  "description": "Nacelle inlet highlight (outer lip) radius (mm)."},
+        "fan_face_radius_mm":  {"type": "number",  "description": "Nacelle fan-face (inner duct) radius (mm)."},
+        "conv_half_angle_deg": {"type": "number",  "description": "Nozzle converging-section half-angle (deg)."},
+        "div_half_angle_deg":  {"type": "number",  "description": "Nozzle diverging-section half-angle (deg)."},
     },
-    "required": ["intent"],
 }
 
 
 def propulsion_rea_schema_extension() -> dict[str, Any]:
-    """Return the ``properties`` map fragment to merge into ``_REA_SCHEMA``.
+    """Return the ``properties`` fragment to merge into the REA schema.
 
-    The caller merges this dict into ``_REA_SCHEMA["properties"]`` so that
-    ``propulsion_spec`` becomes an optional top-level field. We do not add
-    it to ``required`` -- only Domain F prompts should populate it.
+    The caller merges this into ``_REA_SCHEMA["properties"]`` so ``propulsion_spec``
+    becomes an optional top-level field. It is NOT added to ``required`` — only
+    Domain F prompts should populate it.
     """
     return {"propulsion_spec": PROPULSION_SPEC_SCHEMA}
 
 
 def _whole_word_present(token: str, text: str) -> bool:
     """True if ``token`` occurs as a standalone word, not a prefix of a longer
-    word (so 'bell' does not match 'bellhousing')."""
+    word (so 'bell' does not match 'bellhousing', 'cowl' not 'cowlick')."""
     return re.search(rf"\b{re.escape(token)}\b", text) is not None
 
 
 def mentions_propulsion(text: str) -> bool:
-    """Cheap two-tier keyword trigger used by REA and classifier alike.
+    """Cheap two-tier keyword trigger used by the REA and classifier alike.
 
-    A single strong token (or the ``l*`` notation) routes to Domain F. Weak,
-    ambiguous tokens count only when corroborated: a strong hit, or at least
-    two distinct weak hits (e.g. 'rao' + 'bell'), is required. This stops
-    benign homographs ('bell crank', 'bellhousing', 'throat lozenge',
-    'regenerative braking') from forcing the propulsion domain.
+    A single strong token routes to Domain F. Weak, ambiguous tokens count only
+    when corroborated: a strong hit, or at least two distinct weak hits
+    (e.g. 'throat' + 'bell'), is required. This stops benign homographs
+    ('bell crank', 'bellhousing', 'throat lozenge', 'air duct') from forcing the
+    propulsion domain.
     """
     lo = text.lower()
-    if any(token in lo for token in _STRONG_LITERAL_VOCAB):
-        return True
     if any(token in lo for token in _STRONG_PROPULSION_VOCAB):
         return True
     weak_hits = sum(1 for token in _WEAK_PROPULSION_VOCAB if _whole_word_present(token, lo))
