@@ -60,6 +60,15 @@ def classify_failure(traceback: str, code: str = "") -> str:
 # The rule name must exist in strategies.RULE_BLOCKS — the critic loop highlights
 # it back to the Machinist as the rule to re-anchor on.
 OP_TO_RULE_HINT: dict[str, tuple[str, str]] = {
+    "bbox_api": (
+        "rule_no_hallucinated_methods",
+        "A BoundingBox attribute does not exist. CadQuery's BoundBox uses "
+        "LOWERCASE accessors: bb = solid.BoundingBox(); read bb.xmin/bb.xmax/"
+        "bb.ymin/bb.ymax/bb.zmin/bb.zmax, bb.xlen/bb.ylen/bb.zlen, or bb.center. "
+        "There is no bb.xMax/bb.XMax/bb.XLen. (solid.Center() returns a "
+        "capitalised Vector, but the BoundBox accessors are lowercase.) "
+        "Re-read rule_no_hallucinated_methods.",
+    ),
     "loft": (
         "rule_loft_chaining",
         "Loft failed. The most common cause is assigning each cross-section to a "
@@ -162,6 +171,13 @@ def get_rule_hint(traceback: str, code: str = "") -> tuple[str, str] | None:
     the generic operation classifier. Returns (rule_name, hint_text) or None.
     """
     combined = traceback + "\n" + code
+
+    # A hallucinated BoundBox attribute (bb.xMax/XLen/…) — CadQuery's accessors are
+    # lowercase. Catch the AttributeError before the generic classifier so the Critic
+    # gets the casing fix instead of an unrelated op hint.
+    if re.search(r"BoundBox.*has no attribute|\bbb?\.[xyz](Max|Min|Len)\b|'BoundBox' object has no attribute",
+                 combined, re.IGNORECASE):
+        return OP_TO_RULE_HINT["bbox_api"]
 
     # CadQuery's loft path raises UnboundLocalError on `newS` when its workplane
     # pending-wires stack is empty — almost always a loft-chaining bug.
