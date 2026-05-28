@@ -137,8 +137,9 @@ Runtime model configuration: `POST /admin/model-config` (bearer-gated).
 | `OrchestratorSubagent` | — | Top-level coordinator |
 
 Model strings (from `config.py`):
-- `GEMINI_MODEL_HEAVY = "gemini-3-flash-preview"`
-- `GEMINI_MODEL_LITE  = "gemini-3.1-flash-lite-preview"`
+- `GEMINI_MODEL_PRO   = "gemini-3.1-pro-preview"`  (Planner, REA)
+- `GEMINI_MODEL_HEAVY = "gemini-3.5-flash"`        (Machinist, Critic, Refiner, eval)
+- `GEMINI_MODEL_LITE  = "gemini-3.5-flash"`        (classifier, PMI, clarifier — same key as Heavy; the previous `gemini-3.1-flash-lite-preview` was retired by Google in May 2026)
 
 ---
 
