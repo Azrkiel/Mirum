@@ -128,8 +128,15 @@ For Domain D parts, opt-in XFOIL polar analysis computes:
 
 - Lift coefficient (Cl) vs. angle of attack
 - Drag coefficient (Cd) vs. angle of attack
-- Pressure distribution (Cp)
-- Stall prediction (ΔCl/Δα threshold)
+- Pitching moment coefficient (Cm) vs. angle of attack
+- Lift-to-drag ratio (L/D)
+- Stall prediction (dCl/dα sign-change + 5% Cl_max drop)
+
+A reusable structural / flight-envelope module (`analysis/structures.py`)
+computes ISA atmosphere, cruise CL, FAR-23 maneuvering + gust load
+factors (limit & ultimate), 1-g stall speed, corner speed, V_NE, and
+single-cell wing-box bending/shear margins against a small metallic
+allowables table. Standalone today; pipeline-wired via opt-in `run_struct`.
 
 Results stream back in the SSE `complete` event and render as interactive
 charts in the frontend PerformanceCard.
@@ -182,8 +189,9 @@ curl -X POST http://localhost:8000/generate \
 
 | Layer | Technology |
 |-------|-----------|
-| LLM (heavy) | `gemini-3-flash-preview` via `google-generativeai` |
-| LLM (lite) | `gemini-3.1-flash-lite-preview` |
+| LLM (pro)   | `gemini-3.1-pro-preview` via `google-generativeai` (Planner, REA) |
+| LLM (heavy) | `gemini-3.5-flash` (Machinist, Critic, Refiner, eval) |
+| LLM (lite)  | `gemini-3.5-flash` (classifier, PMI, clarifier — same key as Heavy) |
 | Geometry kernel | CadQuery 2.x / OpenCASCADE Technology (OCCT) |
 | Aerodynamics | XFOIL (wrapped via `analysis.airfoil`) |
 | Backend | FastAPI + Uvicorn, SSE streaming |
@@ -214,14 +222,19 @@ backend/
     base.py          — SubagentBase ABC + TelemetryMixin
     planner.py / machinist.py / critic.py / assembler.py
     rea.py / clarifier.py / aero.py / orchestrator.py
-  analysis/
-    airfoil.py       — STEP slicer + XFOIL runner + stall predictor
   tests/
     test_classifier.py         — 28 tests, all 5 domains + priority rules
     test_compiler_security.py  — 31 tests, 15 attack patterns blocked
     test_geometry_verification.py — 18 tests (OCC-gated), TypedDict checks
     test_subagents_base.py     — 23 tests, pure stdlib
     test_vlm_stubs.py          — 22 tests, VLM zebra rendering stubs
+analysis/                — standalone analysis modules (no pipeline imports)
+  airfoil.py             — STEP slicer + XFOIL runner + stall predictor
+  structures.py          — ISA atmosphere + load-factor envelope + wing-box margins
+  plots.py / pdf_report.py
+  tests/
+    test_airfoil.py      — 2-D airfoil + XFOIL contract (XFOIL-gated B-group)
+    test_structures.py   — 27 unit tests, stdlib only (FAR-23 envelope, margins)
 frontend/
   app.py             — Streamlit UI: 3D viewer, geometry cert card, aero charts
 architecture.md      — full system architecture (this generation's source of truth)
