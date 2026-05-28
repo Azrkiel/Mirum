@@ -36,6 +36,7 @@ AgentType = Literal[
     "assembly_critic",
     "assembler",
     "aero",
+    "struct",
     "refiner",
     "mock",  # used in tests
 ]
