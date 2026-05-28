@@ -66,7 +66,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install pydantic fastapi
+        # test_aero_integration imports backend/main.py (for _run_aero_stage),
+        # which needs google-generativeai + slowapi at import time. cadquery /
+        # numpy / pyrender are lazy-imported and not required to import main.
+        run: pip install pydantic fastapi google-generativeai slowapi
 
       - name: Run Phase 3 integration tests
         run: python backend/tests/test_aero_integration.py

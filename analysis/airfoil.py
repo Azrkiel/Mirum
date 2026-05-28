@@ -654,18 +654,39 @@ def run_xfoil_polar(
             tmp_obj.cleanup()
 
 
+def _abs_if_path(value: str) -> str:
+    """Resolve path-like values to absolute; leave bare command names alone.
+
+    A value containing a path separator (e.g. ``analysis/tests/mock_xfoil``)
+    is treated as a path and resolved against the current working directory,
+    so it is still found when the subprocess runs with ``cwd=<tmpdir>``. A
+    bare command name (e.g. ``xfoil``) is returned untouched so PATH lookup
+    still works.
+    """
+    if os.sep in value or (os.altsep and os.altsep in value):
+        return str(Path(value).resolve())
+    return value
+
+
 def _resolve_xfoil_bin(override: str | None) -> str:
     """Return the xfoil binary path, checking several sources in priority order.
 
     Priority: override arg → MIRUM_XFOIL_BIN env var → repo-local
     bin/xfoil.exe on Windows → 'xfoil' on PATH (Linux/macOS).
+
+    Path-like values (those containing a separator, e.g. a relative
+    ``analysis/tests/mock_xfoil``) are resolved to an absolute path so the
+    binary is still found when XFOIL is exec'd from a temp working directory
+    (``run_xfoil_polar`` runs the subprocess with ``cwd=<tmpdir>``). Bare
+    command names (no separator, e.g. ``xfoil``) are returned untouched so
+    normal PATH lookup still works.
     """
     if override:
-        return override
+        return _abs_if_path(override)
 
     env_val = os.environ.get("MIRUM_XFOIL_BIN", "")
     if env_val:
-        return env_val
+        return _abs_if_path(env_val)
 
     if os.name == "nt":
         # analysis/airfoil.py → <repo>/bin/xfoil.exe (matches install_xfoil_windows.ps1)

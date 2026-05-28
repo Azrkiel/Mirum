@@ -54,6 +54,7 @@ from analysis.airfoil import (
     PolarResult,
     XfoilNotFoundError,
     XfoilRunError,
+    _abs_if_path,
     _parse_polar_file,
     _sort_airfoil_points,
     analyze_naca,
@@ -191,6 +192,34 @@ class TestNaca4ToDat(unittest.TestCase):
             naca4_to_dat("ABCD", "/tmp/dummy.dat")
         with self.assertRaises(ValueError):
             naca4_to_dat("24120", "/tmp/dummy.dat")
+
+
+class TestAbsIfPath(unittest.TestCase):
+    """Binary-path resolution contract for _resolve_xfoil_bin / _resolve_avl_bin.
+
+    Regression: run_xfoil_polar runs the subprocess with cwd=<tmpdir>, so a
+    *relative* MIRUM_XFOIL_BIN (e.g. analysis/tests/mock_xfoil) must be made
+    absolute or the kernel cannot exec it from the temp dir (FileNotFoundError
+    -> XfoilNotFoundError). A bare command name must stay untouched for PATH
+    lookup.
+    """
+
+    def test_relative_path_becomes_absolute(self):
+        result = _abs_if_path(os.path.join("analysis", "tests", "mock_xfoil"))
+        self.assertTrue(os.path.isabs(result))
+        self.assertTrue(result.endswith("mock_xfoil"))
+
+    def test_bare_command_name_unchanged(self):
+        # No separator => PATH lookup; must not be turned into <cwd>/xfoil.
+        self.assertEqual(_abs_if_path("xfoil"), "xfoil")
+
+    def test_already_absolute_path_stays_absolute(self):
+        # resolve() may canonicalize symlinks, so assert absolute + basename
+        # rather than byte-equality with the input.
+        abs_in = os.path.abspath(os.path.join("bin", "xfoil"))
+        result = _abs_if_path(abs_in)
+        self.assertTrue(os.path.isabs(result))
+        self.assertEqual(os.path.basename(result), "xfoil")
 
 
 class TestSortAirfoilPoints(unittest.TestCase):
