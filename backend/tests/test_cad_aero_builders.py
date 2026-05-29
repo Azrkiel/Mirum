@@ -168,6 +168,18 @@ class TestMakeControlSurface(unittest.TestCase):
         # deflection drops the TE -> larger Z extent than the undeflected flap
         self.assertGreater(defl.val().BoundingBox().zlen, flat.val().BoundingBox().zlen)
 
+    def test_twisted_dihedral_flap_valid(self):
+        # The flap must obey the frozen frame (twist about quarter-chord +
+        # dihedral) so it mates to a twisted/tapered wing.
+        import cad_aero
+
+        wp = cad_aero.make_control_surface(
+            parent_airfoil_points=_airfoil(), chord_frac=0.25, span_m=2.0,
+            root_chord_m=ROOT, tip_chord_m=TIP, hinge_x_frac=0.75,
+            deflection_deg=15.0, twist_tip_deg=-3.0, dihedral_deg=2.0,
+        )
+        self.assertGreater(_vol(wp), 0.0)
+
 
 @unittest.skipUnless(_CQ_AVAILABLE, _SKIP_MSG)
 class TestParametricFuzz(unittest.TestCase):
