@@ -2,8 +2,8 @@
 
 This module is **sandbox-allowlisted** (`backend/compiler.py` `_ALLOWED_MODULES`):
 any LLM-generated CadQuery script may `import cad_aero`. Therefore it MUST import
-nothing dangerous — only `cadquery`, `math`, and the sibling allowlisted
-`cad_utils`. No `os` / `subprocess` / `open` / `eval` / file IO, ever.
+nothing dangerous — only `cadquery` and `math`. No `os` / `subprocess` / `open` /
+`eval` / file IO, ever.
 
 Why this module exists
 ----------------------
@@ -39,8 +39,6 @@ from __future__ import annotations
 import math
 
 import cadquery as cq
-
-import cad_utils  # sibling allowlisted module — reuse make_naca_wire (OML B-spline)
 
 # Documented, machine-readable form of the frozen frame above (see Hole #2).
 _FRAME = {
@@ -583,12 +581,19 @@ def make_control_surface(
     tip_chord_m: float,
     hinge_x_frac: float,
     deflection_deg: float = 0.0,
+    twist_tip_deg: float = 0.0,
+    dihedral_deg: float = 0.0,
     te_method: str = _DEFAULT_TE_METHOD,
 ) -> cq.Workplane:
     """Control surface (aileron/flap/elevator) = the aft OML region from
     ``hinge_x_frac`` to the trailing edge, lofted over ``span_m`` and rotated about
     the hinge line by ``deflection_deg``. Returns ONLY the flap solid; the parent
-    cove/trim is out of scope v1 (Hole #3)."""
+    cove/trim is out of scope v1 (Hole #3).
+
+    Obeys the frozen frame: each station is twisted about its quarter-chord and
+    dihedral-offset, and the deflection rotates about the TRUE swept hinge line
+    (hinge x = hinge_x_frac * local chord), so the flap mates to a twisted/tapered
+    wing rather than to an idealised straight one."""
     upper, lower = _surfaces(parent_airfoil_points)
 
     def _aft_ring(chord):
@@ -606,15 +611,25 @@ def make_control_surface(
     wires = []
     for y in (0.0, span_m):
         chord = _chord_at(y, span_m, root_chord_m, tip_chord_m)
-        ring = [cq.Vector(x, y, z) for (x, z) in _aft_ring(chord)]
+        z0 = _dihedral_z(y, dihedral_deg)
+        phi = _twist_phi(y, span_m, twist_tip_deg)
+        xq = 0.25 * chord
+        ring = []
+        for (x, z) in _aft_ring(chord):
+            xr, zr = _twist_xz(x, z, xq, phi)
+            ring.append(cq.Vector(xr, y, z0 + zr))
         wires.append(cq.Wire.makePolygon(ring, close=True))
     solid = cq.Solid.makeLoft(wires, ruled=True)
 
     if abs(deflection_deg) > 1e-9:
-        hinge_x = hinge_x_frac * root_chord_m
-        solid = solid.rotate(
-            cq.Vector(hinge_x, 0, 0), cq.Vector(hinge_x, 1, 0), deflection_deg
+        # Rotate about the TRUE swept hinge line: root hinge → tip hinge. On a
+        # tapered wing hinge x = hinge_x_frac * chord(y) sweeps in X, so a single
+        # Y-parallel axis at the root hinge would rotate the tip about the wrong x.
+        p0 = cq.Vector(hinge_x_frac * root_chord_m, 0.0, 0.0)
+        p1 = cq.Vector(
+            hinge_x_frac * tip_chord_m, span_m, _dihedral_z(span_m, dihedral_deg)
         )
+        solid = solid.rotate(p0, p1, deflection_deg)
     return _validate_solid(_wp(solid), "control_surface")
 
 
