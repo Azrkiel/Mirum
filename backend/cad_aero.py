@@ -418,6 +418,7 @@ def make_stringer(
     z_frac: float,
     root_chord_m: float,
     tip_chord_m: float,
+    airfoil_points=None,
     section: str = "L",
     leg_mm: float = 12.0,
     thickness_mm: float = 1.5,
@@ -425,12 +426,21 @@ def make_stringer(
     dihedral_deg: float = 0.0,
 ) -> cq.Workplane:
     """Stringer (L/Z/T/hat cap) running spanwise along the (x_frac) chord line at
-    the OML surface selected by ``z_frac`` (+1 upper cap, -1 lower cap)."""
+    the OML surface selected by ``z_frac`` (+1 upper cap, -1 lower cap).
+
+    If ``airfoil_points`` is given, the cap base is seated on the ACTUAL local OML
+    surface (essential for a cambered airfoil whose lower surface is not at a
+    symmetric height) and the web grows inward into the section, so the stringer
+    truly attaches to the skin/ribs rather than floating off the surface."""
     if section not in ("L", "Z", "T", "hat"):
         raise CadAeroError(f"unknown stringer section {section!r}")
     leg = leg_mm / 1000.0
     th = thickness_mm / 1000.0
     sign = 1.0 if z_frac >= 0 else -1.0
+    surf = None
+    if airfoil_points is not None:
+        u, low = _surfaces(airfoil_points)
+        surf = u if z_frac >= 0 else low
 
     def _profile_2d():
         # Local (a, b) profile, origin at the attachment corner; b grows away
@@ -453,14 +463,17 @@ def make_stringer(
         chord = _chord_at(y, span_m, root_chord_m, tip_chord_m)
         z0 = _dihedral_z(y, dihedral_deg)
         phi = _twist_phi(y, span_m, twist_tip_deg)
-        # local thickness-ratio cap height at x_frac (use 12% t/c as nominal cap z)
         xc = x_frac * chord
-        z_surf = sign * 0.06 * chord  # ~ half-thickness near the cap; valid + sane
+        # Seat the cap on the real OML surface when available; else a sane nominal.
+        if surf is not None:
+            z_surf = _interp_z(surf, x_frac) * chord
+        else:
+            z_surf = sign * 0.06 * chord
         xq = 0.25 * chord
         ring = []
         for (a, b) in prof:
             px = xc + a
-            pz = z_surf + sign * b
+            pz = z_surf - sign * b  # web grows INWARD (into the section)
             xr, zr = _twist_xz(px, pz, xq, phi)
             ring.append(cq.Vector(xr, y, z0 + zr))
         wires.append(cq.Wire.makePolygon(ring, close=True))
@@ -538,8 +551,13 @@ def make_root_fitting(
         .rect(x1 - x0, h)
         .extrude(fitting_thickness_m)
     )
+    # Normalize the spanwise position to Y in [0, fitting_thickness] regardless of
+    # the XZ-plane normal sign, so the fitting overlaps the root rib + spars rather
+    # than sitting just inboard of them (zero-volume abutment).
+    box = box.translate(cq.Vector(0, -box.val().BoundingBox().ymin, 0))
     wp = box
     if bolt_pattern:
+        y_mid = fitting_thickness_m / 2.0
         r = min(0.15 * (x1 - x0), 0.20 * h) / max(len(bolt_pattern), 1)
         r = max(min(r, 0.25 * h), 1e-3)
         for (xf, zf) in bolt_pattern:
@@ -549,8 +567,8 @@ def make_root_fitting(
                 cq.Workplane("XZ")
                 .center(xc, zc)
                 .circle(r)
-                .extrude(fitting_thickness_m * 2)
-                .translate(cq.Vector(0, -fitting_thickness_m * 0.5, 0))
+                .extrude(fitting_thickness_m * 2, both=True)
+                .translate(cq.Vector(0, y_mid, 0))
             )
             wp = wp.cut(hole)
     return _validate_solid(wp, "root_fitting")
@@ -598,3 +616,124 @@ def make_control_surface(
             cq.Vector(hinge_x, 0, 0), cq.Vector(hinge_x, 1, 0), deflection_deg
         )
     return _validate_solid(_wp(solid), "control_surface")
+
+
+# ===========================================================================
+# A3/A4 — canonical assembly + reference artifact
+# ===========================================================================
+# The frozen NACA-2412-class semi-span wing. Building it from the A2 builders
+# yields the NEW OML reference artifact (output/wing_assembly_oml_reference.json)
+# that replaces the retired 67.6 kg box-beam number (Hole #1, #9).
+CANONICAL_WING = {
+    "naca": "2412",
+    "span_m": 5.3642,            # semi-span
+    "root_chord_m": 1.7881,
+    "tip_chord_m": 0.8940,
+    "front_spar_x_frac": 0.25,
+    "rear_spar_x_frac": 0.65,
+    "thickness_to_chord": 0.12,
+    "twist_tip_deg": -3.0,
+    "dihedral_deg": 2.0,
+    "n_ribs": 7,
+    "web_thickness_m": 0.0008,
+    "skin_thickness_m": 0.0012,
+    "rib_thickness_m": 0.003,
+}
+_AL2024T3_DENSITY_KGM3 = 2780.0
+# 2 spars + 7 ribs + 2 skins + 4 stringers + 1 root fitting.
+EXPECTED_PART_COUNT = 16
+
+
+def canonical_wing_parts() -> dict:
+    """Build the canonical semi-span wing as an ordered {name: cq.Workplane}.
+
+    Multi-Y builders (spar/skin/stringer) bake in dihedral + twist; the
+    single-station ribs are positioned at the composition layer (dihedral
+    Z-offset + local twist) so they meet the dihedral-shifted spars."""
+    p = CANONICAL_WING
+    af = naca4_points(p["naca"], 1.0)
+    span, root, tip = p["span_m"], p["root_chord_m"], p["tip_chord_m"]
+    front, rear = p["front_spar_x_frac"], p["rear_spar_x_frac"]
+    twist, dih = p["twist_tip_deg"], p["dihedral_deg"]
+    parts: dict = {}
+
+    parts["front_spar"] = make_spar(
+        airfoil_points=af, span_m=span, root_chord_m=root, tip_chord_m=tip,
+        x_frac=front, web_thickness_m=p["web_thickness_m"],
+        twist_tip_deg=twist, dihedral_deg=dih,
+    )
+    parts["rear_spar"] = make_spar(
+        airfoil_points=af, span_m=span, root_chord_m=root, tip_chord_m=tip,
+        x_frac=rear, web_thickness_m=p["web_thickness_m"],
+        twist_tip_deg=twist, dihedral_deg=dih,
+    )
+    for i in range(p["n_ribs"]):
+        y = span * i / (p["n_ribs"] - 1)
+        # Keep the outermost rib inside the spar loft [0, span] so it overlaps
+        # (not merely abuts) the spar — a thickness past the tip means zero-volume
+        # contact and a "floating" tip rib.
+        y = min(y, span - p["rib_thickness_m"])
+        chord = _chord_at(y, span, root, tip)
+        rib = make_rib(
+            airfoil_points=af, chord_m=chord, y_station_m=y,
+            thickness_m=p["rib_thickness_m"], front_spar_x_frac=front,
+            rear_spar_x_frac=rear, n_lightening_holes=3,
+            twist_deg=twist * (0.0 if span == 0 else y / span),
+        )
+        z0 = _dihedral_z(y, dih)
+        if abs(z0) > 1e-12:
+            rib = rib.translate(cq.Vector(0, 0, z0))
+        parts[f"rib_{i:02d}"] = rib
+
+    for upper in (True, False):
+        parts["skin_upper" if upper else "skin_lower"] = make_wing_skin_panel(
+            airfoil_points=af, span_m=span, root_chord_m=root, tip_chord_m=tip,
+            upper=upper, thickness_root_m=p["skin_thickness_m"],
+            thickness_tip_m=p["skin_thickness_m"], front_spar_x_frac=front,
+            rear_spar_x_frac=rear, twist_tip_deg=twist, dihedral_deg=dih,
+        )
+
+    for x_frac, tag in ((front, "front"), (rear, "rear")):
+        for z_frac, cap in ((1.0, "upper"), (-1.0, "lower")):
+            parts[f"stringer_{tag}_{cap}"] = make_stringer(
+                span_m=span, x_frac=x_frac, z_frac=z_frac, root_chord_m=root,
+                tip_chord_m=tip, airfoil_points=af, section="L",
+                twist_tip_deg=twist, dihedral_deg=dih,
+            )
+
+    parts["root_fitting"] = make_root_fitting(
+        root_chord_m=root, thickness_to_chord=p["thickness_to_chord"],
+        front_spar_x_frac=front, rear_spar_x_frac=rear,
+        fitting_thickness_m=p["web_thickness_m"] * 3,
+    )
+    return parts
+
+
+def wing_mass_kg(parts: dict, density_kgm3: float = _AL2024T3_DENSITY_KGM3) -> float:
+    """Total structural mass [kg] = sum(part volume_m3) * density."""
+    return sum(wp.val().Volume() for wp in parts.values()) * density_kgm3
+
+
+def wing_reference_report(parts: dict) -> dict:
+    """Serializable reference artifact: per-part volume/mass/bbox + totals."""
+    rows = {}
+    for name, wp in parts.items():
+        s = wp.val()
+        bb = s.BoundingBox()
+        rows[name] = {
+            "volume_m3": s.Volume(),
+            "mass_kg": s.Volume() * _AL2024T3_DENSITY_KGM3,
+            "bbox_m": [bb.xlen, bb.ylen, bb.zlen],
+        }
+    return {
+        "params": CANONICAL_WING,
+        "density_kgm3": _AL2024T3_DENSITY_KGM3,
+        "part_count": len(parts),
+        "total_mass_kg": wing_mass_kg(parts),
+        "parts": rows,
+        "note": (
+            "OML reference artifact (Hole #1/#9). Replaces the retired 67.6 kg "
+            "box-beam Raymer estimate. Determinism target: same part count + mass "
+            "within epsilon, NOT byte-equal STEP (Hole #4)."
+        ),
+    }

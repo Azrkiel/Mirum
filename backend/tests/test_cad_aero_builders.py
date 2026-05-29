@@ -101,7 +101,8 @@ class TestMakeStringer(unittest.TestCase):
 
         wp = cad_aero.make_stringer(
             span_m=SPAN, x_frac=FRONT, z_frac=1.0, root_chord_m=ROOT,
-            tip_chord_m=TIP, section="L", leg_mm=12.0, thickness_mm=1.5,
+            tip_chord_m=TIP, airfoil_points=_airfoil(), section="L",
+            leg_mm=12.0, thickness_mm=1.5,
         )
         self.assertGreater(_vol(wp), 0.0)
 
