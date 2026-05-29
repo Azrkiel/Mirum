@@ -48,7 +48,7 @@ except OSError:
 # ---------------------------------------------------------------------------
 # AST Security Scanner (Allowlist Architecture)
 # ---------------------------------------------------------------------------
-_ALLOWED_MODULES = {"cadquery", "cq", "math", "cad_utils"}
+_ALLOWED_MODULES = {"cadquery", "cq", "math", "cad_utils", "cad_aero"}
 _BANNED_BUILTINS = {
     "eval", "exec", "open", "compile", "__import__", "getattr", "setattr",
     "delattr", "globals", "locals", "vars", "breakpoint", "input",
