@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+import sys, os
+# Delegate to the full mock script in the same directory
+sys.path.insert(0, os.path.dirname(__file__))
+from mock_avl import main
+main()
