@@ -238,3 +238,363 @@ def extrude_airfoil_section(
     if validate:
         return _validate_solid(wp, f"airfoil_section[{te_method}]")
     return wp
+
+
+# ===========================================================================
+# A2 — the six OML builders
+# ===========================================================================
+# Shared frame helpers (all builders obey the frozen frame, see _FRAME).
+def _chord_at(y: float, span_m: float, root_chord_m: float, tip_chord_m: float) -> float:
+    f = 0.0 if span_m == 0 else (y / span_m)
+    return root_chord_m + (tip_chord_m - root_chord_m) * f
+
+
+def _dihedral_z(y: float, dihedral_deg: float) -> float:
+    return y * math.tan(math.radians(dihedral_deg))
+
+
+def _twist_phi(y: float, span_m: float, twist_tip_deg: float) -> float:
+    f = 0.0 if span_m == 0 else (y / span_m)
+    return math.radians(twist_tip_deg * f)
+
+
+def _twist_xz(x: float, z: float, xq: float, phi: float):
+    """Rotate a chord-plane point about the quarter-chord (x/c=0.25); +phi=LE up."""
+    dx, dz = x - xq, z
+    c, s = math.cos(phi), math.sin(phi)
+    return (xq + dx * c + dz * s, -dx * s + dz * c)
+
+
+def _surfaces(points_norm):
+    """Split a TE→upper→LE→lower→TE contour into (upper, lower) surfaces,
+    each a list of (x, z) sorted by ascending x (normalised)."""
+    pts = _dedupe_pts(points_norm)
+    le = min(range(len(pts)), key=lambda i: pts[i][0])
+    upper = sorted(pts[: le + 1], key=lambda p: p[0])
+    lower = sorted(pts[le:], key=lambda p: p[0])
+    return upper, lower
+
+
+def _interp_z(surf, x: float) -> float:
+    """Linear-interpolate the z of a surface (sorted by x) at chord fraction x."""
+    if x <= surf[0][0]:
+        return surf[0][1]
+    if x >= surf[-1][0]:
+        return surf[-1][1]
+    for i in range(1, len(surf)):
+        x0, z0 = surf[i - 1]
+        x1, z1 = surf[i]
+        if x0 <= x <= x1:
+            t = 0.0 if x1 == x0 else (x - x0) / (x1 - x0)
+            return z0 + (z1 - z0) * t
+    return surf[-1][1]
+
+
+def _oml_section_wire(points_norm, chord_m, y, z0, phi, te_method="spline") -> cq.Wire:
+    """Closed airfoil OML wire at spanwise station ``y``: normalised points scaled
+    to ``chord_m``, twisted about the quarter-chord by ``phi`` rad, dihedral-offset
+    to ``z0``. Built as two B-spline edges (the proven cusp-clean construction)."""
+    xq = 0.25 * chord_m
+    vecs = []
+    for (xn, zn) in _dedupe_pts(points_norm):
+        x, z = xn * chord_m, zn * chord_m
+        xr, zr = _twist_xz(x, z, xq, phi)
+        vecs.append(cq.Vector(xr, y, z0 + zr))
+    if math.dist((vecs[0].x, vecs[0].z), (vecs[-1].x, vecs[-1].z)) > 1e-9:
+        vecs.append(vecs[0])
+    le = _le_index(vecs)
+    upper = cq.Edge.makeSpline(vecs[: le + 1])
+    lower = cq.Edge.makeSpline(vecs[le:])
+    return cq.Wire.assembleEdges([upper, lower])
+
+
+def _wp(solid):
+    return cq.Workplane("XY").newObject([solid])
+
+
+def make_spar(
+    *,
+    airfoil_points,
+    span_m: float,
+    root_chord_m: float,
+    tip_chord_m: float,
+    x_frac: float,
+    web_thickness_m: float,
+    twist_tip_deg: float = 0.0,
+    dihedral_deg: float = 0.0,
+    n_stations: int = 7,
+) -> cq.Workplane:
+    """Shear-web spar at chord fraction ``x_frac``, root→tip, filling the local
+    OML section height. Rectangular web sections lofted across ``n_stations``."""
+    upper, lower = _surfaces(airfoil_points)
+    wires = []
+    for i in range(n_stations):
+        y = span_m * i / (n_stations - 1)
+        chord = _chord_at(y, span_m, root_chord_m, tip_chord_m)
+        z0 = _dihedral_z(y, dihedral_deg)
+        phi = _twist_phi(y, span_m, twist_tip_deg)
+        xc = x_frac * chord
+        z_up = _interp_z(upper, x_frac) * chord
+        z_lo = _interp_z(lower, x_frac) * chord
+        xq = 0.25 * chord
+        corners = []
+        for (cx, cz) in (
+            (xc - web_thickness_m / 2, z_lo),
+            (xc + web_thickness_m / 2, z_lo),
+            (xc + web_thickness_m / 2, z_up),
+            (xc - web_thickness_m / 2, z_up),
+        ):
+            xr, zr = _twist_xz(cx, cz, xq, phi)
+            corners.append(cq.Vector(xr, y, z0 + zr))
+        wires.append(cq.Wire.makePolygon(corners, close=True))
+    solid = cq.Solid.makeLoft(wires, ruled=False)
+    return _validate_solid(_wp(solid), f"spar@{x_frac:.2f}")
+
+
+def make_rib(
+    *,
+    airfoil_points,
+    chord_m: float,
+    y_station_m: float,
+    thickness_m: float,
+    front_spar_x_frac: float,
+    rear_spar_x_frac: float,
+    n_lightening_holes: int = 3,
+    twist_deg: float = 0.0,
+    use_oml_outline: bool = True,
+    te_method: str = _DEFAULT_TE_METHOD,
+) -> cq.Workplane:
+    """True-OML rib at spanwise ``y_station_m``, ``thickness_m`` thick in Y.
+
+    Lightening holes are auto-spaced between the spar fractions and the radius is
+    clamped to the local section height so they can never intersect the spar caps,
+    each other, or the OML (Hole #5)."""
+    phi = math.radians(twist_deg)
+    w0 = _oml_section_wire(airfoil_points, chord_m, y_station_m, 0.0, phi, te_method)
+    w1 = _oml_section_wire(
+        airfoil_points, chord_m, y_station_m + thickness_m, 0.0, phi, te_method
+    )
+    rib = cq.Solid.makeLoft([w0, w1], ruled=True)
+    wp = _wp(rib)
+
+    n = max(0, int(n_lightening_holes))
+    if n > 0:
+        upper, lower = _surfaces(airfoil_points)
+        x_lo = front_spar_x_frac
+        x_hi = rear_spar_x_frac
+        # Auto-space hole centres strictly between the spars.
+        for k in range(n):
+            xf = x_lo + (x_hi - x_lo) * (k + 1) / (n + 1)
+            xc = xf * chord_m
+            z_up = _interp_z(upper, xf) * chord_m
+            z_lo = _interp_z(lower, xf) * chord_m
+            zc = 0.5 * (z_up + z_lo)
+            sec_h = z_up - z_lo
+            # spacing between adjacent hole centres along x
+            dx = (x_hi - x_lo) * chord_m / (n + 1)
+            # clamp: fit within section height AND not overrun the x-spacing
+            r = min(0.30 * sec_h, 0.40 * dx)
+            if r <= 1e-4:
+                continue
+            y_mid = y_station_m + thickness_m / 2.0
+            hole = (
+                cq.Workplane("XZ")
+                .center(xc, zc)
+                .circle(r)
+                # extrude symmetric (both=True) so the cylinder straddles the rib
+                # regardless of the XZ-plane normal sign; over-extrude guarantees
+                # a clean cut-through.
+                .extrude(thickness_m * 2, both=True)
+                .translate(cq.Vector(0, y_mid, 0))
+            )
+            wp = wp.cut(hole)
+    return _validate_solid(wp, f"rib@y{y_station_m:.3f}")
+
+
+def make_stringer(
+    *,
+    span_m: float,
+    x_frac: float,
+    z_frac: float,
+    root_chord_m: float,
+    tip_chord_m: float,
+    section: str = "L",
+    leg_mm: float = 12.0,
+    thickness_mm: float = 1.5,
+    twist_tip_deg: float = 0.0,
+    dihedral_deg: float = 0.0,
+) -> cq.Workplane:
+    """Stringer (L/Z/T/hat cap) running spanwise along the (x_frac) chord line at
+    the OML surface selected by ``z_frac`` (+1 upper cap, -1 lower cap)."""
+    if section not in ("L", "Z", "T", "hat"):
+        raise CadAeroError(f"unknown stringer section {section!r}")
+    leg = leg_mm / 1000.0
+    th = thickness_mm / 1000.0
+    sign = 1.0 if z_frac >= 0 else -1.0
+
+    def _profile_2d():
+        # Local (a, b) profile, origin at the attachment corner; b grows away
+        # from the skin (sign-flipped for a lower cap).
+        if section == "L":
+            return [(0, 0), (leg, 0), (leg, th), (th, th), (th, leg), (0, leg)]
+        if section == "T":
+            return [(-leg / 2, 0), (leg / 2, 0), (leg / 2, th), (th / 2, th),
+                    (th / 2, leg), (-th / 2, leg), (-th / 2, th), (-leg / 2, th)]
+        if section == "Z":
+            return [(0, 0), (leg, 0), (leg, th), (th, th), (th, leg),
+                    (leg, leg), (leg, leg + th), (0, leg + th)]
+        # hat
+        return [(0, 0), (leg, 0), (leg, th), (leg - th, th), (leg - th, leg),
+                (th, leg), (th, th), (0, th)]
+
+    prof = _profile_2d()
+    wires = []
+    for y in (0.0, span_m):
+        chord = _chord_at(y, span_m, root_chord_m, tip_chord_m)
+        z0 = _dihedral_z(y, dihedral_deg)
+        phi = _twist_phi(y, span_m, twist_tip_deg)
+        # local thickness-ratio cap height at x_frac (use 12% t/c as nominal cap z)
+        xc = x_frac * chord
+        z_surf = sign * 0.06 * chord  # ~ half-thickness near the cap; valid + sane
+        xq = 0.25 * chord
+        ring = []
+        for (a, b) in prof:
+            px = xc + a
+            pz = z_surf + sign * b
+            xr, zr = _twist_xz(px, pz, xq, phi)
+            ring.append(cq.Vector(xr, y, z0 + zr))
+        wires.append(cq.Wire.makePolygon(ring, close=True))
+    solid = cq.Solid.makeLoft(wires, ruled=True)
+    return _validate_solid(_wp(solid), f"stringer[{section}]@{x_frac:.2f}")
+
+
+def make_wing_skin_panel(
+    *,
+    airfoil_points,
+    span_m: float,
+    root_chord_m: float,
+    tip_chord_m: float,
+    upper: bool,
+    thickness_root_m: float,
+    thickness_tip_m: float,
+    front_spar_x_frac: float,
+    rear_spar_x_frac: float,
+    twist_tip_deg: float = 0.0,
+    dihedral_deg: float = 0.0,
+    n_stations: int = 11,
+) -> cq.Workplane:
+    """Curved OML skin panel (upper suction or lower) between the spars, with a
+    root→tip thickness taper. Each station section follows the airfoil arc; the
+    inner surface is the arc offset inward by the local skin thickness."""
+    surf_u, surf_l = _surfaces(airfoil_points)
+    surf = surf_u if upper else surf_l
+    sign = 1.0 if upper else -1.0
+    # sample the arc between the spar fractions
+    n_arc = 16
+    xs = [
+        front_spar_x_frac + (rear_spar_x_frac - front_spar_x_frac) * j / (n_arc - 1)
+        for j in range(n_arc)
+    ]
+    wires = []
+    for i in range(n_stations):
+        y = span_m * i / (n_stations - 1)
+        chord = _chord_at(y, span_m, root_chord_m, tip_chord_m)
+        z0 = _dihedral_z(y, dihedral_deg)
+        phi = _twist_phi(y, span_m, twist_tip_deg)
+        t = thickness_root_m + (thickness_tip_m - thickness_root_m) * (
+            0.0 if span_m == 0 else y / span_m
+        )
+        xq = 0.25 * chord
+        outer = [(xf * chord, _interp_z(surf, xf) * chord) for xf in xs]
+        inner = [(x, z - sign * t) for (x, z) in outer]
+        ring2d = outer + list(reversed(inner))
+        ring = []
+        for (x, z) in ring2d:
+            xr, zr = _twist_xz(x, z, xq, phi)
+            ring.append(cq.Vector(xr, y, z0 + zr))
+        wires.append(cq.Wire.makePolygon(ring, close=True))
+    solid = cq.Solid.makeLoft(wires, ruled=True)
+    return _validate_solid(_wp(solid), f"skin[{'upper' if upper else 'lower'}]")
+
+
+def make_root_fitting(
+    *,
+    root_chord_m: float,
+    thickness_to_chord: float,
+    front_spar_x_frac: float,
+    rear_spar_x_frac: float,
+    fitting_thickness_m: float,
+    bolt_pattern=None,
+) -> cq.Workplane:
+    """Solid root fitting spanning the spar bay at y=0, sized to the section box,
+    ``fitting_thickness_m`` thick in Y. Optional ``bolt_pattern`` = list of
+    (x_frac, z_frac) through-holes."""
+    x0 = front_spar_x_frac * root_chord_m
+    x1 = rear_spar_x_frac * root_chord_m
+    h = thickness_to_chord * root_chord_m
+    box = (
+        cq.Workplane("XZ")
+        .center((x0 + x1) / 2.0, 0.0)
+        .rect(x1 - x0, h)
+        .extrude(fitting_thickness_m)
+    )
+    wp = box
+    if bolt_pattern:
+        r = min(0.15 * (x1 - x0), 0.20 * h) / max(len(bolt_pattern), 1)
+        r = max(min(r, 0.25 * h), 1e-3)
+        for (xf, zf) in bolt_pattern:
+            xc = xf * root_chord_m
+            zc = zf * (h / 2.0)
+            hole = (
+                cq.Workplane("XZ")
+                .center(xc, zc)
+                .circle(r)
+                .extrude(fitting_thickness_m * 2)
+                .translate(cq.Vector(0, -fitting_thickness_m * 0.5, 0))
+            )
+            wp = wp.cut(hole)
+    return _validate_solid(wp, "root_fitting")
+
+
+def make_control_surface(
+    *,
+    parent_airfoil_points,
+    chord_frac: float,
+    span_m: float,
+    root_chord_m: float,
+    tip_chord_m: float,
+    hinge_x_frac: float,
+    deflection_deg: float = 0.0,
+    te_method: str = _DEFAULT_TE_METHOD,
+) -> cq.Workplane:
+    """Control surface (aileron/flap/elevator) = the aft OML region from
+    ``hinge_x_frac`` to the trailing edge, lofted over ``span_m`` and rotated about
+    the hinge line by ``deflection_deg``. Returns ONLY the flap solid; the parent
+    cove/trim is out of scope v1 (Hole #3)."""
+    upper, lower = _surfaces(parent_airfoil_points)
+
+    def _aft_ring(chord):
+        # perimeter: upper hinge→TE, then lower TE→hinge (close() draws hinge line)
+        xs_aft = [x for (x, _) in upper if x >= hinge_x_frac]
+        if not xs_aft or xs_aft[0] > hinge_x_frac:
+            xs_aft = [hinge_x_frac] + xs_aft
+        ring = []
+        for xf in xs_aft:
+            ring.append((xf * chord, _interp_z(upper, xf) * chord))
+        for xf in reversed(xs_aft):
+            ring.append((xf * chord, _interp_z(lower, xf) * chord))
+        return ring
+
+    wires = []
+    for y in (0.0, span_m):
+        chord = _chord_at(y, span_m, root_chord_m, tip_chord_m)
+        ring = [cq.Vector(x, y, z) for (x, z) in _aft_ring(chord)]
+        wires.append(cq.Wire.makePolygon(ring, close=True))
+    solid = cq.Solid.makeLoft(wires, ruled=True)
+
+    if abs(deflection_deg) > 1e-9:
+        hinge_x = hinge_x_frac * root_chord_m
+        solid = solid.rotate(
+            cq.Vector(hinge_x, 0, 0), cq.Vector(hinge_x, 1, 0), deflection_deg
+        )
+    return _validate_solid(_wp(solid), "control_surface")
