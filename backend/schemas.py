@@ -11,7 +11,7 @@ Parts are connected via named anchor tags that reference CadQuery selectors.
 """
 
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -281,6 +281,63 @@ class AirfoilSpec(BaseModel):
 # all share one source of truth.
 
 
+class AircraftSpec(BaseModel):
+    """Aircraft-level conditions for 3-D aero + structural sizing (Domain D).
+
+    Populated by the REA from weight/cruise cues. Bounds reject hallucinated
+    nonsense (the plan's REA risk) so a bad guess fails validation rather than
+    silently feeding garbage to the lifting-line / structural stages.
+    """
+
+    mtow_kg: float = Field(..., gt=0, le=1.0e6, description="Max take-off mass (kg).")
+    cruise_alt_m: float = Field(..., ge=0, le=30000, description="Cruise altitude (m, ISA).")
+    cruise_speed_ms: float = Field(..., gt=0, le=400, description="Cruise true airspeed (m/s).")
+    category: Optional[str] = Field(
+        default="normal", description="normal | utility | acrobatic (load-factor envelope)."
+    )
+    cl_max: Optional[float] = Field(
+        default=None, gt=0, le=3.5, description="Max lift coefficient, if stated."
+    )
+
+
+class WingBoxSpec(BaseModel):
+    """Deterministic wing-box layout driving cad_aero.canonical_wing_parts.
+
+    Spar fractions are x/c; the validator enforces front forward of rear so the
+    box is geometrically sane before any builder runs.
+    """
+
+    front_spar_x_frac: float = Field(..., ge=0.0, le=1.0)
+    rear_spar_x_frac: float = Field(..., ge=0.0, le=1.0)
+    n_ribs: int = Field(..., ge=2, le=50)
+    web_thickness_m: Optional[float] = Field(default=None, gt=0, le=0.1)
+    skin_thickness_m: Optional[float] = Field(default=None, gt=0, le=0.1)
+
+    @model_validator(mode="after")
+    def _front_before_rear(self) -> "WingBoxSpec":
+        if self.front_spar_x_frac >= self.rear_spar_x_frac:
+            raise ValueError(
+                f"front_spar_x_frac ({self.front_spar_x_frac}) must be forward of "
+                f"rear_spar_x_frac ({self.rear_spar_x_frac})"
+            )
+        return self
+
+
+class Wing3DAeroReport(BaseModel):
+    """Whole-wing (3-D) aerodynamic result from the lifting-line or AVL stage.
+
+    Distinct from PolarReport (2-D sectional XFOIL): this carries finite-span
+    CL/CDi/span-efficiency. `source` records which solver produced it.
+    """
+
+    CL_3D: float
+    CDi: float = Field(..., ge=0.0, description="Induced drag coefficient.")
+    span_efficiency_e: float = Field(..., gt=0.0, le=1.05)
+    source: Literal["lifting_line", "avl"]
+    Cl_local: Optional[list[float]] = Field(default=None, description="Local section Cl per station.")
+    L_distribution: Optional[list[float]] = Field(default=None, description="Lift per unit span [N/m].")
+
+
 class PolarReport(BaseModel):
     """Aerodynamic polar result delivered alongside the GLB on /generate.
 
@@ -365,6 +422,16 @@ class AssemblyManifest(BaseModel):
             "invoked with run_aero=True on a Domain D assembly. None when "
             "aero analysis was not requested, the assembly is not a wing, "
             "or XFOIL was unavailable / failed (see SSE 'aero' event detail)."
+        ),
+    )
+
+    wing_aero_report: Optional[Wing3DAeroReport] = Field(
+        default=None,
+        description=(
+            "Whole-wing 3-D aero (lifting-line baseline or AVL) attached after "
+            "export on a Domain D wing assembly when run_aero=True. Distinct from "
+            "the 2-D sectional aero_report. None when not a finite wing or the 3-D "
+            "stage was unavailable."
         ),
     )
 
@@ -507,6 +574,24 @@ class DesignRequirements(BaseModel):
             "Domain F only: propulsion geometry parameters extracted from the prompt "
             "(nozzle throat/exit diameters, chamber dimensions, fuel inlet count, "
             "nacelle highlight radius, etc.). Populate when inferred_domain is 'F'."
+        ),
+    )
+
+    aircraft_spec: Optional[AircraftSpec] = Field(
+        default=None,
+        description=(
+            "Domain D only: aircraft-level conditions (MTOW, cruise altitude/speed) "
+            "for the 3-D lifting-line / structural stages. Populate when the prompt "
+            "names weight + cruise conditions."
+        ),
+    )
+
+    wing_box_spec: Optional[WingBoxSpec] = Field(
+        default=None,
+        description=(
+            "Domain D only: deterministic wing-box layout (front/rear spar x/c, rib "
+            "count, web/skin thickness) driving the cad_aero builders. Populate when "
+            "the prompt describes a structural wing (spars, ribs)."
         ),
     )
 
