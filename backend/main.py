@@ -151,6 +151,16 @@ class GenerateRequest(BaseModel):
             "report. Failure is non-blocking — GLB delivery never depends on it."
         ),
     )
+    run_struct: bool = Field(
+        default=False,
+        description=(
+            "Phase 4 opt-in: when True and the assembly is Domain D, run the "
+            "structural + flight-envelope analysis (ISA atmosphere, FAR-23 "
+            "load factors, wing-box bending/shear margins) and attach a "
+            "structural report. Pure-number computation — no subprocess, no "
+            "STEP file, no LLM call. Failure is non-blocking."
+        ),
+    )
 
 
 class RunRequest(BaseModel):
@@ -282,7 +292,166 @@ async def _run_aero_stage(
     return _sanitize_floats(polar.model_dump()), msg
 
 
-async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, None]:
+async def _run_struct_stage(
+    requirements,
+) -> tuple[dict | None, str]:
+    """Phase 4: structural + flight-envelope analysis. Always returns; never raises.
+
+    Pure-number computation — no subprocess, no STEP file, no LLM call, no
+    user-controlled filesystem paths. Returns (struct_dict, status_msg).
+    struct_dict is a ``StructuralReport.model_dump()`` on success, or None
+    when skipped (status_msg explains why).
+
+    Structural failure must never block GLB delivery — every failure path
+    returns None with a human-readable, _safe_error-redacted reason.
+    """
+    # --- Gate 1: requirements must indicate Domain D ---
+    if requirements is None:
+        return None, "no REA requirements available"
+    domain = (getattr(requirements, "inferred_domain", "") or "").strip().upper()
+    if domain != "D":
+        return None, f"inferred_domain={domain!r} (not Domain D)"
+
+    # --- Gate 2: aircraft_spec required fields ---
+    ac = getattr(requirements, "aircraft_spec", None)
+    if ac is None or ac.mtow_kg is None or ac.cruise_alt_m is None or ac.cruise_speed_ms is None:
+        return None, "aircraft_spec missing mtow_kg / cruise_alt_m / cruise_speed_ms"
+
+    # --- Gate 3: wing area — from wing_spec, else derive from airfoil_spec ---
+    ws = getattr(requirements, "wing_spec", None)
+    af = getattr(requirements, "airfoil_spec", None)
+    area_m2: float | None = None
+    span_m: float | None = None
+    mean_chord_m: float | None = None
+    if ws is not None:
+        area_m2 = ws.area_m2
+        span_m = ws.span_m
+        mean_chord_m = ws.mean_chord_m
+    if area_m2 is None and af is not None and af.chord_mm and af.span_mm:
+        chord_m = af.chord_mm / 1000.0
+        span_from_af = af.span_mm / 1000.0
+        area_m2 = chord_m * span_from_af   # rectangular approximation
+        span_m = span_m or span_from_af
+        mean_chord_m = mean_chord_m or chord_m
+    if not area_m2:
+        return None, "wing area unknown (set wing_spec.area_m2 or airfoil_spec.chord_mm + span_mm)"
+
+    # --- Gate 4: wing_box_spec required fields ---
+    wb = getattr(requirements, "wing_box_spec", None)
+    if wb is None or not (wb.chord_root_m and wb.thickness_to_chord
+                          and wb.cap_area_m2 and wb.spar_web_thickness_m):
+        return None, (
+            "wing_box_spec missing chord_root_m / thickness_to_chord / "
+            "cap_area_m2 / spar_web_thickness_m"
+        )
+
+    # --- Lazy import: analysis/ lives at repo root, may not be packaged everywhere ---
+    try:
+        import sys as _sys
+        from pathlib import Path as _Path
+        _repo_root = _Path(__file__).resolve().parent.parent
+        if str(_repo_root) not in _sys.path:
+            _sys.path.insert(0, str(_repo_root))
+        from analysis.structures import analyze_wing_structure  # noqa: PLC0415
+        from schemas import StructuralReport  # noqa: PLC0415
+    except ImportError as e:
+        return None, f"analysis module unavailable ({_safe_error(str(e))})"
+
+    # --- Build inputs for the analysis module ---
+    spec_dict: dict = {
+        "mtow_kg":         float(ac.mtow_kg),
+        "cruise_alt_m":    float(ac.cruise_alt_m),
+        "cruise_speed_ms": float(ac.cruise_speed_ms),
+    }
+    if ac.category:
+        spec_dict["category"] = ac.category
+    for key in ("cl_max", "lift_curve_slope", "gust_velocity_ms", "vne_factor"):
+        val = getattr(ac, key, None)
+        if val is not None:
+            spec_dict[key] = float(val)
+
+    wing_dict: dict = {"area_m2": float(area_m2)}
+    if span_m is not None:
+        wing_dict["span_m"] = float(span_m)
+    if mean_chord_m is not None:
+        wing_dict["mean_chord_m"] = float(mean_chord_m)
+
+    box_dict: dict = {
+        "chord_root_m":         float(wb.chord_root_m),
+        "thickness_to_chord":   float(wb.thickness_to_chord),
+        "cap_area_m2":          float(wb.cap_area_m2),
+        "spar_web_thickness_m": float(wb.spar_web_thickness_m),
+    }
+    if wb.n_spars is not None:
+        box_dict["n_spars"] = int(wb.n_spars)
+
+    material = (getattr(requirements, "material_class", None) or "AL2024-T3")
+
+    # --- Run analysis off the event loop (defensive — analysis is fast & pure-Python) ---
+    import asyncio as _asyncio
+    try:
+        report = await _asyncio.to_thread(
+            analyze_wing_structure,
+            spec_dict, wing_dict, box_dict,
+            material=material,
+        )
+    except KeyError as e:
+        return None, f"unknown material: {_safe_error(str(e))}"
+    except Exception as e:
+        return None, f"structural analysis failed: {type(e).__name__}: {_safe_error(str(e))}"
+
+    # --- Flatten the nested TypedDict into the flat Pydantic StructuralReport ---
+    try:
+        cruise = report["cruise"]
+        env = report["envelope"]
+        bending = report["bending"]
+        shear = report["shear"]
+        flat = StructuralReport(
+            altitude_m=cruise["altitude_m"],
+            density_kgm3=cruise["density_kgm3"],
+            dynamic_pressure_pa=report["dynamic_pressure_pa"],
+            cl_cruise=report["cl_cruise"],
+            wing_loading_pa=report["wing_loading_pa"],
+            category=env["category"],
+            n_maneuver_pos=env["n_maneuver_pos"],
+            n_maneuver_neg=env["n_maneuver_neg"],
+            n_gust_pos=env["n_gust_pos"],
+            n_gust_neg=env["n_gust_neg"],
+            n_limit_pos=env["n_limit_pos"],
+            n_limit_neg=env["n_limit_neg"],
+            n_ultimate_pos=env["n_ultimate_pos"],
+            n_ultimate_neg=env["n_ultimate_neg"],
+            v_stall_ms=env["v_stall_ms"],
+            v_corner_ms=env["v_corner_ms"],
+            v_ne_ms=env["v_ne_ms"],
+            root_bending_moment_nm=report["root_bending_moment_nm"],
+            root_shear_force_n=report["root_shear_force_n"],
+            bending_stress_pa=bending["stress_pa"],
+            bending_allowable_pa=bending["allowable_pa"],
+            bending_margin_of_safety=bending["margin_of_safety"],
+            bending_passed=bending["passed"],
+            shear_stress_pa=shear["stress_pa"],
+            shear_allowable_pa=shear["allowable_pa"],
+            shear_margin_of_safety=shear["margin_of_safety"],
+            shear_passed=shear["passed"],
+            material=report["material"],
+            passed=report["passed"],
+            warnings=report["warnings"],
+        )
+    except Exception as e:
+        return None, f"struct report mapping failed: {type(e).__name__}: {_safe_error(str(e))}"
+
+    msg = (
+        f"n_ult={flat.n_ultimate_pos:.2f}; CL_cruise={flat.cl_cruise:.3f}; "
+        f"bending MS={flat.bending_margin_of_safety:.3f}; "
+        f"shear MS={flat.shear_margin_of_safety:.3f}"
+    )
+    # NaN/Inf → null sanitisation so JSON serialisation never raises (e.g. MS=inf
+    # when stress is zero).  Mirrors the aero stage's tail.
+    return _sanitize_floats(flat.model_dump()), msg
+
+
+async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = False) -> AsyncGenerator[str, None]:
     """Run the full pipeline, yielding SSE progress events."""
 
     # --- Step 1: REA (parallel with Planner) + Planner ---
@@ -587,6 +756,19 @@ async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, 
         else:
             yield _event("aero", "skipped", aero_msg)
 
+    # Phase 4: structural + flight-envelope analysis (opt-in, Domain D only).
+    # Pure-number computation — no subprocess, no STEP file, no LLM call. Every
+    # failure path inside _run_struct_stage returns (None, reason) so this
+    # block can never prevent the "complete" event from being emitted.
+    struct_report: dict | None = None
+    if run_struct:
+        yield _event("struct", "running", "Running structural & envelope analysis")
+        struct_report, struct_msg = await _run_struct_stage(requirements)
+        if struct_report is not None:
+            yield _event("struct", "done", struct_msg)
+        else:
+            yield _event("struct", "skipped", struct_msg)
+
     # Geometry certificate — aggregate across all parts.
     # Multi-part: use the certs collected during _build_part().
     # Single-part: save a temp STEP and run the check (lightweight, advisory).
@@ -680,6 +862,7 @@ async def _pipeline(prompt: str, run_aero: bool = False) -> AsyncGenerator[str, 
         "export_formats": get_available_formats(),  # T2-09
         "pmi_detected": pmi_detected,   # T3-08: hints frontend to offer PMI annotation
         "aero_report": aero_report,     # Phase 3: PolarReport dict or None
+        "struct_report": struct_report, # Phase 4: StructuralReport dict or None
         "geometry_certificate": geometry_certificate,  # G-05: post-compile cert
     }
     yield f"data: {json.dumps(complete_payload)}\n\n"
@@ -806,7 +989,7 @@ async def plan_assembly(body: GenerateRequest, request: Request):
 @limiter.limit("5/minute")
 async def generate(body: GenerateRequest, request: Request):
     return StreamingResponse(
-        _pipeline(body.prompt, run_aero=body.run_aero),
+        _pipeline(body.prompt, run_aero=body.run_aero, run_struct=body.run_struct),
         media_type="text/event-stream",
     )
 
