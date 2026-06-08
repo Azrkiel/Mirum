@@ -1256,5 +1256,25 @@
     "regression_for": [
       "G"
     ]
+  },
+  {
+    "id": "D_wing_full_assembly",
+    "domain": "D",
+    "difficulty": "hard",
+    "description": "A NACA 2412 structural wing-box section, 250mm chord and 600mm span, sized for a 1200 kg utility-category aircraft cruising at 60 m/s at 3000 m. Include a front spar at 25 percent chord, a rear spar at 65 percent chord, 5 evenly spaced internal ribs, and upper and lower skin panels 1.5mm thick.",
+    "expected_features": [
+      "NACA 2412 cross-section",
+      "250mm chord",
+      "600mm span",
+      "front spar at 25% chord",
+      "rear spar at 65% chord",
+      "5 internal ribs",
+      "upper and lower skin",
+      "1.5mm skin thickness"
+    ],
+    "regression_for": [
+      "D"
+    ],
+    "notes": "Phase 5 integration prompt: full ribbed wing (front+rear spar, 5 ribs, skin) exercising the Domain-D geometry path; the 1200 kg / 60 m/s / 3000 m design point also drives REA aircraft_spec/wing_box_spec extraction (run_struct)."
   }
 ]
