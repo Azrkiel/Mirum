@@ -11,7 +11,7 @@ Parts are connected via named anchor tags that reference CadQuery selectors.
 """
 
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -281,6 +281,87 @@ class AirfoilSpec(BaseModel):
 # all share one source of truth.
 
 
+class AircraftSpec(BaseModel):
+    """Aircraft-level conditions for the 3-D aero (lifting-line) AND structural /
+    flight-envelope stages (Domain D).
+
+    RECONCILE NOTE (2026-06-08): single canonical merge of the two independently
+    developed definitions (aero stack + structures stack). Rules:
+      * every field Optional with a default — run_aero / run_struct are opt-in
+        and the REA may not extract every field; the geometry / analysis stages
+        guard at the use site, not at schema construction.
+      * bounds are the INTERSECTION (tightest) of the two branches, so each
+        branch's original rejection tests still hold.
+      * fields are the UNION of both branches.
+    Bounds still reject hallucinated REA outputs (the plan's REA risk).
+    """
+
+    mtow_kg:          Optional[float] = Field(default=None, gt=0.0, le=1.0e6,   description="Maximum take-off weight (mass), kg.")
+    cruise_alt_m:     Optional[float] = Field(default=None, ge=0.0, le=20000.0, description="Cruise altitude, m (ISA model valid to ~20 km).")
+    cruise_speed_ms:  Optional[float] = Field(default=None, gt=0.0, le=400.0,   description="Cruise true airspeed, m/s.")
+    category:         Optional[str]   = Field(default=None, max_length=16,      description="FAR-23 category: 'normal' | 'utility' | 'acrobatic'.")
+    cl_max:           Optional[float] = Field(default=None, gt=0.0, le=3.5,     description="Maximum lift coefficient (analysis default 1.5).")
+    lift_curve_slope: Optional[float] = Field(default=None, gt=0.0, lt=20.0,    description="3-D wing CLα per radian (default 5.7).")
+    gust_velocity_ms: Optional[float] = Field(default=None, ge=0.0, lt=200.0,   description="Discrete gust velocity, m/s (default 15.24 = 50 fps).")
+    vne_factor:       Optional[float] = Field(default=None, gt=1.0, lt=3.0,     description="V_NE / V_cruise ratio (default 1.4).")
+
+
+class WingBoxSpec(BaseModel):
+    """Wing-box spec — canonical union of the structures (analysis section
+    sizing) and aero (deterministic geometry layout) definitions (Domain D).
+
+    RECONCILE NOTE (2026-06-08): merged from two independent definitions. All
+    fields Optional (each consumer sets only its own subset); the spar-cap /
+    web-thickness fields feed the bending/shear margin analysis, the spar-
+    fraction / rib-count / skin fields drive the cad_aero builders. The
+    _front_before_rear invariant is preserved but None-guarded so structures-
+    style construction (no spar fractions) does not raise.
+
+    spar_web_thickness_m (analysis) and web_thickness_m (geometry builder) are
+    intentionally distinct fields for distinct consumers — not a duplication.
+    """
+
+    # structures (analysis section sizing) inputs
+    chord_root_m:         Optional[float] = Field(default=None, gt=0.0, lt=100.0, description="Chord at the analysed station, m.")
+    thickness_to_chord:   Optional[float] = Field(default=None, gt=0.0, lt=1.0,   description="Section thickness ratio (t/c).")
+    cap_area_m2:          Optional[float] = Field(default=None, gt=0.0, lt=1.0,   description="Area of ONE spar cap, m².")
+    spar_web_thickness_m: Optional[float] = Field(default=None, gt=0.0, lt=1.0,   description="Shear-web thickness, m (structures analysis).")
+    n_spars:              Optional[int]   = Field(default=None, ge=1,   le=10,    description="Number of shear webs (default 2).")
+    # aero (deterministic geometry layout) inputs
+    front_spar_x_frac:    Optional[float] = Field(default=None, ge=0.0, le=1.0,   description="Front-spar chordwise fraction x/c (geometry).")
+    rear_spar_x_frac:     Optional[float] = Field(default=None, ge=0.0, le=1.0,   description="Rear-spar chordwise fraction x/c (geometry).")
+    n_ribs:               Optional[int]   = Field(default=None, ge=2,   le=50,    description="Rib count (geometry).")
+    web_thickness_m:      Optional[float] = Field(default=None, gt=0.0, le=0.1,   description="Web thickness for the cad_aero builder.")
+    skin_thickness_m:     Optional[float] = Field(default=None, gt=0.0, le=0.1,   description="Skin panel thickness for the cad_aero builder.")
+
+    @model_validator(mode="after")
+    def _front_before_rear(self) -> "WingBoxSpec":
+        # None-guarded: structures-style construction omits the spar fractions.
+        if (self.front_spar_x_frac is not None
+                and self.rear_spar_x_frac is not None
+                and self.front_spar_x_frac >= self.rear_spar_x_frac):
+            raise ValueError(
+                f"front_spar_x_frac ({self.front_spar_x_frac}) must be forward of "
+                f"rear_spar_x_frac ({self.rear_spar_x_frac})"
+            )
+        return self
+
+
+class Wing3DAeroReport(BaseModel):
+    """Whole-wing (3-D) aerodynamic result from the lifting-line or AVL stage.
+
+    Distinct from PolarReport (2-D sectional XFOIL): this carries finite-span
+    CL/CDi/span-efficiency. `source` records which solver produced it.
+    """
+
+    CL_3D: float
+    CDi: float = Field(..., ge=0.0, description="Induced drag coefficient.")
+    span_efficiency_e: float = Field(..., gt=0.0, le=1.05)
+    source: Literal["lifting_line", "avl"]
+    Cl_local: Optional[list[float]] = Field(default=None, description="Local section Cl per station.")
+    L_distribution: Optional[list[float]] = Field(default=None, description="Lift per unit span [N/m].")
+
+
 class PolarReport(BaseModel):
     """Aerodynamic polar result delivered alongside the GLB on /generate.
 
@@ -308,39 +389,12 @@ class PolarReport(BaseModel):
 # (mirror the TypedDicts in analysis/structures.py)
 # ---------------------------------------------------------------------------
 
-class AircraftSpec(BaseModel):
-    """Aircraft sizing + cruise condition for the structural / load-factor
-    analysis.  Populated by the REA when the prompt names a take-off weight
-    and a cruise condition.  Bounds are intentionally tight to constrain the
-    AST-scan workload and reject nonsense REA outputs.
-    """
-
-    mtow_kg:          Optional[float] = Field(default=None, gt=0.0,  lt=1.0e7,  description="Maximum take-off weight (mass), kg.")
-    cruise_alt_m:     Optional[float] = Field(default=None, ge=0.0,  le=20000.0, description="Cruise altitude, m (ISA model valid to ~20 km).")
-    cruise_speed_ms:  Optional[float] = Field(default=None, gt=0.0,  lt=1000.0,  description="Cruise true airspeed, m/s.")
-    category:         Optional[str]   = Field(default=None, max_length=16,       description="FAR-23 category: 'normal' | 'utility' | 'acrobatic'.")
-    cl_max:           Optional[float] = Field(default=None, gt=0.0,  lt=5.0,     description="Maximum lift coefficient (default 1.5 in the analysis module).")
-    lift_curve_slope: Optional[float] = Field(default=None, gt=0.0,  lt=20.0,    description="3-D wing CLα per radian (default 5.7).")
-    gust_velocity_ms: Optional[float] = Field(default=None, ge=0.0,  lt=200.0,   description="Discrete gust velocity, m/s (default 15.24 = 50 fps).")
-    vne_factor:       Optional[float] = Field(default=None, gt=1.0,  lt=3.0,     description="V_NE / V_cruise ratio (default 1.4).")
-
-
 class WingSpec(BaseModel):
     """Reference wing planform inputs needed by the structural envelope."""
 
     area_m2:      Optional[float] = Field(default=None, gt=0.0, lt=10000.0, description="Reference wing area S, m².")
     span_m:       Optional[float] = Field(default=None, gt=0.0, lt=500.0,   description="Full tip-to-tip wing span, m.")
     mean_chord_m: Optional[float] = Field(default=None, gt=0.0, lt=50.0,    description="Mean aerodynamic/geometric chord; defaults to S/b when absent.")
-
-
-class WingBoxSpec(BaseModel):
-    """Single-cell wing-box section sizing at the analysed (typically root) station."""
-
-    chord_root_m:         Optional[float] = Field(default=None, gt=0.0, lt=100.0, description="Chord at the analysed station, m.")
-    thickness_to_chord:   Optional[float] = Field(default=None, gt=0.0, lt=1.0,   description="Section thickness ratio (t/c).")
-    cap_area_m2:          Optional[float] = Field(default=None, gt=0.0, lt=1.0,   description="Area of ONE spar cap, m².")
-    spar_web_thickness_m: Optional[float] = Field(default=None, gt=0.0, lt=1.0,   description="Shear-web thickness, m.")
-    n_spars:              Optional[int]   = Field(default=None, ge=1,    le=10,   description="Number of shear webs (default 2).")
 
 
 class StructuralReport(BaseModel):
@@ -449,6 +503,16 @@ class AssemblyManifest(BaseModel):
             "invoked with run_aero=True on a Domain D assembly. None when "
             "aero analysis was not requested, the assembly is not a wing, "
             "or XFOIL was unavailable / failed (see SSE 'aero' event detail)."
+        ),
+    )
+
+    wing_aero_report: Optional[Wing3DAeroReport] = Field(
+        default=None,
+        description=(
+            "Whole-wing 3-D aero (lifting-line baseline or AVL) attached after "
+            "export on a Domain D wing assembly when run_aero=True. Distinct from "
+            "the 2-D sectional aero_report. None when not a finite wing or the 3-D "
+            "stage was unavailable."
         ),
     )
 
@@ -597,10 +661,10 @@ class DesignRequirements(BaseModel):
     aircraft_spec: Optional[AircraftSpec] = Field(
         default=None,
         description=(
-            "Domain D only: aircraft sizing + cruise condition for the structural / "
-            "flight-envelope analysis (MTOW, cruise altitude, cruise TAS, FAR-23 "
-            "category, optional CL_max / lift-curve slope / gust velocity / V_NE "
-            "factor). Populate when the prompt names a weight and cruise condition."
+            "Domain D only: aircraft-level conditions (MTOW, cruise altitude/speed, "
+            "FAR-23 category, optional CL_max / lift-curve slope / gust velocity / "
+            "V_NE factor) for the 3-D lifting-line AND structural / flight-envelope "
+            "stages. Populate when the prompt names a weight and cruise condition."
         ),
     )
 
@@ -616,9 +680,11 @@ class DesignRequirements(BaseModel):
     wing_box_spec: Optional[WingBoxSpec] = Field(
         default=None,
         description=(
-            "Domain D only: single-cell wing-box section sizing (chord at station, "
-            "t/c, one spar-cap area, web thickness, n_spars). Required for the "
-            "bending / shear margin computation."
+            "Domain D only: wing-box section sizing (chord at station, t/c, spar-cap "
+            "area, web thickness, n_spars) for the bending / shear margin analysis, "
+            "AND/OR deterministic geometry layout (front/rear spar x/c, rib count, "
+            "web/skin thickness) driving the cad_aero builders. Populate when the "
+            "prompt describes a structural wing (spars, ribs)."
         ),
     )
 

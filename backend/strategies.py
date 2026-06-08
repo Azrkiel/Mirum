@@ -439,6 +439,44 @@ RULE_BLOCKS = {
     ),
 
     # ── Domain D: Aerospace / Aerodynamics ────────────────────────────
+    "rule_d_structural_builders": (
+        "DETERMINISTIC STRUCTURAL BUILDERS (cad_aero) - PREFERRED PATH for "
+        "multi-part structural wing boxes (spars + ribs + skins + stringers + "
+        "root fitting + control surfaces). Instead of authoring B-rep by hand or "
+        "intersecting blanks, import the curated builders from cad_aero and "
+        "PARAMETERISE them: identical keyword inputs yield identical geometry, so "
+        "the same prompt reproduces the same wing every time. "
+        "Builders (all keyword-only, each returns a cq.Workplane): "
+        "make_spar(airfoil_points, span_m, root_chord_m, tip_chord_m, x_frac, "
+        "web_thickness_m, twist_tip_deg, dihedral_deg, n_stations); "
+        "make_rib(airfoil_points, chord_m, y_station_m, thickness_m, "
+        "front_spar_x_frac, rear_spar_x_frac, n_lightening_holes, twist_deg); "
+        "make_wing_skin_panel(airfoil_points, span_m, root_chord_m, tip_chord_m, "
+        "upper, thickness_root_m, thickness_tip_m, front_spar_x_frac, "
+        "rear_spar_x_frac, twist_tip_deg, dihedral_deg, n_stations); "
+        "make_stringer(span_m, x_frac, z_frac, root_chord_m, tip_chord_m, "
+        "airfoil_points, section, leg_mm, thickness_mm); "
+        "make_root_fitting(root_chord_m, thickness_to_chord, front_spar_x_frac, "
+        "rear_spar_x_frac, fitting_thickness_m, bolt_pattern); "
+        "make_control_surface(parent_airfoil_points, chord_frac, span_m, "
+        "root_chord_m, tip_chord_m, hinge_x_frac, deflection_deg, twist_tip_deg, "
+        "dihedral_deg). "
+        "Get the normalised (x/c, z/c) contour via cad_aero.naca4_points(code, 1.0). "
+        "For a full canonical wing box, cad_aero.canonical_wing_parts() returns the "
+        "complete 16-part dict {name: cq.Workplane}. "
+        "SHARED FRAME (every builder obeys it): X=chord, Y=span, Z=thickness, "
+        "origin=root leading edge, dihedral z += y*tan, twist about the "
+        "quarter-chord. Add each part to a cq.Assembly() under its name; NEVER "
+        ".union() distinct parts. Minimal example: "
+        "from cad_aero import naca4_points, make_spar, make_rib; "
+        "af = naca4_points('2412', 1.0); "
+        "fs = make_spar(airfoil_points=af, span_m=5.36, root_chord_m=1.79, "
+        "tip_chord_m=0.89, x_frac=0.25, web_thickness_m=0.0008); "
+        "r0 = make_rib(airfoil_points=af, chord_m=1.79, y_station_m=0.0, "
+        "thickness_m=0.003, front_spar_x_frac=0.25, rear_spar_x_frac=0.65); "
+        "asm = cq.Assembly(); asm.add(fs, name='front_spar'); "
+        "asm.add(r0, name='rib_00'); result = asm. "
+    ),
     "rule_d_overview": (
         "DOMAIN D STRATEGY — OML Master Modeling (Solid-Skin Architecture): "
         "\n"
@@ -1171,6 +1209,7 @@ _DOMAIN_RULES = {
     "E": ["rule_feature_vocabulary", "rule_domain_e"],
     "D": [
         "rule_d_overview",
+        "rule_d_structural_builders",
         "rule_no_shell",
         "rule_spatial_alignment",
         "rule_reversed_lofting",

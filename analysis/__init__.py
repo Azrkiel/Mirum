@@ -31,8 +31,23 @@ from analysis.airfoil import (
     slice_step_to_dat,
     naca4_to_dat,
 )
+from analysis.lifting_line import (
+    WingPolarPoint,
+    lift_curve_slope_and_alpha0,
+    prandtl_lifting_line,
+)
+from analysis.avl import (
+    AvlNotFoundError,
+    AvlResult,
+    AvlRunError,
+    WingSection,
+    WingSpec,
+    analyze_wing_3d,
+    run_avl_analysis,
+)
 
 __all__ = [
+    # airfoil (XFOIL / 2-D)
     "FlightEnvelope",
     "PolarResult",
     "analyze_naca",
@@ -40,4 +55,16 @@ __all__ = [
     "predict_stall",
     "slice_step_to_dat",
     "naca4_to_dat",
+    # lifting-line (3-D analytic baseline)
+    "WingPolarPoint",
+    "prandtl_lifting_line",
+    "lift_curve_slope_and_alpha0",
+    # AVL (3-D higher-fidelity, opt-in)
+    "AvlResult",
+    "AvlNotFoundError",
+    "AvlRunError",
+    "WingSection",
+    "WingSpec",
+    "run_avl_analysis",
+    "analyze_wing_3d",
 ]
