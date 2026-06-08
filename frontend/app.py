@@ -51,6 +51,7 @@ for key, default in [
     ("aero_plots", None),      # T2-16: cached {cl_alpha, cd_alpha, cp_dist} base64 PNGs
     ("xfoil_pdf_bytes", None),      # PDF-04: cached PDF bytes for "Download XFOIL Results"
     ("geometry_certificate", None),  # G-05: GeometryCertificate dict from /generate
+    ("struct_report", None),         # Phase 6: StructuralReport dict from /generate complete event
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -197,6 +198,7 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     error_message = ""
     params = {}
     aero_report = None
+    struct_report = None  # Phase 6: structural & flight-envelope report
     geometry_cert = None  # G-05: geometry certificate
     # Phase 3: opt-in aerodynamic analysis (checkbox state lives in session)
     run_aero = bool(st.session_state.get("run_aero", False))
@@ -230,6 +232,7 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
                         glb_bytes = base64.b64decode(ev.get("glb", ""))
                         params = ev.get("parameters", {})
                         aero_report = ev.get("aero_report")  # Phase 3
+                        struct_report = ev.get("struct_report")  # Phase 6
                         geometry_cert = ev.get("geometry_certificate")  # G-05
                         # T2-08: store manifest for refinement
                         if ev.get("manifest"):
@@ -263,6 +266,7 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     st.session_state.glb_bytes = glb_bytes
     st.session_state.parameters = params
     st.session_state.aero_report = aero_report  # Phase 3
+    st.session_state.struct_report = struct_report  # Phase 6
     st.session_state.aero_plots = None          # T2-16: reset so plots are re-fetched
     st.session_state.xfoil_pdf_bytes = None    # PDF-04: reset so PDF is re-fetched
     st.session_state.geometry_certificate = geometry_cert  # G-05
@@ -513,6 +517,52 @@ def _render_geometry_cert_card(cert: dict) -> None:
             st.caption(f"Aggregate of {cert['part_count']} parts")
 
 
+def _render_structural_card(report: dict) -> None:
+    """Render the Flight-Envelope (V-n) + Structural-Margins cards.
+
+    Sources every value from the StructuralReport dict shipped on the /generate
+    `complete` event (Phase 6); renders nothing extra when fields are absent.
+    """
+    st.markdown("### 🛩️ Flight Envelope")
+    try:
+        from vn_diagram import vn_diagram_figure
+        fig = vn_diagram_figure(report)
+        st.pyplot(fig, use_container_width=True)
+        import matplotlib.pyplot as _plt
+        _plt.close(fig)
+    except Exception:
+        st.caption("_V-n diagram unavailable_")
+
+    st.markdown("### 🧱 Structural Margins")
+    passed = bool(report.get("passed"))
+    st.markdown(("✅ **PASS**" if passed else "❌ **FAIL**")
+                + f" — material **{report.get('material', '—')}**")
+
+    bms = report.get("bending_margin_of_safety")
+    sms = report.get("shear_margin_of_safety")
+    c1, c2 = st.columns(2)
+    c1.metric("Bending MS", f"{bms:+.3f}" if bms is not None else "—",
+              delta="ok" if report.get("bending_passed") else "fail")
+    c2.metric("Shear MS", f"{sms:+.3f}" if sms is not None else "—",
+              delta="ok" if report.get("shear_passed") else "fail")
+
+    rbm = report.get("root_bending_moment_nm")
+    rsf = report.get("root_shear_force_n")
+    c3, c4 = st.columns(2)
+    c3.metric("Root bending", f"{rbm / 1e3:,.1f} kN·m" if rbm is not None else "—")
+    c4.metric("Root shear", f"{rsf / 1e3:,.1f} kN" if rsf is not None else "—")
+
+    nup = report.get("n_ultimate_pos")
+    vne = report.get("v_ne_ms")
+    c5, c6 = st.columns(2)
+    c5.metric("n ultimate +", f"{nup:.2f}" if nup is not None else "—")
+    c6.metric("V_NE", f"{vne:.0f} m/s" if vne is not None else "—")
+
+    warnings = report.get("warnings") or []
+    if warnings:
+        st.caption("⚠ " + "; ".join(str(w) for w in warnings))
+
+
 def _render_performance_card(report: dict) -> None:
     """Render the aerodynamic PerformanceCard into the current Streamlit column.
 
@@ -738,6 +788,12 @@ if st.session_state.glb_bytes:
     geo_cert = st.session_state.get("geometry_certificate")
     if geo_cert:
         _render_geometry_cert_card(geo_cert)
+
+    # Phase 6: structural & flight-envelope cards (Domain D, opt-in run_struct)
+    struct_report = st.session_state.get("struct_report")
+    if struct_report:
+        with st.expander("🛩️ Flight Envelope & Structural Margins", expanded=True):
+            _render_structural_card(struct_report)
 
 # Parameter editor sidebar (T1-06)
 if st.session_state.parameters:
