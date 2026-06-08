@@ -56,6 +56,20 @@ from subagents.base import SubagentBase
 from subagents.messages import AgentType, SubagentContext, SubagentMessage
 
 
+def _safe_local_error(detail: object) -> str:
+    """Redact host filesystem paths from an error string.
+
+    Local mirror of ``main._safe_error`` for the out-of-process fallback,
+    where ``main`` (and therefore ``_safe_error``) cannot be imported.
+    """
+    import re as _re  # noqa: PLC0415
+
+    msg = str(detail)
+    msg = _re.sub(r'File ".*?"', 'File "<script>"', msg)
+    msg = _re.sub(r"(/app/|/opt/|[A-Za-z]:(?:/|\\{1,2}))[^\s\"']+", "<internal>", msg)
+    return msg
+
+
 class StructSubagent(SubagentBase):
     """Subagent wrapping the structural / flight-envelope analysis stage.
 
@@ -175,7 +189,7 @@ class StructSubagent(SubagentBase):
             from analysis.structures import analyze_wing_structure  # noqa: PLC0415
             from schemas import StructuralReport  # noqa: PLC0415
         except ImportError as e:
-            return None, f"analysis module unavailable ({e})"
+            return None, f"analysis module unavailable ({_safe_local_error(e)})"
 
         spec_dict: dict = {
             "mtow_kg":         float(ac.mtow_kg),
@@ -214,9 +228,9 @@ class StructSubagent(SubagentBase):
                 material=material,
             )
         except KeyError as e:
-            return None, f"unknown material: {e}"
+            return None, f"unknown material: {_safe_local_error(e)}"
         except Exception as e:
-            return None, f"structural analysis failed: {type(e).__name__}: {e}"
+            return None, f"structural analysis failed: {type(e).__name__}: {_safe_local_error(e)}"
 
         try:
             cruise = report["cruise"]
@@ -256,7 +270,7 @@ class StructSubagent(SubagentBase):
                 warnings=report["warnings"],
             )
         except Exception as e:
-            return None, f"struct report mapping failed: {type(e).__name__}: {e}"
+            return None, f"struct report mapping failed: {type(e).__name__}: {_safe_local_error(e)}"
 
         msg = (
             f"n_ult={flat.n_ultimate_pos:.2f}; CL_cruise={flat.cl_cruise:.3f}; "
