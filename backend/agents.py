@@ -289,6 +289,53 @@ _REA_BASE_SCHEMA: dict[str, Any] = {
                 "tip_pitch_deg":  {"type": "number"},
             },
         },
+        # Phase 4: structural / flight-envelope spec extraction (Domain D).
+        # Feeds the opt-in run_struct + run_aero stages. Geometry-layout fields
+        # (spar fractions / rib count) are intentionally OMITTED — the cad_aero
+        # builders use a fixed canonical layout, so the REA need not guess them.
+        "aircraft_spec": {
+            "type": "object",
+            "description": (
+                "Domain D only. Populate when the prompt names a take-off weight "
+                "AND a cruise condition (altitude and/or speed). Drives the "
+                "load-factor envelope + structural margins. NEVER guess values "
+                "the user did not give."
+            ),
+            "properties": {
+                "mtow_kg":         {"type": "number"},
+                "cruise_alt_m":    {"type": "number"},
+                "cruise_speed_ms": {"type": "number"},
+                "category":        {"type": "string"},
+                "cl_max":          {"type": "number"},
+            },
+        },
+        "wing_spec": {
+            "type": "object",
+            "description": (
+                "Domain D only. Reference wing planform for the structural "
+                "envelope; populate when wing area and/or span are named."
+            ),
+            "properties": {
+                "area_m2":      {"type": "number"},
+                "span_m":       {"type": "number"},
+                "mean_chord_m": {"type": "number"},
+            },
+        },
+        "wing_box_spec": {
+            "type": "object",
+            "description": (
+                "Domain D only. Wing-box SECTION SIZING for bending/shear "
+                "margins; populate when the prompt describes a structural wing "
+                "(spar caps, shear web, thickness-to-chord)."
+            ),
+            "properties": {
+                "chord_root_m":         {"type": "number"},
+                "thickness_to_chord":   {"type": "number"},
+                "cap_area_m2":          {"type": "number"},
+                "spar_web_thickness_m": {"type": "number"},
+                "n_spars":              {"type": "integer"},
+            },
+        },
     },
     "required": ["primary_function", "connecting_interfaces", "confidence"],
 }
@@ -336,6 +383,20 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
             "chord_mm, span_mm. Also populate sweep_le_deg if a sweep angle is stated, "
             "dihedral_deg if dihedral is stated, root_pitch_deg / tip_pitch_deg if blade pitch "
             "angles are stated (for propellers/rotors). Leave fields absent when not given. "
+            # Phase 4: structural / flight-envelope spec extraction (Domain D)
+            "STRUCTURAL EXTRACTION (Domain D): if the prompt gives a take-off weight AND a "
+            "cruise condition, populate `aircraft_spec` (mtow_kg, cruise_alt_m, cruise_speed_ms; "
+            "also category as 'normal'/'utility'/'acrobatic' and cl_max ONLY if stated). If a wing "
+            "area or span is given, populate `wing_spec` (area_m2, span_m, mean_chord_m). If the "
+            "prompt describes a structural wing box (spar caps, shear web, t/c), populate "
+            "`wing_box_spec` SECTION-SIZING fields (chord_root_m, thickness_to_chord, cap_area_m2, "
+            "spar_web_thickness_m, n_spars). Convert units to SI (kg, m, m/s). Do NOT invent the "
+            "wing-box geometry layout — only fill fields the user actually gave. "
+            "Examples: 'A 1200 kg light aircraft cruising at 60 m/s at 3000 m with a 16 m^2, 10.7 m "
+            "span wing' -> aircraft_spec{mtow_kg:1200, cruise_alt_m:3000, cruise_speed_ms:60}, "
+            "wing_spec{area_m2:16, span_m:10.7}. 'utility-category wing box, 1.8 m root chord, 12% "
+            "t/c, 2 spars' -> aircraft_spec{category:'utility'}, wing_box_spec{chord_root_m:1.8, "
+            "thickness_to_chord:0.12, n_spars:2}. "
             "If inferred_domain is 'F' (propulsion), populate `propulsion_spec` with all "
             "named dimensions: propulsion_type ('nozzle'/'chamber'/'nacelle'/'duct'), "
             "throat_diameter_mm, exit_diameter_mm, chamber_radius_mm, chamber_length_mm, "
