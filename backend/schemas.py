@@ -303,6 +303,90 @@ class PolarReport(BaseModel):
     Cl_max:          Optional[float] = None
 
 
+# ---------------------------------------------------------------------------
+# Phase 4: Structural & flight-envelope analysis schemas
+# (mirror the TypedDicts in analysis/structures.py)
+# ---------------------------------------------------------------------------
+
+class AircraftSpec(BaseModel):
+    """Aircraft sizing + cruise condition for the structural / load-factor
+    analysis.  Populated by the REA when the prompt names a take-off weight
+    and a cruise condition.  Bounds are intentionally tight to constrain the
+    AST-scan workload and reject nonsense REA outputs.
+    """
+
+    mtow_kg:          Optional[float] = Field(default=None, gt=0.0,  lt=1.0e7,  description="Maximum take-off weight (mass), kg.")
+    cruise_alt_m:     Optional[float] = Field(default=None, ge=0.0,  le=20000.0, description="Cruise altitude, m (ISA model valid to ~20 km).")
+    cruise_speed_ms:  Optional[float] = Field(default=None, gt=0.0,  lt=1000.0,  description="Cruise true airspeed, m/s.")
+    category:         Optional[str]   = Field(default=None, max_length=16,       description="FAR-23 category: 'normal' | 'utility' | 'acrobatic'.")
+    cl_max:           Optional[float] = Field(default=None, gt=0.0,  lt=5.0,     description="Maximum lift coefficient (default 1.5 in the analysis module).")
+    lift_curve_slope: Optional[float] = Field(default=None, gt=0.0,  lt=20.0,    description="3-D wing CLα per radian (default 5.7).")
+    gust_velocity_ms: Optional[float] = Field(default=None, ge=0.0,  lt=200.0,   description="Discrete gust velocity, m/s (default 15.24 = 50 fps).")
+    vne_factor:       Optional[float] = Field(default=None, gt=1.0,  lt=3.0,     description="V_NE / V_cruise ratio (default 1.4).")
+
+
+class WingSpec(BaseModel):
+    """Reference wing planform inputs needed by the structural envelope."""
+
+    area_m2:      Optional[float] = Field(default=None, gt=0.0, lt=10000.0, description="Reference wing area S, m².")
+    span_m:       Optional[float] = Field(default=None, gt=0.0, lt=500.0,   description="Full tip-to-tip wing span, m.")
+    mean_chord_m: Optional[float] = Field(default=None, gt=0.0, lt=50.0,    description="Mean aerodynamic/geometric chord; defaults to S/b when absent.")
+
+
+class WingBoxSpec(BaseModel):
+    """Single-cell wing-box section sizing at the analysed (typically root) station."""
+
+    chord_root_m:         Optional[float] = Field(default=None, gt=0.0, lt=100.0, description="Chord at the analysed station, m.")
+    thickness_to_chord:   Optional[float] = Field(default=None, gt=0.0, lt=1.0,   description="Section thickness ratio (t/c).")
+    cap_area_m2:          Optional[float] = Field(default=None, gt=0.0, lt=1.0,   description="Area of ONE spar cap, m².")
+    spar_web_thickness_m: Optional[float] = Field(default=None, gt=0.0, lt=1.0,   description="Shear-web thickness, m.")
+    n_spars:              Optional[int]   = Field(default=None, ge=1,    le=10,   description="Number of shear webs (default 2).")
+
+
+class StructuralReport(BaseModel):
+    """Wing structural + flight-envelope result delivered alongside the GLB
+    on /generate.  Flattened version of the StructuralReport TypedDict in
+    analysis/structures.py so the SSE payload is one level deep.
+    """
+
+    # Cruise condition (derived from ISA + lift = weight)
+    altitude_m:          float
+    density_kgm3:        float
+    dynamic_pressure_pa: float
+    cl_cruise:           float
+    wing_loading_pa:     float
+
+    # Flight envelope
+    category:        str
+    n_maneuver_pos:  float
+    n_maneuver_neg:  float
+    n_gust_pos:      float
+    n_gust_neg:      float
+    n_limit_pos:     float
+    n_limit_neg:     float
+    n_ultimate_pos:  float
+    n_ultimate_neg:  float
+    v_stall_ms:      float
+    v_corner_ms:     float
+    v_ne_ms:         float
+
+    # Ultimate root loads + margins
+    root_bending_moment_nm:   float
+    root_shear_force_n:       float
+    bending_stress_pa:        float
+    bending_allowable_pa:     float
+    bending_margin_of_safety: float
+    bending_passed:           bool
+    shear_stress_pa:          float
+    shear_allowable_pa:       float
+    shear_margin_of_safety:   float
+    shear_passed:             bool
+
+    material:  str
+    passed:    bool
+    warnings:  list[str]
+
+
 class AssemblyManifest(BaseModel):
     """The complete blueprint for a multi-part mechanical assembly.
 
@@ -507,6 +591,34 @@ class DesignRequirements(BaseModel):
             "Domain F only: propulsion geometry parameters extracted from the prompt "
             "(nozzle throat/exit diameters, chamber dimensions, fuel inlet count, "
             "nacelle highlight radius, etc.). Populate when inferred_domain is 'F'."
+        ),
+    )
+
+    aircraft_spec: Optional[AircraftSpec] = Field(
+        default=None,
+        description=(
+            "Domain D only: aircraft sizing + cruise condition for the structural / "
+            "flight-envelope analysis (MTOW, cruise altitude, cruise TAS, FAR-23 "
+            "category, optional CL_max / lift-curve slope / gust velocity / V_NE "
+            "factor). Populate when the prompt names a weight and cruise condition."
+        ),
+    )
+
+    wing_spec: Optional[WingSpec] = Field(
+        default=None,
+        description=(
+            "Domain D only: reference wing planform (area, span, mean chord) for the "
+            "structural envelope. When absent the structural stage tries to derive "
+            "area from airfoil_spec.chord_mm × span_mm and skips if neither is set."
+        ),
+    )
+
+    wing_box_spec: Optional[WingBoxSpec] = Field(
+        default=None,
+        description=(
+            "Domain D only: single-cell wing-box section sizing (chord at station, "
+            "t/c, one spar-cap area, web thickness, n_spars). Required for the "
+            "bending / shear margin computation."
         ),
     )
 
