@@ -23,6 +23,7 @@ import os
 import pathlib
 import re
 import time
+import uuid
 from typing import Any
 
 import google.generativeai as genai
@@ -30,7 +31,7 @@ import google.generativeai as genai
 logger = logging.getLogger("mirum.agents")
 
 from classifier import classify_part
-from compiler import execute_cad_script
+from compiler import _WORK_DIR, execute_cad_script
 from failure_analysis import build_retry_context, classify_failure
 from propulsion.rea_schema import (
     mentions_propulsion,
@@ -771,7 +772,11 @@ async def _save_part_step(part_id: str, script: str) -> str:
     """
     safe_id = _sanitize_part_id(part_id)
     _TMP_PARTS_DIR.mkdir(parents=True, exist_ok=True)
-    step_path = (_TMP_PARTS_DIR / f"{safe_id}.step").resolve()
+    # Unique per call: two concurrent requests can both hold a part named e.g.
+    # "base". A deterministic `{safe_id}.step` path made them clobber each
+    # other on the shared tmpfs — request A's assembler could even load
+    # request B's geometry. The uuid suffix isolates every export.
+    step_path = (_TMP_PARTS_DIR / f"{safe_id}_{uuid.uuid4().hex}.step").resolve()
     if not str(step_path).startswith(str(_TMP_PARTS_DIR.resolve())):
         raise ValueError(f"Path traversal detected in part_id: {part_id!r}")
     safe_path = step_path.as_posix()
@@ -1177,14 +1182,44 @@ def run_assembler_constraint(
     lines.append("assembly = cq.Assembly()")
     lines.append("")
 
-    # Add all parts to assembly (no location — solver will position them)
+    # Mixed-mode manifests: the solver only places parts that carry a
+    # mate_type. A part whose only rule is translation-only would otherwise be
+    # added with no location and silently left at the origin. Pre-compute an
+    # initial location for those parts so they land where the manifest says.
+    # Parts that ARE the target of a real constraint are left to the solver.
+    constrained_targets = {
+        r.target_part_id
+        for r in manifest.mating_rules
+        if r.mate_type is not None and r.source_part_id != r.target_part_id
+    }
+    translation_locs: dict[str, tuple[float, float, float]] = {}
+    for r in manifest.mating_rules:
+        if r.source_part_id == r.target_part_id or r.mate_type is not None:
+            continue
+        if r.translation is None or r.target_part_id in constrained_targets:
+            continue
+        try:
+            cx, cy, cz = [float(v.strip()) for v in r.translation.split(",")]
+        except (ValueError, IndexError):
+            continue  # malformed — MatingRule's validator should prevent this
+        translation_locs[r.target_part_id] = (cx, cy, cz)
+
+    # Add all parts to assembly; constrained parts get no location (solver
+    # positions them), translation-only parts get their manifest location.
     for part in manifest.parts:
         pid = part.part_id
         if pid not in var_names:
             continue
         safe_pid = _sanitize_part_id(pid)
         var = var_names[pid]
-        lines.append(f"assembly.add({var}, name='{safe_pid}')")
+        if pid in translation_locs:
+            tx, ty, tz = translation_locs[pid]
+            lines.append(
+                f"assembly.add({var}, name='{safe_pid}', "
+                f"loc=cq.Location(cq.Vector({tx}, {ty}, {tz})))"
+            )
+        else:
+            lines.append(f"assembly.add({var}, name='{safe_pid}')")
 
     lines.append("")
     lines.append("# Apply kinematic constraints")
@@ -1262,7 +1297,16 @@ async def run_assembly_critic_loop(
         else run_assembler(manifest, step_files)
     )
 
-    result = await execute_cad_script(script)
+    # This validation run executes in the shared work dir. Saving to the
+    # literal 'output.glb' would let two concurrent assemblies clobber the
+    # same path, so validate against a unique name. The RETURNED script keeps
+    # 'output.glb' — the caller substitutes its own delivery path into it.
+    val_name = f"_assembly_validate_{uuid.uuid4().hex}.glb"
+    result = await execute_cad_script(script.replace("output.glb", val_name))
+    try:
+        (_WORK_DIR / val_name).unlink(missing_ok=True)
+    except OSError:
+        pass
 
     if result["status"] != "success":
         raise ScriptError(

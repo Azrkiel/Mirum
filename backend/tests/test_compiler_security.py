@@ -21,7 +21,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from compiler import _check_ast_security  # noqa: E402
+import subprocess  # noqa: E402
+
+from compiler import (  # noqa: E402
+    _SANDBOX_RUNTIME_PREAMBLE,
+    _check_ast_security,
+)
 
 
 def _blocked(script: str) -> bool:
@@ -198,6 +203,88 @@ class TestEdgeCases(unittest.TestCase):
     def test_from_import_allowed(self):
         """from cad_utils import make_hex_bolt  must pass."""
         self.assertTrue(_allowed("from cad_utils import make_hex_bolt"))
+
+
+# ---------------------------------------------------------------------------
+# Regression: confirmed sandbox escapes (review 2026-06-09)
+# ---------------------------------------------------------------------------
+
+class TestConfirmedEscapesBlocked(unittest.TestCase):
+    """Bypasses that previously PASSED the gate and are now closed."""
+
+    # --- Indirect builtin reference: alias then call ---
+    def test_block_indirect_exec_alias(self):
+        self.assertTrue(_blocked("fn = exec\nfn('import os')"))
+
+    def test_block_indirect_eval_alias(self):
+        self.assertTrue(_blocked("e = eval\ne('1+1')"))
+
+    def test_block_indirect_open_alias(self):
+        self.assertTrue(_blocked("o = open\no('/etc/passwd')"))
+
+    def test_block_builtin_in_list(self):
+        self.assertTrue(_blocked("[exec][0]('import os')"))
+
+    # --- Dunder attribute chain (with and without __getattribute__) ---
+    def test_block_getattribute_subclasses_smuggle(self):
+        script = (
+            "o = ().__class__.__bases__[0]\n"
+            "subs = o.__getattribute__('__subclasses__')()\n"
+        )
+        self.assertTrue(_blocked(script))
+
+    def test_block_class_bases_chain(self):
+        self.assertTrue(_blocked("x = ().__class__.__bases__[0]"))
+
+    def test_block_mro_access(self):
+        self.assertTrue(_blocked("m = type(1).__mro__"))
+
+    def test_block_getattribute_method(self):
+        self.assertTrue(_blocked("g = (1).__getattribute__('__class__')"))
+
+    # --- Dunder bare name ---
+    def test_block_builtins_dunder_name(self):
+        self.assertTrue(_blocked("e = __builtins__['eval']"))
+
+    # --- Valid dunder usage still allowed ---
+    def test_allow_name_main_guard(self):
+        script = (
+            "import cadquery as cq\n"
+            "if __name__ == '__main__':\n"
+            "    result = cq.Workplane('XY').box(1, 1, 1)\n"
+        )
+        self.assertTrue(_allowed(script))
+
+
+class TestRuntimeAuditHook(unittest.TestCase):
+    """Defence-in-depth: the prepended audit hook blocks process spawning
+    even if a script reaches the interpreter (e.g. a future AST bypass)."""
+
+    def _run(self, body: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-"],
+            input=_SANDBOX_RUNTIME_PREAMBLE + body,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    def test_os_system_is_blocked(self):
+        proc = self._run("import os\nos.system('echo pwned')")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("blocked operation", proc.stderr)
+
+    def test_subprocess_popen_is_blocked(self):
+        proc = self._run(
+            "import subprocess\nsubprocess.Popen(['echo', 'pwned'])"
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("blocked operation", proc.stderr)
+
+    def test_benign_script_still_runs(self):
+        proc = self._run("print(6 * 7)")
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("42", proc.stdout)
 
 
 if __name__ == "__main__":

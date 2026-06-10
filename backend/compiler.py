@@ -54,10 +54,16 @@ _BANNED_BUILTINS = {
     "delattr", "globals", "locals", "vars", "breakpoint", "input",
     "memoryview", "type",
 }
-_BANNED_DUNDERS = {
-    "__import__", "__subclasses__", "__globals__", "__builtins__",
-    "__loader__", "__spec__", "__code__",
-}
+# Dunder access is the classic sandbox-escape highway:
+#   ().__class__.__bases__[0].__subclasses__()        → reach arbitrary types,
+#   obj.__getattribute__('__subclasses__')()          → same, smuggled via a
+#                                                        string the old attr
+#                                                        denylist never saw.
+# Denylisting a handful of dunders is futile — __getattribute__ walks around
+# it. So we ban ALL dunder *attribute* access and all dunder *name* loads,
+# keeping only a tiny allowlist of harmless module dunders that legitimate
+# scripts occasionally read (e.g. `if __name__ == "__main__":`).
+_ALLOWED_DUNDER_NAMES = {"__name__", "__file__", "__doc__"}
 # Importlib gap fix: block bare use of dangerous stdlib module names as
 # ast.Name nodes (e.g. `importlib.import_module(...)` without a prior
 # import statement, exploiting a pre-loaded reference in __builtins__).
@@ -69,6 +75,28 @@ _BANNED_BARE_NAMES = {
     "multiprocessing", "threading",
 }
 _MEM_LIMIT_BYTES = int(1.5 * 1024 * 1024 * 1024)  # 1.5 GB
+
+# Runtime backstop (defence in depth behind the AST gate). Prepended to every
+# script before it is piped to the subprocess. Installs a PEP-578 audit hook
+# that hard-blocks process-spawn / shell-exec primitives — a geometry script
+# has no legitimate reason to spawn a process, and these are the events an
+# attacker would reach for AFTER any future AST bypass. Kept to a SINGLE line
+# so it does not shift user-script traceback line numbers (the Machinist reads
+# those tracebacks to self-correct). It imports `sys` directly; that is fine —
+# the AST allowlist is only applied to the user portion, never to this trusted
+# preamble.
+_SANDBOX_RUNTIME_PREAMBLE = (
+    "import sys as _mirum_sys; _mirum_sys.addaudithook("
+    "lambda e, a: (_ for _ in ()).throw(PermissionError("
+    "'mirum sandbox: blocked operation: ' + e)) if e in ("
+    "'os.system', 'os.exec', 'os.spawn', 'os.posix_spawn', 'os.fork', "
+    "'os.forkpty', 'pty.spawn', 'subprocess.Popen') else None)\n"
+)
+
+
+def _is_dunder(name: str) -> bool:
+    """True for double-underscore names like __class__, __getattribute__."""
+    return len(name) >= 5 and name.startswith("__") and name.endswith("__")
 
 
 def _check_ast_security(script_string: str) -> str | None:
@@ -105,14 +133,6 @@ def _check_ast_security(script_string: str) -> str | None:
                         f"not allowed. Permitted modules: {sorted(_ALLOWED_MODULES)}."
                     )
 
-        # --- Banned builtin calls ---
-        elif isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Name) and func.id in _BANNED_BUILTINS:
-                return (
-                    f"Security violation: call to '{func.id}()' is banned."
-                )
-
         # --- Banned bare names (importlib gap fix) ---
         # Check ast.Name nodes that are NOT part of an import statement;
         # the import-statement branch above handles those separately.
@@ -122,10 +142,42 @@ def _check_ast_security(script_string: str) -> str | None:
                 f"(forbidden stdlib module name)."
             )
 
-        # --- Dangerous dunder attribute access ---
-        if isinstance(node, ast.Attribute) and node.attr in _BANNED_DUNDERS:
+        # --- Banned builtins, by reference not just by call ---
+        # A bare `ast.Name` load of a banned builtin is rejected wherever it
+        # appears, not only at a call site. This closes the indirect-call
+        # escape `fn = exec; fn(code)` (and any other aliasing), where the
+        # call site only ever sees the harmless-looking alias.
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Load)
+            and node.id in _BANNED_BUILTINS
+        ):
             return (
-                f"Security violation: access to '{node.attr}' is banned."
+                f"Security violation: reference to builtin '{node.id}' is "
+                f"banned (forbidden builtins may not be called or aliased)."
+            )
+
+        # --- Dunder name loads (e.g. __builtins__, __loader__) ---
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Load)
+            and _is_dunder(node.id)
+            and node.id not in _ALLOWED_DUNDER_NAMES
+        ):
+            return (
+                f"Security violation: access to dunder name '{node.id}' is "
+                f"banned."
+            )
+
+        # --- Dunder attribute access (ALL of them) ---
+        # Banning every `obj.__x__` closes the attribute-chain escape
+        # `().__class__.__bases__[0].__subclasses__()` AND its string-smuggled
+        # cousin `obj.__getattribute__('__subclasses__')`, where only the final
+        # `.__subclasses__` link used to be on a narrow denylist.
+        if isinstance(node, ast.Attribute) and _is_dunder(node.attr):
+            return (
+                f"Security violation: access to dunder attribute "
+                f"'{node.attr}' is banned."
             )
 
     return None
@@ -155,9 +207,14 @@ async def execute_cad_script(script_string: str) -> dict:
         On failure: {"status": "error", "traceback": <stderr>}
     """
     # --- AST security gate (always enforced) ---
+    # Checked on the USER script only; the trusted runtime preamble is
+    # prepended afterwards and is intentionally exempt from the allowlist.
     violation = _check_ast_security(script_string)
     if violation:
         return {"status": "error", "traceback": violation}
+
+    # Runtime backstop: install the audit-hook guard ahead of user code.
+    sandboxed_script = _SANDBOX_RUNTIME_PREAMBLE + script_string
 
     try:
         env = {
@@ -203,7 +260,7 @@ async def execute_cad_script(script_string: str) -> dict:
             proc = subprocess.Popen([sys.executable, "-"], **popen_kwargs)
             try:
                 stdout, stderr = proc.communicate(
-                    input=script_string, timeout=30
+                    input=sandboxed_script, timeout=30
                 )
             except subprocess.TimeoutExpired:
                 # Kill the entire process group, not just the parent
