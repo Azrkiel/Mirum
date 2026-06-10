@@ -10,10 +10,11 @@ Absolute floating-point coordinates (x, y, z) are FORBIDDEN for mating.
 Parts are connected via named anchor tags that reference CadQuery selectors.
 """
 
+import math
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from propulsion.specs import PropulsionSpec
 
@@ -220,6 +221,35 @@ class MatingRule(BaseModel):
             "Not applicable to kinematic constraint types (FASTENED, REVOLUTE, etc.)."
         ),
     )
+
+    @field_validator("translation")
+    @classmethod
+    def _validate_translation_format(cls, v: Optional[str]) -> Optional[str]:
+        """Enforce the 'X, Y, Z' contract the assembler relies on.
+
+        Without this, a malformed translation ('10, 20', '1, a, 3', or any
+        free string) passes validation and only blows up at assembly time
+        with an IndexError / ValueError deep in run_assembler().
+        """
+        if v is None:
+            return v
+        parts = [p.strip() for p in v.split(",")]
+        if len(parts) != 3:
+            raise ValueError(
+                f"translation must be 'X, Y, Z' (exactly 3 comma-separated "
+                f"numbers in mm), got {v!r}"
+            )
+        try:
+            nums = [float(p) for p in parts]
+        except ValueError:
+            raise ValueError(
+                f"translation components must all be numeric, got {v!r}"
+            )
+        if not all(math.isfinite(n) for n in nums):
+            raise ValueError(
+                f"translation components must be finite (no inf/nan), got {v!r}"
+            )
+        return v
 
     @model_validator(mode="after")
     def _require_mate_type_or_translation(self) -> "MatingRule":
