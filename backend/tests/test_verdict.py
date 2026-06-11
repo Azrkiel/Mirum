@@ -139,6 +139,31 @@ def test_refinement_prompt_skips_struct_and_vne_criteria():
 
 
 # ---------------------------------------------------------------------------
+# 3.3 resize_wing_box_for_margin — analytic spar re-sizing
+# ---------------------------------------------------------------------------
+
+def test_resize_wing_box_scales_cap_area_to_meet_margin():
+    from schemas import DesignTargets, WingBoxSpec
+    from verdict import resize_wing_box_for_margin
+    wb = WingBoxSpec(chord_root_m=1.1, thickness_to_chord=0.12,
+                     cap_area_m2=0.0008, spar_web_thickness_m=0.002)
+    struct = {"bending_margin_of_safety": 0.2, "shear_margin_of_safety": 1.0}
+    new = resize_wing_box_for_margin(DesignTargets(ms_min=0.5), struct, wb)
+    assert new is not None
+    assert abs(new.cap_area_m2 - 0.0008 * (1.5 / 1.2)) < 1e-9
+    assert new.spar_web_thickness_m == wb.spar_web_thickness_m  # shear already OK
+
+
+def test_resize_wing_box_none_when_margins_already_met():
+    from schemas import DesignTargets, WingBoxSpec
+    from verdict import resize_wing_box_for_margin
+    wb = WingBoxSpec(chord_root_m=1.1, thickness_to_chord=0.12,
+                     cap_area_m2=0.0008, spar_web_thickness_m=0.002)
+    struct = {"bending_margin_of_safety": 0.9, "shear_margin_of_safety": 1.0}
+    assert resize_wing_box_for_margin(DesignTargets(ms_min=0.5), struct, wb) is None
+
+
+# ---------------------------------------------------------------------------
 # stdlib runner
 # ---------------------------------------------------------------------------
 
@@ -153,6 +178,8 @@ def _run_all() -> int:
         test_rea_schema_includes_design_targets,
         test_refinement_prompt_names_aero_criterion_and_lever,
         test_refinement_prompt_skips_struct_and_vne_criteria,
+        test_resize_wing_box_scales_cap_area_to_meet_margin,
+        test_resize_wing_box_none_when_margins_already_met,
     ]
     failures = 0
     for fn in funcs:

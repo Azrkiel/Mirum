@@ -91,3 +91,25 @@ def refinement_prompt_for(verdict: DesignVerdict) -> str:
          "Apply the SMALLEST geometry change that fixes each item:"]
         + items
         + ["Keep every dimension not named above unchanged."])
+
+
+def resize_wing_box_for_margin(targets, struct: dict | None, wing_box):
+    """Analytically re-size spar caps/webs so MS meets targets.ms_min.
+
+    MS = allowable/stress - 1 and stress ∝ 1/section_property, so scaling
+    the property by (1 + MS_target)/(1 + MS_actual) hits the target exactly
+    (within the analysis model). Returns an updated WingBoxSpec copy, or
+    None when nothing needs resizing / inputs are missing.
+    """
+    if targets is None or targets.ms_min is None or struct is None:
+        return None
+    need = 1.0 + targets.ms_min
+    updates: dict = {}
+    ms_b = struct.get("bending_margin_of_safety")
+    if ms_b is not None and ms_b < targets.ms_min and ms_b > -1.0:
+        updates["cap_area_m2"] = wing_box.cap_area_m2 * (need / (1.0 + ms_b))
+    ms_s = struct.get("shear_margin_of_safety")
+    if ms_s is not None and ms_s < targets.ms_min and ms_s > -1.0:
+        updates["spar_web_thickness_m"] = (
+            wing_box.spar_web_thickness_m * (need / (1.0 + ms_s)))
+    return wing_box.model_copy(update=updates) if updates else None
