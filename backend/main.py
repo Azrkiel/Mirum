@@ -957,6 +957,21 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 "verdict", status,
                 f"{design_verdict['overall']} after "
                 f"{design_verdict['iterations_used']} refinement(s)")
+            # One telemetry record per closure run (local-only JSONL,
+            # never returned to clients).
+            try:
+                from telemetry import log_design_closure  # noqa: PLC0415
+                log_design_closure(
+                    overall=design_verdict["overall"],
+                    iterations_used=design_verdict.get("iterations_used", 0),
+                    criteria=[
+                        {"name": c.get("name"), "target": c.get("target"),
+                         "actual": c.get("actual"), "passed": c.get("passed")}
+                        for c in design_verdict.get("criteria", [])],
+                    geometry_changed=_closure_changed,
+                )
+            except Exception:
+                pass  # telemetry must never break delivery
         else:
             yield _event("verdict", "skipped", "no design targets to check")
 
