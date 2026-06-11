@@ -103,6 +103,47 @@ def test_struct_fail_resolved_by_resize_without_llm():
     assert verdict["overall"] == "pass" and changed is True
 
 
+def test_telemetry_log_design_closure_writes_parseable_jsonl():
+    """telemetry.log_design_closure appends one JSONL record per closure run.
+
+    Redirects the log dir via MIRUM_TELEMETRY_DIR (read at telemetry import
+    time) + module reload, and strips any handler a prior import attached so
+    the record lands in the tmp dir.
+    """
+    import importlib
+    import json
+    import tempfile
+
+    tmp = tempfile.mkdtemp(prefix="mirum_telemetry_test_")
+    os.environ["MIRUM_TELEMETRY_DIR"] = tmp
+    import telemetry
+    importlib.reload(telemetry)  # re-resolve _LOG_DIR from env
+    for h in list(telemetry._logger.handlers):
+        telemetry._logger.removeHandler(h)
+    telemetry._handler_initialized = False
+
+    telemetry.log_design_closure(
+        overall="fail",
+        iterations_used=2,
+        criteria=[{"name": "cl_max_min", "target": 1.5,
+                   "actual": 1.31, "passed": False}],
+        geometry_changed=True,
+    )
+
+    log_file = Path(tmp) / "critic_loop.jsonl"
+    assert log_file.exists(), "no JSONL file written"
+    lines = log_file.read_text(encoding="utf-8").strip().splitlines()
+    assert lines, "JSONL file is empty"
+    rec = json.loads(lines[-1])
+    assert rec["event"] == "design_closure"
+    assert rec["overall"] == "fail"
+    assert rec["iterations_used"] == 2
+    assert rec["geometry_changed"] is True
+    assert rec["criteria"] == [{"name": "cl_max_min", "target": 1.5,
+                                "actual": 1.31, "passed": False}]
+    assert "timestamp" in rec
+
+
 # ---------------------------------------------------------------------------
 # stdlib runner
 # ---------------------------------------------------------------------------
@@ -112,6 +153,7 @@ def _run_all() -> int:
         test_loop_stops_after_max_iterations,
         test_loop_zero_iterations_when_pass,
         test_struct_fail_resolved_by_resize_without_llm,
+        test_telemetry_log_design_closure_writes_parseable_jsonl,
     ]
     failures = 0
     for fn in funcs:
