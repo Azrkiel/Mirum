@@ -1044,6 +1044,46 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         logger.debug("geometry certificate generation failed: %s", _cert_exc)
         geometry_certificate = None
 
+    # Phase 3 (closure): the GLB was encoded *before* the closure loop ran —
+    # when closure swapped the geometry, re-export so the delivered model
+    # matches the verdict's final iteration (review R3). Uses the exact same
+    # export paths as the original delivery (run_single_part_export /
+    # deterministic assembler; Assembly.save infers glTF from the .glb
+    # extension). A struct-only re-size leaves _final_step empty — the CAD
+    # geometry is unchanged, so no re-export is needed.
+    if design_verdict is not None and _closure_changed and _final_step:
+        _new_glb = str(_WORK_DIR / (uuid.uuid4().hex + "_closure.glb"))
+        _re_exec: dict = {"status": "error"}
+        _re_script = ""
+        _re_params: dict = {}
+        try:
+            if single and _final_step.get("code"):
+                _re_script = await run_single_part_export(
+                    _final_step["code"], _new_glb)
+                _re_script, _re_params = parameterize_script(_re_script)
+                _re_exec = await execute_cad_script(_re_script)
+            elif (not single) and _final_step.get("steps"):
+                _re_script = await run_assembly_critic_loop(
+                    _final_step["manifest"], _final_step["steps"])
+                _re_script = _re_script.replace("output.glb", _new_glb)
+                _re_exec = await execute_cad_script(_re_script)
+        except Exception as _re_exc:
+            debug_log_error("closure_reexport", _re_exc, None)
+            _re_exec = {"status": "error"}
+        if _re_exec.get("status") == "success" and os.path.exists(_new_glb):
+            with open(_new_glb, "rb") as f:
+                glb_b64 = base64.b64encode(f.read()).decode("utf-8")
+            final_script = _re_script
+            if single:
+                param_dict_final = _re_params
+            try:
+                os.remove(_new_glb)
+            except OSError:
+                pass
+        # Export failure → keep the original GLB. The verdict still reports
+        # honestly: its criteria reflect the refined analysis, and the stale
+        # GLB is the previous validated geometry, never a broken one.
+
     complete_payload = {
         "step": "complete",
         "status": "done",
