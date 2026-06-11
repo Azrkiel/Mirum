@@ -396,6 +396,25 @@ class DesignTargets(BaseModel):
         description="Minimum never-exceed speed, m/s.")
 
 
+class CriterionResult(BaseModel):
+    name:   str                       # e.g. "cl_max_min"
+    target: float
+    actual: Optional[float] = None    # None when source report missing
+    passed: Optional[bool] = None     # None = unevaluated
+    source: str                       # "polar" | "struct"
+
+
+class DesignVerdict(BaseModel):
+    """Pass/fail judgment of analysis reports vs DesignTargets.
+
+    overall: "pass" | "fail" | "incomplete" | "not_applicable"
+    incomplete = at least one criterion couldn't be evaluated and none failed.
+    """
+    overall:  str
+    criteria: list[CriterionResult] = Field(default_factory=list)
+    iterations_used: int = 0
+
+
 class Wing3DAeroReport(BaseModel):
     """Whole-wing (3-D) aerodynamic result from the lifting-line or AVL stage.
 
