@@ -492,6 +492,75 @@ def _targets_imply_stages(
     return run_aero, run_struct
 
 
+async def _apply_diff_and_export(
+    diff,
+    original_manifest,
+    original_scripts: dict[str, str],
+    prior_step_files: dict[str, str] | None = None,
+):
+    """Apply a ManifestDiff: rebuild changed/added parts, re-export reused STEPs.
+
+    Extracted from the /refine endpoint so the design-closure loop in
+    _pipeline shares one implementation. Returns
+    (updated_manifest, new_scripts, step_files, parts_to_regenerate,
+    parts_to_skip). Raises on diff-application or rebuild failure — callers
+    choose the error policy (/refine returns the detail to the client; the
+    closure loop degrades to "no refinement").
+    """
+    import asyncio
+
+    updated_manifest = apply_manifest_diff(original_manifest, diff)
+
+    # Identify which parts need re-generation
+    parts_to_regenerate = set(diff.modified_parts) | {p.part_id for p in diff.added_parts}
+    parts_to_skip = {
+        p.part_id for p in updated_manifest.parts
+        if p.part_id not in parts_to_regenerate
+        and p.part_id in original_scripts
+    }
+
+    # Re-run Machinists only for changed/new parts
+    new_scripts: dict[str, str] = dict(original_scripts)
+    step_files: dict[str, str] = {}
+    part_map = {p.part_id: p for p in updated_manifest.parts}
+
+    async def _rebuild(part_id: str):
+        part = part_map[part_id]
+        code, step_path, _cert = await run_critic_loop(part)
+        return part_id, code, step_path
+
+    tasks = [_rebuild(pid) for pid in parts_to_regenerate if pid in part_map]
+    if tasks:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for res in results:
+            if isinstance(res, Exception):
+                raise res
+            part_id, code, step_path = res
+            new_scripts[part_id] = code
+            step_files[part_id] = step_path
+
+    # For reused parts we need their step files — reuse the prior run's file
+    # when it still exists (the in-pipeline closure path), otherwise re-export
+    # from the existing script (the /refine path, where only scripts arrive).
+    for pid in parts_to_skip:
+        prior = (prior_step_files or {}).get(pid)
+        if prior and os.path.exists(prior):
+            step_files[pid] = prior
+            continue
+        # Write a temporary .step for the reused part
+        try:
+            tmp_step = str(_WORK_DIR / f"{pid}_{uuid.uuid4().hex[:8]}.step")
+            reuse_script = original_scripts[pid]
+            export_script = reuse_script.rstrip() + f"\n\nimport cadquery as cq\ncq.exporters.export(result, r'{tmp_step}')\n"
+            result_exec = await execute_cad_script(export_script)
+            if result_exec["status"] == "success":
+                step_files[pid] = tmp_step
+        except Exception:
+            pass  # If re-export fails, assembler will report missing parts
+
+    return updated_manifest, new_scripts, step_files, parts_to_regenerate, parts_to_skip
+
+
 async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = False) -> AsyncGenerator[str, None]:
     """Run the full pipeline, yielding SSE progress events."""
 
@@ -813,14 +882,83 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         else:
             yield _event("struct", "skipped", struct_msg)
 
-    # Phase 5: design verdict (advisory; closure loop replaces this in Phase 3 wiring)
+    # Phase 3 (closure): bounded design-closure loop — verdict → fix →
+    # re-analyze, max 2 LLM refinements + 1 analytic wing-box re-size.
+    # Replaces the Phase-5 advisory verdict (_run_verdict_stage remains for
+    # the /jobs path and its tests).
     design_verdict: dict | None = None
-    if run_aero or run_struct:
-        design_verdict, verdict_msg = _run_verdict_stage(
-            requirements, aero_report, struct_report)
+    _closure_changed = False
+    _final_step: dict = {}  # closure may swap geometry; GLB is re-delivered below
+    if (run_aero or run_struct) and requirements is not None:
+        from closure import run_design_closure  # noqa: PLC0415
+
+        async def _rerun_struct(reqs):
+            report, _ = await _run_struct_stage(reqs)
+            return report
+
+        if single:
+            async def _refine_aero(rp: str):
+                # No manifest to diff — regenerate the single part with the
+                # lever instruction appended to its description, then export
+                # a temp STEP for XFOIL (same pattern as the aero block above).
+                refined_part = part.model_copy(update={
+                    "description": f"{part.description}\n\nREFINEMENT REQUIRED:\n{rp}",
+                })
+                new_code, _sp, _cert = await run_critic_loop(
+                    refined_part, max_retries=2, save_step=False)
+                if not new_code:
+                    return None
+                _rs_path = str(_WORK_DIR / (uuid.uuid4().hex + "_closure.step"))
+                _rs_exec = await execute_cad_script(
+                    f"{new_code}\n\n"
+                    f"import cadquery as cq\n"
+                    f"cq.exporters.export(result, r'{_rs_path}')\n"
+                )
+                if _rs_exec["status"] != "success" or not os.path.exists(_rs_path):
+                    return None
+                _final_step["code"] = new_code
+                report, _ = await _run_aero_stage(
+                    {part.part_id: _rs_path}, requirements)
+                try:
+                    os.remove(_rs_path)
+                except OSError:
+                    pass
+                return report
+        else:
+            async def _refine_aero(rp: str):
+                # Diff-refine the assembly: Refiner → apply diff → rebuild
+                # changed parts → fresh STEPs → XFOIL. Iteration N+1 starts
+                # from iteration N's manifest/scripts via _final_step.
+                cur_manifest = _final_step.get("manifest", manifest)
+                cur_scripts = _final_step.get("scripts", part_scripts)
+                cur_steps = _final_step.get("steps", step_files)
+                diff = await run_refiner(
+                    original_manifest=cur_manifest,
+                    original_scripts=cur_scripts,
+                    refinement_prompt=rp)
+                (new_manifest, new_scripts, new_steps,
+                 _regen, _skip) = await _apply_diff_and_export(
+                    diff, cur_manifest, cur_scripts, cur_steps)
+                if not new_steps:
+                    return None
+                _final_step["manifest"] = new_manifest
+                _final_step["scripts"] = new_scripts
+                _final_step["steps"] = new_steps
+                report, _ = await _run_aero_stage(new_steps, requirements)
+                return report
+
+        yield _event("verdict", "running", "Checking design against targets")
+        design_verdict, _closure_changed = await run_design_closure(
+            requirements, aero_report, struct_report,
+            refine_aero=_refine_aero, rerun_struct=_rerun_struct)
         if design_verdict is not None:
             status = "done" if design_verdict["overall"] == "pass" else "warning"
-            yield _event("verdict", status, verdict_msg)
+            yield _event(
+                "verdict", status,
+                f"{design_verdict['overall']} after "
+                f"{design_verdict['iterations_used']} refinement(s)")
+        else:
+            yield _event("verdict", "skipped", "no design targets to check")
 
     # Geometry certificate — aggregate across all parts.
     # Multi-part: use the certs collected during _build_part().
@@ -1181,8 +1319,6 @@ async def refine_assembly(body: RefineRequest, request: Request):
     Refinement telemetry (original_script, refinement_prompt, revised_script)
     is logged for future instruction-following fine-tuning.
     """
-    import asyncio
-
     # Reconstruct manifest from dict
     from schemas import AssemblyManifest, RefinementRequest as RR
     try:
@@ -1201,55 +1337,15 @@ async def refine_assembly(body: RefineRequest, request: Request):
         logger.exception("RefinerAgent failed")
         return {"status": "error", "detail": _safe_error(e)}
 
-    # Apply diff to get updated manifest
+    # Apply diff: updated manifest + rebuilt parts + reused-part STEP exports.
+    # Shared with the design-closure loop in _pipeline (_apply_diff_and_export).
     try:
-        updated_manifest = apply_manifest_diff(original_manifest, diff)
+        (updated_manifest, new_scripts, step_files,
+         parts_to_regenerate, parts_to_skip) = await _apply_diff_and_export(
+            diff, original_manifest, body.original_scripts)
     except Exception as e:
-        logger.exception("ManifestDiff apply failed")
+        logger.exception("ManifestDiff apply/rebuild failed")
         return {"status": "error", "detail": _safe_error(e)}
-
-    # Identify which parts need re-generation
-    parts_to_regenerate = set(diff.modified_parts) | {p.part_id for p in diff.added_parts}
-    parts_to_skip = {
-        p.part_id for p in updated_manifest.parts
-        if p.part_id not in parts_to_regenerate
-        and p.part_id in body.original_scripts
-    }
-
-    # Re-run Machinists only for changed/new parts
-    new_scripts: dict[str, str] = dict(body.original_scripts)
-    step_files: dict[str, str] = {}
-    part_map = {p.part_id: p for p in updated_manifest.parts}
-
-    async def _rebuild(part_id: str):
-        part = part_map[part_id]
-        code, step_path, _cert = await run_critic_loop(part)
-        return part_id, code, step_path
-
-    tasks = [_rebuild(pid) for pid in parts_to_regenerate if pid in part_map]
-    if tasks:
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for res in results:
-            if isinstance(res, Exception):
-                return {"status": "error", "detail": _safe_error(res)}
-            part_id, code, step_path = res
-            new_scripts[part_id] = code
-            step_files[part_id] = step_path
-
-    # For reused parts, we need their step files — re-export from existing scripts
-    for pid in parts_to_skip:
-        if pid in body.original_scripts:
-            # Write a temporary .step for the reused part
-            try:
-                import tempfile, pathlib
-                tmp_step = str(_WORK_DIR / f"{pid}_{uuid.uuid4().hex[:8]}.step")
-                reuse_script = body.original_scripts[pid]
-                export_script = reuse_script.rstrip() + f"\n\nimport cadquery as cq\ncq.exporters.export(result, r'{tmp_step}')\n"
-                result_exec = await execute_cad_script(export_script)
-                if result_exec["status"] == "success":
-                    step_files[pid] = tmp_step
-            except Exception:
-                pass  # If re-export fails, assembler will report missing parts
 
     # Assemble
     output_filename = str(_WORK_DIR / (uuid.uuid4().hex + ".glb"))
