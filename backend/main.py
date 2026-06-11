@@ -451,6 +451,47 @@ async def _run_struct_stage(
     return _sanitize_floats(flat.model_dump()), msg
 
 
+def _run_verdict_stage(
+    requirements, aero_report: dict | None, struct_report: dict | None,
+) -> tuple[dict | None, str]:
+    """Phase 5: compare analysis reports against extracted DesignTargets.
+
+    Pure-number judgment — no LLM, no subprocess. Returns
+    (DesignVerdict.model_dump() | None, status_msg). None = not applicable.
+    """
+    targets = getattr(requirements, "design_targets", None) if requirements else None
+    if targets is None:
+        return None, "no design_targets extracted"
+    try:
+        from verdict import evaluate_design  # noqa: PLC0415
+        v = evaluate_design(targets, aero_report, struct_report)
+    except Exception as e:  # never block delivery
+        return None, f"verdict failed: {type(e).__name__}: {_safe_error(str(e))}"
+    if v.overall == "not_applicable":
+        return None, "no criteria to evaluate"
+    n_pass = sum(1 for c in v.criteria if c.passed)
+    msg = f"{v.overall}: {n_pass}/{len(v.criteria)} criteria met"
+    return v.model_dump(), msg
+
+
+def _targets_imply_stages(
+    requirements, run_aero: bool, run_struct: bool,
+) -> tuple[bool, bool]:
+    """Stated performance targets imply consent to the analyses that check them.
+
+    A user stating "MS ≥ 0.5" has opted into structural analysis; without this
+    the verdict is guaranteed "incomplete" (plan review finding R5).
+    """
+    targets = getattr(requirements, "design_targets", None) if requirements else None
+    if targets is not None:
+        if any(getattr(targets, f) is not None
+               for f in ("cl_max_min", "l_d_min", "stall_alpha_min")):
+            run_aero = True
+        if any(getattr(targets, f) is not None for f in ("ms_min", "v_ne_min_ms")):
+            run_struct = True
+    return run_aero, run_struct
+
+
 async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = False) -> AsyncGenerator[str, None]:
     """Run the full pipeline, yielding SSE progress events."""
 
@@ -720,6 +761,9 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     # T3-08: Check if prompt has tolerance callouts (inform frontend to offer /pmi/annotate)
     pmi_detected = has_tolerance_callouts(prompt)
 
+    # Stated performance targets imply consent to the analyses that check them.
+    run_aero, run_struct = _targets_imply_stages(requirements, run_aero, run_struct)
+
     # Phase 3 (XFOIL): optional aerodynamic polar. Gated on the opt-in flag;
     # every failure path inside _run_aero_stage returns (None, reason) so this
     # block can never prevent the "complete" event from being emitted.
@@ -768,6 +812,15 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event("struct", "done", struct_msg)
         else:
             yield _event("struct", "skipped", struct_msg)
+
+    # Phase 5: design verdict (advisory; closure loop replaces this in Phase 3 wiring)
+    design_verdict: dict | None = None
+    if run_aero or run_struct:
+        design_verdict, verdict_msg = _run_verdict_stage(
+            requirements, aero_report, struct_report)
+        if design_verdict is not None:
+            status = "done" if design_verdict["overall"] == "pass" else "warning"
+            yield _event("verdict", status, verdict_msg)
 
     # Geometry certificate — aggregate across all parts.
     # Multi-part: use the certs collected during _build_part().
@@ -863,6 +916,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         "pmi_detected": pmi_detected,   # T3-08: hints frontend to offer PMI annotation
         "aero_report": aero_report,     # Phase 3: PolarReport dict or None
         "struct_report": struct_report, # Phase 4: StructuralReport dict or None
+        "design_verdict": design_verdict,  # Phase 5: DesignVerdict dict or None
         "geometry_certificate": geometry_certificate,  # G-05: post-compile cert
     }
     yield f"data: {json.dumps(complete_payload)}\n\n"
