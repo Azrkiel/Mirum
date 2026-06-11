@@ -377,6 +377,25 @@ class WingBoxSpec(BaseModel):
         return self
 
 
+class DesignTargets(BaseModel):
+    """Domain D: quantitative pass/fail criteria extracted from the prompt.
+
+    Every field is optional; only criteria the user actually stated are
+    populated. None = not a requirement = not checked.
+    """
+
+    cl_max_min:      Optional[float] = Field(default=None, gt=0.0, lt=5.0,
+        description="Minimum acceptable Cl_max from the XFOIL polar.")
+    l_d_min:         Optional[float] = Field(default=None, gt=0.0, lt=200.0,
+        description="Minimum acceptable peak L/D from the XFOIL polar.")
+    stall_alpha_min: Optional[float] = Field(default=None, gt=0.0, lt=30.0,
+        description="Minimum acceptable stall angle of attack, degrees.")
+    ms_min:          Optional[float] = Field(default=None, ge=0.0, lt=10.0,
+        description="Minimum structural margin of safety (bending AND shear).")
+    v_ne_min_ms:     Optional[float] = Field(default=None, gt=0.0, lt=1000.0,
+        description="Minimum never-exceed speed, m/s.")
+
+
 class Wing3DAeroReport(BaseModel):
     """Whole-wing (3-D) aerodynamic result from the lifting-line or AVL stage.
 
@@ -715,6 +734,15 @@ class DesignRequirements(BaseModel):
             "AND/OR deterministic geometry layout (front/rear spar x/c, rib count, "
             "web/skin thickness) driving the cad_aero builders. Populate when the "
             "prompt describes a structural wing (spars, ribs)."
+        ),
+    )
+
+    design_targets: Optional[DesignTargets] = Field(
+        default=None,
+        description=(
+            "Domain D only: quantitative performance criteria the design must "
+            "meet (min Cl_max, min L/D, min margin of safety, min stall alpha, "
+            "min V_ne). Populate ONLY criteria the prompt states explicitly."
         ),
     )
 

@@ -1,0 +1,144 @@
+"""
+backend/tests/test_verdict.py
+==============================
+
+Unit tests for the design-closure verdict layer: the ``DesignTargets``
+criteria schema, the pure ``verdict.evaluate_design`` function, and the
+REA structured-output schema's ``design_targets`` extraction block.
+
+No LLM calls, no XFOIL, no subprocess — pure logic, stdlib-runnable.
+
+Run directly:
+    cd T2CIII/backend
+    python tests/test_verdict.py
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+# agents.py / main.py assert GEMINI_API_KEY_HEAVY at import time.  Provide a
+# dummy so imports succeed in CI / bare-stdlib runs.  No LLM call is made.
+os.environ.setdefault("GEMINI_API_KEY_HEAVY", "test-dummy-key-not-used")
+
+# Path setup: backend/ on sys.path; repo root on sys.path so `analysis.*` resolves.
+_BACKEND = Path(__file__).resolve().parent.parent
+_ROOT = _BACKEND.parent
+sys.path.insert(0, str(_BACKEND))
+sys.path.insert(0, str(_ROOT))
+
+
+# ---------------------------------------------------------------------------
+# 1.1 DesignTargets schema
+# ---------------------------------------------------------------------------
+
+def test_design_targets_schema():
+    from schemas import DesignTargets
+    t = DesignTargets(cl_max_min=1.5, ms_min=0.5)
+    assert t.cl_max_min == 1.5
+    assert t.l_d_min is None          # unset criteria are None
+    assert t.ms_min == 0.5
+
+
+def test_design_targets_rejects_negative_cl():
+    from schemas import DesignTargets
+    try:
+        DesignTargets(cl_max_min=-1.0)
+        assert False, "should reject"
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# 1.3 evaluate_design verdict logic
+# ---------------------------------------------------------------------------
+
+POLAR = {"Cl_max": 1.62, "stall_alpha": 14.5,
+         "L_D": [10.0, 18.0, 22.5, 19.0], "converged_count": 18}
+STRUCT = {"bending_margin_of_safety": 0.41, "shear_margin_of_safety": 1.2,
+          "bending_passed": True, "shear_passed": True, "v_ne_ms": 120.0}
+
+
+def test_verdict_all_pass():
+    from schemas import DesignTargets
+    from verdict import evaluate_design
+    v = evaluate_design(DesignTargets(cl_max_min=1.5, ms_min=0.2), POLAR, STRUCT)
+    assert v.overall == "pass"
+    assert {c.name for c in v.criteria} == {"cl_max_min", "ms_min"}
+    assert all(c.passed for c in v.criteria)
+
+
+def test_verdict_fail_lists_failed_criterion():
+    from schemas import DesignTargets
+    from verdict import evaluate_design
+    v = evaluate_design(DesignTargets(ms_min=0.5), POLAR, STRUCT)
+    assert v.overall == "fail"
+    failed = [c for c in v.criteria if not c.passed]
+    assert failed[0].name == "ms_min"
+    assert failed[0].actual == 0.41      # min(bending, shear)
+    assert failed[0].target == 0.5
+
+
+def test_verdict_missing_report_is_incomplete_not_fail():
+    from schemas import DesignTargets
+    from verdict import evaluate_design
+    v = evaluate_design(DesignTargets(cl_max_min=1.5), None, STRUCT)
+    assert v.overall == "incomplete"
+    assert v.criteria[0].passed is None   # unevaluated, not failed
+
+
+def test_verdict_no_targets_is_not_applicable():
+    from verdict import evaluate_design
+    v = evaluate_design(None, POLAR, STRUCT)
+    assert v.overall == "not_applicable"
+    assert v.criteria == []
+
+
+# ---------------------------------------------------------------------------
+# 1.6 REA structured-output schema extracts design_targets
+# ---------------------------------------------------------------------------
+
+def test_rea_schema_includes_design_targets():
+    import agents
+    schema = agents._REA_BASE_SCHEMA  # the structured-output dict
+    props = schema["properties"]
+    assert "design_targets" in props
+    dt = props["design_targets"]["properties"]
+    assert set(dt) == {"cl_max_min", "l_d_min", "stall_alpha_min",
+                       "ms_min", "v_ne_min_ms"}
+
+
+# ---------------------------------------------------------------------------
+# stdlib runner
+# ---------------------------------------------------------------------------
+
+def _run_all() -> int:
+    funcs = [
+        test_design_targets_schema,
+        test_design_targets_rejects_negative_cl,
+        test_verdict_all_pass,
+        test_verdict_fail_lists_failed_criterion,
+        test_verdict_missing_report_is_incomplete_not_fail,
+        test_verdict_no_targets_is_not_applicable,
+        test_rea_schema_includes_design_targets,
+    ]
+    failures = 0
+    for fn in funcs:
+        try:
+            fn()
+        except AssertionError as e:
+            failures += 1
+            print(f"FAIL {fn.__name__}: {e}")
+        except Exception as e:
+            failures += 1
+            print(f"ERROR {fn.__name__}: {type(e).__name__}: {e}")
+        else:
+            print(f"PASS {fn.__name__}")
+    print(f"\n{len(funcs) - failures}/{len(funcs)} passed")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(_run_all())
