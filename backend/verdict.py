@@ -52,3 +52,42 @@ def evaluate_design(
     else:
         overall = "pass"
     return DesignVerdict(overall=overall, criteria=criteria)
+
+
+# LLM-refinable criteria only. ms_min is solved analytically by
+# resize_wing_box_for_margin (spec-level, no LLM); v_ne_min_ms has no
+# geometry lever at all (envelope is aircraft-spec-driven) — check-only.
+_AERO_LEVERS = {
+    "cl_max_min": (
+        "peak lift coefficient Cl_max",
+        "increase airfoil camber (e.g. NACA 2412 → 4412) or increase "
+        "wing chord; do not change span"),
+    "l_d_min": (
+        "peak lift-to-drag ratio L/D",
+        "increase aspect ratio: extend span and reduce chord at constant area"),
+    "stall_alpha_min": (
+        "stall angle of attack",
+        "reduce camber slightly or add washout (negative tip twist)"),
+}
+
+
+def refinement_prompt_for(verdict: DesignVerdict) -> str:
+    """Failed AERO criteria → one NL instruction for run_refiner.
+
+    Returns "" when no failed criterion is LLM-fixable (caller skips the
+    refine call entirely).
+    """
+    items = []
+    for c in verdict.criteria:
+        if c.passed is False and c.name in _AERO_LEVERS:
+            quantity, lever = _AERO_LEVERS[c.name]
+            items.append(
+                f"- {quantity} is {c.actual:.3g}, required ≥ {c.target:.3g}. "
+                f"Fix: {lever}.")
+    if not items:
+        return ""
+    return "\n".join(
+        ["The generated design fails its stated performance requirements. "
+         "Apply the SMALLEST geometry change that fixes each item:"]
+        + items
+        + ["Keep every dimension not named above unchanged."])

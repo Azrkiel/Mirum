@@ -111,6 +111,34 @@ def test_rea_schema_includes_design_targets():
 
 
 # ---------------------------------------------------------------------------
+# 3.1 refinement_prompt_for — aero lever table + struct exclusion
+# ---------------------------------------------------------------------------
+
+def test_refinement_prompt_names_aero_criterion_and_lever():
+    from schemas import CriterionResult, DesignVerdict
+    from verdict import refinement_prompt_for
+    v = DesignVerdict(overall="fail", criteria=[
+        CriterionResult(name="cl_max_min", target=1.5, actual=1.31,
+                        passed=False, source="polar"),
+    ])
+    p = refinement_prompt_for(v)
+    assert "Cl_max" in p and "1.31" in p and "1.5" in p
+    assert "camber" in p            # the engineering lever
+
+
+def test_refinement_prompt_skips_struct_and_vne_criteria():
+    from schemas import CriterionResult, DesignVerdict
+    from verdict import refinement_prompt_for
+    v = DesignVerdict(overall="fail", criteria=[
+        CriterionResult(name="ms_min", target=0.5, actual=0.41,
+                        passed=False, source="struct"),
+        CriterionResult(name="v_ne_min_ms", target=150.0, actual=120.0,
+                        passed=False, source="struct"),
+    ])
+    assert refinement_prompt_for(v) == ""   # nothing LLM-fixable
+
+
+# ---------------------------------------------------------------------------
 # stdlib runner
 # ---------------------------------------------------------------------------
 
@@ -123,6 +151,8 @@ def _run_all() -> int:
         test_verdict_missing_report_is_incomplete_not_fail,
         test_verdict_no_targets_is_not_applicable,
         test_rea_schema_includes_design_targets,
+        test_refinement_prompt_names_aero_criterion_and_lever,
+        test_refinement_prompt_skips_struct_and_vne_criteria,
     ]
     failures = 0
     for fn in funcs:
