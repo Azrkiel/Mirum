@@ -11,18 +11,48 @@ python backend/tests/test_runner_filters.py   → 10/10 passed
 python backend/tests/test_md_report.py        → 11/11 passed
 ```
 
-## Gate (b) — regression slice: PENDING (live run required)
+## Gate (b) — regression slice: PASS (live, 2026-06-12)
 
-`--regression-for D --dry-run` confirms the slice picks up all 5 new
-`D_closure_*` ids (20 prompts total). The live run needs
-`GEMINI_API_KEY_HEAVY` + the cadenv Docker container with the host
-CA-bundle mount (TLS-intercepting proxy on this machine; see memory
-`reference_mirum_docker_ssl`). **A dry-run alone does not satisfy gate (b)**
-— the live `--regression-for D` run plus baseline diff must complete before
-this branch merges. Honesty note recorded in the plan (Phase 4): the runner
-calls `run_critic_loop` directly, so gate (b) covers geometry validity of
-the new prompts, not verdict semantics (those are pinned by the offline
-suites and checked live in plan task 4.3).
+`python -m eval_harness.runner --regression-for D` run live on the host
+(Gemini via host CA bundle: gRPC needs
+`GRPC_DEFAULT_SSL_ROOTS_FILE_PATH`/`SSL_CERT_FILE` pointed at a PEM export
+of the Windows trust store — same TLS-interception issue as the container,
+memory `reference_mirum_docker_ssl`).
+
+**Result: 20/20 passed (100%)** — report `output/qa-reports/2026-06-12-D.md`.
+Domain D 16/16 (incl. all 5 new `D_closure_*` ids), Domain C carriers 4/4,
+LVM median 4.7, no newly-failing ids vs. the 2026-06-08 D baselines.
+Honesty note (plan Phase 4): the runner calls `run_critic_loop` directly,
+so this covers geometry validity of the prompts, not verdict semantics.
+
+## Plan task 4.3 — live end-to-end: PASS (2026-06-12, container)
+
+Backend: `mirum-qa-cert:latest` image, worktree code bind-mounted, host
+CA-bundle mounted, host port 8010 (8000 held by a stale wslrelay; the
+hardened `t2ciii-backend:latest` refuses to start without netfilter caps —
+use the qa-cert image for local e2e). Scripts: `output/e2e_closure_check.py`,
+`output/e2e_struct_closure.py`.
+
+| Check | Result |
+|-------|--------|
+| Targets-bearing prompt → `design_verdict` present, criteria exactly as stated (none invented) | PASS |
+| Verdict SSE events `running → done/warning` | PASS |
+| Unmeetable target → honest non-pass verdict, GLB still delivered | PASS (`incomplete` — see scope note) |
+| Negative control → `design_verdict` null, zero verdict SSE events | PASS |
+| GLB delivered on every request | PASS (3/3 + struct case) |
+| Struct criterion evaluated live: prompt states MS ≥ 0.5 + full wing-box sizing → bending MS 0.53 computed, verdict `pass`, criteria actual/target correct | PASS |
+
+Scope note: XFOIL is not present in the qa-cert image and prompts without
+explicit spar-cap/web sizing skip the struct stage by design — so the live
+runs exercised extraction, verdict wiring, honest-incomplete, and an
+evaluated struct criterion, while the failing-criterion → resize/LLM-refine
+loop is pinned by the 26 offline closure/verdict tests (stubbed callbacks).
+A full-fidelity aero closure run needs the cadenv image with XFOIL (plan
+watch item R9 measures its latency).
+
+Deferred: plan task 0.3 full-corpus baseline (expensive; the D slice is the
+gate for this diff — run the full corpus on main after merge per the
+merge-gate operating notes).
 
 ## Gate (c) — security review: PASS
 
