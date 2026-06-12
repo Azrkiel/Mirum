@@ -109,9 +109,12 @@ MATE_CONSTRAINTS: dict[str, list[str]] = {
 }
 
 # Fields that Gemini's structured output schema does NOT support.
+# exclusiveMinimum/exclusiveMaximum: Pydantic v2 emits them for gt=/lt=
+# bounds (vs minimum/maximum for ge=/le=) — protos.Schema rejects both.
 _UNSUPPORTED_SCHEMA_KEYS = {
     "title", "default", "minItems", "maxItems", "minimum", "maximum",
     "minLength", "maxLength", "$defs",
+    "exclusiveMinimum", "exclusiveMaximum",
 }
 
 
