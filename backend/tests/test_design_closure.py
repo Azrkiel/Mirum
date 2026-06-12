@@ -106,6 +106,86 @@ def test_loop_breaks_on_no_progress():
     assert verdict["overall"] == "fail" and verdict["iterations_used"] == 1
 
 
+def test_loop_discards_regressing_refinement():
+    # Best-attempt, not last-attempt: a refinement that makes the failing
+    # criterion WORSE is discarded (reports revert, geometry not committed).
+    from closure import run_design_closure
+    commits = {"n": 0}
+
+    async def commit_geometry():
+        commits["n"] += 1
+
+    async def worse_polar(prompt):
+        return {"Cl_max": 1.0, "L_D": [7.0], "stall_alpha": 9.0,
+                "converged_count": 8}
+
+    async def boom(_):
+        raise AssertionError("no struct targets")
+
+    polar = {"Cl_max": 1.1, "L_D": [8.0], "stall_alpha": 10.0,
+             "converged_count": 8}
+    verdict, changed, final_aero, _ = asyncio.run(run_design_closure(
+        _req(cl_max_min=1.5), polar, None,
+        refine_aero=worse_polar, rerun_struct=boom,
+        commit_geometry=commit_geometry, max_iters=2))
+    assert final_aero == polar              # regressed report discarded
+    assert verdict["criteria"][0]["actual"] == 1.1
+    assert changed is False
+    assert commits["n"] == 0                # geometry never committed
+    assert verdict["iterations_used"] == 1  # the attempt is counted
+
+
+def test_loop_commits_geometry_only_on_improvement():
+    from closure import run_design_closure
+    commits = {"n": 0}
+    calls = {"refine": 0}
+
+    async def commit_geometry():
+        commits["n"] += 1
+
+    # improves, then passes
+    polars = [{"Cl_max": 1.3, "L_D": [9.0], "stall_alpha": 11.0,
+               "converged_count": 8},
+              {"Cl_max": 1.6, "L_D": [10.0], "stall_alpha": 12.0,
+               "converged_count": 8}]
+
+    async def improving(prompt):
+        calls["refine"] += 1
+        return polars[calls["refine"] - 1]
+
+    async def boom(_):
+        raise AssertionError("no struct targets")
+
+    polar = {"Cl_max": 1.1, "L_D": [8.0], "stall_alpha": 10.0,
+             "converged_count": 8}
+    verdict, changed, final_aero, _ = asyncio.run(run_design_closure(
+        _req(cl_max_min=1.5), polar, None,
+        refine_aero=improving, rerun_struct=boom,
+        commit_geometry=commit_geometry, max_iters=2))
+    assert verdict["overall"] == "pass"
+    assert commits["n"] == 2                # each improvement committed
+    assert final_aero == polars[-1]
+
+
+def test_loop_breaks_when_refine_raises():
+    from closure import run_design_closure
+
+    async def explode(prompt):
+        raise RuntimeError("LLM down")
+
+    async def boom(_):
+        raise AssertionError("no struct targets")
+
+    polar = {"Cl_max": 1.1, "L_D": [8.0], "stall_alpha": 10.0,
+             "converged_count": 8}
+    verdict, changed, final_aero, _ = asyncio.run(run_design_closure(
+        _req(cl_max_min=1.5), polar, None,
+        refine_aero=explode, rerun_struct=boom, max_iters=2))
+    assert verdict["overall"] == "fail"
+    assert verdict["iterations_used"] == 0 and changed is False
+    assert final_aero == polar
+
+
 def test_struct_fail_resolved_by_resize_without_llm():
     from closure import run_design_closure
 
@@ -214,6 +294,9 @@ def _run_all() -> int:
         test_loop_stops_after_max_iterations,
         test_loop_zero_iterations_when_pass,
         test_loop_breaks_on_no_progress,
+        test_loop_discards_regressing_refinement,
+        test_loop_commits_geometry_only_on_improvement,
+        test_loop_breaks_when_refine_raises,
         test_struct_fail_resolved_by_resize_without_llm,
         test_struct_spec_restored_when_rerun_fails,
         test_telemetry_log_design_closure_writes_parseable_jsonl,

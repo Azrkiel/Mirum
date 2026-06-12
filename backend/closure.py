@@ -11,11 +11,12 @@ from verdict import (evaluate_design, refinement_prompt_for,
                      resize_wing_box_for_margin)
 
 
-def _fail_signature(verdict) -> tuple:
-    """Stable key for 'has anything improved?': overall + failing actuals."""
-    return (verdict.overall,
-            tuple((c.name, c.actual) for c in verdict.criteria
-                  if c.passed is False))
+def _score(verdict) -> tuple:
+    """Badness of a verdict: (failed count, total shortfall). Lower = better."""
+    failed = [c for c in verdict.criteria if c.passed is False]
+    shortfall = sum((c.target - c.actual) for c in failed
+                    if c.actual is not None)
+    return (len(failed), shortfall)
 
 
 async def run_design_closure(
@@ -25,14 +26,18 @@ async def run_design_closure(
     *,
     refine_aero,        # async (prompt: str) -> new_aero_report | None
     rerun_struct,       # async (requirements) -> new_struct_report | None
+    commit_geometry=None,  # async () -> None; called ONLY when an iteration improves
     max_iters: int = 2,
 ) -> tuple[dict | None, bool, dict | None, dict | None]:
     """Returns (DesignVerdict dict | None, geometry_changed flag,
     final_aero_report, final_struct_report).
 
-    The final reports are the ones the verdict describes — callers must
-    deliver THESE, not the pre-closure reports, or the payload contradicts
-    the verdict.
+    Best-attempt contract: a refinement that does not strictly improve the
+    verdict is DISCARDED (reports revert, commit_geometry not called), so
+    the caller never delivers geometry worse than what it already had. The
+    final reports are the ones the verdict describes — callers must deliver
+    THESE, not the pre-closure reports, or the payload contradicts the
+    verdict.
     """
     targets = getattr(requirements, "design_targets", None)
     verdict = evaluate_design(targets, aero_report, struct_report)
@@ -62,24 +67,32 @@ async def run_design_closure(
                 requirements.wing_box_spec = old_wb
             verdict = evaluate_design(targets, aero_report, struct_report)
 
-    # --- Aero criteria: LLM refine + re-analyze, bounded ---
+    # --- Aero criteria: LLM refine + re-analyze, bounded, best-attempt ---
     while verdict.overall == "fail" and iters < max_iters:
         prompt = refinement_prompt_for(verdict)
         if not prompt:                       # nothing LLM-fixable left
             break
-        prev_sig = _fail_signature(verdict)
+        prev_score = _score(verdict)
         try:
             new_aero = await refine_aero(prompt)
         except Exception:
             break
         if new_aero is None:
             break
-        aero_report = new_aero
-        changed = True
         iters += 1
-        verdict = evaluate_design(targets, aero_report, struct_report)
-        if _fail_signature(verdict) == prev_sig:
-            break  # no progress — further iterations are provably wasted
+        candidate = evaluate_design(targets, new_aero, struct_report)
+        improved = (candidate.overall == "pass"
+                    or (candidate.overall == "fail"
+                        and _score(candidate) < prev_score))
+        if not improved:
+            # Equal or worse (or now-unevaluable): discard the candidate —
+            # the caller keeps the best geometry seen so far.
+            break
+        aero_report = new_aero
+        verdict = candidate
+        changed = True
+        if commit_geometry is not None:
+            await commit_geometry()
 
     out = verdict.model_dump()
     out["iterations_used"] = iters

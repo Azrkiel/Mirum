@@ -65,9 +65,13 @@ _AERO_LEVERS = {
         "peak lift coefficient Cl_max",
         "increase airfoil camber (e.g. NACA 2412 → 4412) or increase "
         "wing chord; do not change span"),
+    # NOTE: l_d_min is evaluated on the 2-D XFOIL section polar, which is
+    # insensitive to planform (span/AR) changes at fixed Re — the lever must
+    # change the SECTION, not the planform.
     "l_d_min": (
-        "peak lift-to-drag ratio L/D",
-        "increase aspect ratio: extend span and reduce chord at constant area"),
+        "peak section lift-to-drag ratio L/D",
+        "increase airfoil camber moderately (e.g. NACA 2412 → 4412) or "
+        "reduce thickness-to-chord; keep the planform unchanged"),
     "stall_alpha_min": (
         "stall angle of attack",
         "reduce camber slightly or add washout (negative tip twist)"),

@@ -149,6 +149,28 @@ def test_refinement_prompt_names_aero_criterion_and_lever():
     assert "camber" in p            # the engineering lever
 
 
+def test_ld_lever_is_section_level_not_planform():
+    # l_d_min is evaluated on the 2-D XFOIL polar, which is insensitive to
+    # aspect-ratio/planform changes at fixed Re — the lever must name
+    # section-level changes (camber/thickness/airfoil), never span.
+    from verdict import _AERO_LEVERS
+    _, lever = _AERO_LEVERS["l_d_min"]
+    assert "span" not in lever.lower()
+    assert "camber" in lever.lower() or "airfoil" in lever.lower()
+
+
+def test_verdict_ld_extractor_filters_none_points():
+    # R6 regression pin: _sanitize_floats turns unconverged L/D points into
+    # None — the extractor must skip them, not TypeError.
+    from schemas import DesignTargets
+    from verdict import evaluate_design
+    polar = {"Cl_max": 1.62, "stall_alpha": 14.5, "converged_count": 18,
+             "L_D": [10.0, None, 22.5, None]}
+    v = evaluate_design(DesignTargets(l_d_min=20.0), polar, None)
+    assert v.overall == "pass"
+    assert v.criteria[0].actual == 22.5
+
+
 def test_refinement_prompt_skips_struct_and_vne_criteria():
     from schemas import CriterionResult, DesignVerdict
     from verdict import refinement_prompt_for
@@ -226,6 +248,8 @@ def _run_all() -> int:
         test_verdict_ms_min_unevaluated_when_all_margins_absent,
         test_rea_schema_includes_design_targets,
         test_refinement_prompt_names_aero_criterion_and_lever,
+        test_ld_lever_is_section_level_not_planform,
+        test_verdict_ld_extractor_filters_none_points,
         test_refinement_prompt_skips_struct_and_vne_criteria,
         test_resize_wing_box_scales_cap_area_to_meet_margin,
         test_resize_wing_box_clamps_scale_at_10x,
