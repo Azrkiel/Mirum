@@ -890,25 +890,36 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     # intended production reuse point after that worktree merges.
     design_verdict: dict | None = None
     _closure_changed = False
-    _final_step: dict = {}  # closure may swap geometry; GLB is re-delivered below
-    if (run_aero or run_struct) and requirements is not None:
+    _final_step: dict = {}    # COMMITTED refined geometry (improved + analyzed)
+    _pending_step: dict = {}  # candidate awaiting closure's improvement check
+    _targets = getattr(requirements, "design_targets", None) if requirements else None
+    if (run_aero or run_struct) and _targets is not None:
         from closure import run_design_closure  # noqa: PLC0415
 
         async def _rerun_struct(reqs):
             report, _ = await _run_struct_stage(reqs)
             return report
 
+        async def _commit_geometry():
+            # Called by closure ONLY when an iteration strictly improved the
+            # verdict — best-attempt delivery, never a regressed candidate.
+            _final_step.clear()
+            _final_step.update(_pending_step)
+            _pending_step.clear()
+
         if single:
             async def _refine_aero(rp: str):
                 # No manifest to diff — regenerate the single part with the
                 # lever instruction appended to its description, then export
                 # a temp STEP for XFOIL (same pattern as the aero block above).
-                # Iterations chain: build on the previously refined part so
-                # lever instructions compound instead of restarting from the
-                # original geometry.
+                # Iterations chain: build on the last COMMITTED refined part;
+                # strip any earlier REFINEMENT block first so the Machinist
+                # never sees stale contradictory actuals.
                 base_part = _final_step.get("part", part)
+                base_desc = base_part.description.split(
+                    "\n\nREFINEMENT REQUIRED:\n")[0]
                 refined_part = base_part.model_copy(update={
-                    "description": f"{base_part.description}\n\nREFINEMENT REQUIRED:\n{rp}",
+                    "description": f"{base_desc}\n\nREFINEMENT REQUIRED:\n{rp}",
                 })
                 new_code, _sp, _cert = await run_critic_loop(
                     refined_part, max_retries=2, save_step=False)
@@ -934,16 +945,17 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                     pass
                 if report is None:
                     return None
-                # Commit only ANALYZED geometry — a candidate whose polar
-                # never ran must not become the delivered model (review M1).
-                _final_step["code"] = new_code
-                _final_step["part"] = refined_part
+                # Stage the ANALYZED candidate; closure commits it only on
+                # improvement (review M1 + best-attempt contract).
+                _pending_step.clear()
+                _pending_step["code"] = new_code
+                _pending_step["part"] = refined_part
                 return report
         else:
             async def _refine_aero(rp: str):
                 # Diff-refine the assembly: Refiner → apply diff → rebuild
                 # changed parts → fresh STEPs → XFOIL. Iteration N+1 starts
-                # from iteration N's manifest/scripts via _final_step.
+                # from iteration N's COMMITTED manifest/scripts.
                 cur_manifest = _final_step.get("manifest", manifest)
                 cur_scripts = _final_step.get("scripts", part_scripts)
                 cur_steps = _final_step.get("steps", step_files)
@@ -959,10 +971,11 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 report, _ = await _run_aero_stage(new_steps, requirements)
                 if report is None:
                     return None
-                # Commit only ANALYZED geometry (review M1) — see single path.
-                _final_step["manifest"] = new_manifest
-                _final_step["scripts"] = new_scripts
-                _final_step["steps"] = new_steps
+                # Stage the ANALYZED candidate (see single path).
+                _pending_step.clear()
+                _pending_step["manifest"] = new_manifest
+                _pending_step["scripts"] = new_scripts
+                _pending_step["steps"] = new_steps
                 return report
 
         yield _event("verdict", "running", "Checking design against targets")
@@ -970,7 +983,8 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             (design_verdict, _closure_changed,
              aero_report, struct_report) = await run_design_closure(
                 requirements, aero_report, struct_report,
-                refine_aero=_refine_aero, rerun_struct=_rerun_struct)
+                refine_aero=_refine_aero, rerun_struct=_rerun_struct,
+                commit_geometry=_commit_geometry)
         except Exception as _closure_exc:
             # Verdict logic must never cost the user the finished model —
             # the GLB is already encoded; degrade to "no verdict".
