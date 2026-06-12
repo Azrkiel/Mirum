@@ -1,4 +1,4 @@
-"""
+﻿"""
 FastAPI Orchestration Layer for Text-to-CAD Pipeline.
 
 Exposes the hierarchical subagent pipeline as a streaming SSE endpoint.
@@ -58,6 +58,18 @@ logger = logging.getLogger("mirum.api")
 _WORK_DIR = pathlib.Path(os.environ.get("MIRUM_WORK_DIR", "/tmp/mirum/work"))
 _WORK_DIR.mkdir(parents=True, exist_ok=True)
 
+
+def _work_path(name: str) -> str:
+    """Scratch path under _WORK_DIR, forward slashes only.
+
+    These strings get embedded into generated script literals (and
+    .replace'd over the assembler's 'output.glb' sentinel). On a Windows
+    host a backslash path mangles when the script is parsed (\\t -> TAB),
+    so Assembly.save writes somewhere os.path.exists never looks. Windows
+    APIs accept forward slashes; Docker paths never contain backslashes.
+    """
+    return str(_WORK_DIR / name).replace("\\", "/")
+
 _GEMINI_KEY_HEAVY = os.environ.get("GEMINI_API_KEY_HEAVY")
 if not _GEMINI_KEY_HEAVY:
     raise RuntimeError(
@@ -66,7 +78,7 @@ if not _GEMINI_KEY_HEAVY:
         "Set GEMINI_API_KEY_PRO separately if your Pro key differs from Heavy."
     )
 
-# Pro key is optional — falls back to the Heavy key if not set.
+# Pro key is optional â€” falls back to the Heavy key if not set.
 # Used by Planner and REA (gemini-3.1-pro-preview). If your Google Cloud
 # project exposes all model tiers under one API key, leave PRO unset.
 _GEMINI_KEY_PRO = os.environ.get("GEMINI_API_KEY_PRO") or _GEMINI_KEY_HEAVY
@@ -74,7 +86,7 @@ _GEMINI_KEY_PRO = os.environ.get("GEMINI_API_KEY_PRO") or _GEMINI_KEY_HEAVY
 # Configure the global genai client. We use the Pro key when it differs so
 # that the heavier Pro quota bucket is charged for Planner/REA calls.
 # The Heavy key is still active for Machinist/Critic/Refiner via the same
-# global client — both keys must belong to the same Google Cloud project.
+# global client â€” both keys must belong to the same Google Cloud project.
 genai.configure(api_key=_GEMINI_KEY_PRO)
 
 
@@ -148,7 +160,7 @@ class GenerateRequest(BaseModel):
         description=(
             "Phase 3 opt-in: when True and the assembly is Domain D (aerospace), "
             "run XFOIL on the multi-part STEP after export and attach a polar "
-            "report. Failure is non-blocking — GLB delivery never depends on it."
+            "report. Failure is non-blocking â€” GLB delivery never depends on it."
         ),
     )
     run_struct: bool = Field(
@@ -157,7 +169,7 @@ class GenerateRequest(BaseModel):
             "Phase 4 opt-in: when True and the assembly is Domain D, run the "
             "structural + flight-envelope analysis (ISA atmosphere, FAR-23 "
             "load factors, wing-box bending/shear margins) and attach a "
-            "structural report. Pure-number computation — no subprocess, no "
+            "structural report. Pure-number computation â€” no subprocess, no "
             "STEP file, no LLM call. Failure is non-blocking."
         ),
     )
@@ -182,7 +194,7 @@ def _sanitize_floats(obj: object) -> object:
     not support NaN, so these must be replaced with null before the dict is
     serialised into the SSE payload.
     """
-    import math  # noqa: PLC0415 — stdlib, always available
+    import math  # noqa: PLC0415 â€” stdlib, always available
     if isinstance(obj, float):
         return None if (math.isnan(obj) or math.isinf(obj)) else obj
     if isinstance(obj, dict):
@@ -201,7 +213,7 @@ async def _run_aero_stage(
     Returns (polar_dict, status_msg). polar_dict is a PolarReport.model_dump()
     on success, or None when aero is skipped (status_msg explains why).
 
-    Aero failure must never block GLB delivery — every failure path returns
+    Aero failure must never block GLB delivery â€” every failure path returns
     None with a human-readable reason that the frontend can surface.
     """
     # --- Gate 1: requirements must indicate Domain D ---
@@ -285,9 +297,9 @@ async def _run_aero_stage(
         return None, f"polar parse failed: {type(e).__name__}: {_safe_error(str(e))}"
 
     cl_max_str = f"{polar.Cl_max:.3f}" if polar.Cl_max is not None else "n/a"
-    sa_str = f"{polar.stall_alpha:.1f}°" if polar.stall_alpha is not None else "n/a"
-    msg = f"converged {polar.converged_count} α-points; Cl_max={cl_max_str}; stall α={sa_str}"
-    # Sanitize NaN/Inf → null before JSON serialisation (XFOIL can emit NaN
+    sa_str = f"{polar.stall_alpha:.1f}Â°" if polar.stall_alpha is not None else "n/a"
+    msg = f"converged {polar.converged_count} Î±-points; Cl_max={cl_max_str}; stall Î±={sa_str}"
+    # Sanitize NaN/Inf â†’ null before JSON serialisation (XFOIL can emit NaN
     # for unconverged alpha points; JSON has no NaN literal).
     return _sanitize_floats(polar.model_dump()), msg
 
@@ -297,12 +309,12 @@ async def _run_struct_stage(
 ) -> tuple[dict | None, str]:
     """Phase 4: structural + flight-envelope analysis. Always returns; never raises.
 
-    Pure-number computation — no subprocess, no STEP file, no LLM call, no
+    Pure-number computation â€” no subprocess, no STEP file, no LLM call, no
     user-controlled filesystem paths. Returns (struct_dict, status_msg).
     struct_dict is a ``StructuralReport.model_dump()`` on success, or None
     when skipped (status_msg explains why).
 
-    Structural failure must never block GLB delivery — every failure path
+    Structural failure must never block GLB delivery â€” every failure path
     returns None with a human-readable, _safe_error-redacted reason.
     """
     # --- Gate 1: requirements must indicate Domain D ---
@@ -317,7 +329,7 @@ async def _run_struct_stage(
     if ac is None or ac.mtow_kg is None or ac.cruise_alt_m is None or ac.cruise_speed_ms is None:
         return None, "aircraft_spec missing mtow_kg / cruise_alt_m / cruise_speed_ms"
 
-    # --- Gate 3: wing area — from wing_spec, else derive from airfoil_spec ---
+    # --- Gate 3: wing area â€” from wing_spec, else derive from airfoil_spec ---
     ws = getattr(requirements, "wing_spec", None)
     af = getattr(requirements, "airfoil_spec", None)
     area_m2: float | None = None
@@ -387,7 +399,7 @@ async def _run_struct_stage(
 
     material = (getattr(requirements, "material_class", None) or "AL2024-T3")
 
-    # --- Run analysis off the event loop (defensive — analysis is fast & pure-Python) ---
+    # --- Run analysis off the event loop (defensive â€” analysis is fast & pure-Python) ---
     import asyncio as _asyncio
     try:
         report = await _asyncio.to_thread(
@@ -446,7 +458,7 @@ async def _run_struct_stage(
         f"bending MS={flat.bending_margin_of_safety:.3f}; "
         f"shear MS={flat.shear_margin_of_safety:.3f}"
     )
-    # NaN/Inf → null sanitisation so JSON serialisation never raises (e.g. MS=inf
+    # NaN/Inf â†’ null sanitisation so JSON serialisation never raises (e.g. MS=inf
     # when stress is zero).  Mirrors the aero stage's tail.
     return _sanitize_floats(flat.model_dump()), msg
 
@@ -456,7 +468,7 @@ def _run_verdict_stage(
 ) -> tuple[dict | None, str]:
     """Phase 5: compare analysis reports against extracted DesignTargets.
 
-    Pure-number judgment — no LLM, no subprocess. Returns
+    Pure-number judgment â€” no LLM, no subprocess. Returns
     (DesignVerdict.model_dump() | None, status_msg). None = not applicable.
     """
     targets = getattr(requirements, "design_targets", None) if requirements else None
@@ -479,7 +491,7 @@ def _targets_imply_stages(
 ) -> tuple[bool, bool]:
     """Stated performance targets imply consent to the analyses that check them.
 
-    A user stating "MS ≥ 0.5" has opted into structural analysis; without this
+    A user stating "MS â‰¥ 0.5" has opted into structural analysis; without this
     the verdict is guaranteed "incomplete" (plan review finding R5).
     """
     targets = getattr(requirements, "design_targets", None) if requirements else None
@@ -503,7 +515,7 @@ async def _apply_diff_and_export(
     Extracted from the /refine endpoint so the design-closure loop in
     _pipeline shares one implementation. Returns
     (updated_manifest, new_scripts, step_files, parts_to_regenerate,
-    parts_to_skip). Raises on diff-application or rebuild failure — callers
+    parts_to_skip). Raises on diff-application or rebuild failure â€” callers
     choose the error policy (/refine returns the detail to the client; the
     closure loop degrades to "no refinement").
     """
@@ -539,7 +551,7 @@ async def _apply_diff_and_export(
             new_scripts[part_id] = code
             step_files[part_id] = step_path
 
-    # For reused parts we need their step files — reuse the prior run's file
+    # For reused parts we need their step files â€” reuse the prior run's file
     # when it still exists (the in-pipeline closure path), otherwise re-export
     # from the existing script (the /refine path, where only scripts arrive).
     for pid in parts_to_skip:
@@ -549,7 +561,7 @@ async def _apply_diff_and_export(
             continue
         # Write a temporary .step for the reused part
         try:
-            tmp_step = str(_WORK_DIR / f"{pid}_{uuid.uuid4().hex[:8]}.step")
+            tmp_step = _work_path(f"{pid}_{uuid.uuid4().hex[:8]}.step")
             reuse_script = original_scripts[pid]
             export_script = reuse_script.rstrip() + f"\n\nimport cadquery as cq\ncq.exporters.export(result, r'{tmp_step}')\n"
             result_exec = await execute_cad_script(export_script)
@@ -588,18 +600,18 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     # / open / os.remove all resolve to the same writable tmpfs location.
     # Relative names like "output.glb" would land in whatever cwd the
     # subprocess happens to have, which is /app (read-only).
-    output_filename = str(_WORK_DIR / (uuid.uuid4().hex + ".glb"))
+    output_filename = _work_path(uuid.uuid4().hex + ".glb")
     param_dict = {}  # T1-06: Initialize for both paths
     # Phase 3: hoisted so the post-export aero stage can see the per-part
     # STEP files. Populated only in the multi-part path; empty for single-part.
     step_files: dict[str, str] = {}
-    # G-05: per-part geometry certs — populated in the multi-part path.
+    # G-05: per-part geometry certs â€” populated in the multi-part path.
     _part_certs: dict[str, dict | None] = {}
 
     if single:
         # Single-part fast path: one machinist call, direct export, no assembler.
         # Single-part never uses the .step file (no deterministic assembler run),
-        # so we skip _save_part_step entirely — one fewer subprocess, one fewer
+        # so we skip _save_part_step entirely â€” one fewer subprocess, one fewer
         # AV-scan window.
         part = manifest.parts[0]
         label = f"machinist:{part.part_id}"
@@ -640,7 +652,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             return
         yield _event(label, "done", f"Part '{part.part_id}' validated")
 
-        # Direct export — no assembler needed
+        # Direct export â€” no assembler needed
         yield _event("export", "running", "Exporting to .glb")
         final_script = await run_single_part_export(code, output_filename)
         # Parameterize the script for the UI (T1-06)
@@ -843,7 +855,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         # XFOIL's geometry extraction.  Generate a temporary one on the fly
         # using the same pattern as the geometry-cert block below.
         if single and not step_files:
-            _aero_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_aero.step"))
+            _aero_step_path = _work_path(uuid.uuid4().hex + "_aero.step")
             _aero_script = (
                 f"{code}\n\n"
                 f"import cadquery as cq\n"
@@ -853,7 +865,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             if _aero_exec["status"] == "success" and os.path.exists(_aero_step_path):
                 step_files = {manifest.parts[0].part_id: _aero_step_path}
             # If export fails step_files stays empty and _run_aero_stage will
-            # return a skip message — the GLB has already been sent so this is
+            # return a skip message â€” the GLB has already been sent so this is
             # non-fatal.
 
         yield _event("aero", "running", "Running XFOIL polar analysis")
@@ -870,7 +882,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event("aero", "skipped", aero_msg)
 
     # Phase 4: structural + flight-envelope analysis (opt-in, Domain D only).
-    # Pure-number computation — no subprocess, no STEP file, no LLM call. Every
+    # Pure-number computation â€” no subprocess, no STEP file, no LLM call. Every
     # failure path inside _run_struct_stage returns (None, reason) so this
     # block can never prevent the "complete" event from being emitted.
     struct_report: dict | None = None
@@ -882,7 +894,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         else:
             yield _event("struct", "skipped", struct_msg)
 
-    # Phase 3 (closure): bounded design-closure loop — verdict → fix →
+    # Phase 3 (closure): bounded design-closure loop â€” verdict â†’ fix â†’
     # re-analyze, max 2 LLM refinements + 1 analytic wing-box re-size.
     # Replaces the Phase-5 advisory verdict. _run_verdict_stage is kept as a
     # standalone advisory helper (exercised by tests/test_verdict_stage.py);
@@ -902,14 +914,14 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
 
         async def _commit_geometry():
             # Called by closure ONLY when an iteration strictly improved the
-            # verdict — best-attempt delivery, never a regressed candidate.
+            # verdict â€” best-attempt delivery, never a regressed candidate.
             _final_step.clear()
             _final_step.update(_pending_step)
             _pending_step.clear()
 
         if single:
             async def _refine_aero(rp: str):
-                # No manifest to diff — regenerate the single part with the
+                # No manifest to diff â€” regenerate the single part with the
                 # lever instruction appended to its description, then export
                 # a temp STEP for XFOIL (same pattern as the aero block above).
                 # Iterations chain: build on the last COMMITTED refined part;
@@ -925,7 +937,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                     refined_part, max_retries=2, save_step=False)
                 if not new_code:
                     return None
-                _rs_path = str(_WORK_DIR / (uuid.uuid4().hex + "_closure.step"))
+                _rs_path = _work_path(uuid.uuid4().hex + "_closure.step")
                 _rs_exec = await execute_cad_script(
                     f"{new_code}\n\n"
                     f"import cadquery as cq\n"
@@ -953,8 +965,8 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 return report
         else:
             async def _refine_aero(rp: str):
-                # Diff-refine the assembly: Refiner → apply diff → rebuild
-                # changed parts → fresh STEPs → XFOIL. Iteration N+1 starts
+                # Diff-refine the assembly: Refiner â†’ apply diff â†’ rebuild
+                # changed parts â†’ fresh STEPs â†’ XFOIL. Iteration N+1 starts
                 # from iteration N's COMMITTED manifest/scripts.
                 cur_manifest = _final_step.get("manifest", manifest)
                 cur_scripts = _final_step.get("scripts", part_scripts)
@@ -986,7 +998,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 refine_aero=_refine_aero, rerun_struct=_rerun_struct,
                 commit_geometry=_commit_geometry)
         except Exception as _closure_exc:
-            # Verdict logic must never cost the user the finished model —
+            # Verdict logic must never cost the user the finished model â€”
             # the GLB is already encoded; degrade to "no verdict".
             debug_log_error("design_closure", _closure_exc, None)
             design_verdict = None
@@ -1019,17 +1031,17 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             else:
                 yield _event("verdict", "skipped", "no design targets to check")
 
-    # Phase 3 (closure): the GLB was encoded *before* the closure loop ran —
+    # Phase 3 (closure): the GLB was encoded *before* the closure loop ran â€”
     # when closure swapped the geometry, re-export so the delivered model
     # matches the verdict's final iteration (review R3). Runs BEFORE the
     # geometry certificate so the cert can describe the DELIVERED geometry.
     # Uses the exact same export paths as the original delivery
     # (run_single_part_export / deterministic assembler; Assembly.save infers
     # glTF from the .glb extension). A struct-only re-size leaves _final_step
-    # empty — the CAD geometry is unchanged, so no re-export is needed.
+    # empty â€” the CAD geometry is unchanged, so no re-export is needed.
     _closure_delivered = False  # refined geometry actually replaced the GLB
     if design_verdict is not None and _closure_changed and _final_step:
-        _new_glb = str(_WORK_DIR / (uuid.uuid4().hex + "_closure.glb"))
+        _new_glb = _work_path(uuid.uuid4().hex + "_closure.glb")
         _re_exec: dict = {"status": "error"}
         _re_script = ""
         _re_params: dict = {}
@@ -1054,17 +1066,17 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             if single:
                 param_dict_final = _re_params
             _closure_delivered = True
-        # Always clean up the temp GLB — a failed export may still have
+        # Always clean up the temp GLB â€” a failed export may still have
         # written a partial file.
         try:
             os.remove(_new_glb)
         except OSError:
             pass
-        # Export failure → keep the original GLB. The verdict still reports
+        # Export failure â†’ keep the original GLB. The verdict still reports
         # honestly: its criteria reflect the refined analysis, and the stale
         # GLB is the previous validated geometry, never a broken one.
 
-    # Geometry certificate — aggregate across all parts.
+    # Geometry certificate â€” aggregate across all parts.
     # Multi-part: use the certs collected during _build_part().
     # Single-part: save a temp STEP and run the check (lightweight, advisory).
     geometry_certificate: dict | None = None
@@ -1077,12 +1089,12 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         _prop_spec = getattr(requirements, "propulsion_spec", None) if requirements else None
 
         if single:
-            # Single-part: write a temp STEP from the DELIVERED code — the
+            # Single-part: write a temp STEP from the DELIVERED code â€” the
             # closure-refined script when its GLB replaced the original.
             _cert_source = (_final_step["code"]
                             if _closure_delivered and _final_step.get("code")
                             else code)
-            _cert_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_cert.step"))
+            _cert_step_path = _work_path(uuid.uuid4().hex + "_cert.step")
             _cert_script = (
                 f"{_cert_source}\n\n"
                 f"import cadquery as cq\n"
@@ -1098,7 +1110,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 except OSError:
                     pass
         else:
-            # Multi-part: merge per-part certs — aggregate volume + surface area,
+            # Multi-part: merge per-part certs â€” aggregate volume + surface area,
             # overall passed = all parts passed.
             if _part_certs:
                 all_passed = all(
@@ -1152,7 +1164,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         logger.debug("geometry certificate generation failed: %s", _cert_exc)
         geometry_certificate = None
 
-    # Multi-part certs were collected during the ORIGINAL _build_part runs —
+    # Multi-part certs were collected during the ORIGINAL _build_part runs â€”
     # when closure delivered refined geometry they describe the wrong solids.
     # Honest absence beats wrong data.
     if (not single) and _closure_delivered:
@@ -1182,7 +1194,7 @@ async def clarify_prompt(body: GenerateRequest, request: Request):
     """Run the pre-Planner clarifier and return a list of ambiguities.
 
     Returns {"ambiguities": []} if the prompt is sufficiently detailed.
-    This is a fast call — the frontend should not block generation on it.
+    This is a fast call â€” the frontend should not block generation on it.
     """
     ambiguities = await run_clarifier(body.prompt)
     return {"ambiguities": ambiguities}
@@ -1222,7 +1234,7 @@ async def plan_assembly(body: GenerateRequest, request: Request):
             )
         except _asyncio.TimeoutError:
             logger.warning(
-                "/plan: REA timed out after %.1fs — continuing without requirements",
+                "/plan: REA timed out after %.1fs â€” continuing without requirements",
                 time.monotonic() - rea_t0,
             )
             requirements = None
@@ -1246,7 +1258,7 @@ async def plan_assembly(body: GenerateRequest, request: Request):
                 "detail": f"Planner timed out after {elapsed:.1f}s (Gemini call did not return)",
             }
         logger.info(
-            "/plan: Planner finished in %.1fs (%d parts, %d mates) — total %.1fs",
+            "/plan: Planner finished in %.1fs (%d parts, %d mates) â€” total %.1fs",
             time.monotonic() - planner_t0,
             len(manifest.parts),
             len(manifest.mating_rules),
@@ -1306,7 +1318,7 @@ async def generate(body: GenerateRequest, request: Request):
 @limiter.limit("10/minute")
 async def run_script(body: RunRequest, request: Request):
     """Execute a CadQuery script directly and return the GLB model."""
-    output_filename = str(_WORK_DIR / (uuid.uuid4().hex + ".glb"))
+    output_filename = _work_path(uuid.uuid4().hex + ".glb")
     script = body.script.replace("output.glb", output_filename)
 
     result = await execute_cad_script(script)
@@ -1383,7 +1395,7 @@ async def export_to_parasolid(body: RunRequest, request: Request):
     from exporters import export_parasolid
 
     # Run the script to produce output.glb + output.step
-    step_path = str(_WORK_DIR / (uuid.uuid4().hex + ".step"))
+    step_path = _work_path(uuid.uuid4().hex + ".step")
     # Patch script to also export STEP
     patched = body.script + f"\n\nimport cadquery as cq\ncq.exporters.export(result, r'{step_path}')\n"
 
@@ -1416,7 +1428,7 @@ async def export_to_parasolid(body: RunRequest, request: Request):
         "format": fmt,
         "data_b64": data_b64,
         "filename": f"assembly{ext}",
-        "note": "" if success else "CAD Exchanger not available — STEP provided instead.",
+        "note": "" if success else "CAD Exchanger not available â€” STEP provided instead.",
     }
 
 
@@ -1464,7 +1476,7 @@ async def refine_assembly(body: RefineRequest, request: Request):
         return {"status": "error", "detail": _safe_error(e)}
 
     # Assemble
-    output_filename = str(_WORK_DIR / (uuid.uuid4().hex + ".glb"))
+    output_filename = _work_path(uuid.uuid4().hex + ".glb")
     try:
         asm_script = await run_assembly_critic_loop(updated_manifest, step_files)
         asm_script = asm_script.replace("output.glb", output_filename)
@@ -1601,13 +1613,13 @@ async def generate_analysis_plots(body: PlotsRequest, request: Request):
     """T2-16: Generate aerodynamic polar plots as base64 PNGs.
 
     Generates three server-side matplotlib charts:
-      - cl_alpha : Cl vs α with stall_alpha marker and Cl_max annotation
-      - cd_alpha : Cd vs α on a log-scale Y-axis
+      - cl_alpha : Cl vs Î± with stall_alpha marker and Cl_max annotation
+      - cd_alpha : Cd vs Î± on a log-scale Y-axis
       - cp_dist  : Cp distribution at *design_alpha* (upper/lower surfaces,
                    filled between).  Requires XFOIL; null on failure.
 
     The Cl and Cd charts are pure Python (fast, no subprocess).
-    The Cp chart spawns XFOIL — it returns null rather than an error if
+    The Cp chart spawns XFOIL â€” it returns null rather than an error if
     XFOIL is unavailable, so the endpoint never blocks the frontend.
 
     Returns
@@ -1641,7 +1653,7 @@ async def generate_analysis_plots(body: PlotsRequest, request: Request):
         logger.exception("/analysis/plots: chart generation failed")
         return {"status": "error", "detail": _safe_error(chart_err)}
 
-    # Cp distribution: XFOIL subprocess — best-effort, never blocks the response
+    # Cp distribution: XFOIL subprocess â€” best-effort, never blocks the response
     cp_b64: str | None = None
     try:
         cp_b64 = await _asyncio.to_thread(
@@ -1654,7 +1666,7 @@ async def generate_analysis_plots(body: PlotsRequest, request: Request):
         )
     except Exception as cp_err:
         logger.warning("/analysis/plots: Cp plot failed: %s", cp_err)
-        # cp_b64 stays None — frontend shows placeholder
+        # cp_b64 stays None â€” frontend shows placeholder
 
     return {
         "status": "ok",
@@ -1708,7 +1720,7 @@ async def generate_xfoil_pdf_report(body: PlotsRequest, request: Request):
         logger.exception("/analysis/pdf: chart generation failed")
         return {"status": "error", "detail": _safe_error(chart_err)}
 
-    # Cp distribution — best-effort, XFOIL may be absent
+    # Cp distribution â€” best-effort, XFOIL may be absent
     cp_b64: str | None = None
     try:
         cp_b64 = await _asyncio.to_thread(
@@ -1770,11 +1782,11 @@ async def annotate_step_with_pmi(body: PMIRequest, request: Request):
         return {
             "status": "ok",
             "has_pmi": False,
-            "message": "No PMI annotations found in prompt — STEP file unchanged.",
+            "message": "No PMI annotations found in prompt â€” STEP file unchanged.",
         }
 
     # Attach PMI to STEP
-    output_path = str(_WORK_DIR / (uuid.uuid4().hex + "_pmi.step"))
+    output_path = _work_path(uuid.uuid4().hex + "_pmi.step")
     success, result_path = attach_pmi_to_step(str(step_resolved), [pmi], output_path)
 
     if not success:
@@ -1806,7 +1818,7 @@ async def annotate_step_with_pmi(body: PMIRequest, request: Request):
 
 
 # ---------------------------------------------------------------------------
-# T4-10: Admin — model registry hot-swap
+# T4-10: Admin â€” model registry hot-swap
 # ---------------------------------------------------------------------------
 
 class ModelConfigRequest(BaseModel):
@@ -1825,7 +1837,7 @@ def _require_admin(request: Request) -> None:
     if not admin_key:
         raise HTTPException(
             status_code=503,
-            detail="Admin API is disabled — set ADMIN_API_KEY env var to enable.",
+            detail="Admin API is disabled â€” set ADMIN_API_KEY env var to enable.",
         )
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):

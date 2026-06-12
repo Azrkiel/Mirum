@@ -1050,15 +1050,18 @@ async def run_single_part_export(part_script: str, output_filename: str) -> str:
     If the Machinist already produced a cq.Assembly (e.g., Domain D subsystem),
     we save it directly instead of nesting it inside another assembly.
     """
+    # Raw-string the embedded path: a Windows path in a plain literal gets
+    # escape-mangled when the script is parsed (\t -> TAB), so Assembly.save
+    # writes somewhere main.py never looks.
     return (
         f"{part_script}\n\n"
         f"import cadquery as cq\n"
         f"if isinstance(result, cq.Assembly):\n"
-        f"    result.save('{output_filename}')\n"
+        f"    result.save(r'{output_filename}')\n"
         f"else:\n"
         f"    _export_asm = cq.Assembly()\n"
         f"    _export_asm.add(result, name='part')\n"
-        f"    _export_asm.save('{output_filename}')\n"
+        f"    _export_asm.save(r'{output_filename}')\n"
     )
 
 
