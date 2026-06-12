@@ -41,23 +41,30 @@ def _req(**targets):
 def test_loop_stops_after_max_iterations():
     from closure import run_design_closure
     calls = {"refine": 0}
+    # Improving but still-failing polars: progress each iteration, so only
+    # the max_iters bound (not the no-progress cutoff) can stop the loop.
+    polars = [{"Cl_max": 1.2, "L_D": [9.0], "stall_alpha": 11.0,
+               "converged_count": 8},
+              {"Cl_max": 1.3, "L_D": [10.0], "stall_alpha": 11.5,
+               "converged_count": 8}]
 
     async def fake_refine_aero(prompt):
         calls["refine"] += 1
-        return {"Cl_max": 1.2, "L_D": [9.0], "stall_alpha": 11.0,
-                "converged_count": 8}                       # still failing
+        return polars[calls["refine"] - 1]
 
     async def fake_rerun_struct(requirements):
         raise AssertionError("no struct targets — must not be called")
 
     polar = {"Cl_max": 1.1, "L_D": [8.0], "stall_alpha": 10.0,
              "converged_count": 8}
-    verdict, changed = asyncio.run(run_design_closure(
+    verdict, changed, final_aero, final_struct = asyncio.run(run_design_closure(
         _req(cl_max_min=1.5), polar, None,
         refine_aero=fake_refine_aero, rerun_struct=fake_rerun_struct,
         max_iters=2))
     assert calls["refine"] == 2
     assert verdict["overall"] == "fail" and verdict["iterations_used"] == 2
+    # FIX2: the loop's final report is returned, not discarded
+    assert final_aero == polars[-1]
 
 
 def test_loop_zero_iterations_when_pass():
@@ -68,11 +75,35 @@ def test_loop_zero_iterations_when_pass():
 
     polar = {"Cl_max": 1.7, "L_D": [20.0], "stall_alpha": 14.0,
              "converged_count": 12}
-    verdict, changed = asyncio.run(run_design_closure(
+    verdict, changed, final_aero, final_struct = asyncio.run(run_design_closure(
         _req(cl_max_min=1.5), polar, None,
         refine_aero=boom, rerun_struct=boom, max_iters=2))
     assert verdict["overall"] == "pass"
     assert verdict["iterations_used"] == 0 and changed is False
+    assert final_aero == polar
+
+
+def test_loop_breaks_on_no_progress():
+    # Identical failing polar every refinement -> further iterations are
+    # provably wasted; exactly one refine call, then break.
+    from closure import run_design_closure
+    calls = {"refine": 0}
+
+    async def same_polar(prompt):
+        calls["refine"] += 1
+        return {"Cl_max": 1.1, "L_D": [8.0], "stall_alpha": 10.0,
+                "converged_count": 8}
+
+    async def boom(_):
+        raise AssertionError("no struct targets")
+
+    polar = {"Cl_max": 1.1, "L_D": [8.0], "stall_alpha": 10.0,
+             "converged_count": 8}
+    verdict, changed, _, _ = asyncio.run(run_design_closure(
+        _req(cl_max_min=1.5), polar, None,
+        refine_aero=same_polar, rerun_struct=boom, max_iters=2))
+    assert calls["refine"] == 1
+    assert verdict["overall"] == "fail" and verdict["iterations_used"] == 1
 
 
 def test_struct_fail_resolved_by_resize_without_llm():
@@ -96,11 +127,41 @@ def test_struct_fail_resolved_by_resize_without_llm():
         wing_box_spec=WingBoxSpec(
             chord_root_m=1.1, thickness_to_chord=0.12,
             cap_area_m2=0.0008, spar_web_thickness_m=0.002))
-    verdict, changed = asyncio.run(run_design_closure(
+    verdict, changed, final_aero, final_struct = asyncio.run(run_design_closure(
         req, None, struct,
         refine_aero=boom, rerun_struct=fake_rerun_struct, max_iters=2))
     assert reruns["n"] == 1
     assert verdict["overall"] == "pass" and changed is True
+    # FIX2: the re-analyzed struct report is returned for delivery
+    assert final_struct["bending_margin_of_safety"] == 0.52
+
+
+def test_struct_spec_restored_when_rerun_fails():
+    # Resize assigned, then rerun_struct raises -> the unverified resized
+    # spec must NOT persist on the shared DesignRequirements.
+    from closure import run_design_closure
+
+    async def boom(_):
+        raise AssertionError("no aero targets")
+
+    async def failing_rerun(requirements):
+        raise RuntimeError("analysis blew up")
+
+    struct = {"bending_margin_of_safety": 0.2,
+              "shear_margin_of_safety": 1.0, "v_ne_ms": 120.0}
+    req = DesignRequirements(
+        primary_function="w", inferred_domain="D",
+        design_targets=DesignTargets(ms_min=0.5),
+        wing_box_spec=WingBoxSpec(
+            chord_root_m=1.1, thickness_to_chord=0.12,
+            cap_area_m2=0.0008, spar_web_thickness_m=0.002))
+    verdict, changed, _, final_struct = asyncio.run(run_design_closure(
+        req, None, struct,
+        refine_aero=boom, rerun_struct=failing_rerun, max_iters=2))
+    assert req.wing_box_spec.cap_area_m2 == 0.0008   # rolled back
+    assert changed is False
+    assert verdict["overall"] == "fail"              # original margins stand
+    assert final_struct == struct
 
 
 def test_telemetry_log_design_closure_writes_parseable_jsonl():
@@ -152,7 +213,9 @@ def _run_all() -> int:
     funcs = [
         test_loop_stops_after_max_iterations,
         test_loop_zero_iterations_when_pass,
+        test_loop_breaks_on_no_progress,
         test_struct_fail_resolved_by_resize_without_llm,
+        test_struct_spec_restored_when_rerun_fails,
         test_telemetry_log_design_closure_writes_parseable_jsonl,
     ]
     failures = 0

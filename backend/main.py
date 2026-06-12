@@ -884,8 +884,10 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
 
     # Phase 3 (closure): bounded design-closure loop — verdict → fix →
     # re-analyze, max 2 LLM refinements + 1 analytic wing-box re-size.
-    # Replaces the Phase-5 advisory verdict (_run_verdict_stage remains for
-    # the /jobs path and its tests).
+    # Replaces the Phase-5 advisory verdict. _run_verdict_stage is kept as a
+    # standalone advisory helper (exercised by tests/test_verdict_stage.py);
+    # the /jobs polling path on branch mirum/backend-throughput is its
+    # intended production reuse point after that worktree merges.
     design_verdict: dict | None = None
     _closure_changed = False
     _final_step: dict = {}  # closure may swap geometry; GLB is re-delivered below
@@ -901,8 +903,12 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 # No manifest to diff — regenerate the single part with the
                 # lever instruction appended to its description, then export
                 # a temp STEP for XFOIL (same pattern as the aero block above).
-                refined_part = part.model_copy(update={
-                    "description": f"{part.description}\n\nREFINEMENT REQUIRED:\n{rp}",
+                # Iterations chain: build on the previously refined part so
+                # lever instructions compound instead of restarting from the
+                # original geometry.
+                base_part = _final_step.get("part", part)
+                refined_part = base_part.model_copy(update={
+                    "description": f"{base_part.description}\n\nREFINEMENT REQUIRED:\n{rp}",
                 })
                 new_code, _sp, _cert = await run_critic_loop(
                     refined_part, max_retries=2, save_step=False)
@@ -915,14 +921,23 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                     f"cq.exporters.export(result, r'{_rs_path}')\n"
                 )
                 if _rs_exec["status"] != "success" or not os.path.exists(_rs_path):
+                    try:
+                        os.remove(_rs_path)
+                    except OSError:
+                        pass
                     return None
-                _final_step["code"] = new_code
                 report, _ = await _run_aero_stage(
                     {part.part_id: _rs_path}, requirements)
                 try:
                     os.remove(_rs_path)
                 except OSError:
                     pass
+                if report is None:
+                    return None
+                # Commit only ANALYZED geometry — a candidate whose polar
+                # never ran must not become the delivered model (review M1).
+                _final_step["code"] = new_code
+                _final_step["part"] = refined_part
                 return report
         else:
             async def _refine_aero(rp: str):
@@ -941,39 +956,99 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                     diff, cur_manifest, cur_scripts, cur_steps)
                 if not new_steps:
                     return None
+                report, _ = await _run_aero_stage(new_steps, requirements)
+                if report is None:
+                    return None
+                # Commit only ANALYZED geometry (review M1) — see single path.
                 _final_step["manifest"] = new_manifest
                 _final_step["scripts"] = new_scripts
                 _final_step["steps"] = new_steps
-                report, _ = await _run_aero_stage(new_steps, requirements)
                 return report
 
         yield _event("verdict", "running", "Checking design against targets")
-        design_verdict, _closure_changed = await run_design_closure(
-            requirements, aero_report, struct_report,
-            refine_aero=_refine_aero, rerun_struct=_rerun_struct)
-        if design_verdict is not None:
-            status = "done" if design_verdict["overall"] == "pass" else "warning"
-            yield _event(
-                "verdict", status,
-                f"{design_verdict['overall']} after "
-                f"{design_verdict['iterations_used']} refinement(s)")
-            # One telemetry record per closure run (local-only JSONL,
-            # never returned to clients).
-            try:
-                from telemetry import log_design_closure  # noqa: PLC0415
-                log_design_closure(
-                    overall=design_verdict["overall"],
-                    iterations_used=design_verdict.get("iterations_used", 0),
-                    criteria=[
-                        {"name": c.get("name"), "target": c.get("target"),
-                         "actual": c.get("actual"), "passed": c.get("passed")}
-                        for c in design_verdict.get("criteria", [])],
-                    geometry_changed=_closure_changed,
-                )
-            except Exception:
-                pass  # telemetry must never break delivery
+        try:
+            (design_verdict, _closure_changed,
+             aero_report, struct_report) = await run_design_closure(
+                requirements, aero_report, struct_report,
+                refine_aero=_refine_aero, rerun_struct=_rerun_struct)
+        except Exception as _closure_exc:
+            # Verdict logic must never cost the user the finished model —
+            # the GLB is already encoded; degrade to "no verdict".
+            debug_log_error("design_closure", _closure_exc, None)
+            design_verdict = None
+            _closure_changed = False
+            yield _event("verdict", "skipped",
+                         f"verdict failed: {_safe_error(str(_closure_exc))}")
         else:
-            yield _event("verdict", "skipped", "no design targets to check")
+            if design_verdict is not None:
+                status = ("done" if design_verdict["overall"] == "pass"
+                          else "warning")
+                yield _event(
+                    "verdict", status,
+                    f"{design_verdict['overall']} after "
+                    f"{design_verdict['iterations_used']} refinement(s)")
+                # One telemetry record per closure run (local-only JSONL,
+                # never returned to clients).
+                try:
+                    from telemetry import log_design_closure  # noqa: PLC0415
+                    log_design_closure(
+                        overall=design_verdict["overall"],
+                        iterations_used=design_verdict.get("iterations_used", 0),
+                        criteria=[
+                            {"name": c.get("name"), "target": c.get("target"),
+                             "actual": c.get("actual"), "passed": c.get("passed")}
+                            for c in design_verdict.get("criteria", [])],
+                        geometry_changed=_closure_changed,
+                    )
+                except Exception:
+                    pass  # telemetry must never break delivery
+            else:
+                yield _event("verdict", "skipped", "no design targets to check")
+
+    # Phase 3 (closure): the GLB was encoded *before* the closure loop ran —
+    # when closure swapped the geometry, re-export so the delivered model
+    # matches the verdict's final iteration (review R3). Runs BEFORE the
+    # geometry certificate so the cert can describe the DELIVERED geometry.
+    # Uses the exact same export paths as the original delivery
+    # (run_single_part_export / deterministic assembler; Assembly.save infers
+    # glTF from the .glb extension). A struct-only re-size leaves _final_step
+    # empty — the CAD geometry is unchanged, so no re-export is needed.
+    _closure_delivered = False  # refined geometry actually replaced the GLB
+    if design_verdict is not None and _closure_changed and _final_step:
+        _new_glb = str(_WORK_DIR / (uuid.uuid4().hex + "_closure.glb"))
+        _re_exec: dict = {"status": "error"}
+        _re_script = ""
+        _re_params: dict = {}
+        try:
+            if single and _final_step.get("code"):
+                _re_script = await run_single_part_export(
+                    _final_step["code"], _new_glb)
+                _re_script, _re_params = parameterize_script(_re_script)
+                _re_exec = await execute_cad_script(_re_script)
+            elif (not single) and _final_step.get("steps"):
+                _re_script = await run_assembly_critic_loop(
+                    _final_step["manifest"], _final_step["steps"])
+                _re_script = _re_script.replace("output.glb", _new_glb)
+                _re_exec = await execute_cad_script(_re_script)
+        except Exception as _re_exc:
+            debug_log_error("closure_reexport", _re_exc, None)
+            _re_exec = {"status": "error"}
+        if _re_exec.get("status") == "success" and os.path.exists(_new_glb):
+            with open(_new_glb, "rb") as f:
+                glb_b64 = base64.b64encode(f.read()).decode("utf-8")
+            final_script = _re_script
+            if single:
+                param_dict_final = _re_params
+            _closure_delivered = True
+        # Always clean up the temp GLB — a failed export may still have
+        # written a partial file.
+        try:
+            os.remove(_new_glb)
+        except OSError:
+            pass
+        # Export failure → keep the original GLB. The verdict still reports
+        # honestly: its criteria reflect the refined analysis, and the stale
+        # GLB is the previous validated geometry, never a broken one.
 
     # Geometry certificate — aggregate across all parts.
     # Multi-part: use the certs collected during _build_part().
@@ -988,10 +1063,14 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         _prop_spec = getattr(requirements, "propulsion_spec", None) if requirements else None
 
         if single:
-            # Single-part: write a temp STEP from the validated code
+            # Single-part: write a temp STEP from the DELIVERED code — the
+            # closure-refined script when its GLB replaced the original.
+            _cert_source = (_final_step["code"]
+                            if _closure_delivered and _final_step.get("code")
+                            else code)
             _cert_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_cert.step"))
             _cert_script = (
-                f"{code}\n\n"
+                f"{_cert_source}\n\n"
                 f"import cadquery as cq\n"
                 f"cq.exporters.export(result, r'{_cert_step_path}')\n"
             )
@@ -1059,45 +1138,13 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         logger.debug("geometry certificate generation failed: %s", _cert_exc)
         geometry_certificate = None
 
-    # Phase 3 (closure): the GLB was encoded *before* the closure loop ran —
-    # when closure swapped the geometry, re-export so the delivered model
-    # matches the verdict's final iteration (review R3). Uses the exact same
-    # export paths as the original delivery (run_single_part_export /
-    # deterministic assembler; Assembly.save infers glTF from the .glb
-    # extension). A struct-only re-size leaves _final_step empty — the CAD
-    # geometry is unchanged, so no re-export is needed.
-    if design_verdict is not None and _closure_changed and _final_step:
-        _new_glb = str(_WORK_DIR / (uuid.uuid4().hex + "_closure.glb"))
-        _re_exec: dict = {"status": "error"}
-        _re_script = ""
-        _re_params: dict = {}
-        try:
-            if single and _final_step.get("code"):
-                _re_script = await run_single_part_export(
-                    _final_step["code"], _new_glb)
-                _re_script, _re_params = parameterize_script(_re_script)
-                _re_exec = await execute_cad_script(_re_script)
-            elif (not single) and _final_step.get("steps"):
-                _re_script = await run_assembly_critic_loop(
-                    _final_step["manifest"], _final_step["steps"])
-                _re_script = _re_script.replace("output.glb", _new_glb)
-                _re_exec = await execute_cad_script(_re_script)
-        except Exception as _re_exc:
-            debug_log_error("closure_reexport", _re_exc, None)
-            _re_exec = {"status": "error"}
-        if _re_exec.get("status") == "success" and os.path.exists(_new_glb):
-            with open(_new_glb, "rb") as f:
-                glb_b64 = base64.b64encode(f.read()).decode("utf-8")
-            final_script = _re_script
-            if single:
-                param_dict_final = _re_params
-            try:
-                os.remove(_new_glb)
-            except OSError:
-                pass
-        # Export failure → keep the original GLB. The verdict still reports
-        # honestly: its criteria reflect the refined analysis, and the stale
-        # GLB is the previous validated geometry, never a broken one.
+    # Multi-part certs were collected during the ORIGINAL _build_part runs —
+    # when closure delivered refined geometry they describe the wrong solids.
+    # Honest absence beats wrong data.
+    if (not single) and _closure_delivered:
+        logger.debug(
+            "geometry refined post-cert; certificate omitted rather than stale")
+        geometry_certificate = None
 
     complete_payload = {
         "step": "complete",
