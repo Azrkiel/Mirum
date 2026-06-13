@@ -1276,5 +1276,90 @@
       "D"
     ],
     "notes": "Phase 5 integration prompt: full ribbed wing (front+rear spar, 5 ribs, skin) exercising the Domain-D geometry path; the 1200 kg / 60 m/s / 3000 m design point also drives REA aircraft_spec/wing_box_spec extraction (run_struct)."
+  },
+  {
+    "id": "D_closure_trainer_wing",
+    "domain": "D",
+    "difficulty": "hard",
+    "description": "Design a 2-spar wing box for a 600 kg trainer, NACA 2412, span 8 m, chord 1.1 m, cruise 55 m/s at 2000 m, AL2024-T3. The structural margin of safety must be at least 0.5 and Cl_max at least 1.4.",
+    "expected_features": [
+      "NACA 2412 cross-section",
+      "8 m span",
+      "1.1 m chord",
+      "two spars",
+      "wing box structure"
+    ],
+    "regression_for": [
+      "D"
+    ],
+    "notes": "Design-closure regression (plan 2026-06-11 Phase 4.1): canonical closure prompt with structural MS >= 0.5 and Cl_max >= 1.4 targets. Harness checks geometry validity only; verdict honesty is checked live in 4.3."
+  },
+  {
+    "id": "D_closure_ld_glider",
+    "domain": "D",
+    "difficulty": "medium",
+    "description": "Design a high-aspect-ratio glider wing, NACA 4412, span 12 m, chord 0.8 m, cruise 30 m/s at 1500 m, with a single main spar at 30 percent chord. The wing must achieve a lift-to-drag ratio of at least 25.",
+    "expected_features": [
+      "NACA 4412 cross-section",
+      "12 m span",
+      "0.8 m chord",
+      "main spar at 30% chord",
+      "high aspect ratio"
+    ],
+    "regression_for": [
+      "D"
+    ],
+    "notes": "Design-closure regression (plan 2026-06-11 Phase 4.1): L/D >= 25 performance target."
+  },
+  {
+    "id": "D_closure_stall_stol",
+    "domain": "D",
+    "difficulty": "medium",
+    "description": "Design a STOL bush-plane wing panel, NACA 4415, span 9 m, chord 1.5 m, cruise 40 m/s at 1000 m, with a single forward spar at 25 percent chord and 3 evenly spaced internal ribs. The stall angle of attack must be at least 12 degrees.",
+    "expected_features": [
+      "NACA 4415 cross-section",
+      "9 m span",
+      "1.5 m chord",
+      "spar at 25% chord",
+      "3 internal ribs"
+    ],
+    "regression_for": [
+      "D"
+    ],
+    "notes": "Design-closure regression (plan 2026-06-11 Phase 4.1): stall angle of attack >= 12 deg performance target."
+  },
+  {
+    "id": "D_closure_unmeetable",
+    "domain": "D",
+    "difficulty": "medium",
+    "description": "Design a NACA 2412 wing segment, span 6 m, chord 1.0 m, cruise 50 m/s at 2000 m, generated as a single solid skin with no internal structure. The wing must achieve a Cl_max of at least 4.0.",
+    "expected_features": [
+      "NACA 2412 cross-section",
+      "6 m span",
+      "1.0 m chord",
+      "single solid skin"
+    ],
+    "regression_for": [
+      "D"
+    ],
+    "notes": "Design-closure regression (plan 2026-06-11 Phase 4.1): physically unmeetable target (Cl_max >= 4.0 for a plain NACA wing). Geometry must still generate; honest design_verdict.overall == 'fail' is checked live in 4.3."
+  },
+  {
+    "id": "D_closure_negative_control",
+    "domain": "D",
+    "difficulty": "medium",
+    "description": "A NACA 2412 wing panel, 7 m span, 1.2 m chord, with a single forward spar at 25 percent chord and 4 evenly spaced internal ribs. Skin thickness 2 mm.",
+    "expected_features": [
+      "NACA 2412 cross-section",
+      "7 m span",
+      "1.2 m chord",
+      "spar at 25% chord",
+      "4 internal ribs",
+      "2 mm skin thickness"
+    ],
+    "regression_for": [
+      "D"
+    ],
+    "notes": "Design-closure regression (plan 2026-06-11 Phase 4.1): negative control with no numeric performance requirements — guards against REA inventing targets; design_verdict must be null (checked live in 4.3)."
   }
 ]

@@ -109,9 +109,12 @@ MATE_CONSTRAINTS: dict[str, list[str]] = {
 }
 
 # Fields that Gemini's structured output schema does NOT support.
+# exclusiveMinimum/exclusiveMaximum: Pydantic v2 emits them for gt=/lt=
+# bounds (vs minimum/maximum for ge=/le=) — protos.Schema rejects both.
 _UNSUPPORTED_SCHEMA_KEYS = {
     "title", "default", "minItems", "maxItems", "minimum", "maximum",
     "minLength", "maxLength", "$defs",
+    "exclusiveMinimum", "exclusiveMaximum",
 }
 
 
@@ -337,6 +340,21 @@ _REA_BASE_SCHEMA: dict[str, Any] = {
                 "n_spars":              {"type": "integer"},
             },
         },
+        "design_targets": {
+            "type": "object",
+            "description": (
+                "Quantitative pass/fail criteria ONLY when the prompt states them "
+                "numerically (e.g. 'Cl_max of at least 1.5', 'margin of safety "
+                "0.5 or better', 'L/D above 20'). NEVER invent thresholds."
+            ),
+            "properties": {
+                "cl_max_min":      {"type": "number"},
+                "l_d_min":         {"type": "number"},
+                "stall_alpha_min": {"type": "number"},
+                "ms_min":          {"type": "number"},
+                "v_ne_min_ms":     {"type": "number"},
+            },
+        },
     },
     "required": ["primary_function", "connecting_interfaces", "confidence"],
 }
@@ -393,6 +411,8 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
             "`wing_box_spec` SECTION-SIZING fields (chord_root_m, thickness_to_chord, cap_area_m2, "
             "spar_web_thickness_m, n_spars). Convert units to SI (kg, m, m/s). Do NOT invent the "
             "wing-box geometry layout — only fill fields the user actually gave. "
+            "If the prompt states minimum performance requirements, populate "
+            "design_targets — never guess. "
             "Examples: 'A 1200 kg light aircraft cruising at 60 m/s at 3000 m with a 16 m^2, 10.7 m "
             "span wing' -> aircraft_spec{mtow_kg:1200, cruise_alt_m:3000, cruise_speed_ms:60}, "
             "wing_spec{area_m2:16, span_m:10.7}. 'utility-category wing box, 1.8 m root chord, 12% "
@@ -1030,15 +1050,18 @@ async def run_single_part_export(part_script: str, output_filename: str) -> str:
     If the Machinist already produced a cq.Assembly (e.g., Domain D subsystem),
     we save it directly instead of nesting it inside another assembly.
     """
+    # Raw-string the embedded path: a Windows path in a plain literal gets
+    # escape-mangled when the script is parsed (\t -> TAB), so Assembly.save
+    # writes somewhere main.py never looks.
     return (
         f"{part_script}\n\n"
         f"import cadquery as cq\n"
         f"if isinstance(result, cq.Assembly):\n"
-        f"    result.save('{output_filename}')\n"
+        f"    result.save(r'{output_filename}')\n"
         f"else:\n"
         f"    _export_asm = cq.Assembly()\n"
         f"    _export_asm.add(result, name='part')\n"
-        f"    _export_asm.save('{output_filename}')\n"
+        f"    _export_asm.save(r'{output_filename}')\n"
     )
 
 
