@@ -35,8 +35,12 @@ import os as _os_cfg
 # Maximum Machinist retries per part before the Critic Loop gives up
 CRITIC_MAX_RETRIES: int = int(_os_cfg.environ.get("MIRUM_CRITIC_MAX_RETRIES", "3"))
 
-# Timeout (seconds) for a single CadQuery subprocess execution
-CADQUERY_TIMEOUT_S: int = int(_os_cfg.environ.get("MIRUM_CADQUERY_TIMEOUT_S", "30"))
+# Timeout (seconds) for a single CadQuery subprocess execution.
+# Clamped to [5, 60]: the sandbox contract caps script runtime so a
+# misconfigured env var can never silently disable the timeout invariant.
+CADQUERY_TIMEOUT_S: int = max(
+    5, min(int(_os_cfg.environ.get("MIRUM_CADQUERY_TIMEOUT_S", "30")), 60)
+)
 
 # Dimension-vs-spec gate: relative tolerance on REA key_dimensions vs the
 # measured bounding box, plus an absolute floor so tiny dims don't false-fail.

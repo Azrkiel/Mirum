@@ -316,3 +316,31 @@ def test_security_hint_names_the_actual_allowlist():
 def test_timeout_classifier_matches_configurable_message():
     from failure_analysis import classify_failure
     assert classify_failure("TIMEOUT: Script exceeded 45-second execution limit.") == "timeout"
+
+
+# ---------------------------------------------------------------------------
+# Security-review fixes: verification payload sanitization + timeout clamp
+# ---------------------------------------------------------------------------
+
+def test_verification_payload_failures_are_path_redacted():
+    import os
+    os.environ.setdefault("GEMINI_API_KEY_HEAVY", "test-key")
+    from main import _sanitize_report_payload
+    payload = {
+        "part_id": "p", "attempt": 1, "passed": False, "degraded": True,
+        "checks": [{
+            "name": "cert", "passed": False, "skipped": False,
+            "failures": ["STEP file not found: '/opt/app/parts/base_9f2.step'"],
+        }],
+    }
+    out = _sanitize_report_payload(payload)
+    assert "/opt/app/parts" not in out["checks"][0]["failures"][0]
+    assert "<internal>" in out["checks"][0]["failures"][0]
+    assert _sanitize_report_payload(None) is None
+
+
+def test_cadquery_timeout_is_clamped():
+    # The module-level constant must sit inside the sandbox contract's bounds
+    # regardless of what MIRUM_CADQUERY_TIMEOUT_S was set to.
+    import config
+    assert 5 <= config.CADQUERY_TIMEOUT_S <= 60

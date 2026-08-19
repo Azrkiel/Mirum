@@ -167,6 +167,21 @@ class RunRequest(BaseModel):
     script: str = Field(..., max_length=50000)
 
 
+def _sanitize_report_payload(payload: dict | None) -> dict | None:
+    """Run every failure string in a CheckReport payload through _safe_error.
+
+    Check failures normally carry only measured geometry data, but error
+    paths inside the checkers can interpolate exceptions or absolute paths
+    (e.g. "STEP file not found: '/tmp/mirum/parts/...'") — sanitize them the
+    same way every other client-visible error string is.
+    """
+    if payload is None:
+        return None
+    for check in payload.get("checks", []):
+        check["failures"] = [_safe_error(f) for f in check.get("failures", [])]
+    return payload
+
+
 def _event(step: str, status: str, detail: str = "") -> str:
     """Format a server-sent event line."""
     payload = {"step": step, "status": status}
@@ -539,7 +554,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event(
                 label, "done",
                 f"Part '{part.part_id}' delivered with warnings: "
-                + "; ".join(_part_report.failure_messages())[:400],
+                + _safe_error("; ".join(_part_report.failure_messages())[:400]),
             )
         else:
             yield _event(label, "done", f"Part '{part.part_id}' validated")
@@ -616,7 +631,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                     yield _event(
                         labels[part_id], "done",
                         f"Part '{part_id}' delivered with warnings: "
-                        + "; ".join(report.failure_messages())[:400],
+                        + _safe_error("; ".join(report.failure_messages())[:400]),
                     )
                 else:
                     yield _event(labels[part_id], "done", f"Part '{part_id}' validated")
@@ -717,7 +732,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event(
                 "assembler", "done",
                 "Assembled with warnings: "
-                + "; ".join(_asm_report.failure_messages())[:400],
+                + _safe_error("; ".join(_asm_report.failure_messages())[:400]),
             )
         else:
             yield _event("assembler", "done")
@@ -906,8 +921,13 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     )
     verification_payload = {
         "degraded": _degraded,
-        "parts": {pid: r.to_payload() for pid, r in _part_reports.items()},
-        "assembly": _asm_report.to_payload() if _asm_report is not None else None,
+        "parts": {
+            pid: _sanitize_report_payload(r.to_payload())
+            for pid, r in _part_reports.items()
+        },
+        "assembly": _sanitize_report_payload(
+            _asm_report.to_payload() if _asm_report is not None else None
+        ),
     }
 
     complete_payload = {
@@ -1085,7 +1105,8 @@ async def run_script(body: RunRequest, request: Request):
 
 
 @app.get("/stats")
-async def get_stats():
+@limiter.limit("30/minute")
+async def get_stats(request: Request):
     """Return failure rate statistics stratified by domain and operation type."""
     try:
         from failure_analysis import generate_failure_report
@@ -1294,7 +1315,7 @@ async def refine_assembly(body: RefineRequest, request: Request):
     return {
         "status": "ok",
         "degraded": asm_report.degraded,
-        "verification": asm_report.to_payload(),
+        "verification": _sanitize_report_payload(asm_report.to_payload()),
         "glb": glb_b64,
         "updated_manifest": updated_manifest.model_dump(),
         "updated_scripts": new_scripts,
