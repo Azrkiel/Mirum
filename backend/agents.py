@@ -48,6 +48,8 @@ from strategies import get_active_rules
 from schemas import AssemblyManifest, DesignRequirements, MateType, PartDefinition
 from strategies import get_strategy
 from telemetry import log_attempt
+from verification.report import CheckReport, CheckResult, check_dimensions
+import config
 from config import GEMINI_MODEL_HEAVY, GEMINI_MODEL_LITE, GEMINI_MODEL_PRO
 
 # Heavy tier: Machinist first attempt (gemini-3.5-flash)
@@ -98,7 +100,11 @@ class ScriptError(RuntimeError):
 # Max concurrent Machinist calls (respects Gemini rate limits)
 _MACHINIST_SEMAPHORE = asyncio.Semaphore(3)
 
-# Maps mate types to CadQuery constraint type strings for assembly.solve()
+# Maps mate types to CadQuery constraint type strings for assembly.solve().
+# Keys are MateType.value strings — look up with `rule.mate_type.value`,
+# NEVER `str(rule.mate_type)` (Python 3.11 Enum str() yields
+# "MateType.REVOLUTE", which misses every key and silently degrades the
+# mate to the Plane default).
 MATE_CONSTRAINTS: dict[str, list[str]] = {
     "FASTENED":    ["Plane"],
     "REVOLUTE":    ["Axis"],
@@ -107,6 +113,11 @@ MATE_CONSTRAINTS: dict[str, list[str]] = {
     "PLANAR":      ["Plane"],
     "BALL":        ["Point"],
 }
+
+# Mate types with no cq.Assembly constraint mapping (coupling constraints are
+# velocity relationships, not positional ones). These degrade to a Plane
+# constraint — loudly, never silently.
+_UNSUPPORTED_MATES: set[str] = {"GEAR", "SCREW", "RACK_PINION", "CAM"}
 
 # Fields that Gemini's structured output schema does NOT support.
 _UNSUPPORTED_SCHEMA_KEYS = {
@@ -657,6 +668,19 @@ def is_single_part(manifest: AssemblyManifest) -> bool:
     return False
 
 
+# Strong references to in-flight background tasks. asyncio only keeps weak
+# refs to tasks — an unreferenced create_task() result can be garbage-
+# collected before it runs.
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+def _spawn_background(coro) -> None:
+    """create_task with a strong reference that self-cleans on completion."""
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+
+
 async def _score_and_log(prompt: str, code: str, part_id: str) -> None:
     """Fire-and-forget LVM score computation."""
     try:
@@ -686,9 +710,8 @@ async def run_machinist(
     working example of the exact pattern that just blew up, instead of more
     semantically-similar parts that share the same broken technique.
 
-    Model escalation: first attempt uses the Heavy flash model for speed.
-    Any retry (error_context present) escalates to Pro for deeper reasoning
-    about the logic error that caused the failure.
+    All attempts use the Heavy flash model (Pro escalation on retries was
+    removed; see run_critic_loop for the retry policy).
     """
     system_prompt = get_strategy(domain, part_def.description)
 
@@ -799,39 +822,187 @@ async def _save_part_step(part_id: str, script: str) -> str:
     return safe_path
 
 
+def _remove_quiet(path: str) -> None:
+    """Best-effort file removal."""
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+async def _verify_attempt(
+    part_def: PartDefinition,
+    code: str,
+    domain: str,
+    attempt: int,
+    requirements: "DesignRequirements | None",
+    dims_part_scoped: bool,
+) -> tuple[CheckReport, str]:
+    """Run every post-compile verification check on one attempt.
+
+    Exports the part to a temp STEP (one subprocess) and runs the geometry
+    certificate, the dimension-vs-spec gate, and the Domain C continuity /
+    curvature gates against it. Returns (report, step_path). step_path is ""
+    when the export itself failed. Every check is individually guarded — a
+    broken checker records a skipped result, never an exception.
+    """
+    report = CheckReport(part_id=part_def.part_id, attempt=attempt)
+    report.add(CheckResult("compile", passed=True))
+
+    step_path = ""
+    try:
+        step_path = await _save_part_step(part_def.part_id, code)
+        report.add(CheckResult("export", passed=True))
+    except ScriptError as exc:
+        report.add(CheckResult(
+            "export", passed=False,
+            failures=[str(exc)[:800]],
+            data={"failure_op": "export"},
+        ))
+        return report, ""
+    except Exception as exc:  # pragma: no cover — defensive
+        report.add(CheckResult(
+            "export", passed=False,
+            failures=[f"{type(exc).__name__}: {exc}"],
+            data={"failure_op": "export"},
+        ))
+        return report, ""
+
+    # Geometry certificate (6 OCC checks). Skipped result when OCC is absent.
+    cert: dict | None = None
+    try:
+        from verification.geometry import certify_geometry
+        cert = dict(certify_geometry(step_path))
+        occ_missing = any("OCC not available" in f for f in cert.get("failures", []))
+        report.add(CheckResult(
+            "cert",
+            passed=bool(cert.get("passed")),
+            skipped=occ_missing,
+            failures=list(cert.get("failures", [])),
+            data={"cert": cert},
+        ))
+    except Exception as exc:
+        logger.debug("geometry cert skipped: %s", exc)
+        report.add(CheckResult("cert", passed=True, skipped=True,
+                               data={"reason": f"cert error: {exc}"}))
+
+    # Dimension-vs-spec gate — measured bbox vs REA key_dimensions.
+    key_dims = getattr(requirements, "key_dimensions", None) if requirements else None
+    bbox = cert.get("bounding_box") if cert else None
+    try:
+        report.add(check_dimensions(
+            key_dims,
+            bbox,
+            part_id=part_def.part_id if dims_part_scoped else None,
+            rel_tol=config.DIM_TOLERANCE_REL,
+            abs_floor_mm=config.DIM_TOLERANCE_ABS_MM,
+        ))
+    except Exception as exc:  # pragma: no cover — defensive
+        report.add(CheckResult("dimensions", passed=True, skipped=True,
+                               data={"reason": f"dimension check error: {exc}"}))
+
+    # Domain C geometric gates — run on EVERY attempt (including the final
+    # one, where they can no longer trigger a retry but mark the report
+    # degraded so the delivered artifact is never silently unvalidated).
+    if domain == "C":
+        try:
+            from continuity_check import check_g2_continuity
+            g2 = await asyncio.to_thread(check_g2_continuity, step_path, domain)
+            report.add(CheckResult(
+                "g2",
+                passed=bool(g2.passed),
+                failures=[] if g2.passed else [
+                    f"G2 continuity: {g2.violation_count} violation(s). "
+                    f"{g2.feedback_message}".strip()
+                ],
+            ))
+        except Exception:
+            report.add(CheckResult("g2", passed=True, skipped=True))
+
+        try:
+            from geometry_analysis import curvature_check_for_critic
+            gauss = await asyncio.to_thread(
+                curvature_check_for_critic,
+                step_path, domain, part_def.description, n_samples=20,
+            )
+            report.add(CheckResult(
+                "curvature",
+                passed=bool(gauss.passed),
+                failures=[] if gauss.passed else [
+                    f"Gaussian curvature: {gauss.n_saddle_points}/"
+                    f"{max(gauss.n_sample_points, 1)} saddle points. "
+                    f"{gauss.feedback_message}".strip()
+                ],
+            ))
+        except Exception:
+            report.add(CheckResult("curvature", passed=True, skipped=True))
+
+    return report, step_path
+
+
 async def run_critic_loop(
     part_def: PartDefinition,
-    max_retries: int = 3,
+    max_retries: int | None = None,
     save_step: bool = True,
-) -> tuple[str, str, dict | None]:
+    requirements: "DesignRequirements | None" = None,
+    dims_part_scoped: bool = False,
+) -> tuple[str, str, CheckReport]:
     """Subagent 3: The QA Inspector (Critic Loop).
 
-    Runs the Machinist's code via subprocess with concurrency control.
-    On failure, feeds the traceback back for self-correction.
+    Verification-driven retry loop. Each attempt runs the Machinist, executes
+    the script in the sandbox, and — when it compiles — exports a STEP and
+    verifies the actual geometry (certificate, dimension-vs-spec, Domain C
+    continuity/curvature). ANY failed check consumes a retry from the shared
+    budget and feeds measured feedback (plus the previous script and a
+    per-attempt history digest) back into the next Machinist prompt.
+
+    Final-attempt policy: a compile/export failure raises ScriptError
+    (nothing deliverable); a verification failure delivers the geometry with
+    a degraded CheckReport attached — never a silent success, never a wasted
+    request.
 
     Args:
         part_def: The part definition to compile.
-        max_retries: Max machinist attempts before giving up.
-        save_step: Whether to export a .step file for the deterministic
-            assembler. Single-part requests skip this to avoid an extra
-            subprocess call whose output they'd just throw away.
+        max_retries: Max machinist attempts (default: config.CRITIC_MAX_RETRIES).
+        save_step: Whether to KEEP the exported .step for the deterministic
+            assembler. Verification always exports one either way; when False
+            the file is deleted after the checks and "" is returned.
+        requirements: REA-extracted DesignRequirements; enables the
+            dimension-vs-spec gate when key_dimensions is present.
+        dims_part_scoped: True in multi-part assemblies — only dimensions
+            whose name mentions this part_id are checked against this part.
 
     Returns:
-        (validated_code, step_file_path, geometry_cert) — the clean CadQuery
-        source, the absolute path to the pre-compiled .step file (empty string
-        when save_step is False), and a GeometryCertificate dict (or None when
-        save_step is False or OCC is unavailable).
+        (validated_code, step_file_path, check_report) — step_file_path is ""
+        when save_step is False. check_report.degraded is True when the final
+        attempt compiled but failed verification.
     """
+    if max_retries is None:
+        max_retries = config.CRITIC_MAX_RETRIES
+
     async with _MACHINIST_SEMAPHORE:
-        # Classify once per part — domain is stable across retries
-        classification = await classify_part(part_def.description)
-        domain = classification.get("domain", "A")
+        # Classify once per part — domain is stable across retries. A
+        # transient classifier failure (Gemini 429/500) must never kill the
+        # part before a single Machinist attempt: fall back to Domain A.
+        try:
+            classification = await classify_part(part_def.description)
+            domain = classification.get("domain", "A")
+        except Exception as exc:
+            logger.warning(
+                "classify_part failed for %r (%s) — defaulting to Domain A",
+                part_def.part_id, exc,
+            )
+            domain = "A"
 
         error_context = ""
         retry_failure_class: str | None = None
         retry_techniques: list[str] | None = None
+        history: list[str] = []
 
         for attempt in range(1, max_retries + 1):
+            final_attempt = attempt == max_retries
             code = await run_machinist(
                 part_def,
                 domain=domain,
@@ -841,149 +1012,133 @@ async def run_critic_loop(
             )
             result = await execute_cad_script(code)
 
-            success = result["status"] == "success"
-            failure_op = None
-            if not success:
-                failure_op = classify_failure(
-                    result.get("traceback", ""), code
+            # --- Compile failure ------------------------------------------
+            if result["status"] != "success":
+                tb = result.get("traceback", "")
+                failure_op = classify_failure(tb, code)
+                report = CheckReport(part_id=part_def.part_id, attempt=attempt)
+                report.add(CheckResult(
+                    "compile", passed=False,
+                    failures=[tb[-800:]] if tb else [],
+                    data={"failure_op": failure_op},
+                ))
+                log_attempt(
+                    part_id=part_def.part_id,
+                    domain=domain,
+                    attempt=attempt,
+                    code=code,
+                    error=tb,
+                    success=False,
+                    failure_operation=failure_op,
+                    description=part_def.description,
+                    check_report=report.to_telemetry(),
                 )
-            log_attempt(
-                part_id=part_def.part_id,
-                domain=domain,
-                attempt=attempt,
-                code=code,
-                error=None if success else result.get("traceback"),
-                success=success,
-                failure_operation=failure_op,
+                history.append(f"attempt {attempt}: compile failure ({failure_op})")
+                error_context = build_retry_context(
+                    traceback=tb,
+                    code=code,
+                    active_rules=get_active_rules(domain, part_def.description),
+                    previous_code=code,
+                    history=history,
+                )
+                if final_attempt:
+                    raise ScriptError(
+                        f"Part '{part_def.part_id}' failed after {max_retries} attempts. "
+                        f"Last error:\n{error_context}",
+                        script=code,
+                    )
+                retry_failure_class = failure_op
+                retry_techniques = extract_techniques(code)
+                continue
+
+            # --- Compiled: verify the actual geometry ---------------------
+            report, step_path = await _verify_attempt(
+                part_def, code, domain, attempt, requirements, dims_part_scoped,
             )
 
-            if success:
-                # T2-04: G2 continuity check for Domain C parts
-                g2_feedback = ""
-                if domain == "C" and save_step and attempt < max_retries:
-                    try:
-                        from continuity_check import check_g2_continuity
-                        # Save a temp step to check
-                        temp_step = await _save_part_step(
-                            part_def.part_id + "_g2check", code
-                        )
-                        g2_result = check_g2_continuity(temp_step, domain)
-                        if not g2_result.passed:
-                            # Inject G2 feedback and retry
-                            g2_feedback = g2_result.feedback_message
-                            log_attempt(
-                                part_id=part_def.part_id,
-                                domain=domain,
-                                attempt=attempt,
-                                code=code,
-                                error=f"G2_CONTINUITY_FAIL: {g2_result.violation_count} violations",
-                                success=False,
-                                failure_operation="continuity",
-                            )
-                            error_context = g2_feedback
-                            retry_failure_class = "continuity"
-                            retry_techniques = extract_techniques(code)
-                            # Clean up temp step, continue retry loop
-                            try:
-                                import os as _os
-                                _os.remove(temp_step)
-                            except OSError:
-                                pass
-                            continue
-                        # G2 passed — remove temp step (will save below)
-                        try:
-                            import os as _os
-                            _os.remove(temp_step)
-                        except OSError:
-                            pass
-                    except Exception:
-                        pass  # G2 check is advisory — never block compilation
-
-                # T3-07: Gaussian curvature analysis for Domain C parts
-                # Runs after G2 check if retries remain
-                if domain == "C" and save_step and attempt < max_retries:
-                    try:
-                        from geometry_analysis import curvature_check_for_critic
-                        gauss_step = await _save_part_step(
-                            part_def.part_id + "_gauss_check", code
-                        )
-                        gauss_result = curvature_check_for_critic(
-                            gauss_step, domain, part_def.description, n_samples=20
-                        )
-                        # Clean up temp step
-                        try:
-                            import os as _os
-                            _os.remove(gauss_step)
-                        except OSError:
-                            pass
-                        if not gauss_result.passed:
-                            log_attempt(
-                                part_id=part_def.part_id,
-                                domain=domain,
-                                attempt=attempt,
-                                code=code,
-                                error=(
-                                    f"GAUSSIAN_CURVATURE_FAIL: "
-                                    f"{gauss_result.n_saddle_points} saddle points "
-                                    f"({gauss_result.n_saddle_points}/{max(gauss_result.n_sample_points,1):.0%})"
-                                ),
-                                success=False,
-                                failure_operation="gaussian_curvature",
-                            )
-                            error_context = gauss_result.feedback_message
-                            retry_failure_class = "gaussian_curvature"
-                            retry_techniques = extract_techniques(code)
-                            continue
-                    except Exception:
-                        pass  # Curvature check is advisory — never block compilation
-
-                # Add to retrieval index for future few-shot injection
+            if report.passed:
+                log_attempt(
+                    part_id=part_def.part_id,
+                    domain=domain,
+                    attempt=attempt,
+                    code=code,
+                    error=None,
+                    success=True,
+                    description=part_def.description,
+                    check_report=report.to_telemetry(),
+                )
+                # Only fully-verified code enters the few-shot index —
+                # geometrically-rejected scripts must never be re-served
+                # as "successful examples".
                 add_to_index(
                     description=part_def.description,
                     code=code,
                     domain=domain,
                 )
-                # LVM scoring (T1-07) — async, fire-and-forget, non-blocking
-                asyncio.create_task(_score_and_log(part_def.description, code, part_def.part_id))
-                step_path = (
-                    await _save_part_step(part_def.part_id, code)
-                    if save_step
-                    else ""
-                )
+                if config.LVM_SCORE_IN_PROD:
+                    _spawn_background(
+                        _score_and_log(part_def.description, code, part_def.part_id)
+                    )
+                if not save_step:
+                    _remove_quiet(step_path)
+                    step_path = ""
+                return code, step_path, report
 
-                # Geometry certificate — runs for all domains when a STEP file
-                # was produced.  Never blocks delivery; failures are informational.
-                geometry_cert: dict | None = None
-                if step_path:
-                    try:
-                        from verification.geometry import certify_geometry
-                        geometry_cert = dict(certify_geometry(step_path))
-                    except Exception as _cert_exc:
-                        logger.debug("geometry cert skipped: %s", _cert_exc)
-
-                return code, step_path, geometry_cert
-
-            active_rules = get_active_rules(domain, part_def.description)
-            error_context = build_retry_context(
-                traceback=result.get("traceback", ""),
+            # --- Verification failed --------------------------------------
+            failure_class = report.failure_class()
+            failure_summary = "; ".join(report.failure_messages())[:1500]
+            log_attempt(
+                part_id=part_def.part_id,
+                domain=domain,
+                attempt=attempt,
                 code=code,
-                active_rules=active_rules,
+                error=failure_summary,
+                success=False,
+                failure_operation=failure_class,
+                description=part_def.description,
+                check_report=report.to_telemetry(),
             )
-            retry_failure_class = failure_op
-            retry_techniques = extract_techniques(code)
-            if attempt == max_retries:
-                raise ScriptError(
-                    f"Part '{part_def.part_id}' failed after {max_retries} attempts. "
-                    f"Last error:\n{error_context}",
-                    script=code,
+
+            if final_attempt:
+                # Deliver-with-warnings: the script compiled, so the geometry
+                # is useful to a human even if a check failed. Export failure
+                # is the exception — nothing deliverable downstream.
+                if not step_path:
+                    raise ScriptError(
+                        f"Part '{part_def.part_id}' compiled but could not be "
+                        f"exported after {max_retries} attempts:\n{failure_summary}",
+                        script=code,
+                    )
+                logger.warning(
+                    "Part %r delivered DEGRADED after %d attempts: %s",
+                    part_def.part_id, max_retries, failure_summary,
                 )
+                if not save_step:
+                    _remove_quiet(step_path)
+                    step_path = ""
+                return code, step_path, report
+
+            # Retry with measured feedback.
+            _remove_quiet(step_path)
+            history.append(f"attempt {attempt}: {report.summary_line()}")
+            error_context = build_retry_context(
+                traceback="",
+                code=code,
+                active_rules=get_active_rules(domain, part_def.description),
+                check_failures=report.to_prompt_context(),
+                previous_code=code,
+                history=history,
+                failure_class=failure_class,
+            )
+            retry_failure_class = failure_class
+            retry_techniques = extract_techniques(code)
 
         raise ScriptError(f"Part '{part_def.part_id}' failed unexpectedly.")
 
 
 async def run_machinist_batch(
     parts: list[PartDefinition],
-) -> tuple[dict[str, str], dict[str, str], dict[str, dict | None]]:
+) -> tuple[dict[str, str], dict[str, str], dict[str, CheckReport]]:
     """Run all Machinist critic loops concurrently with rate limiting.
 
     Deduplicates parts with identical descriptions: calls the Machinist
@@ -991,9 +1146,9 @@ async def run_machinist_batch(
     identical parts.
 
     Returns:
-        (part_scripts, step_files, geometry_certs) — three dicts mapping
-        part_id to validated code, pre-compiled .step file path, and
-        GeometryCertificate dict (or None when OCC is unavailable).
+        (part_scripts, step_files, check_reports) — three dicts mapping
+        part_id to validated code, pre-compiled .step file path, and the
+        attempt's CheckReport.
     """
     # Group parts by description for deduplication
     desc_to_parts: dict[str, list[PartDefinition]] = {}
@@ -1006,7 +1161,7 @@ async def run_machinist_batch(
     tasks = [run_critic_loop(part) for part in unique_parts]
     results = await asyncio.gather(*tasks)
 
-    # Map representative description -> (code, step_path, geometry_cert)
+    # Map representative description -> (code, step_path, report)
     desc_to_result = {
         part.description: result for part, result in zip(unique_parts, results)
     }
@@ -1014,14 +1169,14 @@ async def run_machinist_batch(
     # Fan out cached results to all parts sharing the same description
     part_scripts: dict[str, str] = {}
     step_files: dict[str, str] = {}
-    geometry_certs: dict[str, dict | None] = {}
+    check_reports: dict[str, CheckReport] = {}
     for part in parts:
-        code, step_path, geometry_cert = desc_to_result[part.description]
+        code, step_path, report = desc_to_result[part.description]
         part_scripts[part.part_id] = code
         step_files[part.part_id] = step_path
-        geometry_certs[part.part_id] = geometry_cert
+        check_reports[part.part_id] = report
 
-    return part_scripts, step_files, geometry_certs
+    return part_scripts, step_files, check_reports
 
 
 async def run_single_part_export(part_script: str, output_filename: str) -> str:
@@ -1077,8 +1232,15 @@ def run_assembler(
         tx, ty, tz = 0.0, 0.0, 0.0
         for rule in manifest.mating_rules:
             if rule.target_part_id == pid:
-                coords = [float(v.strip()) for v in rule.translation.split(",")]
-                tx, ty, tz = coords[0], coords[1], coords[2]
+                # Mixed manifests can carry mate_type-only rules with no
+                # translation — skip those instead of crashing on None.split.
+                if rule.translation is None:
+                    continue
+                try:
+                    coords = [float(v.strip()) for v in rule.translation.split(",")]
+                    tx, ty, tz = coords[0], coords[1], coords[2]
+                except (ValueError, IndexError):
+                    continue  # malformed — leave the part at the origin
                 break
 
         safe_path = step_files[pid].replace("\\", "/")
@@ -1102,30 +1264,35 @@ def run_assembler(
 
 def check_assembly_interpenetration(
     step_files: dict[str, str],
+    translations: dict[str, tuple[float, float, float]] | None = None,
 ) -> list[tuple[str, str]]:
     """Check for pairwise volumetric interpenetration between assembly parts.
 
-    Loads each compiled .step file and checks whether any pair of solids
-    share non-zero common volume. Parts are checked at their origin positions
-    (pre-solve), so this catches obvious design errors where parts overlap
-    even before constraint solving.
+    Loads each compiled .step file — applying the manifest translation for
+    each part when ``translations`` is given — and checks whether any pair of
+    solids share non-zero common volume.
+
+    Without translations every part sits at the origin (each is modeled at
+    the origin by contract), so the result is meaningless noise; only call
+    this with real positions (translation-mode assemblies). Blocking OCCT
+    work — run via asyncio.to_thread from async code.
 
     Returns a list of (part_id_a, part_id_b) pairs that interpenetrate.
-    An empty list means no interpenetration detected.
-
-    Note: This is a conservative check at origin. Post-solve interpenetration
-    (caused by bad constraint anchors) requires extracting positioned shapes
-    from the solved assembly, which is implemented as a future enhancement.
     """
     try:
         import cadquery as cq
     except ImportError:
         return []
 
+    translations = translations or {}
     shapes: dict[str, object] = {}
     for name, path in step_files.items():
         try:
-            shapes[name] = cq.importers.importStep(path)
+            shape = cq.importers.importStep(path)
+            offset = translations.get(name)
+            if offset:
+                shape = shape.translate(cq.Vector(*offset))
+            shapes[name] = shape
         except Exception:
             continue
 
@@ -1224,6 +1391,21 @@ def run_assembler_constraint(
     lines.append("")
     lines.append("# Apply kinematic constraints")
 
+    # Anchor the solver: fix the base part (first in build order — the
+    # Planner lists base/foundation first). Without a Fixed datum the whole
+    # constraint system floats and solve() converges to arbitrary positions.
+    base_pid = next(
+        (p.part_id for p in manifest.parts
+         if p.part_id in var_names
+         and p.part_id not in translation_locs
+         and p.part_id not in constrained_targets),
+        None,
+    )
+    if base_pid is not None:
+        lines.append(
+            f"assembly.constrain('{_sanitize_part_id(base_pid)}', 'Fixed')"
+        )
+
     # Apply constraints from mating rules
     for rule in manifest.mating_rules:
         # Skip self-referencing rules (single-part assemblies)
@@ -1234,7 +1416,18 @@ def run_assembler_constraint(
 
         src_safe = _sanitize_part_id(rule.source_part_id)
         tgt_safe = _sanitize_part_id(rule.target_part_id)
-        constraint_types = MATE_CONSTRAINTS.get(str(rule.mate_type), ["Plane"])
+        # .value, NOT str(): str(MateType.REVOLUTE) is "MateType.REVOLUTE" on
+        # Python 3.11, which missed every key and silently emitted Plane
+        # constraints for ALL mate types.
+        mate_value = rule.mate_type.value
+        constraint_types = MATE_CONSTRAINTS.get(mate_value)
+        if constraint_types is None:
+            logger.warning(
+                "MateType %s (%s→%s) has no cq constraint mapping — "
+                "degrading to a Plane constraint",
+                mate_value, rule.source_part_id, rule.target_part_id,
+            )
+            constraint_types = ["Plane"]
 
         # Build CadQuery selector strings
         # anchor format is ">Z", "<Z" etc — we use faces@ prefix
@@ -1260,31 +1453,84 @@ def run_assembler_constraint(
     return "\n".join(lines)
 
 
+def _manifest_translations(
+    manifest: AssemblyManifest,
+) -> dict[str, tuple[float, float, float]]:
+    """Collect the manifest's explicit per-part translations (target parts)."""
+    locs: dict[str, tuple[float, float, float]] = {}
+    for r in manifest.mating_rules:
+        if r.source_part_id == r.target_part_id or r.translation is None:
+            continue
+        try:
+            cx, cy, cz = [float(v.strip()) for v in r.translation.split(",")]
+        except (ValueError, IndexError):
+            continue
+        locs.setdefault(r.target_part_id, (cx, cy, cz))
+    return locs
+
+
+async def _validate_assembly_script(
+    script: str,
+    export_step: bool = True,
+) -> tuple[dict, str]:
+    """Execute an assembler script against throwaway output paths.
+
+    Returns (exec_result, step_path). step_path is the assembly-level STEP
+    written alongside the validation GLB (for the geometry certificate and
+    the assembly-level dimension check), or "" when export_step is False or
+    the run failed.
+    """
+    token = uuid.uuid4().hex
+    val_glb = f"_assembly_validate_{token}.glb"
+    val_step = str((_WORK_DIR / f"_assembly_validate_{token}.step").resolve())
+    run_script = script.replace("output.glb", val_glb)
+    if export_step:
+        run_script += f"\nassembly.save(r'{val_step}')\n"
+
+    result = await execute_cad_script(run_script)
+    try:
+        (_WORK_DIR / val_glb).unlink(missing_ok=True)
+    except OSError:
+        pass
+    if result["status"] != "success" or not export_step:
+        try:
+            pathlib.Path(val_step).unlink(missing_ok=True)
+        except OSError:
+            pass
+        return result, ""
+    return result, val_step if os.path.exists(val_step) else ""
+
+
 async def run_assembly_critic_loop(
     manifest: AssemblyManifest,
     step_files: dict[str, str],
-) -> str:
-    """Execute the deterministic assembler and return the script.
+    requirements: "DesignRequirements | None" = None,
+) -> tuple[str, CheckReport]:
+    """Execute the deterministic assembler and verify the result.
 
-    Unlike the old LLM-based assembler, this has no retry loop — the
-    script is deterministic. If it fails, the error is structural
-    (bad .step file or missing part) and retrying won't help.
+    The script itself is deterministic — a structural failure (bad .step,
+    missing part) raises ScriptError and no retry helps. But a CONSTRAINT
+    SOLVER failure is recoverable: when the manifest carries explicit
+    translations, the assembly is rebuilt in translation mode (a strictly
+    better deterministic fallback than shipping parts stacked at the
+    origin). Either way, a solver failure is surfaced in the returned
+    CheckReport — never reported as a silent success.
+
+    Returns:
+        (script, report) — the assembler script (with the 'output.glb'
+        placeholder for the caller to substitute) and the assembly-level
+        CheckReport (solver status, geometry certificate, dimension check,
+        interpenetration data).
     """
-    if len(step_files) != len(manifest.parts):
+    missing = [p.part_id for p in manifest.parts if p.part_id not in step_files]
+    if missing:
         raise ScriptError(
-            f"Assembly failed: Missing compiled parts. Expected "
-            f"{len(manifest.parts)} parts, but only got {len(step_files)}."
+            f"Assembly failed: missing compiled parts: {', '.join(missing)} "
+            f"(expected {len(manifest.parts)}, got {len(step_files)})."
         )
 
-    # Interpenetration check (T1-02)
-    interp_violations = check_assembly_interpenetration(step_files)
-    if interp_violations:
-        # Log but don't fail — violations at origin may resolve after solve()
-        import logging
-        logging.getLogger("mirum.agents").warning(
-            "Interpenetration detected between: %s",
-            ", ".join(f"{a}↔{b}" for a, b in interp_violations),
-        )
+    report = CheckReport(part_id=manifest.assembly_name or "assembly")
+    translations = _manifest_translations(manifest)
 
     # Choose assembler mode
     use_constraints = any(
@@ -1297,38 +1543,108 @@ async def run_assembly_critic_loop(
         else run_assembler(manifest, step_files)
     )
 
-    # This validation run executes in the shared work dir. Saving to the
-    # literal 'output.glb' would let two concurrent assemblies clobber the
-    # same path, so validate against a unique name. The RETURNED script keeps
-    # 'output.glb' — the caller substitutes its own delivery path into it.
-    val_name = f"_assembly_validate_{uuid.uuid4().hex}.glb"
-    result = await execute_cad_script(script.replace("output.glb", val_name))
-    try:
-        (_WORK_DIR / val_name).unlink(missing_ok=True)
-    except OSError:
-        pass
-
+    result, asm_step = await _validate_assembly_script(script)
     if result["status"] != "success":
         raise ScriptError(
             f"Deterministic assembly failed:\n{result['traceback']}",
             script=script,
         )
 
-    # Log assembly telemetry
     solver_ok = "SOLVER_FAILURE" not in result.get("output", "")
+    fell_back = False
+
+    if use_constraints and not solver_ok and translations:
+        # Deterministic fallback: manifest translations position every part
+        # explicitly — strictly better than the origin pile a failed solve
+        # leaves behind.
+        logger.warning(
+            "Assembly %r: constraint solver failed — falling back to "
+            "manifest-translation placement", manifest.assembly_name,
+        )
+        fallback_script = run_assembler(manifest, step_files)
+        fb_result, fb_step = await _validate_assembly_script(fallback_script)
+        if fb_result["status"] == "success":
+            _remove_quiet(asm_step)
+            script, asm_step, fell_back = fallback_script, fb_step, True
+
+    if use_constraints:
+        report.add(CheckResult(
+            "solver",
+            passed=solver_ok,
+            failures=[] if solver_ok else [
+                "Constraint solver failed"
+                + (" — parts placed at manifest translations instead"
+                   if fell_back else " — parts left at default positions")
+            ],
+            data={"fallback": "translation" if fell_back else None},
+        ))
+    else:
+        report.add(CheckResult("solver", passed=True, skipped=True,
+                               data={"reason": "translation mode — no solver"}))
+
+    # Interpenetration is only meaningful with real positions: translation
+    # mode (or the translation fallback). Blocking OCCT — off the event loop.
+    interp_violations: list[tuple[str, str]] = []
+    if (not use_constraints or fell_back) and translations:
+        try:
+            interp_violations = await asyncio.to_thread(
+                check_assembly_interpenetration, step_files, translations,
+            )
+        except Exception:
+            interp_violations = []
+        if interp_violations:
+            logger.warning(
+                "Interpenetration at manifest positions: %s",
+                ", ".join(f"{a}↔{b}" for a, b in interp_violations),
+            )
+    report.add(CheckResult(
+        "interpenetration",
+        passed=True,  # advisory — overlap can be intentional (press fits)
+        skipped=not ((not use_constraints or fell_back) and translations),
+        data={"pairs": [list(p) for p in interp_violations]},
+    ))
+
+    # Assembly-level geometry certificate + full-set dimension check against
+    # the assembled STEP. No LLM — pure OCC.
+    if asm_step:
+        try:
+            from verification.geometry import certify_geometry
+            cert = dict(certify_geometry(asm_step))
+            occ_missing = any("OCC not available" in f for f in cert.get("failures", []))
+            report.add(CheckResult(
+                "cert",
+                passed=bool(cert.get("passed")),
+                skipped=occ_missing,
+                failures=list(cert.get("failures", [])),
+                data={"cert": cert},
+            ))
+            key_dims = getattr(requirements, "key_dimensions", None) if requirements else None
+            report.add(check_dimensions(
+                key_dims,
+                cert.get("bounding_box"),
+                part_id=None,
+                rel_tol=config.DIM_TOLERANCE_REL,
+                abs_floor_mm=config.DIM_TOLERANCE_ABS_MM,
+            ))
+        except Exception as exc:
+            logger.debug("assembly cert skipped: %s", exc)
+        finally:
+            _remove_quiet(asm_step)
+
+    # Log assembly telemetry
     try:
         from telemetry import log_assembly_event
         log_assembly_event(
             assembly_name=manifest.assembly_name,
-            solver_success=solver_ok,
-            constraint_mode=use_constraints,
+            solver_success=solver_ok or fell_back,
+            constraint_mode=use_constraints and not fell_back,
             interpenetration_pairs=interp_violations,
             part_count=len(manifest.parts),
         )
     except Exception:
         pass  # Non-blocking
 
-    return script
+    return script, report
 
 
 # ---------------------------------------------------------------------------
@@ -1366,7 +1682,7 @@ def validate_dof_ranges(manifest: AssemblyManifest) -> list[dict]:
                     ),
                 })
         # Warn if unit/mate_type combination is suspicious
-        mt = str(rule.mate_type) if rule.mate_type else ""
+        mt = rule.mate_type.value if rule.mate_type else ""
         if rule.dof_unit == "deg" and mt in _TRANSLATIONAL_MATE_TYPES - _ROTATIONAL_MATE_TYPES:
             violations.append({
                 "rule": f"{rule.source_part_id}↔{rule.target_part_id}",
@@ -1400,7 +1716,7 @@ def extract_kinematic_metadata(manifest: AssemblyManifest) -> dict:
     for rule in manifest.mating_rules:
         if rule.mate_type is None:
             continue
-        mt = str(rule.mate_type).upper()
+        mt = rule.mate_type.value.upper()
         if mt not in _COUPLING_MATE_TYPES:
             continue
         entry: dict = {

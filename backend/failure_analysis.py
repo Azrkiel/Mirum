@@ -31,7 +31,7 @@ OPERATION_PATTERNS: list[tuple[str, list[str]]] = [
     ("polarArray", [r"polarArray", r"PolarArray"]),
     ("syntax",     [r"SyntaxError", r"IndentationError", r"NameError"]),
     ("security",   [r"Security violation", r"not allowed"]),
-    ("timeout",    [r"TIMEOUT", r"exceeded 30-second"]),
+    ("timeout",    [r"TIMEOUT", r"exceeded \d+-second"]),
 ]
 
 
@@ -144,6 +144,97 @@ OP_TO_RULE_HINT: dict[str, tuple[str, str]] = {
         "Text/engraving failed. CadQuery's .text() requires a specific signature "
         "and a mounted font. Re-read rule_text_api.",
     ),
+    # ---- Previously hint-less classes (the most common LLM failures) ----
+    "syntax": (
+        "rule_raw_python",
+        "The script has a Python-level error (SyntaxError / IndentationError / "
+        "NameError). Return ONLY plain Python — no markdown fences, no prose, "
+        "no ellipses. Define every variable before use, close every bracket, "
+        "and assign the final shape to `result`. Re-read your previous code "
+        "below and fix the exact line the traceback names.",
+    ),
+    "security": (
+        "rule_imports",
+        "The sandbox's AST gate rejected the script. ONLY these imports are "
+        "permitted: cadquery (as cq), math, cad_utils, cad_aero. There is no "
+        "file access (open), no eval/exec/getattr/setattr, no __dunder__ "
+        "attribute access, no os/sys/subprocess/numpy. Rewrite the script "
+        "using only cadquery + math + the cad_utils/cad_aero helpers.",
+    ),
+    "timeout": (
+        "rule_no_hallucinated_methods",
+        "The script exceeded the subprocess time limit. Heavy shell/loft/"
+        "boolean chains and large loops are the usual cause. Simplify: reduce "
+        "segment counts, avoid per-item boolean loops (build one cutter solid "
+        "and cut once), avoid shelling complex lofts, and prefer the "
+        "deterministic cad_utils helpers which are already performance-tuned.",
+    ),
+    "import": (
+        "rule_imports",
+        "A STEP/BRep import call failed. Machinist scripts must build geometry "
+        "from scratch — never call cq.importers.importStep or reference "
+        "external files. Only the deterministic assembler imports STEP files.",
+    ),
+    "constraint": (
+        "rule_no_part_tagging",
+        "The script called assembly.constrain()/solve(). Individual part "
+        "scripts must NOT do assembly-level constraint work — model the single "
+        "part at the origin and assign it to `result`; the deterministic "
+        "assembler handles mating.",
+    ),
+    "extrude": (
+        "rule_wire_to_solid",
+        "Extrude failed. The pending wire stack was empty or the profile is "
+        "not a closed planar wire. Sketch the closed profile on a workplane "
+        "(rect/circle/polyline().close()) and call .extrude(h) in the same "
+        "fluent chain — do not extrude from a stale or consumed workplane.",
+    ),
+    "revolve": (
+        "rule_wire_to_solid",
+        "Revolve failed. The profile must be a CLOSED planar wire entirely on "
+        "one side of the revolution axis. Draw the half-section with "
+        "polyline(...).close() on the XZ plane and revolve about the Z axis; "
+        "never let the profile cross the axis.",
+    ),
+    "spline": (
+        "rule_loft_chaining",
+        "Spline construction failed. Ensure the point list has no duplicate "
+        "consecutive points, is planar for a workplane sketch, and is closed "
+        "(.close()) before extruding/lofting. For organic curves prefer fewer, "
+        "well-spaced control points.",
+    ),
+    # ---- Verification-gate failure classes (CheckReport) ----
+    "geometry_cert": (
+        "rule_result_var",
+        "The script compiled but the produced geometry failed structural "
+        "verification (see the measured failures above: zero volume, "
+        "degenerate faces, invalid BRep, or no solid body). Make sure `result` "
+        "is a SOLID (not a wire/face/empty Workplane), booleans actually "
+        "intersect their operands, and shell thickness is far smaller than "
+        "the smallest overall dimension.",
+    ),
+    "dimension_mismatch": (
+        "rule_origin",
+        "The script compiled but the measured bounding box does not match the "
+        "requested dimensions (see the measured values above). Use the EXACT "
+        "millimetre dimensions from the description — do not scale, swap "
+        "axes, or invent sizes. Rebuild with the stated length/width/height "
+        "and re-check each primitive's arguments against the spec.",
+    ),
+    "solver": (
+        "rule_face_selectors",
+        "The assembly constraint solver failed. The usual cause is an anchor "
+        "selector that matches no face on the exported part. Use only "
+        "standard directional selectors ('>Z', '<Z', '>X', '<X', '>Y', '<Y') "
+        "and ensure the part actually has a planar face in that direction.",
+    ),
+    "export": (
+        "rule_result_var",
+        "The part compiled but could not be exported to STEP. `result` must "
+        "be a cq.Workplane containing a solid, or a cq.Assembly — not a wire, "
+        "sketch, or bare shape list. Ensure the final operation produces a "
+        "solid body and assign exactly that to `result`.",
+    ),
 }
 
 
@@ -201,24 +292,58 @@ def get_rule_hint(traceback: str, code: str = "") -> tuple[str, str] | None:
     return OP_TO_RULE_HINT.get(op)
 
 
+# Max characters of the previous script echoed back into the retry prompt.
+# Tail-preserved: errors usually reference later lines.
+_MAX_PREV_CODE_CHARS = 4000
+
+
+def _truncate_code_tail(code: str, limit: int = _MAX_PREV_CODE_CHARS) -> str:
+    """Truncate a script to its last ``limit`` characters, marking the cut."""
+    if len(code) <= limit:
+        return code
+    return "# ... (earlier lines truncated) ...\n" + code[-limit:]
+
+
 def build_retry_context(
     traceback: str,
     code: str = "",
     active_rules: list[str] | None = None,
+    check_failures: str = "",
+    previous_code: str = "",
+    history: list[str] | None = None,
+    failure_class: str | None = None,
 ) -> str:
     """Build the enriched retry context handed to the Machinist on the next attempt.
 
     Pieces:
-      1. The classified failure operation (e.g. "loft", "fillet", "thread").
-      2. The rule the model most likely violated, plus an actionable hint.
-      3. The full list of rules that were active in the system prompt — so the
-         model re-anchors on the rule it broke instead of guessing.
-      4. The raw traceback at the bottom (still useful for syntax errors etc.).
+      1. A one-line-per-attempt digest of every prior attempt, so the model
+         stops ping-ponging between failure modes.
+      2. The classified failure operation (e.g. "loft", "fillet", "thread").
+         ``failure_class`` overrides the traceback classifier — used for
+         verification-gate failures (geometry_cert, dimension_mismatch, ...)
+         where there is no traceback to classify.
+      3. The rule the model most likely violated, plus an actionable hint.
+      4. Measured verification failures (``check_failures``), when the script
+         compiled but the geometry failed a check.
+      5. The previous script verbatim (tail-truncated) — the model must EDIT
+         its prior attempt, not regenerate blind.
+      6. The full list of rules that were active in the system prompt.
+      7. The raw traceback at the bottom (still useful for syntax errors etc.).
     """
-    failure_op = classify_failure(traceback, code)
-    parts: list[str] = [f"Failure class: {failure_op}"]
+    parts: list[str] = []
 
-    hint = get_rule_hint(traceback, code)
+    if history:
+        parts.append("What happened on your prior attempts:")
+        parts.extend(f"  {line}" for line in history)
+        parts.append("")
+
+    failure_op = failure_class or classify_failure(traceback, code)
+    parts.append(f"Failure class: {failure_op}")
+
+    if failure_class is not None:
+        hint = OP_TO_RULE_HINT.get(failure_class)
+    else:
+        hint = get_rule_hint(traceback, code)
     if hint is not None:
         rule_name, hint_text = hint
         in_scope = active_rules is not None and rule_name in active_rules
@@ -226,15 +351,31 @@ def build_retry_context(
         parts.append(f"Likely violated rule: {rule_name} {marker}")
         parts.append(f"Hint: {hint_text}")
 
+    if check_failures:
+        parts.append("")
+        parts.append(check_failures)
+
+    if previous_code:
+        parts.append("")
+        parts.append(
+            "Your previous code (EDIT this to fix the failure — do not start "
+            "over from scratch; keep everything that already works):"
+        )
+        parts.append("```python")
+        parts.append(_truncate_code_tail(previous_code))
+        parts.append("```")
+
     if active_rules:
+        parts.append("")
         parts.append(
             "Rules that were active in your system prompt: "
             + ", ".join(active_rules)
         )
 
-    parts.append("")
-    parts.append("Raw traceback:")
-    parts.append(traceback.strip())
+    if traceback.strip():
+        parts.append("")
+        parts.append("Raw traceback:")
+        parts.append(traceback.strip())
 
     return "\n".join(parts)
 
@@ -270,8 +411,12 @@ def generate_failure_report(log_path: Optional[str] = None) -> dict:
                 except json.JSONDecodeError:
                     continue
 
-                # Skip assembly-level and LVM events
-                if r.get("event_type") in ("assembly", "lvm_score"):
+                # Skip every typed event (assembly, lvm_score, token_usage,
+                # and any future event kinds) — only untyped critic-loop
+                # attempt records belong in the failure report. token_usage
+                # records were previously counted as failed attempts of
+                # operation "unknown", inflating every rate on /stats.
+                if r.get("event_type"):
                     continue
 
                 domain = r.get("domain_classification", "unknown")

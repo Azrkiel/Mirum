@@ -483,19 +483,26 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     # Phase 3: hoisted so the post-export aero stage can see the per-part
     # STEP files. Populated only in the multi-part path; empty for single-part.
     step_files: dict[str, str] = {}
-    # G-05: per-part geometry certs — populated in the multi-part path.
-    _part_certs: dict[str, dict | None] = {}
+    # Per-part verification reports (CheckReport) — both paths populate this.
+    _part_reports: dict[str, "object"] = {}
+    # Assembly-level verification report (multi-part path only).
+    _asm_report = None
+    # Single-part: the critic loop's verified STEP, reused for the cert and
+    # aero stages instead of re-exporting. Cleaned up before completion.
+    _single_step_path = ""
 
     if single:
         # Single-part fast path: one machinist call, direct export, no assembler.
-        # Single-part never uses the .step file (no deterministic assembler run),
-        # so we skip _save_part_step entirely — one fewer subprocess, one fewer
-        # AV-scan window.
+        # The critic loop already exported and verified a STEP — keep it so the
+        # certificate and aero stages can reuse it (two fewer subprocess runs).
         part = manifest.parts[0]
         label = f"machinist:{part.part_id}"
         yield _event(label, "running", "Manufacturing single part")
         try:
-            code, _, _cert = await run_critic_loop(part, save_step=False)
+            code, _single_step_path, _part_report = await run_critic_loop(
+                part, save_step=True, requirements=requirements,
+            )
+            _part_reports[part.part_id] = _part_report
         except ScriptError as e:
             logger.exception("Machinist failed (single-part)")
             debug_log_error(
@@ -528,7 +535,14 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             }
             yield f"data: {json.dumps(error_complete)}\n\n"
             return
-        yield _event(label, "done", f"Part '{part.part_id}' validated")
+        if _part_report.degraded:
+            yield _event(
+                label, "done",
+                f"Part '{part.part_id}' delivered with warnings: "
+                + "; ".join(_part_report.failure_messages())[:400],
+            )
+        else:
+            yield _event(label, "done", f"Part '{part.part_id}' validated")
 
         # Direct export — no assembler needed
         yield _event("export", "running", "Exporting to .glb")
@@ -575,21 +589,40 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
 
         # Run concurrently with semaphore-based rate limiting
         async def _build_part(part):
-            code, step_path, cert = await run_critic_loop(part)
-            return part.part_id, code, step_path, cert
+            code, step_path, report = await run_critic_loop(
+                part, requirements=requirements, dims_part_scoped=True,
+            )
+            return part.part_id, code, step_path, report
 
-        tasks = [_build_part(part) for part in parts]
+        # ensure_future so in-flight siblings can be cancelled when the first
+        # part fails — otherwise they keep burning Gemini calls and
+        # subprocesses producing output that is guaranteed to be discarded.
+        tasks = [asyncio.ensure_future(_build_part(part)) for part in parts]
+
+        async def _cancel_siblings():
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
         part_scripts: dict[str, str] = {}
-        _part_certs: dict[str, dict | None] = {}
         for coro in asyncio.as_completed(tasks):
             try:
-                part_id, code, step_path, cert = await coro
+                part_id, code, step_path, report = await coro
                 part_scripts[part_id] = code
                 step_files[part_id] = step_path
-                _part_certs[part_id] = cert
-                yield _event(labels[part_id], "done", f"Part '{part_id}' validated")
+                _part_reports[part_id] = report
+                if report.degraded:
+                    yield _event(
+                        labels[part_id], "done",
+                        f"Part '{part_id}' delivered with warnings: "
+                        + "; ".join(report.failure_messages())[:400],
+                    )
+                else:
+                    yield _event(labels[part_id], "done", f"Part '{part_id}' validated")
             except ScriptError as e:
                 logger.exception("Machinist failed (multi-part)")
+                await _cancel_siblings()
                 debug_log_error(
                     "machinist_multi",
                     e,
@@ -606,6 +639,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 return
             except Exception as e:
                 logger.exception("Machinist failed (multi-part)")
+                await _cancel_siblings()
                 debug_log_error("machinist_multi", e, None)
                 yield _event("machinist", "error", _safe_error(e))
                 error_complete = {
@@ -617,10 +651,13 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 yield f"data: {json.dumps(error_complete)}\n\n"
                 return
 
-        # Deterministic assembler (no LLM, no retries)
+        # Deterministic assembler (no LLM; one deterministic fallback on
+        # solver failure — see run_assembly_critic_loop)
         yield _event("assembler", "running", "Assembling from pre-compiled .step files")
         try:
-            final_script = await run_assembly_critic_loop(manifest, step_files)
+            final_script, _asm_report = await run_assembly_critic_loop(
+                manifest, step_files, requirements=requirements,
+            )
             final_script = final_script.replace("output.glb", output_filename)
         except ScriptError as e:
             logger.exception("Assembler failed")
@@ -676,7 +713,14 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             }
             yield f"data: {json.dumps(error_complete)}\n\n"
             return
-        yield _event("assembler", "done")
+        if _asm_report is not None and _asm_report.degraded:
+            yield _event(
+                "assembler", "done",
+                "Assembled with warnings: "
+                + "; ".join(_asm_report.failure_messages())[:400],
+            )
+        else:
+            yield _event("assembler", "done")
 
     # --- Final: Check file and deliver ---
     if not os.path.exists(output_filename):
@@ -725,23 +769,25 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     # block can never prevent the "complete" event from being emitted.
     aero_report: dict | None = None
     if run_aero:
-        # Single-part fast path never calls _save_part_step, so step_files is
-        # empty.  For Domain D (wing) single-part prompts we need a STEP for
-        # XFOIL's geometry extraction.  Generate a temporary one on the fly
-        # using the same pattern as the geometry-cert block below.
+        # Single-part path: reuse the critic loop's verified STEP for XFOIL's
+        # geometry extraction — no re-export needed. Fall back to an on-the-fly
+        # export only if the loop's STEP is unavailable.
         if single and not step_files:
-            _aero_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_aero.step"))
-            _aero_script = (
-                f"{code}\n\n"
-                f"import cadquery as cq\n"
-                f"cq.exporters.export(result, r'{_aero_step_path}')\n"
-            )
-            _aero_exec = await execute_cad_script(_aero_script)
-            if _aero_exec["status"] == "success" and os.path.exists(_aero_step_path):
-                step_files = {manifest.parts[0].part_id: _aero_step_path}
-            # If export fails step_files stays empty and _run_aero_stage will
-            # return a skip message — the GLB has already been sent so this is
-            # non-fatal.
+            if _single_step_path and os.path.exists(_single_step_path):
+                step_files = {manifest.parts[0].part_id: _single_step_path}
+            else:
+                _aero_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_aero.step"))
+                _aero_script = (
+                    f"{code}\n\n"
+                    f"import cadquery as cq\n"
+                    f"cq.exporters.export(result, r'{_aero_step_path}')\n"
+                )
+                _aero_exec = await execute_cad_script(_aero_script)
+                if _aero_exec["status"] == "success" and os.path.exists(_aero_step_path):
+                    step_files = {manifest.parts[0].part_id: _aero_step_path}
+                # If export fails step_files stays empty and _run_aero_stage will
+                # return a skip message — the GLB has already been sent so this is
+                # non-fatal.
 
         yield _event("aero", "running", "Running XFOIL polar analysis")
         aero_report, aero_msg = await _run_aero_stage(step_files, requirements)
@@ -769,35 +815,28 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         else:
             yield _event("struct", "skipped", struct_msg)
 
-    # Geometry certificate — aggregate across all parts.
-    # Multi-part: use the certs collected during _build_part().
-    # Single-part: save a temp STEP and run the check (lightweight, advisory).
+    # Geometry certificate — aggregate across all parts. The critic loop
+    # already certified every part in-loop (CheckReport.geometry_cert), so no
+    # geometry is re-exported or re-measured here.
     geometry_certificate: dict | None = None
     try:
-        from verification.geometry import certify_geometry
+        from verification.geometry import _propulsion_fields
         from verification.material import resolve_material, mass_properties as _mass_props
 
         # Domain F: pass the propulsion_spec through so the cert gains the
         # throat/exit area, geometric expansion ratio, and channel-count fields.
         _prop_spec = getattr(requirements, "propulsion_spec", None) if requirements else None
 
+        _part_certs = {
+            pid: rep.geometry_cert for pid, rep in _part_reports.items()
+        }
+
         if single:
-            # Single-part: write a temp STEP from the validated code
-            _cert_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_cert.step"))
-            _cert_script = (
-                f"{code}\n\n"
-                f"import cadquery as cq\n"
-                f"cq.exporters.export(result, r'{_cert_step_path}')\n"
-            )
-            _cert_exec = await execute_cad_script(_cert_script)
-            if _cert_exec["status"] == "success" and os.path.exists(_cert_step_path):
-                geometry_certificate = dict(
-                    certify_geometry(_cert_step_path, propulsion_spec=_prop_spec)
-                )
-                try:
-                    os.remove(_cert_step_path)
-                except OSError:
-                    pass
+            _single_cert = _part_certs.get(manifest.parts[0].part_id)
+            if _single_cert is not None:
+                geometry_certificate = dict(_single_cert)
+                if _prop_spec is not None:
+                    geometry_certificate.update(_propulsion_fields(_prop_spec))
         else:
             # Multi-part: merge per-part certs — aggregate volume + surface area,
             # overall passed = all parts passed.
@@ -837,7 +876,6 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 # from propulsion_spec when available, so the cert card surfaces
                 # the same fields for multi-part thrust-chamber assemblies.
                 if _prop_spec is not None:
-                    from verification.geometry import _propulsion_fields
                     geometry_certificate.update(_propulsion_fields(_prop_spec))
 
         # Augment cert with material mass if we have volume + requirements
@@ -853,9 +891,30 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         logger.debug("geometry certificate generation failed: %s", _cert_exc)
         geometry_certificate = None
 
+    # Clean up the single-part STEP retained for cert/aero reuse.
+    if _single_step_path:
+        try:
+            os.remove(_single_step_path)
+        except OSError:
+            pass
+
+    # Verification summary: per-part + assembly CheckReports. `degraded` is
+    # True when anything compiled but failed a verification check — the GLB
+    # is still delivered, with the failed checks spelled out.
+    _degraded = any(r.degraded for r in _part_reports.values()) or (
+        _asm_report is not None and _asm_report.degraded
+    )
+    verification_payload = {
+        "degraded": _degraded,
+        "parts": {pid: r.to_payload() for pid, r in _part_reports.items()},
+        "assembly": _asm_report.to_payload() if _asm_report is not None else None,
+    }
+
     complete_payload = {
         "step": "complete",
         "status": "done",
+        "degraded": _degraded,          # P1: never a silent success
+        "verification": verification_payload,
         "glb": glb_b64,
         "script": final_script,
         "parameters": param_dict_final,  # T1-06
@@ -1200,7 +1259,7 @@ async def refine_assembly(body: RefineRequest, request: Request):
     # Assemble
     output_filename = str(_WORK_DIR / (uuid.uuid4().hex + ".glb"))
     try:
-        asm_script = await run_assembly_critic_loop(updated_manifest, step_files)
+        asm_script, asm_report = await run_assembly_critic_loop(updated_manifest, step_files)
         asm_script = asm_script.replace("output.glb", output_filename)
         exec_result = await execute_cad_script(asm_script)
     except Exception as e:
@@ -1234,6 +1293,8 @@ async def refine_assembly(body: RefineRequest, request: Request):
 
     return {
         "status": "ok",
+        "degraded": asm_report.degraded,
+        "verification": asm_report.to_payload(),
         "glb": glb_b64,
         "updated_manifest": updated_manifest.model_dump(),
         "updated_scripts": new_scripts,

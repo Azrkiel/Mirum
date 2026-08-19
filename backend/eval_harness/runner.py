@@ -263,7 +263,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Only run prompts whose id starts with this prefix.")
     parser.add_argument(
         "--regression-for", dest="regression_for", default=None,
-        choices=["A", "B", "C", "D", "E", "F"],
+        choices=["A", "B", "C", "D", "E", "F", "G"],
         help=(
             "Only run prompts whose `regression_for` array contains the given "
             "letter. Used by Worktree gates to run the regression slice tied "

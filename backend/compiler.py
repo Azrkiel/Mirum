@@ -31,6 +31,10 @@ except ImportError:          # Windows — no resource module
 # Added to PYTHONPATH so subprocess-executed scripts can import them.
 _BACKEND_DIR = str(pathlib.Path(__file__).parent.resolve())
 
+# Subprocess execution timeout (seconds). Sourced from config so the retry
+# budget and timeout can be tuned via env without code edits.
+from config import CADQUERY_TIMEOUT_S as _TIMEOUT_S
+
 # Writable working directory for subprocess-executed scripts. The host
 # `/app` bind mount is read-only (see docker-compose.yml), and CadQuery /
 # OCCT will happily drop temp files like `.stepcode.log` or
@@ -260,7 +264,7 @@ async def execute_cad_script(script_string: str) -> dict:
             proc = subprocess.Popen([sys.executable, "-"], **popen_kwargs)
             try:
                 stdout, stderr = proc.communicate(
-                    input=sandboxed_script, timeout=30
+                    input=sandboxed_script, timeout=_TIMEOUT_S
                 )
             except subprocess.TimeoutExpired:
                 # Kill the entire process group, not just the parent
@@ -285,7 +289,7 @@ async def execute_cad_script(script_string: str) -> dict:
     except subprocess.TimeoutExpired:
         return {
             "status": "error",
-            "traceback": "TIMEOUT: Script exceeded 30-second execution limit.",
+            "traceback": f"TIMEOUT: Script exceeded {_TIMEOUT_S}-second execution limit.",
         }
     except Exception as e:
         return {

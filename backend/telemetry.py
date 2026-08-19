@@ -76,8 +76,15 @@ def log_attempt(
     failure_operation: Optional[str] = None,
     solver_success: Optional[bool] = None,
     interpenetration_pairs: Optional[list] = None,
+    description: Optional[str] = None,
+    check_report: Optional[dict] = None,
 ) -> None:
     """Append a single critic-loop attempt record to the JSONL log.
+
+    ``description`` is the part's prose description — the retrieval index
+    keys few-shot similarity on it, so records without it degrade to
+    part_id-slug matching after a restart. ``check_report`` is the flat
+    CheckReport.to_telemetry() summary of the attempt's verification checks.
 
     Best-effort: all failures are caught and forwarded to the debug log
     so broken telemetry can never break the pipeline.
@@ -93,6 +100,10 @@ def log_attempt(
             "traceback_error": error[:_MAX_ERROR_LEN] if error else None,
             "success_status": success,
         }
+        if description is not None:
+            record["description"] = description[:_MAX_ERROR_LEN]
+        if check_report is not None:
+            record["check_report"] = check_report
         if failure_operation is not None:
             record["failure_operation"] = failure_operation
         if solver_success is not None:
