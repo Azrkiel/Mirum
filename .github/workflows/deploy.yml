@@ -1,0 +1,83 @@
+name: Deploy to Oracle Cloud
+
+# Deploys the current main branch to the Oracle Cloud Infrastructure
+# instance over SSH. See docs/deployment.md for the one-time server setup
+# and the list of repository secrets this needs.
+#
+# The deployment logic itself lives in scripts/deploy-remote.sh (version
+# controlled and reviewable); this workflow only opens the SSH connection
+# and pipes that script to the server.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Force a full Docker image rebuild (slow — conda + OpenCASCADE)"
+        type: boolean
+        default: false
+
+# Never let two deploys touch the box at once; queue instead. Cancelling
+# mid-deploy would be worse than finishing, so in-progress runs are kept.
+concurrency:
+  group: deploy-oracle
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to OCI instance
+    runs-on: ubuntu-latest
+    # Create this environment in repo Settings -> Environments to add a
+    # required-reviewer gate or restrict which branches may deploy.
+    environment: production
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Deliberately plain ssh rather than a third-party deploy action: the
+      # SSH key is the credential to the production host, and this avoids
+      # handing it to a marketplace action's supply chain.
+      - name: Deploy over SSH
+        env:
+          SSH_KEY:     ${{ secrets.OCI_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.OCI_KNOWN_HOSTS }}
+          HOST:        ${{ secrets.OCI_HOST }}
+          SSH_USER:    ${{ secrets.OCI_USER || 'ubuntu' }}
+          DEPLOY_DIR:  ${{ secrets.OCI_DEPLOY_DIR || '~/T2CIII' }}
+          FORCE_BUILD: ${{ inputs.force_build && '1' || '0' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HOST:-}" ] || [ -z "${SSH_KEY:-}" ]; then
+            echo "::error::OCI_HOST and OCI_SSH_KEY secrets must be set. See docs/deployment.md."
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          if [ -n "${KNOWN_HOSTS:-}" ]; then
+            # Preferred: pinned host key, immune to MITM on first connect.
+            printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            # Fallback: trust-on-first-use each run. Works, but set the
+            # OCI_KNOWN_HOSTS secret to close this gap (docs/deployment.md).
+            echo "::warning::OCI_KNOWN_HOSTS not set — falling back to ssh-keyscan (trust on first use)."
+            ssh-keyscan -T 10 "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          fi
+          chmod 600 ~/.ssh/known_hosts
+
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=15 \
+              "${SSH_USER}@${HOST}" \
+              "MIRUM_DEPLOY_DIR='${DEPLOY_DIR}' MIRUM_BRANCH=main MIRUM_FORCE_BUILD='${FORCE_BUILD}' bash -s" \
+              < scripts/deploy-remote.sh
+
+      - name: Scrub credentials
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

@@ -7,6 +7,7 @@ a live checklist.
 """
 
 import base64
+import hmac
 import json
 import logging
 import os
@@ -21,7 +22,7 @@ from contextlib import asynccontextmanager
 import google.generativeai as genai
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -100,10 +101,53 @@ def _safe_error(detail: str | Exception) -> str:
     )
     return msg
 
+# ---------------------------------------------------------------------------
+# Endpoint authentication
+# ---------------------------------------------------------------------------
+#
+# Mirum executes LLM-generated Python. Every generation endpoint is therefore
+# a code-execution surface and MUST NOT be reachable by anonymous callers on a
+# hosted deployment. MIRUM_API_KEY is a shared secret between the Streamlit
+# frontend and this backend.
+#
+# When MIRUM_API_KEY is unset the check is disabled so `docker compose up`
+# still works out of the box for local development. A startup warning is
+# emitted so an unset key in production is loud rather than silent. This is
+# defence in depth: the deployed topology also keeps port 8000 off the host
+# entirely (see docker-compose.yml), so the backend is only reachable from
+# the frontend container on the internal Docker network.
+_API_KEY = os.environ.get("MIRUM_API_KEY", "")
+
+# Paths reachable without a key. Deliberately minimal — /docs and
+# /openapi.json are NOT exempt, since they enumerate the attack surface.
+_AUTH_EXEMPT_PATHS = frozenset({"/health"})
+
+# /run takes an arbitrary CadQuery script straight into the sandbox. It is a
+# development affordance, not a product feature, so it is opt-in per
+# deployment and returns 404 (not 403) when disabled — a disabled endpoint
+# should not advertise its own existence.
+_ENABLE_RUN_ENDPOINT = os.environ.get("MIRUM_ENABLE_RUN_ENDPOINT", "0").lower() in (
+    "1", "true", "yes",
+)
+
+
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
     cleanup_tmp_parts()
     logger.info("Startup: cleared stale tmp_parts")
+    if not _API_KEY:
+        logger.warning(
+            "MIRUM_API_KEY is not set — endpoint authentication is DISABLED. "
+            "This is fine for local development. On any host reachable from "
+            "the network, set MIRUM_API_KEY: every generation endpoint "
+            "executes LLM-authored code and spends Gemini quota."
+        )
+    if _ENABLE_RUN_ENDPOINT:
+        logger.warning(
+            "MIRUM_ENABLE_RUN_ENDPOINT is on — /run accepts arbitrary "
+            "CadQuery scripts for sandboxed execution. Keep this off in "
+            "production unless you specifically need script editing."
+        )
     yield
 
 
@@ -123,6 +167,35 @@ app.add_middleware(
     allow_methods=["POST"],
     allow_headers=["Content-Type"],
 )
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    """Reject requests without a valid X-API-Key header.
+
+    Registered last, so it is the OUTERMOST middleware and runs before any
+    request handling. No-ops when MIRUM_API_KEY is unset (local dev).
+    """
+    if not _API_KEY:
+        return await call_next(request)
+    if request.url.path in _AUTH_EXEMPT_PATHS or request.method == "OPTIONS":
+        return await call_next(request)
+
+    provided = request.headers.get("X-API-Key", "")
+    # compare_digest keeps the comparison constant-time. Both operands must
+    # be str; a missing header yields "" which fails the length check first.
+    if not provided or not hmac.compare_digest(provided, _API_KEY):
+        logger.warning(
+            "Rejected unauthenticated %s %s from %s",
+            request.method,
+            request.url.path,
+            request.client.host if request.client else "-",
+        )
+        return JSONResponse(
+            status_code=401,
+            content={"status": "error", "detail": "Invalid or missing API key."},
+        )
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -1073,10 +1146,29 @@ async def generate(body: GenerateRequest, request: Request):
     )
 
 
+@app.get("/health")
+async def health():
+    """Liveness probe. The only endpoint exempt from API-key auth.
+
+    Deliberately returns no version, model, or configuration detail — it is
+    reachable by anyone who can route to the container.
+    """
+    return {"status": "ok"}
+
+
 @app.post("/run")
 @limiter.limit("10/minute")
 async def run_script(body: RunRequest, request: Request):
-    """Execute a CadQuery script directly and return the GLB model."""
+    """Execute a CadQuery script directly and return the GLB model.
+
+    Disabled unless MIRUM_ENABLE_RUN_ENDPOINT is set: this hands a caller
+    direct, arbitrary input to the sandbox, which is a development
+    affordance rather than something a hosted deployment should expose.
+    """
+    if not _ENABLE_RUN_ENDPOINT:
+        from fastapi import HTTPException  # noqa: PLC0415
+        raise HTTPException(status_code=404, detail="Not Found")
+
     output_filename = str(_WORK_DIR / (uuid.uuid4().hex + ".glb"))
     script = body.script.replace("output.glb", output_filename)
 

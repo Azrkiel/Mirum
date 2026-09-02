@@ -23,6 +23,12 @@ st.markdown(
 
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
 
+# Shared secret for the backend's X-API-Key check. Streamlit runs server-side,
+# so this header never reaches the browser. Empty when unset, which matches
+# the backend's local-development behaviour of skipping the check entirely.
+_API_KEY = os.environ.get("MIRUM_API_KEY", "")
+API_HEADERS: dict[str, str] = {"X-API-Key": _API_KEY} if _API_KEY else {}
+
 STEP_LABELS = {
     "planner": "Planning blueprint",
     "assembler": "Compiling assembly",
@@ -207,6 +213,7 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
         with requests.post(
             f"{BACKEND_URL}/generate",
             json={"prompt": prompt, "run_aero": run_aero},
+            headers=API_HEADERS,
             stream=True,
             timeout=300,
         ) as resp:
@@ -292,7 +299,10 @@ def run_script(script: str) -> None:
     st.session_state.status = "Running..."
     try:
         data = requests.post(
-            f"{BACKEND_URL}/run", json={"script": script}, timeout=120
+            f"{BACKEND_URL}/run",
+            json={"script": script},
+            headers=API_HEADERS,
+            timeout=120,
         ).json()
         if data.get("status") == "error":
             st.session_state.status = "Run failed"
@@ -326,6 +336,7 @@ def fetch_clarifications(prompt: str) -> list[str]:
         resp = requests.post(
             f"{BACKEND_URL}/clarify",
             json={"prompt": prompt},
+            headers=API_HEADERS,
             timeout=30,
         )
         return resp.json().get("ambiguities", [])
@@ -339,6 +350,7 @@ def fetch_plan(prompt: str) -> dict | None:
         resp = requests.post(
             f"{BACKEND_URL}/plan",
             json={"prompt": prompt},
+            headers=API_HEADERS,
             timeout=180,
         )
         data = resp.json()
@@ -403,6 +415,7 @@ def _fetch_aero_plots(report: dict) -> dict | None:
                 "mach": mach,
                 "n_crit": n_crit,
             },
+            headers=API_HEADERS,
             timeout=30,
         )
         data = resp.json()
@@ -440,6 +453,7 @@ def _fetch_xfoil_pdf(report: dict) -> bytes | None:
                 "mach": mach,
                 "n_crit": n_crit,
             },
+            headers=API_HEADERS,
             timeout=45,
         )
         if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("application/pdf"):
@@ -871,13 +885,14 @@ if st.session_state.glb_bytes and st.session_state.get("last_manifest"):
             try:
                 import requests as _req
                 resp = _req.post(
-                    "http://backend:8000/refine",
+                    f"{BACKEND_URL}/refine",
                     json={
                         "original_manifest": st.session_state.last_manifest,
                         "original_scripts": st.session_state.get("last_scripts", {}),
                         "refinement_prompt": refinement_text.strip(),
                         "session_id": "",
                     },
+                    headers=API_HEADERS,
                     timeout=180,
                 )
                 data = resp.json()

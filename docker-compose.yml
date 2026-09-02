@@ -2,8 +2,21 @@ services:
   backend:
     build:
       context: ./backend
+    # Bound to LOOPBACK ONLY — never 0.0.0.0.
+    #
+    # Every generation endpoint executes LLM-authored Python and spends
+    # Gemini quota, so the backend must not be reachable from the internet.
+    # The frontend reaches it as http://backend:8000 over the internal
+    # Docker network, which does not require any host port at all; the
+    # 127.0.0.1 publish exists purely so you can curl the API from a shell
+    # on the host during development.
+    #
+    # NOTE: a plain "8000:8000" here would publish on 0.0.0.0 AND bypass
+    # ufw — Docker writes its own iptables rules in the DOCKER-USER chain
+    # ahead of ufw's. Binding to 127.0.0.1 is what actually keeps it
+    # private; a firewall rule alone would not.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./backend:/app:ro
       - ./analysis:/opt/analysis:ro   # Phase 3: standalone XFOIL analysis package. Mounted outside /app to avoid nested-bind-mount on read-only rootfs. PYTHONPATH adds /opt in the Dockerfile.
@@ -14,19 +27,69 @@ services:
       - /tmp:size=256M
     env_file:
       - .env
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
+    # Also loopback-only: public traffic arrives via the caddy service,
+    # which terminates TLS and enforces basic auth before proxying here.
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501"
     volumes:
       - ./frontend:/app:ro
+    # Explicit passthrough rather than env_file: the frontend has no
+    # business holding GEMINI_API_KEY_HEAVY. It gets exactly two values —
+    # where the backend lives, and the shared secret to authenticate to it.
+    # Both are substituted from the project-root .env by Compose itself.
+    environment:
+      - BACKEND_URL=http://backend:8000
+      - MIRUM_API_KEY=${MIRUM_API_KEY:-}
     depends_on:
       - backend
+    restart: unless-stopped
+
+  # Public entry point. Terminates TLS (automatic Let's Encrypt certs when
+  # MIRUM_SITE_ADDRESS is a real domain), enforces HTTP basic auth, and
+  # proxies to Streamlit. Streamlit has no authentication of its own, so
+  # this is the only thing standing between the internet and a service
+  # that runs generated code on your Gemini quota.
+  caddy:
+    image: caddy:2-alpine   # requires >= 2.8 for the `basic_auth` directive
+    # Production-only, so a bare `docker compose up` still works locally
+    # without basic-auth credentials configured. Start it with:
+    #     docker compose --profile production up -d
+    # Forgetting the profile fails SAFE: no public listener exists at all,
+    # because frontend and backend are bound to loopback.
+    profiles: ["production"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # certificates — MUST persist across restarts
+      - caddy_config:/config
+    environment:
+      # Default ":80" = plain HTTP on any hostname/IP. Set a real domain
+      # (e.g. mirum.example.com) to get automatic HTTPS.
+      - MIRUM_SITE_ADDRESS=${MIRUM_SITE_ADDRESS:-:80}
+      - MIRUM_BASIC_AUTH_USER=${MIRUM_BASIC_AUTH_USER:-mirum}
+      - MIRUM_BASIC_AUTH_HASH=${MIRUM_BASIC_AUTH_HASH:?set MIRUM_BASIC_AUTH_HASH in .env — see docs/deployment.md}
+      - MIRUM_ACME_EMAIL=${MIRUM_ACME_EMAIL:-}
+    depends_on:
+      - frontend
     restart: unless-stopped
 
 volumes:
   backend_tmp_parts:
   backend_telemetry:
+  caddy_data:
+  caddy_config:
