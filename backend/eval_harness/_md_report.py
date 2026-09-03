@@ -39,6 +39,19 @@ def _fmt_lvm(record: dict[str, Any]) -> str:
 
 
 def _fmt_features(record: dict[str, Any], prompt: dict[str, Any] | None) -> str:
+    """Expected features the LVM judge did NOT flag as missing.
+
+    The judge writes `missing_features` in its own words, so the previous
+    `len(expected) - len(missing)` ran over two unrelated sets and could
+    over- or under-count without bound (a judge naming three gaps for one
+    expected feature drove the count negative; one naming a gap outside
+    `expected_features` silently docked an unrelated feature).
+
+    Now an expected feature is counted missing only when a judge entry
+    actually corresponds to it, so the ratio is well defined over
+    `expected_features`. This remains a judge-derived signal, not a
+    deterministic check of the geometry.
+    """
     expected = (prompt or {}).get("expected_features") or []
     n_expected = len(expected)
     if not n_expected:
@@ -50,7 +63,15 @@ def _fmt_features(record: dict[str, Any], prompt: dict[str, Any] | None) -> str:
         return ""
     if not isinstance(missing, list):
         return ""
-    matched = max(0, n_expected - len(missing))
+    norm_missing = [str(m).strip().lower() for m in missing if str(m).strip()]
+    matched = sum(
+        1
+        for feat in expected
+        if not any(
+            m in str(feat).strip().lower() or str(feat).strip().lower() in m
+            for m in norm_missing
+        )
+    )
     return f"{matched}/{n_expected}"
 
 

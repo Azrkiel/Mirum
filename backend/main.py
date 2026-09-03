@@ -29,6 +29,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from agents import (
+    _remove_quiet,
     ScriptError,
     apply_manifest_diff,
     cleanup_tmp_parts,
@@ -539,8 +540,37 @@ async def _run_struct_stage(
     return _sanitize_floats(flat.model_dump()), msg
 
 
-async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = False) -> AsyncGenerator[str, None]:
-    """Run the full pipeline, yielding SSE progress events."""
+async def _pipeline(
+    prompt: str, run_aero: bool = False, run_struct: bool = False
+) -> AsyncGenerator[str, None]:
+    """Run the full pipeline, yielding SSE progress events.
+
+    Thin wrapper around _pipeline_inner whose sole job is guaranteeing that
+    the single-part STEP file is deleted. The inner generator has nine early
+    returns between creating that file and finishing, and a `finally` here
+    also fires on GeneratorExit — i.e. when a client disconnects mid-stream,
+    which no amount of return-site cleanup would cover.
+
+    Without this, every failed single-part request leaks a multi-MB STEP into
+    /tmp/mirum/parts, which is a 256 MB tmpfs cleared only at startup. Domain D
+    is hit hardest: the planner rule forces wings and stabilizers into a single
+    part, so aero requests always take this path.
+    """
+    state: dict[str, str] = {"step_path": ""}
+    try:
+        async for event in _pipeline_inner(prompt, run_aero, run_struct, state):
+            yield event
+    finally:
+        _remove_quiet(state["step_path"])
+
+
+async def _pipeline_inner(
+    prompt: str,
+    run_aero: bool,
+    run_struct: bool,
+    state: dict[str, str],
+) -> AsyncGenerator[str, None]:
+    """The pipeline proper. `state["step_path"]` is the caller's cleanup hook."""
 
     # --- Step 1: REA (parallel with Planner) + Planner ---
     yield _event("planner", "running")
@@ -576,7 +606,8 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     # Assembly-level verification report (multi-part path only).
     _asm_report = None
     # Single-part: the critic loop's verified STEP, reused for the cert and
-    # aero stages instead of re-exporting. Cleaned up before completion.
+    # aero stages instead of re-exporting. Held in `state` so the _pipeline
+    # wrapper can delete it from a finally: on every exit path.
     _single_step_path = ""
 
     if single:
@@ -590,6 +621,9 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             code, _single_step_path, _part_report = await run_critic_loop(
                 part, save_step=True, requirements=requirements,
             )
+            # Register for cleanup immediately — everything after this point
+            # has early-return paths.
+            state["step_path"] = _single_step_path
             _part_reports[part.part_id] = _part_report
         except ScriptError as e:
             logger.exception("Machinist failed (single-part)")
@@ -978,13 +1012,6 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     except Exception as _cert_exc:
         logger.debug("geometry certificate generation failed: %s", _cert_exc)
         geometry_certificate = None
-
-    # Clean up the single-part STEP retained for cert/aero reuse.
-    if _single_step_path:
-        try:
-            os.remove(_single_step_path)
-        except OSError:
-            pass
 
     # Verification summary: per-part + assembly CheckReports. `degraded` is
     # True when anything compiled but failed a verification check — the GLB

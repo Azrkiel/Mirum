@@ -219,3 +219,126 @@ def test_save_step_false_verifies_but_returns_no_path(monkeypatch):
     assert dims is not None and not dims.passed
     # …but no STEP path is returned.
     assert step == ""
+
+
+# ---------------------------------------------------------------------------
+# _pipeline temp-file cleanup (regression: STEP leak on early-return paths)
+# ---------------------------------------------------------------------------
+#
+# The single-part branch keeps the critic loop's verified STEP so the aero and
+# certificate stages can reuse it. Nine early returns sit between creating that
+# file and the end of the generator, so cleanup lives in a finally: on the
+# _pipeline wrapper rather than on the happy path. Domain D exercises this
+# constantly — the planner rule forces wings into a single part.
+
+import os as _os          # noqa: E402
+import tempfile           # noqa: E402
+
+import main as _main      # noqa: E402
+from verification.report import CheckReport, CheckResult  # noqa: E402
+
+
+def _stub_pipeline(monkeypatch, step_path, *, export_status="error"):
+    """Stub every boundary _pipeline touches; return the manifest it will use."""
+    from schemas import AssemblyManifest, MatingRule, PartDefinition
+
+    manifest = AssemblyManifest(
+        assembly_name="leak_probe",
+        parts=[PartDefinition(part_id="wing_segment_assembly",
+                              description="A NACA 2412 wing segment",
+                              anchor_tags=[">Z", "<Z"])],
+        mating_rules=[MatingRule(source_part_id="wing_segment_assembly",
+                                 source_anchor=">Z",
+                                 target_part_id="wing_segment_assembly",
+                                 target_anchor=">Z",
+                                 translation="0, 0, 0", clearance=0.0)],
+    )
+
+    report = CheckReport(part_id="wing_segment_assembly", attempt=1)
+    report.add(CheckResult("compile", passed=True))
+
+    async def _rea(_prompt):
+        return None
+
+    async def _planner(_prompt, requirements=None):
+        return manifest
+
+    async def _critic(part, **kwargs):
+        return "result = None", step_path, report
+
+    async def _export(_code, _out):
+        return "result = None"
+
+    async def _execute(_script):
+        if export_status == "error":
+            return {"status": "error", "traceback": "boom"}
+        return {"status": "success", "output": ""}
+
+    monkeypatch.setattr(_main, "run_rea", _rea)
+    monkeypatch.setattr(_main, "run_planner", _planner)
+    monkeypatch.setattr(_main, "run_critic_loop", _critic)
+    monkeypatch.setattr(_main, "run_single_part_export", _export)
+    monkeypatch.setattr(_main, "execute_cad_script", _execute)
+    monkeypatch.setattr(_main, "parameterize_script", lambda s: (s, {}))
+    return manifest
+
+
+def _make_step_file():
+    fd, path = tempfile.mkstemp(suffix=".step")
+    with _os.fdopen(fd, "w") as fh:
+        fh.write("ISO-10303-21;\n")   # not real STEP; only existence matters
+    return path
+
+
+def test_pipeline_cleans_up_step_on_export_error(monkeypatch):
+    """The export-error early return must not leak the reused STEP."""
+    step_path = _make_step_file()
+    _stub_pipeline(monkeypatch, step_path, export_status="error")
+
+    async def _drain():
+        events = []
+        async for ev in _main._pipeline("a NACA 2412 wing"):
+            events.append(ev)
+        return events
+
+    events = asyncio.run(_drain())
+    assert any('"status": "error"' in e for e in events), "expected the error path"
+    assert not _os.path.exists(step_path), (
+        "STEP file leaked on the export-error return — /tmp/mirum/parts is a "
+        "256MB tmpfs cleared only at startup"
+    )
+
+
+def test_pipeline_cleans_up_step_on_client_disconnect(monkeypatch):
+    """Abandoning the SSE stream mid-flight must still clean up.
+
+    This is the case no return-site cleanup can cover: the consumer closes
+    the generator, GeneratorExit is raised at the yield, and only a finally:
+    on the generator runs.
+    """
+    step_path = _make_step_file()
+    _stub_pipeline(monkeypatch, step_path, export_status="error")
+
+    async def _abandon():
+        agen = _main._pipeline("a NACA 2412 wing")
+        # Consume past the critic loop (which is what registers the STEP),
+        # then walk away mid-stream exactly as a disconnecting client does.
+        async for ev in agen:
+            if '"machinist:' in ev and '"done"' in ev:
+                break
+        await agen.aclose()
+
+    asyncio.run(_abandon())
+    assert not _os.path.exists(step_path), "STEP file leaked on client disconnect"
+
+
+def test_pipeline_cleanup_tolerates_missing_file(monkeypatch):
+    """Cleanup of an already-removed path must not raise."""
+    step_path = _make_step_file()
+    _os.remove(step_path)
+    _stub_pipeline(monkeypatch, step_path, export_status="error")
+
+    async def _drain():
+        return [ev async for ev in _main._pipeline("a NACA 2412 wing")]
+
+    asyncio.run(_drain())   # must not raise
