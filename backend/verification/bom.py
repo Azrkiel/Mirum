@@ -97,6 +97,27 @@ def build_bom(
     }
 
 
+# Characters that make Excel / Google Sheets treat a cell as a formula.
+_CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value: object) -> str:
+    """Neutralise spreadsheet formula injection in a BOM cell.
+
+    Part descriptions and ids are LLM output steered by the user's prompt
+    (``PartDefinition.description`` is 2000 chars of unconstrained free text),
+    and a BOM is a document made to be shared with colleagues. A description
+    engineered to begin with '=' or '@' would execute as a formula — a
+    HYPERLINK-style exfiltration payload, say — the moment a teammate opened
+    the CSV. Prefixing with an apostrophe is the standard neutralisation: it
+    forces text interpretation and is stripped on display.
+    """
+    text = "" if value is None else str(value)
+    if text.startswith(_CSV_FORMULA_TRIGGERS):
+        return "'" + text
+    return text
+
+
 def to_csv(lines: list[dict], total_mass_g: float | None = None) -> str:
     """Render BOM lines as CSV for download into a spreadsheet."""
     buf = io.StringIO()
@@ -108,13 +129,13 @@ def to_csv(lines: list[dict], total_mass_g: float | None = None) -> str:
     for i, line in enumerate(lines, 1):
         writer.writerow([
             i,
-            line.get("part_id", ""),
+            _csv_safe(line.get("part_id", "")),
             line.get("quantity", 1),
-            line.get("material") or "",
+            _csv_safe(line.get("material") or ""),
             _fmt(line.get("mass_g")),
             _fmt(line.get("line_mass_g")),
-            " ".join(line.get("instances", [])),
-            (line.get("description") or "").replace("\n", " "),
+            _csv_safe(" ".join(line.get("instances", []))),
+            _csv_safe((line.get("description") or "").replace("\n", " ")),
         ])
     if total_mass_g is not None:
         writer.writerow([])

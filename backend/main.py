@@ -594,12 +594,19 @@ async def _pipeline(
     is hit hardest: the planner rule forces wings and stabilizers into a single
     part, so aero requests always take this path.
     """
-    state: dict[str, str] = {"step_path": ""}
+    state: dict[str, str] = {"step_path": "", "run_id": ""}
     try:
         async for event in _pipeline_inner(prompt, run_aero, run_struct, state):
             yield event
     finally:
         _remove_quiet(state["step_path"])
+        # A failed generation leaves an empty (or partial) run directory that
+        # nothing will ever download. Reclaim it now instead of leaving it for
+        # the next request's TTL sweep — an idle deployment would otherwise
+        # accumulate them on the 256MB tmpfs.
+        run_id = state.get("run_id", "")
+        if run_id and not any(artifacts.available(run_id).values()):
+            artifacts.discard(run_id)
 
 
 async def _pipeline_inner(
@@ -639,6 +646,7 @@ async def _pipeline_inner(
     # SolidWorks / NX / Onshape. Before this the STEP was produced, used for
     # verification, and deleted — the product could not hand over a CAD file.
     run_id, _run_dir = artifacts.create_run()
+    state["run_id"] = run_id
     output_filename = str(_run_dir / artifacts.FORMATS["glb"][0])
     step_filename = str(_run_dir / artifacts.FORMATS["step"][0])
     stl_filename = str(_run_dir / artifacts.FORMATS["stl"][0])

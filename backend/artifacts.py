@@ -51,7 +51,7 @@ FORMATS: dict[str, tuple[str, str]] = {
     "glb":  ("model.glb",  "model/gltf-binary"),
 }
 
-_RUN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_RUN_ID_RE = re.compile(r"[0-9a-f]{32}")
 
 
 def new_run_id() -> str:
@@ -60,7 +60,9 @@ def new_run_id() -> str:
 
 
 def is_valid_run_id(run_id: str) -> bool:
-    return bool(_RUN_ID_RE.match(run_id or ""))
+    # fullmatch, not match: `$` also matches immediately before a trailing
+    # newline, so "a"*32 + "\n" would satisfy a `$`-anchored pattern.
+    return bool(_RUN_ID_RE.fullmatch(run_id or ""))
 
 
 def run_dir(run_id: str, create: bool = False) -> pathlib.Path | None:
@@ -85,7 +87,14 @@ def artifact_path(run_id: str, fmt: str) -> pathlib.Path | None:
     base = run_dir(run_id)
     if base is None:
         return None
-    return base / FORMATS[fmt][0]
+    # Re-check containment on the FINAL path, not just the directory. fmt is
+    # already restricted to three literal filenames, so this is defence in
+    # depth against a symlink planted at that path.
+    path = (base / FORMATS[fmt][0]).resolve()
+    if not str(path).startswith(str(_RUNS_DIR.resolve()) + os.sep):
+        logger.warning("Rejected artifact path outside the runs root: %r", run_id)
+        return None
+    return path
 
 
 def available(run_id: str) -> dict[str, bool]:
@@ -135,7 +144,8 @@ def create_run() -> tuple[str, pathlib.Path]:
     sweep()
     run_id = new_run_id()
     path = run_dir(run_id, create=True)
-    assert path is not None  # a freshly generated uuid4 hex always validates
+    if path is None:  # unreachable for a uuid4 hex, but asserts vanish under -O
+        raise RuntimeError(f"Could not create artifact directory for {run_id!r}")
     return run_id, path
 
 
