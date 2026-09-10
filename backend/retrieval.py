@@ -135,7 +135,10 @@ def build_index() -> None:
                     ):
                         code_str = r["generated_code"]
                         records.append({
-                            "description": r.get("part_id", ""),  # part_id ≈ description key
+                            # Prefer the prose description (logged since the
+                            # telemetry `description` field landed); legacy
+                            # records fall back to the part_id slug.
+                            "description": r.get("description") or r.get("part_id", ""),
                             "code": code_str,
                             "domain": r.get("domain_classification", "A"),
                             "techniques": extract_techniques(code_str),
@@ -193,14 +196,30 @@ def retrieve_few_shots(
         scored.append((sim, i))
 
     scored.sort(reverse=True)
-    top_k = [_INDEX[i] for _, i in scored[:k] if scored[0][0] > 0.05]
+    # Per-candidate relevance floor — previously only the TOP score was
+    # tested, so one good match dragged k-1 arbitrary entries along with it.
+    top_k = [_INDEX[i] for s, i in scored[:k] if s > 0.05]
 
     return top_k
 
 
+# Incremental inserts reuse the existing IDF, which goes stale as the corpus
+# drifts. A full recompute is cheap at ≤500 entries, so refresh periodically.
+_REFRESH_EVERY = 25
+_inserts_since_refresh = 0
+
+
+def _recompute_vectors() -> None:
+    """Rebuild IDF and all TF-IDF vectors from the current index."""
+    global _IDF, _TFIDF
+    tokenized = [_tokenize(r["description"]) for r in _INDEX]
+    _IDF = _build_idf(tokenized)
+    _TFIDF = [_tfidf_vector(tokens, _IDF) for tokens in tokenized]
+
+
 def add_to_index(description: str, code: str, domain: str) -> None:
     """Add a new successful generation to the retrieval index."""
-    global _INDEX_BUILT
+    global _INDEX_BUILT, _inserts_since_refresh
     if not _INDEX_BUILT:
         build_index()
 
@@ -220,6 +239,11 @@ def add_to_index(description: str, code: str, domain: str) -> None:
         _INDEX.pop(0)
         _TFIDF.pop(0)
 
+    _inserts_since_refresh += 1
+    if _inserts_since_refresh >= _REFRESH_EVERY:
+        _recompute_vectors()
+        _inserts_since_refresh = 0
+
 
 # Maps a failure class (from failure_analysis.classify_failure) to the technique
 # tag used by extract_techniques. Used by retrieve_for_failure to find a working
@@ -236,6 +260,10 @@ _FAILURE_TO_TECHNIQUE: dict[str, str] = {
     "revolve":    "revolve",
     "text":       "text",
     "spline":     "spline",
+    # Verification-gate failure classes (CheckReport). Continuity/curvature
+    # failures on organic parts are overwhelmingly loft-technique bugs.
+    "continuity":          "loft",
+    "gaussian_curvature":  "loft",
 }
 
 

@@ -240,7 +240,7 @@ class Orchestrator:
             yield _event(label, "running", "Manufacturing single part")
             t0 = time.perf_counter()
             try:
-                code, _ = await run_critic_loop(part, save_step=False)
+                code, _step, _report = await run_critic_loop(part, save_step=False)
             except Exception as exc:
                 latency_ms = (time.perf_counter() - t0) * 1000
                 self.ctx.history.append(SubagentMessage.error(
@@ -292,7 +292,7 @@ class Orchestrator:
                              f"Manufacturing part {i}/{len(parts)}")
 
             async def _build_part(part):
-                code, step_path = await run_critic_loop(part)
+                code, step_path, _report = await run_critic_loop(part)
                 return part.part_id, code, step_path
 
             # Semaphore: cap concurrent Machinist instances (T4-04 config hook)
@@ -342,7 +342,7 @@ class Orchestrator:
         yield _event("assembler", "running", "Assembling from pre-compiled .step files")
         t0 = time.perf_counter()
         try:
-            self._final_script = await run_assembly_critic_loop(
+            self._final_script, _asm_report = await run_assembly_critic_loop(
                 self._manifest, self._step_files
             )
             self._final_script = self._final_script.replace(

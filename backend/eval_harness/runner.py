@@ -22,6 +22,7 @@ import asyncio
 import json
 import os
 import pathlib
+import re
 import sys
 import time
 from collections import defaultdict
@@ -68,10 +69,164 @@ def _suppress_side_effects() -> None:
     _agents_mod._score_and_log = lambda *a, **kw: asyncio.sleep(0)  # type: ignore[assignment]
 
 
+# ---------------------------------------------------------------------------
+# Domain D verification: NACA profile + XFOIL convergence
+# ---------------------------------------------------------------------------
+
+# Matches the profile actually requested of the deterministic helpers:
+#   make_naca_wire("2412", ...) / make_naca_airfoil('0012', ...)
+#   naca_code="2412"  /  naca4_points('0012')
+_NACA_CALL_RE = re.compile(
+    r"""(?:naca_code\s*=\s*|make_naca\w*\s*\(\s*|naca4_points\s*\(\s*)"""
+    r"""['"](\d{4})['"]""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _naca_codes_in(code: str) -> set[str]:
+    """Return every NACA 4-digit code the script actually asks for.
+
+    Deliberately anchored to the call sites rather than a bare 4-digit scan:
+    '0012' also appears as a plain dimension in plenty of scripts.
+    """
+    return set(_NACA_CALL_RE.findall(code or ""))
+
+
+def _check_naca(record: dict[str, Any], prompt: dict[str, Any], code: str) -> None:
+    """Fail the record when the script built a different airfoil than requested.
+
+    Without this a clean NACA 0024 solid scores identically to the requested
+    0012 — the geometry certificate only checks structural validity, never
+    whether the profile matches the brief.
+    """
+    expected = str(prompt.get("expected_naca_code") or "").strip()
+    if not expected:
+        return
+    found = _naca_codes_in(code)
+    if expected in found:
+        return
+    record["status"] = "fail"
+    if found:
+        record["error"] = (
+            f"NACA_MISMATCH: expected {expected}, script uses {', '.join(sorted(found))}"
+        )
+    else:
+        record["error"] = (
+            f"NACA_NOT_FOUND: expected {expected}; script references no NACA "
+            f"profile via cad_utils/cad_aero helpers"
+        )
+
+
+async def _check_aero(
+    record: dict[str, Any],
+    prompt: dict[str, Any],
+    step_path: str,
+) -> None:
+    """Run an XFOIL polar on the GENERATED geometry and gate on convergence.
+
+    Only invoked under --with-aero for prompts carrying min_converged_alpha.
+
+    Critically, analyze_wing_step falls back to the *analytical* NACA
+    definition when the OCC mid-span slice fails, which would silently measure
+    XFOIL against a textbook airfoil instead of the model's output. That
+    fallback sets dat_path=None, so we treat it as a failure: for a geometry
+    eval, "XFOIL could not read your solid" is a real negative result.
+    """
+    threshold = prompt.get("min_converged_alpha")
+    if threshold is None:
+        return
+    if record["status"] != "pass":
+        return
+    if not step_path or not os.path.exists(step_path):
+        record["status"] = "fail"
+        record["error"] = "AERO_NO_STEP: no STEP file was produced to analyse"
+        return
+
+    import sys as _sys
+    _repo_root = pathlib.Path(__file__).resolve().parent.parent.parent
+    if str(_repo_root) not in _sys.path:
+        _sys.path.insert(0, str(_repo_root))
+
+    try:
+        from analysis.airfoil import analyze_wing_step
+    except ImportError as exc:
+        record["aero_skipped"] = f"analysis package unavailable: {exc}"
+        return
+
+    # span/chord are not part of the prompt schema; fall back to the measured
+    # envelope. span sets the mid-span cut plane, chord only scales Reynolds.
+    span_mm = float(prompt.get("span_mm") or 0.0)
+    chord_mm = float(prompt.get("chord_mm") or 0.0)
+    if not span_mm or not chord_mm:
+        extents = sorted(record.get("bbox_extents") or [], reverse=True)
+        if len(extents) >= 2:
+            span_mm = span_mm or extents[0]
+            chord_mm = chord_mm or extents[1]
+    if not span_mm or not chord_mm:
+        record["aero_skipped"] = "span/chord unknown (no bbox measured)"
+        return
+
+    try:
+        polar = await asyncio.to_thread(
+            analyze_wing_step,
+            step_path,
+            str(prompt.get("expected_naca_code") or ""),
+            span_mm,
+            chord_mm,
+            {},
+        )
+    except Exception as exc:
+        record["status"] = "fail"
+        record["error"] = f"AERO_FAILED: {type(exc).__name__}: {exc}"[:280]
+        return
+
+    converged = int(polar.get("converged_count") or 0)
+    record["converged_count"] = converged
+    record["aero_from_geometry"] = polar.get("dat_path") is not None
+
+    if not record["aero_from_geometry"]:
+        record["status"] = "fail"
+        record["error"] = (
+            "AERO_ANALYTICAL_FALLBACK: the OCC mid-span slice failed, so XFOIL "
+            "ran on the textbook NACA profile rather than the generated solid"
+        )
+        return
+    if converged < int(threshold):
+        record["status"] = "fail"
+        record["error"] = (
+            f"AERO_UNDER_CONVERGED: {converged} converged alpha points "
+            f"< required {threshold}"
+        )
+
+
+def _count_matched_features(
+    expected: list[str], missing: list[str] | None
+) -> tuple[int, int] | None:
+    """Reconcile the judge's free-text 'missing' list against expected_features.
+
+    The previous arithmetic (len(expected) - len(missing)) ran over two
+    unrelated sets: the judge invents its own phrasing, so the difference
+    could over- or under-count without bound. Here an expected feature counts
+    as missing only when a judge entry actually corresponds to it.
+    """
+    if not expected:
+        return None
+    if not isinstance(missing, list):
+        return None
+    norm_missing = [str(m).strip().lower() for m in missing if str(m).strip()]
+    matched = 0
+    for feat in expected:
+        f = str(feat).strip().lower()
+        if not any(m in f or f in m for m in norm_missing):
+            matched += 1
+    return matched, len(expected)
+
+
 async def _run_one(
     prompt: dict[str, Any],
     max_retries: int,
     strict_lvm: bool = False,
+    with_aero: bool = False,
 ) -> dict[str, Any]:
     from agents import run_critic_loop
     from evaluation import compute_lvm_score
@@ -89,14 +244,34 @@ async def _run_one(
         "difficulty": prompt.get("difficulty", "unknown"),
     }
     code: str | None = None
+    _step: str = ""
     try:
         # run_critic_loop returns (code, step_path, geometry_cert); the harness
         # only needs the code. (Pre-existing main bug: this unpacked 2 of 3,
         # raising "too many values to unpack" for every prompt — see main.py
         # callers which already unpack 3.)
-        code, _step, _cert = await run_critic_loop(part, max_retries=max_retries, save_step=False)
+        # Keep the STEP only when an XFOIL polar has to read it back.
+        _need_step = bool(with_aero and prompt.get("min_converged_alpha"))
+        code, _step, _report = await run_critic_loop(
+            part, max_retries=max_retries, save_step=_need_step
+        )
         record["status"] = "pass"
         record["code_length"] = len(code)
+        # Surface the measured envelope so --with-aero can derive span/chord,
+        # and so a report reader can see what was actually built.
+        _cert = getattr(_report, "geometry_cert", None)
+        _bbox = (_cert or {}).get("bounding_box") if isinstance(_cert, dict) else None
+        if _bbox:
+            record["bbox_extents"] = [
+                _bbox.get("x_mm"), _bbox.get("y_mm"), _bbox.get("z_mm")
+            ]
+        # The delivered geometry compiled but failed a verification check;
+        # the harness must not report that as a clean pass.
+        if getattr(_report, "degraded", False):
+            record["degraded"] = True
+
+        # Domain D: did it build the airfoil that was actually asked for?
+        _check_naca(record, prompt, code)
     except Exception as exc:  # ScriptError or anything else
         record["status"] = "fail"
         msg = str(exc)
@@ -123,6 +298,16 @@ async def _run_one(
                 f"< {_STRICT_LVM_THRESHOLD}"
             )
 
+    if with_aero:
+        try:
+            await _check_aero(record, prompt, _step or "")
+        finally:
+            if _step:
+                try:
+                    os.remove(_step)
+                except OSError:
+                    pass
+
     record["elapsed_s"] = round(time.monotonic() - t0, 2)
     return record
 
@@ -132,13 +317,15 @@ async def _run_all(
     max_retries: int,
     concurrency: int,
     strict_lvm: bool = False,
+    with_aero: bool = False,
 ) -> list[dict[str, Any]]:
     sem = asyncio.Semaphore(concurrency)
 
     async def _bounded(p: dict[str, Any]) -> dict[str, Any]:
         async with sem:
             print(f"[run]  {p['id']}", flush=True)
-            r = await _run_one(p, max_retries, strict_lvm=strict_lvm)
+            r = await _run_one(p, max_retries, strict_lvm=strict_lvm,
+                               with_aero=with_aero)
             mark = "PASS" if r["status"] == "pass" else "FAIL"
             err = f"  ({r.get('error', '')[:80]})" if r["status"] == "fail" else ""
             lvm = r.get("lvm_score")
@@ -263,7 +450,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Only run prompts whose id starts with this prefix.")
     parser.add_argument(
         "--regression-for", dest="regression_for", default=None,
-        choices=["A", "B", "C", "D", "E", "F"],
+        choices=["A", "B", "C", "D", "E", "F", "G"],
         help=(
             "Only run prompts whose `regression_for` array contains the given "
             "letter. Used by Worktree gates to run the regression slice tied "
@@ -289,6 +476,17 @@ def _build_parser() -> argparse.ArgumentParser:
             "(columns: id, domain, difficulty, status, lvm, features matched, "
             "time_ms, regression_for, notes; sorted by domain then id for "
             "diffability). Used by the worktree merge gate (plan §9 F-04)."
+        ),
+    )
+    parser.add_argument(
+        "--with-aero", dest="with_aero", action="store_true",
+        help=(
+            "For prompts carrying `min_converged_alpha`, export the generated "
+            "solid and run an XFOIL polar on it, failing the prompt if too few "
+            "alpha points converge — or if XFOIL had to fall back to the "
+            "analytical NACA profile because the solid could not be sliced. "
+            "Off by default: needs xfoil on PATH, is much slower, and would "
+            "otherwise silently change the default corpus baseline."
         ),
     )
     parser.add_argument(
@@ -337,6 +535,7 @@ def main() -> None:
         _run_all(
             prompts, args.max_retries, args.concurrency,
             strict_lvm=args.strict_lvm,
+            with_aero=args.with_aero,
         )
     )
     total_elapsed = round(time.monotonic() - t0, 1)

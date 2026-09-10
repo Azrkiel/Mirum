@@ -98,8 +98,14 @@ async def classify_part(description: str) -> dict:
             "key_params": "",
         }
 
+    # Domain routing decides which strategy prompt the Machinist gets, so it
+    # runs at the registry's temperature 0.0 rather than the API default —
+    # a sampling coin-flip between Domain A and Domain D swaps the entire
+    # rule set out from under the generator.
+    from agents import _agent_model  # noqa: PLC0415 — avoids a circular import at module load
+    _cls_model, _cls_gen = _agent_model("classifier", MODEL)
     model = genai.GenerativeModel(
-        model_name=MODEL,
+        model_name=_cls_model,
         system_instruction=(
             "You are a mechanical engineering classifier. Given a part description, "
             "determine which geometric domain it belongs to. "
@@ -180,6 +186,7 @@ async def classify_part(description: str) -> dict:
     response = await model.generate_content_async(
         f"Classify this part:\n{description}",
         generation_config={
+            **_cls_gen,
             "response_mime_type": "application/json",
             "response_schema": _CLASSIFICATION_SCHEMA,
         },

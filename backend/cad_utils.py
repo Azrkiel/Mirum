@@ -11,6 +11,16 @@ import math
 import cadquery as cq
 
 
+# Threads produced by this module are COSMETIC: correct major diameter and
+# rib pitch, but annular ribs rather than a helix. Reported to the user so a
+# cosmetic thread is never mistaken for cuttable geometry.
+THREAD_REPRESENTATION = "cosmetic"
+
+# Diametral clearance between a nut/tapped bore and the nominal thread
+# diameter. Without it a cosmetic bolt cannot enter its own nut.
+COSMETIC_THREAD_FIT_CLEARANCE_MM = 0.25
+
+
 def make_involute_spur_gear(
     num_teeth: int = 20,
     module: float = 2.0,
@@ -383,12 +393,27 @@ def make_metric_thread(
     pitch: float,
     length: float,
 ) -> cq.Workplane:
-    """Generate a stable ribbed-cylinder approximation of a metric thread.
+    """Build a COSMETIC metric thread — a ribbed cylinder, not a real helix.
 
-    Per Domain B rules, a true 3D helical sweep crashes the BRep kernel.
-    Instead, this builds a cylindrical shaft with evenly spaced annular ribs
-    that approximate thread crests. The result is a manifold solid that
-    OpenCASCADE can reliably boolean-union or boolean-cut.
+    This is a *simplified thread representation* in the sense of ISO 6410 /
+    ASME Y14.6: the outside diameter measures the true nominal (an M10 shank
+    measures Ø10.00), but the ribs are annular, not helical. There is no lead
+    and no 60° flank, so the result is:
+
+      * correct for visualisation, envelope, mass and clearance studies;
+      * correct to caliper on the major diameter;
+      * NOT cuttable geometry, NOT measurable over wires, and NOT a mating
+        thread form.
+
+    Downstream consumers should treat a part built with this as having a
+    cosmetic thread callout, exactly as they would a simplified thread in
+    SolidWorks. ``THREAD_REPRESENTATION`` records this so the pipeline can
+    surface it to the user rather than implying cuttable threads.
+
+    (The historical justification — "a true helical sweep crashes the BRep
+    kernel" — is contradicted by docs/propulsion/helix-ban-falsification.md,
+    which found no reproduction. Real helical threads are tracked as future
+    work; they need verification against the kernel in Docker.)
 
     Args:
         diameter: Nominal (major) thread diameter in mm.
@@ -396,7 +421,7 @@ def make_metric_thread(
         length: Total thread length in mm.
 
     Returns:
-        cq.Workplane solid centered at the origin.
+        cq.Workplane solid centered at the origin, max radius = diameter/2.
     """
     major_r = diameter / 2.0
     minor_r = major_r - 0.6134 * pitch  # standard 60° thread depth
@@ -502,20 +527,35 @@ def make_hex_nut(
     pitch: float,
     width_across_flats: float | None = None,
     height: float | None = None,
+    thread_fit_clearance: float = COSMETIC_THREAD_FIT_CLEARANCE_MM,
 ) -> cq.Workplane:
-    """ISO-style hex nut with a minor-diameter through-bore, centered at origin.
+    """ISO-style hex nut, centered at origin, bored to ACCEPT its own bolt.
 
-    The bore is a plain cylinder at the thread's minor diameter — the same
-    minor-diameter core ``make_metric_thread`` uses for the bolt shank's
-    ribbed approximation. That gives a self-consistent visual: the bolt's
-    thread ribs thread into the nut's minor-diameter bore without BRep
-    booleans that would crash the kernel.
+    Hex dimensions (across-flats, height) follow ISO 4032.
+
+    The bore deliberately does NOT use the ISO internal minor diameter
+    D1 = d − 1.0825p. In a real joint the nut's minor diameter is smaller
+    than the bolt's major diameter — the two interlock through the helix.
+    Mirum's threads are cosmetic (see ``make_metric_thread``), so there is no
+    helix to interlock, and a D1 bore made the parts physically interfere:
+    an M10×1.5 bolt crest at r=5.000 against a D1 bore at r=4.188 gave
+    **0.81 mm of radial interference**, so the bolt could not pass through
+    the nut it ships with. Every assembly containing both was solid-on-solid
+    overlapping.
+
+    Instead the bore is the nominal diameter plus ``thread_fit_clearance``,
+    which is the correct companion to a simplified thread representation: the
+    parts assemble, interference checks stay clean, and the thread remains a
+    callout rather than modelled geometry.
 
     Args:
         nominal_diameter: Major thread diameter in mm (e.g. 10.0 for M10).
-        pitch: Thread pitch in mm.
+        pitch: Thread pitch in mm. Retained for callout/reporting; it no
+            longer sets the bore.
         width_across_flats: Hex AF in mm. ``None`` → ISO 4032 default.
         height: Nut height in mm. ``None`` → ISO 4032 default.
+        thread_fit_clearance: Diametral clearance in mm between the bore and
+            the nominal thread diameter.
 
     Returns:
         cq.Workplane solid centered at the origin.
@@ -530,7 +570,8 @@ def make_hex_nut(
             height = h_default
 
     circum_dia = width_across_flats / math.cos(math.radians(30.0))
-    minor_dia = nominal_diameter - 1.0825 * pitch
+    # Clears the cosmetic thread's major diameter — see the docstring.
+    bore_dia = nominal_diameter + thread_fit_clearance
 
     nut = (
         cq.Workplane("XY")
@@ -538,7 +579,7 @@ def make_hex_nut(
         .extrude(height)
         .faces(">Z")
         .workplane()
-        .hole(minor_dia)
+        .hole(bore_dia)
     )
     nut = nut.translate((0, 0, -height / 2.0))
 
@@ -745,6 +786,32 @@ def make_bracket(
     return result
 
 
+# ISO 286 H7 hole tolerance, upper deviation, for the size bands a bearing
+# seat normally falls in. A housing seat is nominally H7; modelling the bore at
+# exactly the bearing OD gives a zero-interference "press fit", which is not a
+# fit at all. The mid-tolerance value is used so the modelled bore reflects a
+# real seat rather than the nominal.
+_H7_MID_ALLOWANCE_MM: tuple[tuple[float, float], ...] = (
+    #  (max nominal Ø, mid-tolerance allowance on diameter)
+    (6.0,   0.006),
+    (10.0,  0.0075),
+    (18.0,  0.009),
+    (30.0,  0.0105),
+    (50.0,  0.0125),
+    (80.0,  0.015),
+    (120.0, 0.0175),
+    (180.0, 0.020),
+)
+
+
+def _h7_allowance(nominal_dia: float) -> float:
+    """Diametral H7 mid-tolerance allowance for a nominal diameter (mm)."""
+    for limit, allowance in _H7_MID_ALLOWANCE_MM:
+        if nominal_dia <= limit:
+            return allowance
+    return 0.025
+
+
 def make_bearing_housing(
     bearing_OD: float,
     bearing_width: float,
@@ -752,15 +819,22 @@ def make_bearing_housing(
     housing_length: float,
     lip_thickness: float = 2.0,
 ) -> cq.Workplane:
-    """Bearing housing with a press-fit bore.
+    """Bearing housing with an H7 seat bore and a retaining shoulder.
 
-    Generates a cylindrical housing with a precision bore sized for the
-    bearing outer race. A retaining lip (shoulder) is formed at one end.
+    The seat is bored to ``bearing_OD`` plus an ISO 286 H7 mid-tolerance
+    allowance. Boring exactly to the bearing OD — as this previously did —
+    describes a zero-clearance, zero-interference fit, which no machinist can
+    hold and which misrepresents the "precision bore" the docstring claims.
+
+    ``bearing_width`` sets the seat DEPTH. It was previously accepted,
+    documented as "the bore depth matches this", and then never used: the bore
+    ran the full remaining length, so the retaining shoulder was the only thing
+    locating the bearing and a housing longer than the bearing left it
+    unsupported.
 
     Args:
         bearing_OD: Outer diameter of the bearing outer race (mm).
-            This becomes the bore diameter of the housing.
-        bearing_width: Width of the bearing (mm). The bore depth matches this.
+        bearing_width: Width of the bearing (mm) — sets the seat depth.
         housing_OD: Outer diameter of the housing body (mm).
         housing_length: Total length of the housing (mm).
         lip_thickness: Axial thickness of the retaining lip at the closed end (mm).
@@ -769,12 +843,31 @@ def make_bearing_housing(
         cq.Workplane containing the bearing housing solid.
 
     Raises:
-        ValueError: If bearing_OD >= housing_OD.
+        ValueError: If bearing_OD >= housing_OD, or the seat does not fit
+            within the housing length.
     """
     if bearing_OD >= housing_OD:
         raise ValueError(
             f"bearing_OD ({bearing_OD}) must be less than housing_OD ({housing_OD})."
         )
+    if lip_thickness >= housing_length:
+        raise ValueError(
+            f"lip_thickness ({lip_thickness}) must be less than housing_length "
+            f"({housing_length})."
+        )
+
+    seat_depth = bearing_width if bearing_width and bearing_width > 0 else (
+        housing_length - lip_thickness
+    )
+    available = housing_length - lip_thickness
+    if seat_depth > available:
+        raise ValueError(
+            f"bearing_width ({bearing_width}) does not fit: only {available:.2f}mm "
+            f"of seat depth is available between the lip and the open end. "
+            f"Increase housing_length or reduce lip_thickness."
+        )
+
+    bore_dia = bearing_OD + _h7_allowance(bearing_OD)
 
     # Outer cylinder
     outer = (
@@ -783,12 +876,12 @@ def make_bearing_housing(
         .extrude(housing_length)
     )
 
-    # Bore for the bearing (full-depth through hole at bearing_OD)
+    # Seat bore, opening at the far end and stopping at the shoulder.
     bore = (
         cq.Workplane("XY")
-        .workplane(offset=lip_thickness)
-        .circle(bearing_OD / 2.0)
-        .extrude(housing_length - lip_thickness)
+        .workplane(offset=housing_length - seat_depth)
+        .circle(bore_dia / 2.0)
+        .extrude(seat_depth)
     )
 
     result = outer.cut(bore)
@@ -999,34 +1092,37 @@ def make_bent_bracket(
             )
 
     # --- Build flange (vertical wall) ---
-    # The flange originates from the back edge of the base plate
-    # and extends upward by flange_height
-    flange_base_z = material_thickness  # top of base plate
+    # Rises from the base plate's -Y edge.
+    #
+    # `centered=(True, False)` is load-bearing. With the previous
+    # `centered=False` the profile spanned X in [0, base_length] while the base
+    # spans [-base_length/2, +base_length/2], so half the flange hung off the
+    # +X end of the bracket. X must be centred to match the base; the vertical
+    # axis stays uncentred so the wall grows upward from the base plane.
     flange = (
         cq.Workplane("XZ")
         .workplane(offset=base_width / 2.0)
-        .rect(base_length, flange_height, centered=False)
+        .rect(base_length, flange_height, centered=(True, False))
         .extrude(material_thickness)
     )
 
-    # Translate flange to correct position
-    flange = flange.translate((0, 0, 0))
-
-    # Build the bend (approximated as a quarter-circle extrusion)
-    # The bend radius fillet is applied at the corner between base and flange
     result = base.union(flange)
 
-    # Apply bend radius fillet at the base-flange junction
+    # Bend relief at the base-to-flange junction. The flange sits on the -Y
+    # side, so the inside corner edge is the "<Y" one; the previous ">Y"
+    # selected the opposite edge of the base plate entirely.
     try:
         result = (
             result
             .edges("|X")
-            .edges(">Y")
+            .edges("<Y")
             .fillet(bend_radius)
         )
-    except Exception:  # noqa: BLE001
-        # Fillet may fail on complex geometry — continue without it
-        pass
+    except Exception as exc:  # noqa: BLE001
+        # A missing bend still leaves a usable L-bracket, so this does not
+        # fail the part — but it is no longer silent: the validated bend
+        # radius is absent from the geometry and the caller should know.
+        print(f"BEND_FILLET_SKIPPED: r={bend_radius} could not be applied: {exc}")
 
     return result
 
@@ -1076,26 +1172,33 @@ def make_enclosure_panel(
                 f"(= 2× material thickness). Use flange_depth >= {min_flange}."
             )
 
-        # Four return flanges (down-facing, like an enclosure panel)
-        flange_offset = material_thickness / 2.0  # panel half-thickness
-
-        # Left and right flanges
+        # Four return flanges around the panel edges.
+        #
+        # Two bugs fixed here, both the same class as make_bent_bracket's:
+        #
+        #  * `centered=False` spanned [0, length] while the panel spans
+        #    [-length/2, +length/2], so every flange hung half its length off
+        #    one end of the panel. The long axis must be centred; only the
+        #    depth axis grows from the panel plane.
+        #  * `sign` positioned the workplane but not the extrude, so the -X/-Y
+        #    flanges grew inward across the panel while the +X/+Y ones grew
+        #    outward. Extruding by `sign * thickness` makes all four grow
+        #    outward, which is what a return flange does.
         for sign in (-1, +1):
             flange = (
                 cq.Workplane("YZ")
                 .workplane(offset=sign * width / 2.0)
-                .rect(height, flange_depth, centered=False)
-                .extrude(material_thickness)
+                .rect(height, flange_depth, centered=(True, False))
+                .extrude(sign * material_thickness)
             )
             panel = panel.union(flange)
 
-        # Top and bottom flanges
         for sign in (-1, +1):
             flange = (
                 cq.Workplane("XZ")
                 .workplane(offset=sign * height / 2.0)
-                .rect(width + 2 * material_thickness, flange_depth, centered=False)
-                .extrude(material_thickness)
+                .rect(width + 2 * material_thickness, flange_depth, centered=(True, False))
+                .extrude(sign * material_thickness)
             )
             panel = panel.union(flange)
 
@@ -1568,8 +1671,10 @@ def make_nacelle_cowl(
     # Apply highlight lip fillet on the leading edge
     try:
         cowl_solid = cowl_solid.edges("<X").fillet(min(lip_radius, cowl_thickness * 0.8))
-    except Exception:
-        pass  # Fillet may fail on complex revolved edge topology — non-fatal
+    except Exception as exc:
+        # Cosmetic: the cowl is usable without the lip radius, but the absence
+        # is reported rather than swallowed.
+        print(f"LIP_FILLET_SKIPPED: r={lip_radius} not applied: {exc}")
 
     # Split into inner duct and outer cowl named bodies for the viewer
     assembly = cq.Assembly()
@@ -1697,8 +1802,18 @@ def make_nose_cone(
         inner_solid = inner_wire.revolve(360, (0, 0, 0), (1, 0, 0))
         try:
             cone_solid = cone_solid.cut(inner_solid)
-        except Exception:
-            pass  # If inner cut fails, return solid cone — safer than crashing
+        except Exception as exc:
+            # Previously this returned the SOLID cone. A caller that asked for
+            # a 2 mm wall then received a solid part with no indication —
+            # dimensionally wrong, and invisible to every downstream check
+            # because a solid cone is perfectly valid geometry. Failing here
+            # lets the critic loop retry with feedback instead.
+            raise ValueError(
+                f"Nose cone hollowing failed for wall_thickness="
+                f"{wall_thickness}mm: {exc}. Returning a solid cone would "
+                f"silently ignore the requested wall thickness — retry with a "
+                f"thicker wall or a simpler profile."
+            ) from exc
 
     return cone_solid
 
@@ -1792,8 +1907,14 @@ def make_fuselage_loft(
                 cq.Solid.makeLoft(inner_wires)
             ])
             skin = oml_solid.cut(inner_solid)
-        except Exception:
-            skin = oml_solid  # Fallback: solid fuselage if shell cut fails
+        except Exception as exc:
+            # A solid fuselage where a shelled one was requested is a wrong
+            # part, not a fallback — make it visible rather than shipping it.
+            raise ValueError(
+                f"Fuselage shell cut failed for wall_thickness="
+                f"{wall_thickness}mm: {exc}. A solid fuselage would silently "
+                f"ignore the requested wall thickness."
+            ) from exc
 
     # Build the assembly
     assembly = cq.Assembly()
@@ -1840,8 +1961,10 @@ def make_fuselage_loft(
                 )
                 frame = frame.cut(inner_void)
                 assembly.add(frame, name=f"frame_{i}")
-            except Exception:
-                pass  # Non-fatal: frame generation may fail on complex geometry
+            except Exception as exc:
+                # Non-fatal, but a fuselage silently missing internal frames is
+                # not the part that was asked for — say which one was dropped.
+                print(f"FRAME_SKIPPED: frame_{i} not generated: {exc}")
 
     result = assembly
     return result

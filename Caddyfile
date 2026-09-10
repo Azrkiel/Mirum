@@ -1,0 +1,48 @@
+# Caddyfile — public entry point for a hosted Mirum deployment.
+#
+# Streamlit ships no authentication of its own, and Mirum's pipeline
+# executes LLM-authored Python and spends Gemini quota on every request.
+# This proxy is therefore the security boundary for the whole deployment:
+# basic auth here is what stops an anonymous visitor from driving the
+# generator.
+#
+# Configured entirely through environment variables set in .env
+# (see .env.example and docs/deployment.md):
+#
+#   MIRUM_SITE_ADDRESS     ":80" (default, plain HTTP — fine for a bare IP)
+#                          or "mirum.example.com" for automatic HTTPS
+#   MIRUM_BASIC_AUTH_USER  login username (default: mirum)
+#   MIRUM_BASIC_AUTH_HASH  bcrypt hash from `caddy hash-password`
+#   MIRUM_ACME_EMAIL       Let's Encrypt contact address (domains only)
+
+{
+	# Only used when MIRUM_SITE_ADDRESS is a real domain; ignored for :80.
+	email {$MIRUM_ACME_EMAIL}
+}
+
+{$MIRUM_SITE_ADDRESS::80} {
+	# --- Authentication gate -------------------------------------------
+	# The hash is generated with:  docker run --rm caddy:2-alpine caddy hash-password --plaintext 'your-password'
+	# Never put the plaintext password in this file or in .env.
+	basic_auth {
+		{$MIRUM_BASIC_AUTH_USER:mirum} {$MIRUM_BASIC_AUTH_HASH}
+	}
+
+	# --- Security headers ----------------------------------------------
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# HSTS only makes sense once a real certificate is in play; it is
+		# harmless over plain HTTP because browsers ignore it there.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# --- Proxy to Streamlit ---------------------------------------------
+	# reverse_proxy upgrades WebSocket connections automatically, which
+	# Streamlit needs for /_stcore/stream. Long model generations stream
+	# frontend->backend on the internal network, not through this hop, so
+	# no special buffering configuration is required here.
+	reverse_proxy frontend:8501
+}

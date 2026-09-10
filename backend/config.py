@@ -30,11 +30,28 @@ GEMINI_MODEL_LITE: str = "gemini-3.5-flash"
 # Pipeline tuning knobs
 # ---------------------------------------------------------------------------
 
-# Maximum Machinist retries per part before the Critic Loop gives up
-CRITIC_MAX_RETRIES: int = 3
+import os as _os_cfg
 
-# Timeout (seconds) for a single CadQuery subprocess execution
-CADQUERY_TIMEOUT_S: int = 30
+# Maximum Machinist retries per part before the Critic Loop gives up
+CRITIC_MAX_RETRIES: int = int(_os_cfg.environ.get("MIRUM_CRITIC_MAX_RETRIES", "3"))
+
+# Timeout (seconds) for a single CadQuery subprocess execution.
+# Clamped to [5, 60]: the sandbox contract caps script runtime so a
+# misconfigured env var can never silently disable the timeout invariant.
+CADQUERY_TIMEOUT_S: int = max(
+    5, min(int(_os_cfg.environ.get("MIRUM_CADQUERY_TIMEOUT_S", "30")), 60)
+)
+
+# Dimension-vs-spec gate: relative tolerance on REA key_dimensions vs the
+# measured bounding box, plus an absolute floor so tiny dims don't false-fail.
+DIM_TOLERANCE_REL: float = float(_os_cfg.environ.get("MIRUM_DIM_TOL", "0.05"))
+DIM_TOLERANCE_ABS_MM: float = 0.1
+
+# LVM code-judge in the production hot path. Off by default: the score is
+# analytics-only (nothing reads it at runtime) and costs one Gemini call per
+# successful part. The eval harness calls compute_lvm_score directly and is
+# unaffected by this flag.
+LVM_SCORE_IN_PROD: bool = _os_cfg.environ.get("MIRUM_LVM_IN_PROD", "0") in ("1", "true", "yes")
 
 # RLAIF hybrid reward weights (must sum to 1.0)
 RLAIF_EXEC_WEIGHT: float = 0.7

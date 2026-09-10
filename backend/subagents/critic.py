@@ -93,7 +93,7 @@ class CriticSubagent(SubagentBase):
         max_retries = self.max_retries if self.max_retries is not None else CRITIC_MAX_RETRIES
 
         t0 = time.perf_counter()
-        code, step_path = await run_critic_loop(
+        code, step_path, _report = await run_critic_loop(
             part_def,
             max_retries=max_retries,
             save_step=self.save_step,
@@ -145,7 +145,7 @@ class AssemblyCriticSubagent(SubagentBase):
             )
 
         t0 = time.perf_counter()
-        final_script = await run_assembly_critic_loop(manifest, step_files)
+        final_script, _asm_report = await run_assembly_critic_loop(manifest, step_files)
         final_script = final_script.replace("output.glb", output_filename)
         latency_ms = (time.perf_counter() - t0) * 1000
 

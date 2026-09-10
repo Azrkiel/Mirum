@@ -46,7 +46,7 @@ If you touch `backend/compiler.py`, `backend/main.py` endpoints, `backend/schema
 
 - Walk the checklist at `.claude/skills/mirum-security-review/SKILL.md` for the relevant section.
 - Dispatch `mirum-security-reviewer` agent (`Agent` tool with `subagent_type: "mirum-security-reviewer"`) before merging.
-- Sandbox invariants you must NOT regress: `_ALLOWED_MODULES = {"cadquery", "cq", "math", "cad_utils"}`, `_BANNED_BUILTINS` (eval/exec/open/getattr/etc.), 1.5GB `RLIMIT_AS`, 30s timeout, no `GEMINI_API_KEY_HEAVY` in subprocess `env`.
+- Sandbox invariants you must NOT regress: `_ALLOWED_MODULES = {"cadquery", "cq", "math", "cad_utils", "cad_aero"}`, `_BANNED_BUILTINS` (eval/exec/open/getattr/etc.), 1.5GB `RLIMIT_AS`, 30s default timeout (`CADQUERY_TIMEOUT_S`, clamped ≤60s), no `GEMINI_API_KEY_HEAVY` in subprocess `env`.
 - Path-safety reference pattern: `backend/main.py:870-873` (resolve + startswith `_WORK_DIR`).
 
 ## Workflow defaults
