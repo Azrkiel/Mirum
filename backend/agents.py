@@ -367,6 +367,36 @@ def _rea_schema_for(prompt: str) -> dict[str, Any]:
     return schema
 
 
+def _agent_model(agent_type: str, default_model: str, **extra) -> tuple[str, dict]:
+    """Resolve (model_id, generation_config) for an agent from the ModelRegistry.
+
+    Until this existed every Gemini call ran at the API's default sampling
+    settings (temperature ~1.0), which is a poor fit for code generation and
+    structured extraction — and it meant the /admin/model-config hot-swap
+    endpoint, plus the whole registry, changed nothing at runtime.
+
+    `default_model` is the fallback when the registry has no usable entry, so
+    a registry miss or a hot-swap that blanked the model id can never send an
+    empty model name to the API. `extra` (response_mime_type, response_schema)
+    is merged last and always wins.
+    """
+    cfg = None
+    try:
+        from subagents.model_registry import ModelRegistry  # noqa: PLC0415
+        cfg = ModelRegistry.instance().get(agent_type)
+    except Exception as exc:  # pragma: no cover — registry is pure-python
+        logger.debug("ModelRegistry unavailable for %r: %s", agent_type, exc)
+
+    model_id = getattr(cfg, "model_id", "") or default_model
+    gen: dict = {}
+    if cfg is not None and cfg.model_id:
+        gen["temperature"] = cfg.temperature
+        if cfg.max_tokens:
+            gen["max_output_tokens"] = cfg.max_tokens
+    gen.update(extra)
+    return model_id, gen
+
+
 async def run_rea(prompt: str) -> "DesignRequirements | None":
     """T2-12: Requirements Engineering Agent.
 
@@ -379,8 +409,9 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
     """
     _REA_SCHEMA = _rea_schema_for(prompt)
 
+    _rea_model, _rea_gen = _agent_model("rea", MODEL_PRO)
     model = genai.GenerativeModel(
-        model_name=MODEL_PRO,
+        model_name=_rea_model,
         system_instruction=(
             "You are a mechanical engineering requirements analyst. "
             "Extract structured design requirements from the user's CAD design brief. "
@@ -424,6 +455,7 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
         response = await model.generate_content_async(
             f"Extract design requirements from this brief:\n\n{prompt}",
             generation_config={
+                **_rea_gen,
                 "response_mime_type": "application/json",
                 "response_schema": _REA_SCHEMA,
             },
@@ -471,8 +503,9 @@ async def run_clarifier(prompt: str) -> list[str]:
 
     This is a fast, cheap call — it should complete in <5 seconds.
     """
+    _clar_model, _clar_gen = _agent_model("clarifier", MODEL_LITE)
     model = genai.GenerativeModel(
-        model_name=MODEL_LITE,
+        model_name=_clar_model,
         system_instruction=(
             "You are a mechanical engineering requirements analyst. "
             "Given a user's 3D CAD design prompt, identify ONLY the most critical "
@@ -492,6 +525,7 @@ async def run_clarifier(prompt: str) -> list[str]:
         response = await model.generate_content_async(
             f"Identify missing specifications in this design prompt:\n\n{prompt}",
             generation_config={
+                **_clar_gen,
                 "response_mime_type": "application/json",
                 "response_schema": {
                     "type": "object",
@@ -521,8 +555,9 @@ async def run_planner(
     Converts a natural-language mechanical request into a structured
     AssemblyManifest using Gemini's structured output mode.
     """
+    _plan_model, _plan_gen = _agent_model("planner", MODEL_PRO)
     model = genai.GenerativeModel(
-        model_name=MODEL_PRO,
+        model_name=_plan_model,
         system_instruction=(
             "You are the Chief Draftsman for a mechanical CAD system. "
             "Convert the user's mechanical request into a strict AssemblyManifest JSON. "
@@ -621,13 +656,15 @@ async def run_planner(
 
     schema = _get_gemini_schema()
     logger.info(
-        "run_planner: calling Gemini (model=%s, prompt=%d chars, has_requirements=%s)",
-        MODEL, len(planner_input), requirements is not None,
+        "run_planner: calling Gemini (model=%s, temp=%s, prompt=%d chars, has_requirements=%s)",
+        _plan_model, _plan_gen.get("temperature"), len(planner_input),
+        requirements is not None,
     )
     llm_t0 = time.monotonic()
     response = await model.generate_content_async(
         planner_input,
         generation_config={
+            **_plan_gen,
             "response_mime_type": "application/json",
             "response_schema": schema,
         },
@@ -698,6 +735,7 @@ async def run_machinist(
     error_context: str = "",
     retry_failure_class: str | None = None,
     retry_techniques: list[str] | None = None,
+    is_final_retry: bool = False,
 ) -> str:
     """Subagent 2: The Machinist.
 
@@ -710,13 +748,25 @@ async def run_machinist(
     working example of the exact pattern that just blew up, instead of more
     semantically-similar parts that share the same broken technique.
 
-    All attempts use the Heavy flash model (Pro escalation on retries was
-    removed; see run_critic_loop for the retry policy).
+    Model selection: Heavy (flash) for every attempt except the LAST, which
+    escalates to the Pro-tier "critic" config. Escalating on every retry was
+    removed previously for cost; escalating only on the final attempt spends
+    Pro tokens exactly where they are worth most — the hardest parts, on the
+    one attempt that carries the complete failure history and is the last
+    chance before the part is delivered degraded or lost.
+
+    Sampling comes from the ModelRegistry (machinist temp 0.2) rather than
+    the API default of ~1.0, which is far too loose for code generation.
     """
     system_prompt = get_strategy(domain, part_def.description)
 
-    # Always use Heavy (gemini-3.5-flash) — Pro escalation on retries removed.
-    active_model = MODEL
+    agent_type = "critic" if is_final_retry else "machinist"
+    active_model, gen_config = _agent_model(agent_type, MODEL_PRO if is_final_retry else MODEL)
+    if is_final_retry:
+        logger.info(
+            "run_machinist: final retry for %r — escalating to %s",
+            part_def.part_id, active_model,
+        )
     model = genai.GenerativeModel(
         model_name=active_model,
         system_instruction=system_prompt,
@@ -766,14 +816,16 @@ async def run_machinist(
             f"Return the complete corrected script."
         )
 
-    response = await model.generate_content_async(prompt)
+    response = await model.generate_content_async(
+        prompt, generation_config=gen_config or None
+    )
 
     # Log token usage for cost analysis (T1-10)
     try:
         usage = response.usage_metadata
         from telemetry import log_token_usage
         log_token_usage(
-            agent=f"machinist_{domain}",
+            agent=f"machinist_{domain}" + ("_pro" if is_final_retry else ""),
             prompt_tokens=usage.prompt_token_count or 0,
             completion_tokens=usage.candidates_token_count or 0,
         )
@@ -1009,6 +1061,10 @@ async def run_critic_loop(
                 error_context=error_context,
                 retry_failure_class=retry_failure_class,
                 retry_techniques=retry_techniques,
+                # Escalate only when this is the last attempt AND we have
+                # failure history to reason about — a single-attempt budget
+                # should not silently become a Pro-priced request.
+                is_final_retry=final_attempt and attempt > 1,
             )
             result = await execute_cad_script(code)
 
@@ -1136,6 +1192,25 @@ async def run_critic_loop(
         raise ScriptError(f"Part '{part_def.part_id}' failed unexpectedly.")
 
 
+def group_parts_by_description(
+    parts: list[PartDefinition],
+) -> list[tuple[PartDefinition, list[str]]]:
+    """Group parts whose descriptions are identical so geometry is built once.
+
+    The Planner is explicitly instructed to emit identical parts as separate
+    entries (`leg_1`..`leg_4` rather than one `legs`), which is right for the
+    manifest but means a four-legged table otherwise pays 4x classify +
+    Machinist + STEP export to produce four copies of one solid.
+
+    Returns [(representative_part, [every part_id sharing that description])].
+    Order follows first appearance, so build order stays planner-defined.
+    """
+    groups: dict[str, list[PartDefinition]] = {}
+    for part in parts:
+        groups.setdefault(part.description, []).append(part)
+    return [(g[0], [p.part_id for p in g]) for g in groups.values()]
+
+
 async def run_machinist_batch(
     parts: list[PartDefinition],
 ) -> tuple[dict[str, str], dict[str, str], dict[str, CheckReport]]:
@@ -1150,31 +1225,20 @@ async def run_machinist_batch(
         part_id to validated code, pre-compiled .step file path, and the
         attempt's CheckReport.
     """
-    # Group parts by description for deduplication
-    desc_to_parts: dict[str, list[PartDefinition]] = {}
-    for part in parts:
-        desc_to_parts.setdefault(part.description, []).append(part)
+    groups = group_parts_by_description(parts)
+    results = await asyncio.gather(*[run_critic_loop(rep) for rep, _ in groups])
 
-    # Build one representative per unique description
-    unique_parts = [group[0] for group in desc_to_parts.values()]
-
-    tasks = [run_critic_loop(part) for part in unique_parts]
-    results = await asyncio.gather(*tasks)
-
-    # Map representative description -> (code, step_path, report)
-    desc_to_result = {
-        part.description: result for part, result in zip(unique_parts, results)
-    }
-
-    # Fan out cached results to all parts sharing the same description
+    # Fan the one build out to every part_id sharing that description. The
+    # STEP path is shared deliberately: the assembler emits a separate
+    # importStep + assembly.add per part_id, so one file backs N instances.
     part_scripts: dict[str, str] = {}
     step_files: dict[str, str] = {}
     check_reports: dict[str, CheckReport] = {}
-    for part in parts:
-        code, step_path, report = desc_to_result[part.description]
-        part_scripts[part.part_id] = code
-        step_files[part.part_id] = step_path
-        check_reports[part.part_id] = report
+    for (_rep, part_ids), (code, step_path, report) in zip(groups, results):
+        for pid in part_ids:
+            part_scripts[pid] = code
+            step_files[pid] = step_path
+            check_reports[pid] = report
 
     return part_scripts, step_files, check_reports
 
@@ -1797,8 +1861,9 @@ async def run_refiner(
         if r.source_part_id != r.target_part_id
     )
 
+    _ref_model, _ref_gen = _agent_model("refiner", MODEL_PRO)
     model = genai.GenerativeModel(
-        model_name=MODEL_PRO,
+        model_name=_ref_model,
         system_instruction=(
             "You are the Chief Draftsman for a mechanical CAD system. "
             "You are given an existing assembly design and a refinement request. "
@@ -1889,6 +1954,7 @@ async def run_refiner(
         response = await model.generate_content_async(
             user_message,
             generation_config={
+                **_ref_gen,
                 "response_mime_type": "application/json",
                 "response_schema": diff_schema,
             },

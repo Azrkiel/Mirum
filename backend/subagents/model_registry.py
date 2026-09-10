@@ -25,6 +25,7 @@ Default table (from config.py constants):
   assembler     —  (no LLM)        n/a          n/a         None
   rea           GEMINI_PRO         0.2          2048        GEMINI_HEAVY
   clarifier     GEMINI_LITE        0.4          1024        None
+  classifier    GEMINI_LITE        0.0          1024        None
   aero          —  (no LLM)        n/a          n/a         None
   refiner       GEMINI_PRO         0.3          8192        None
 """
@@ -122,6 +123,16 @@ class ModelRegistry:
             "clarifier": ModelConfig(
                 model_id=GEMINI_MODEL_LITE,
                 temperature=0.4,
+                max_tokens=1024,
+                lite_fallback="",
+            ),
+            # Domain routing is a closed-set classification, so it wants the
+            # most deterministic setting available — a temperature-driven
+            # coin-flip between Domain A and Domain D swaps the entire
+            # strategy prompt out from under the Machinist.
+            "classifier": ModelConfig(
+                model_id=GEMINI_MODEL_LITE,
+                temperature=0.0,
                 max_tokens=1024,
                 lite_fallback="",
             ),

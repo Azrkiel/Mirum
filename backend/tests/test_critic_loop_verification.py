@@ -60,10 +60,12 @@ class Harness:
             return {"domain": "A"}
 
         async def fake_machinist(part_def, domain="A", error_context="",
-                                 retry_failure_class=None, retry_techniques=None):
+                                 retry_failure_class=None, retry_techniques=None,
+                                 is_final_retry=False):
             self.machinist_calls.append({
                 "error_context": error_context,
                 "retry_failure_class": retry_failure_class,
+                "is_final_retry": is_final_retry,
             })
             return f"import cadquery as cq\nresult = cq.Workplane().box(1,1,1)  # v{len(self.machinist_calls)}"
 
@@ -170,6 +172,18 @@ def test_history_accumulates_across_mixed_failures(monkeypatch):
     # The third prompt remembers BOTH prior failure modes.
     assert "attempt 1: compile failure" in third_ctx
     assert "attempt 2:" in third_ctx and "dimensions" in third_ctx
+
+
+def test_only_the_last_attempt_escalates_to_pro(monkeypatch):
+    """P2.2: Pro tokens are spent on the final attempt only — the one that
+    carries the full failure history and is the last chance before the part
+    is delivered degraded."""
+    h = Harness(monkeypatch,
+                compile_results=["boom", "boom", True],
+                certs=[GOOD_CERT, GOOD_CERT, GOOD_CERT])
+    asyncio.run(run_critic_loop(PART, max_retries=3, requirements=REQS))
+    flags = [c["is_final_retry"] for c in h.machinist_calls]
+    assert flags == [False, False, True], flags
 
 
 def test_export_failure_consumes_retry_inside_loop(monkeypatch):

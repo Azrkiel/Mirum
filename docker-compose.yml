@@ -22,9 +22,16 @@ services:
       - ./analysis:/opt/analysis:ro   # Phase 3: standalone XFOIL analysis package. Mounted outside /app to avoid nested-bind-mount on read-only rootfs. PYTHONPATH adds /opt in the Dockerfile.
       - backend_tmp_parts:/app/tmp_parts
       - backend_telemetry:/app/telemetry_logs
+      # Telemetry on a NAMED VOLUME, not the tmpfs below. The few-shot
+      # retrieval index — the pipeline's only learning mechanism — is rebuilt
+      # from critic_loop.jsonl at startup, so with the default /tmp path every
+      # restart threw away the entire corpus of past successful generations.
+      - backend_telemetry_data:/var/lib/mirum/telemetry
     read_only: true
     tmpfs:
       - /tmp:size=256M
+    environment:
+      - MIRUM_TELEMETRY_DIR=${MIRUM_TELEMETRY_DIR:-/var/lib/mirum/telemetry}
     env_file:
       - .env
     healthcheck:
@@ -91,5 +98,6 @@ services:
 volumes:
   backend_tmp_parts:
   backend_telemetry:
+  backend_telemetry_data:
   caddy_data:
   caddy_config:

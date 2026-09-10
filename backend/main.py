@@ -31,6 +31,7 @@ from slowapi.util import get_remote_address
 from agents import (
     _remove_quiet,
     ScriptError,
+    group_parts_by_description,
     apply_manifest_diff,
     cleanup_tmp_parts,
     extract_kinematic_metadata,
@@ -709,17 +710,30 @@ async def _pipeline_inner(
         for i, part in enumerate(parts, 1):
             yield _event(labels[part.part_id], "running", f"Manufacturing part {i}/{len(parts)}")
 
-        # Run concurrently with semaphore-based rate limiting
-        async def _build_part(part):
-            code, step_path, report = await run_critic_loop(
-                part, requirements=requirements, dims_part_scoped=True,
+        # Identical parts are built ONCE. The Planner is told to emit
+        # `leg_1`..`leg_4` separately, so without this a four-legged table
+        # pays 4x classify + Machinist + STEP export for one geometry. The
+        # STEP path is shared across the group: the assembler emits its own
+        # importStep + assembly.add per part_id, so one file backs N
+        # instances at their own positions.
+        groups = group_parts_by_description(parts)
+        n_saved = len(parts) - len(groups)
+        if n_saved:
+            logger.info(
+                "Deduplicated %d identical part(s): building %d unique geometries "
+                "for %d parts", n_saved, len(groups), len(parts),
             )
-            return part.part_id, code, step_path, report
+
+        async def _build_group(rep, part_ids):
+            code, step_path, report = await run_critic_loop(
+                rep, requirements=requirements, dims_part_scoped=True,
+            )
+            return part_ids, code, step_path, report
 
         # ensure_future so in-flight siblings can be cancelled when the first
         # part fails — otherwise they keep burning Gemini calls and
         # subprocesses producing output that is guaranteed to be discarded.
-        tasks = [asyncio.ensure_future(_build_part(part)) for part in parts]
+        tasks = [asyncio.ensure_future(_build_group(rep, pids)) for rep, pids in groups]
 
         async def _cancel_siblings():
             for t in tasks:
@@ -730,18 +744,26 @@ async def _pipeline_inner(
         part_scripts: dict[str, str] = {}
         for coro in asyncio.as_completed(tasks):
             try:
-                part_id, code, step_path, report = await coro
-                part_scripts[part_id] = code
-                step_files[part_id] = step_path
-                _part_reports[part_id] = report
-                if report.degraded:
-                    yield _event(
-                        labels[part_id], "done",
-                        f"Part '{part_id}' delivered with warnings: "
-                        + _safe_error("; ".join(report.failure_messages())[:400]),
+                part_ids, code, step_path, report = await coro
+                for part_id in part_ids:
+                    part_scripts[part_id] = code
+                    step_files[part_id] = step_path
+                    _part_reports[part_id] = report
+                    shared = (
+                        "" if len(part_ids) == 1
+                        else f" (shared build with {len(part_ids) - 1} identical part(s))"
                     )
-                else:
-                    yield _event(labels[part_id], "done", f"Part '{part_id}' validated")
+                    if report.degraded:
+                        yield _event(
+                            labels[part_id], "done",
+                            f"Part '{part_id}' delivered with warnings: "
+                            + _safe_error("; ".join(report.failure_messages())[:400]),
+                        )
+                    else:
+                        yield _event(
+                            labels[part_id], "done",
+                            f"Part '{part_id}' validated{shared}",
+                        )
             except ScriptError as e:
                 logger.exception("Machinist failed (multi-part)")
                 await _cancel_siblings()
