@@ -80,7 +80,9 @@ class Harness:
                 raise ScriptError("export blew up", script=script)
             return f"/tmp/fake_{part_id}_{self.attempt}.step"
 
-        def fake_certify(step_path, propulsion_spec=None):
+        def fake_certify(step_path, propulsion_spec=None, density_kg_m3=None):
+            # density_kg_m3 is passed so the certificate can scale the inertia
+            # tensor; the stub ignores the value but must accept the kwarg.
             return self._certs[self.attempt - 1]
 
         def fake_log_attempt(**kwargs):
@@ -280,7 +282,8 @@ def _stub_pipeline(monkeypatch, step_path, *, export_status="error"):
     async def _critic(part, **kwargs):
         return "result = None", step_path, report
 
-    async def _export(_code, _out):
+    async def _export(_code, _out, _step="", _stl=""):
+        # run_single_part_export now also emits STEP/STL paths.
         return "result = None"
 
     async def _execute(_script):

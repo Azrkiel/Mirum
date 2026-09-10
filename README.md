@@ -3,10 +3,13 @@
 **Deterministic Text-to-Assembly Orchestration for Precision Engineering**
 
 Mirum converts a natural-language part description into a validated,
-manufacturing-ready 3D assembly — a mathematically exact B-Rep solid,
-not a polygon mesh — in under 60 seconds. It targets aerospace, defense,
-and precision-mechanical applications where dimensional accuracy and
-topological correctness are non-negotiable.
+3D assembly as a mathematically exact B-Rep solid — not a polygon mesh —
+typically in 30-90 seconds. It targets aerospace, defense, and
+precision-mechanical applications where dimensional accuracy and topological
+correctness are non-negotiable.
+
+Output is a verified starting point for an engineer, not a drawing-released
+part: read Limitations before relying on it.
 
 ---
 
@@ -161,14 +164,68 @@ entire process group on timeout.
 
 ---
 
+---
+
+## Limitations
+
+Known and deliberate, as of 2026-09. An engineer evaluating Mirum should read
+this section first.
+
+**Threads are cosmetic.** `make_metric_thread` and the bolt/nut helpers produce
+a *simplified thread representation* (ISO 6410 / ASME Y14.6 sense): the major
+diameter is correct to caliper, but the ribs are annular, not helical. Usable
+for envelope, mass and clearance studies; not cuttable geometry and not a
+mating thread form.
+
+**No PMI / GD&T.** STEP output carries geometry only — no tolerances, datums,
+surface finish or annotations. Tolerance callouts in a prompt are parsed but
+never applied to geometry.
+
+**No 2D drawings.** No dimensioned views, section views, title blocks or
+drawing sheets.
+
+**Millimetres only.** There is no imperial mode and no unit selector.
+
+**Structural and propulsion reports are sizing-grade, computed from the
+*stated* spec — not measured from the generated solid.** They use closed-form
+beam idealisations, not FEA. A part whose modelled section differs from the
+stated one can still show a positive margin. Aerodynamic polars (XFOIL/AVL)
+*are* run on the generated geometry.
+
+**Dimensional conformance is checked to 5% relative tolerance** against
+requirements extracted from the prompt, and only against the bounding box.
+Internal feature dimensions are checked for impossibility, not accuracy.
+
+**No manufacturability checks** — no draft angle, minimum wall thickness,
+undercut, tool-access or machinability analysis.
+
+**Assembly scale is limited.** Concurrency is 3 parts at a time and the client
+holds a single streaming request, so assemblies beyond roughly 15-20 unique
+parts risk timing out. There is no job queue or resumability yet.
+
+**Nothing persists.** There is no project history or part library; a browser
+refresh clears the session. Generated files remain downloadable for 6 hours.
+
+**Domain coverage is aerospace-weighted.** Strong: airfoils/wings (real NACA
+maths and XFOIL), nose cones, nozzles, involute gears, ISO hex fasteners.
+Absent: weldments, sheet-metal flat patterns and bend tables, injection-mould
+draft, O-ring grooves, piping, structural extrusions, fastener libraries beyond
+M3-M20 hex.
+
+
 ## Quick Start
 
 ```bash
-# Prerequisites: Docker + Docker Compose + two Gemini API keys
+# Prerequisites: Docker + Docker Compose + a Gemini API key
 
-export GEMINI_API_KEY_HEAVY="your_heavy_tier_key"
-export GEMINI_API_KEY_LITE="your_lite_tier_key"
+# REQUIRED. The backend raises at import without it.
+export GEMINI_API_KEY_HEAVY="your_key"
 
+# OPTIONAL. Planner/REA (Pro tier). Falls back to the Heavy key when unset —
+# set it only if your Pro quota lives on a separate key.
+# export GEMINI_API_KEY_PRO="your_pro_key"
+
+cp .env.example .env    # then fill in the values above plus MIRUM_API_KEY
 docker compose up --build
 # → http://localhost:8000   (API)
 # → http://localhost:8501   (Streamlit frontend)
@@ -254,10 +311,20 @@ from applying organic-surface strategies to structural parts (and vice versa),
 eliminating an entire class of generation failures before they occur.
 
 **Compile-and-verify loop** — Every part is compiled against the live OCC
-kernel. Failures return tracebacks to the Machinist for self-correction (up to
-3 retries). The loop has produced > 90% first-attempt compile success rates on
-the internal QA harness.
+kernel, then verified: geometry certificate (volume, topology, degenerate
+faces), a dimension check against the extracted requirements at 5% tolerance,
+and Domain C surface-continuity gates. Any failed check consumes a retry and
+feeds measured feedback plus the previous script back to the Machinist.
 
-**Manufacturing-grade output** — Output is STEP (ISO 10303-21), not STL or
-GLB alone. STEP files carry exact B-Rep geometry, tolerance annotations (PMI),
-and can be imported directly into CAM software (Fusion 360, Mastercam, CATIA).
+Measured on the internal 82-prompt harness (`output/qa-reports/`): **95% of
+prompts complete within 3 retries** (78/82), median 27s, p95 98s for the
+part-generation stage. "Complete" means the script compiled and produced a
+valid solid — not that the geometry matches intent. Planner and REA latency is
+additional.
+
+**B-Rep output** — Every run produces STEP (ISO 10303-21) alongside STL and
+GLB, downloadable from the UI. STEP carries exact B-Rep geometry and imports
+into SolidWorks, NX, Onshape, Fusion 360 and CAM packages. Assembly STEP
+preserves per-part names.
+
+STEP files do **not** currently carry PMI / GD&T annotations — see Limitations.

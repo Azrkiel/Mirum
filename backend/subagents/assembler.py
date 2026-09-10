@@ -154,12 +154,17 @@ class AssemblerSubagent(SubagentBase):
         if len(step_files) < 2:
             return True, ""
         try:
-            from agents import check_interpenetration  # noqa: PLC0415
-            result = check_interpenetration(list(step_files.values()))
-            if result and not result.passed:
-                return False, result.description or "interpenetration detected"
+            # The function is `check_assembly_interpenetration`; importing the
+            # non-existent `check_interpenetration` meant the ImportError below
+            # fired on every call and this check ALWAYS reported "clean".
+            from agents import check_assembly_interpenetration  # noqa: PLC0415
+            violations = check_assembly_interpenetration(step_files)
+            if violations:
+                pairs = ", ".join(f"{a}<->{b}" for a, b in violations)
+                return False, f"interpenetration detected between: {pairs}"
             return True, ""
-        except (ImportError, AttributeError):
-            return True, ""  # check not available — advisory only
+        except ImportError as exc:
+            # Genuinely unavailable — say so rather than implying a clean check.
+            return True, f"interp_check_unavailable: {exc}"
         except Exception as exc:  # noqa: BLE001
             return True, f"interp_check_error: {exc}"

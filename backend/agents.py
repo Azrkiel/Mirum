@@ -32,7 +32,11 @@ logger = logging.getLogger("mirum.agents")
 
 from classifier import classify_part
 from compiler import _WORK_DIR, execute_cad_script
-from failure_analysis import build_retry_context, classify_failure
+from failure_analysis import (
+    build_retry_context,
+    classify_failure,
+    user_facing_failure,
+)
 from propulsion.rea_schema import (
     mentions_propulsion,
     propulsion_rea_schema_extension,
@@ -91,11 +95,19 @@ def cleanup_tmp_parts() -> None:
 
 
 class ScriptError(RuntimeError):
-    """RuntimeError subclass that carries the last attempted CadQuery script."""
+    """RuntimeError subclass carrying the last script plus a user-facing message.
 
-    def __init__(self, message: str, script: str = ""):
+    ``str(exc)`` stays operator-grade (failure class, hints, traceback) for
+    telemetry and debugging. ``user_message`` is the short, actionable text
+    meant for the person who typed the prompt — without it the API was
+    surfacing the Machinist's own retry prompt, including its previous code
+    and a raw OCCT traceback, straight into the UI.
+    """
+
+    def __init__(self, message: str, script: str = "", user_message: str = ""):
         super().__init__(message)
         self.script = script
+        self.user_message = user_message
 
 # Max concurrent Machinist calls (respects Gemini rate limits)
 _MACHINIST_SEMAPHORE = asyncio.Semaphore(3)
@@ -926,7 +938,16 @@ async def _verify_attempt(
     cert: dict | None = None
     try:
         from verification.geometry import certify_geometry
-        cert = dict(certify_geometry(step_path))
+        # Density lets the certificate report a real inertia tensor rather
+        # than an unscaled unit-density number.
+        _density = None
+        try:
+            from verification.material import resolve_material
+            _mat = getattr(requirements, "material_class", None) if requirements else None
+            _, _density = resolve_material(_mat)
+        except Exception:
+            _density = None
+        cert = dict(certify_geometry(step_path, density_kg_m3=_density))
         occ_missing = any("OCC not available" in f for f in cert.get("failures", []))
         report.add(CheckResult(
             "cert",
@@ -1102,6 +1123,9 @@ async def run_critic_loop(
                         f"Part '{part_def.part_id}' failed after {max_retries} attempts. "
                         f"Last error:\n{error_context}",
                         script=code,
+                        user_message=user_facing_failure(
+                            failure_op, part_def.part_id, max_retries,
+                        ),
                     )
                 retry_failure_class = failure_op
                 retry_techniques = extract_techniques(code)
@@ -1164,6 +1188,9 @@ async def run_critic_loop(
                         f"Part '{part_def.part_id}' compiled but could not be "
                         f"exported after {max_retries} attempts:\n{failure_summary}",
                         script=code,
+                        user_message=user_facing_failure(
+                            failure_class, part_def.part_id, max_retries,
+                        ),
                     )
                 logger.warning(
                     "Part %r delivered DEGRADED after %d attempts: %s",
@@ -1243,13 +1270,56 @@ async def run_machinist_batch(
     return part_scripts, step_files, check_reports
 
 
-async def run_single_part_export(part_script: str, output_filename: str) -> str:
-    """Generate a simple export script for single-part models (no assembly).
+# Emitted verbatim into generated scripts. Writes the B-rep formats an
+# engineer can actually open in SolidWorks / NX / Onshape / Fusion alongside
+# the GLB the browser viewer needs.
+#
+# Every write is individually guarded: a STEP or STL failure must never cost
+# the user the GLB they can already see, so failures print a marker that the
+# pipeline logs rather than raising.
+_CAD_EXPORT_STANZA = """
+def _mirum_export_cad(_shape, _step_path, _stl_path):
+    import cadquery as _cq
+    _solid = _shape
+    if isinstance(_shape, _cq.Assembly):
+        try:
+            _shape.save(_step_path)
+        except Exception as _e:
+            print('STEP_EXPORT_FAILED: %s' % _e)
+        try:
+            _solid = _shape.toCompound()
+        except Exception as _e:
+            print('STL_EXPORT_FAILED: toCompound: %s' % _e)
+            _solid = None
+    else:
+        try:
+            _cq.exporters.export(_shape, _step_path, exportType='STEP')
+        except Exception as _e:
+            print('STEP_EXPORT_FAILED: %s' % _e)
+    if _solid is not None:
+        try:
+            _cq.exporters.export(_solid, _stl_path, exportType='STL')
+        except Exception as _e:
+            print('STL_EXPORT_FAILED: %s' % _e)
+"""
+
+
+async def run_single_part_export(
+    part_script: str,
+    output_filename: str,
+    step_filename: str = "",
+    stl_filename: str = "",
+) -> str:
+    """Generate the export script for single-part models (no assembly).
 
     If the Machinist already produced a cq.Assembly (e.g., Domain D subsystem),
     we save it directly instead of nesting it inside another assembly.
+
+    When step/stl paths are supplied the same solid is also written in those
+    formats, so the user receives real B-rep geometry rather than only the
+    viewer's mesh.
     """
-    return (
+    script = (
         f"{part_script}\n\n"
         f"import cadquery as cq\n"
         f"if isinstance(result, cq.Assembly):\n"
@@ -1259,11 +1329,37 @@ async def run_single_part_export(part_script: str, output_filename: str) -> str:
         f"    _export_asm.add(result, name='part')\n"
         f"    _export_asm.save('{output_filename}')\n"
     )
+    if step_filename and stl_filename:
+        script += (
+            f"{_CAD_EXPORT_STANZA}\n"
+            f"_mirum_export_cad(result, r'{step_filename}', r'{stl_filename}')\n"
+        )
+    return script
 
 
 # --------------------------------------------------------------------------
 # Phase 1: Deterministic Assembler (ZERO LLM involvement)
 # --------------------------------------------------------------------------
+
+def _assembly_save_lines() -> list[str]:
+    """Script lines that save an assembly as GLB + STEP + STL.
+
+    Placeholders (`output.glb` / `output.step` / `output.stl`) are rewritten
+    by the caller to per-run paths. STEP and STL are wrapped so an export
+    failure degrades the download set rather than failing the whole assembly.
+    """
+    return [
+        "assembly.save('output.glb')",
+        "try:",
+        "    assembly.save('output.step')",
+        "except Exception as _step_err:",
+        "    print('STEP_EXPORT_FAILED: %s' % _step_err)",
+        "try:",
+        "    cq.exporters.export(assembly.toCompound(), 'output.stl', exportType='STL')",
+        "except Exception as _stl_err:",
+        "    print('STL_EXPORT_FAILED: %s' % _stl_err)",
+    ]
+
 
 def run_assembler(
     manifest: AssemblyManifest,
@@ -1318,10 +1414,12 @@ def run_assembler(
         lines.append("")
         added.add(pid)
 
-    # Only .glb is returned to the client. We intentionally do NOT write
-    # output.step here — every concurrent request would race on the same
-    # filename, and no downstream consumer reads it.
-    lines.append("assembly.save('output.glb')")
+    # The caller substitutes real per-run paths for these placeholders, so the
+    # filename race that previously justified withholding STEP is gone: every
+    # run writes into its own uuid-named directory. An assembly STEP preserves
+    # the per-part names set by assembly.add(name=...) above, which is what
+    # makes the file useful in a real CAD tree.
+    lines.extend(_assembly_save_lines())
 
     return "\n".join(lines)
 
@@ -1512,7 +1610,7 @@ def run_assembler_constraint(
     lines.append("except Exception as _solve_err:")
     lines.append("    print(f'SOLVER_FAILURE: {_solve_err}')")
     lines.append("")
-    lines.append("assembly.save('output.glb')")
+    lines.extend(_assembly_save_lines())
 
     return "\n".join(lines)
 
@@ -1661,11 +1759,22 @@ async def run_assembly_critic_loop(
                 "Interpenetration at manifest positions: %s",
                 ", ".join(f"{a}↔{b}" for a, b in interp_violations),
             )
+    # Overlap can be intentional (press fits, cosmetic threads), so this does
+    # not fail the report — but it must be VISIBLE. It was previously recorded
+    # as an unconditional pass with the violating pairs buried in `data`, so an
+    # assembly whose parts occupied the same space reported entirely clean.
+    _interp_skipped = not ((not use_constraints or fell_back) and translations)
     report.add(CheckResult(
         "interpenetration",
-        passed=True,  # advisory — overlap can be intentional (press fits)
-        skipped=not ((not use_constraints or fell_back) and translations),
-        data={"pairs": [list(p) for p in interp_violations]},
+        passed=not interp_violations,
+        skipped=_interp_skipped,
+        failures=[
+            f"{a} and {b} occupy the same space — intentional for a press fit, "
+            f"otherwise a positioning error"
+            for a, b in interp_violations
+        ],
+        data={"pairs": [list(p) for p in interp_violations],
+              "advisory": True},
     ))
 
     # Assembly-level geometry certificate + full-set dimension check against

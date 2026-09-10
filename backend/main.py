@@ -48,6 +48,7 @@ from agents import (
 from compiler import execute_cad_script
 from debug import log_error as debug_log_error
 from debug import log_event as debug_log_event
+import artifacts
 from exporters import get_available_formats
 from postprocessing import parameterize_script, has_tolerance_callouts, extract_pmi_from_prompt, attach_pmi_to_step  # T3-08
 
@@ -128,9 +129,26 @@ _AUTH_EXEMPT_PATHS = frozenset({"/health"})
 # development affordance, not a product feature, so it is opt-in per
 # deployment and returns 404 (not 403) when disabled — a disabled endpoint
 # should not advertise its own existence.
-_ENABLE_RUN_ENDPOINT = os.environ.get("MIRUM_ENABLE_RUN_ENDPOINT", "0").lower() in (
-    "1", "true", "yes",
-)
+# Default ON when authentication is configured, OFF when it is not.
+#
+# /run executes a caller-supplied CadQuery script in the sandbox. It is also
+# what the UI's "Run" and "Apply Parameters" buttons call, so hard-disabling it
+# by default broke parameter editing in every shipped deployment — the buttons
+# returned 404 and surfaced as "Script returned no geometry".
+#
+# With MIRUM_API_KEY set, a caller reaching /run has already passed the API-key
+# middleware and (in the compose topology) Caddy basic auth, and the backend is
+# not internet-routable. Such a caller can already drive the same sandbox
+# through /generate on every request, so refusing their own script buys
+# nothing. Without an API key the service is unauthenticated, and the endpoint
+# stays off. MIRUM_ENABLE_RUN_ENDPOINT overrides either way.
+_RUN_ENDPOINT_ENV = os.environ.get("MIRUM_ENABLE_RUN_ENDPOINT", "").strip().lower()
+if _RUN_ENDPOINT_ENV in ("1", "true", "yes"):
+    _ENABLE_RUN_ENDPOINT = True
+elif _RUN_ENDPOINT_ENV in ("0", "false", "no"):
+    _ENABLE_RUN_ENDPOINT = False
+else:
+    _ENABLE_RUN_ENDPOINT = bool(_API_KEY)
 
 
 @asynccontextmanager
@@ -534,11 +552,30 @@ async def _run_struct_stage(
     msg = (
         f"n_ult={flat.n_ultimate_pos:.2f}; CL_cruise={flat.cl_cruise:.3f}; "
         f"bending MS={flat.bending_margin_of_safety:.3f}; "
-        f"shear MS={flat.shear_margin_of_safety:.3f}"
+        f"shear MS={flat.shear_margin_of_safety:.3f} "
+        f"[sizing-grade, from stated inputs]"
     )
-    # NaN/Inf → null sanitisation so JSON serialisation never raises (e.g. MS=inf
-    # when stress is zero).  Mirrors the aero stage's tail.
-    return _sanitize_floats(flat.model_dump()), msg
+
+    # Provenance, stated explicitly because the distinction is easy to miss and
+    # expensive to get wrong: these margins are computed from spec numbers the
+    # REA extracted from the PROMPT — spar-cap area, web thickness, t/c — not
+    # measured from the generated solid. Nothing reconciles the two, so a part
+    # whose modelled caps are thinner than the stated ones can still show a
+    # positive margin. Closed-form beam idealisation, not FEA.
+    # Flat scalars only — the report contract is a flat JSON object (see
+    # tests/test_struct_stage.py), so provenance is prefixed rather than nested.
+    _flat = _sanitize_floats(flat.model_dump())
+    if isinstance(_flat, dict):
+        _flat["provenance_inputs"] = "stated"
+        _flat["provenance_source"] = (
+            "REA extraction from the prompt (aircraft_spec / wing_spec / wing_box_spec)"
+        )
+        _flat["provenance_measured_from_geometry"] = False
+        _flat["provenance_method"] = (
+            "closed-form beam idealisation (two point-area caps, average web shear)"
+        )
+        _flat["provenance_grade"] = "sizing-grade estimate — not FEA, not a stress analysis"
+    return _flat, msg
 
 
 async def _pipeline(
@@ -597,7 +634,14 @@ async def _pipeline_inner(
     # / open / os.remove all resolve to the same writable tmpfs location.
     # Relative names like "output.glb" would land in whatever cwd the
     # subprocess happens to have, which is /app (read-only).
-    output_filename = str(_WORK_DIR / (uuid.uuid4().hex + ".glb"))
+    # Per-run artifact directory. The GLB feeds the browser viewer; the STEP
+    # and STL written beside it are what the engineer actually takes into
+    # SolidWorks / NX / Onshape. Before this the STEP was produced, used for
+    # verification, and deleted — the product could not hand over a CAD file.
+    run_id, _run_dir = artifacts.create_run()
+    output_filename = str(_run_dir / artifacts.FORMATS["glb"][0])
+    step_filename = str(_run_dir / artifacts.FORMATS["step"][0])
+    stl_filename = str(_run_dir / artifacts.FORMATS["stl"][0])
     param_dict = {}  # T1-06: Initialize for both paths
     # Phase 3: hoisted so the post-export aero stage can see the per-part
     # STEP files. Populated only in the multi-part path; empty for single-part.
@@ -633,11 +677,17 @@ async def _pipeline_inner(
                 e,
                 {"part_id": part.part_id, "script_excerpt": (e.script or "")[:1500]},
             )
-            yield _event(label, "error", _safe_error(e))
+            yield _event(
+                label, "error",
+                _safe_error(getattr(e, "user_message", "") or str(e)),
+            )
             error_complete = {
                 "step": "complete",
                 "status": "error",
-                "message": _safe_error(e),
+                "message": _safe_error(
+                    getattr(e, "user_message", "") or str(e)
+                ),
+                "detail": _safe_error(e),   # operator-grade: class, hints, traceback
                 "script": e.script,
             }
             yield f"data: {json.dumps(error_complete)}\n\n"
@@ -669,7 +719,9 @@ async def _pipeline_inner(
 
         # Direct export — no assembler needed
         yield _event("export", "running", "Exporting to .glb")
-        final_script = await run_single_part_export(code, output_filename)
+        final_script = await run_single_part_export(
+            code, output_filename, step_filename, stl_filename,
+        )
         # Parameterize the script for the UI (T1-06)
         final_script, param_dict = parameterize_script(final_script)
         yield _event("script", "done", final_script)
@@ -772,11 +824,17 @@ async def _pipeline_inner(
                     e,
                     {"script_excerpt": (e.script or "")[:1500]},
                 )
-                yield _event("machinist", "error", _safe_error(e))
+                yield _event(
+                    "machinist", "error",
+                    _safe_error(getattr(e, "user_message", "") or str(e)),
+                )
                 error_complete = {
                     "step": "complete",
                     "status": "error",
-                    "message": _safe_error(e),
+                    "message": _safe_error(
+                        getattr(e, "user_message", "") or str(e)
+                    ),
+                    "detail": _safe_error(e),   # operator-grade
                     "script": e.script,
                 }
                 yield f"data: {json.dumps(error_complete)}\n\n"
@@ -802,7 +860,12 @@ async def _pipeline_inner(
             final_script, _asm_report = await run_assembly_critic_loop(
                 manifest, step_files, requirements=requirements,
             )
-            final_script = final_script.replace("output.glb", output_filename)
+            final_script = (
+                final_script
+                .replace("output.glb", output_filename)
+                .replace("output.step", step_filename)
+                .replace("output.stl", stl_filename)
+            )
         except ScriptError as e:
             logger.exception("Assembler failed")
             debug_log_error(
@@ -814,7 +877,10 @@ async def _pipeline_inner(
             error_complete = {
                 "step": "complete",
                 "status": "error",
-                "message": _safe_error(e),
+                "message": _safe_error(
+                    getattr(e, "user_message", "") or str(e)
+                ),
+                "detail": _safe_error(e),   # operator-grade: class, hints, traceback
                 "script": e.script,
             }
             yield f"data: {json.dumps(error_complete)}\n\n"
@@ -900,7 +966,8 @@ async def _pipeline_inner(
 
     with open(output_filename, "rb") as f:
         glb_b64 = base64.b64encode(f.read()).decode("utf-8")
-    os.remove(output_filename)
+    # NOT deleted: the artifact store owns this file now and serves it (plus
+    # the STEP and STL beside it) from /download until the TTL sweep.
 
     # Get parameters for single-part flow; multi-part doesn't have them (param_dict is undefined)
     param_dict_final = param_dict if single else {}
@@ -963,6 +1030,7 @@ async def _pipeline_inner(
     # already certified every part in-loop (CheckReport.geometry_cert), so no
     # geometry is re-exported or re-measured here.
     geometry_certificate: dict | None = None
+    bom_payload: dict | None = None
     try:
         from verification.geometry import _propulsion_fields
         from verification.material import resolve_material, mass_properties as _mass_props
@@ -1023,6 +1091,7 @@ async def _pipeline_inner(
                     geometry_certificate.update(_propulsion_fields(_prop_spec))
 
         # Augment cert with material mass if we have volume + requirements
+        _mat_name = None
         if geometry_certificate and geometry_certificate.get("volume_mm3"):
             _mat_class = getattr(requirements, "material_class", None) if requirements else None
             _mat_name, _density = resolve_material(_mat_class)
@@ -1030,6 +1099,23 @@ async def _pipeline_inner(
             geometry_certificate["material"] = _mat_name
             geometry_certificate["mass_g"] = _mass["mass_g"]
             geometry_certificate["mass_kg"] = _mass["mass_kg"]
+            # Per-part mass, so the BOM can report a real per-line mass rather
+            # than only an assembly total.
+            for _pid, _c in (_part_certs or {}).items():
+                if _c and _c.get("volume_mm3"):
+                    _pm = _mass_props(_c["volume_mm3"], _density)
+                    _c["material"] = _mat_name
+                    _c["mass_g"] = _pm["mass_g"]
+
+        # Bill of materials — the parts list an engineer expects for an
+        # assembly. The quantity data already existed (it is what drives
+        # duplicate-build dedup) and was being discarded.
+        if not single:
+            try:
+                from verification.bom import build_bom
+                bom_payload = build_bom(manifest, _part_reports, _mat_name)
+            except Exception as _bom_exc:
+                logger.debug("BOM generation skipped: %s", _bom_exc)
 
     except Exception as _cert_exc:
         logger.debug("geometry certificate generation failed: %s", _cert_exc)
@@ -1052,9 +1138,19 @@ async def _pipeline_inner(
         ),
     }
 
+    # What the user can actually download, checked against the filesystem
+    # rather than against what the installation could theoretically produce.
+    _downloads = artifacts.available(run_id)
+    if not _downloads.get("step"):
+        logger.warning(
+            "Run %s produced no STEP — the user gets mesh formats only", run_id,
+        )
+
     complete_payload = {
         "step": "complete",
         "status": "done",
+        "run_id": run_id,
+        "downloads": _downloads,
         "degraded": _degraded,          # P1: never a silent success
         "verification": verification_payload,
         "glb": glb_b64,
@@ -1065,6 +1161,7 @@ async def _pipeline_inner(
         "aero_report": aero_report,     # Phase 3: PolarReport dict or None
         "struct_report": struct_report, # Phase 4: StructuralReport dict or None
         "geometry_certificate": geometry_certificate,  # G-05: post-compile cert
+        "bom": bom_payload,             # parts list + CSV (multi-part only)
     }
     yield f"data: {json.dumps(complete_payload)}\n\n"
 
@@ -1195,6 +1292,52 @@ async def generate(body: GenerateRequest, request: Request):
     )
 
 
+@app.get("/download/{run_id}/{fmt}")
+@limiter.limit("60/minute")
+async def download_artifact(run_id: str, fmt: str, request: Request):
+    """Serve a generated CAD file.
+
+    This is the route that makes Mirum a CAD tool rather than a mesh viewer:
+    STEP is the format SolidWorks, NX, Onshape and Fusion import as real
+    B-rep geometry. GLB is offered too, but only the browser viewer needs it.
+
+    `run_id` is a server-generated uuid4 hex, validated against a strict
+    pattern and re-checked for containment before any filesystem access (see
+    artifacts.run_dir). Authentication is enforced by the global X-API-Key
+    middleware.
+    """
+    from fastapi import HTTPException  # noqa: PLC0415
+    from fastapi.responses import FileResponse  # noqa: PLC0415
+
+    if fmt not in artifacts.FORMATS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown format {fmt!r}. Available: {', '.join(artifacts.FORMATS)}",
+        )
+
+    path = artifacts.artifact_path(run_id, fmt)
+    if path is None:
+        # Malformed id — do not echo it back, and do not distinguish it from
+        # a missing file.
+        raise HTTPException(status_code=404, detail="Artifact not found.")
+    if not path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No {fmt.upper()} available for this run. It may have expired, "
+                f"or the export did not produce this format."
+            ),
+        )
+
+    filename, media_type = artifacts.FORMATS[fmt]
+    return FileResponse(
+        str(path),
+        media_type=media_type,
+        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/health")
 async def health():
     """Liveness probe. The only endpoint exempt from API-key auth.
@@ -1216,7 +1359,15 @@ async def run_script(body: RunRequest, request: Request):
     """
     if not _ENABLE_RUN_ENDPOINT:
         from fastapi import HTTPException  # noqa: PLC0415
-        raise HTTPException(status_code=404, detail="Not Found")
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Script execution is disabled on this deployment. Set "
+                "MIRUM_API_KEY (which enables it by default) or "
+                "MIRUM_ENABLE_RUN_ENDPOINT=1 to allow editing and re-running "
+                "generated scripts."
+            ),
+        )
 
     output_filename = str(_WORK_DIR / (uuid.uuid4().hex + ".glb"))
     script = body.script.replace("output.glb", output_filename)

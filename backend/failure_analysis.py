@@ -304,6 +304,78 @@ def _truncate_code_tail(code: str, limit: int = _MAX_PREV_CODE_CHARS) -> str:
     return "# ... (earlier lines truncated) ...\n" + code[-limit:]
 
 
+# Plain-language diagnosis per failure class, for the END USER.
+#
+# build_retry_context() writes for Gemini: it contains the previous script, the
+# active-rule list and a raw OCCT traceback, and telling the model "do not
+# start over" is meaningless to a person. That text was being rendered straight
+# into the UI on failure, so an engineer watching a demo saw the model's own
+# scratch work and a kernel stack trace. These messages say what went wrong and
+# what to try instead.
+_USER_FACING_DIAGNOSIS: dict[str, tuple[str, str]] = {
+    "loft":       ("The lofted surface could not be built.",
+                   "Try describing fewer, more evenly spaced cross-sections, or a simpler profile."),
+    "fillet":     ("A fillet or rounding was too large for the edge it was applied to.",
+                   "Try a smaller radius, or omit the rounding and add it later."),
+    "chamfer":    ("A chamfer was too large for the edge it was applied to.",
+                   "Try a smaller chamfer distance."),
+    "shell":      ("The part could not be hollowed to the requested wall thickness.",
+                   "Try a thinner wall, or a simpler outer shape."),
+    "boolean":    ("Two shapes failed to combine — they may not actually overlap.",
+                   "Check that the features you described intersect the main body."),
+    "thread":     ("Threaded geometry could not be generated.",
+                   "Specify a standard size (for example M10x1.5), or ask for a plain shaft."),
+    "selector":   ("A face or edge the model tried to modify does not exist on the shape.",
+                   "Try describing the feature by location (for example 'on the top face')."),
+    "extrude":    ("A profile could not be extruded into a solid.",
+                   "Make sure the described cross-section is a closed outline."),
+    "revolve":    ("A profile could not be revolved into a solid.",
+                   "The section must be closed and lie entirely on one side of the axis."),
+    "spline":     ("A curved profile could not be constructed.",
+                   "Try fewer control points, or a simpler curve."),
+    "timeout":    ("The model took too long to build and was stopped.",
+                   "Try a simpler shape, or fewer repeated features."),
+    "syntax":     ("The generated model script was malformed.",
+                   "Re-run — this is usually transient. If it repeats, simplify the request."),
+    "security":   ("The generated script tried to use something outside the sandbox.",
+                   "Re-run — this is a generation error, not a problem with your request."),
+    "geometry_cert": ("The shape was built but is not a valid solid.",
+                      "Try restating the overall dimensions and wall thickness explicitly."),
+    "dimension_mismatch": ("The shape was built but does not match the dimensions you asked for.",
+                           "Restate the key dimensions explicitly, with units."),
+    "solver":     ("The parts were built but could not be positioned against each other.",
+                   "Describe how the parts connect (for example 'bolted to the top face')."),
+    "export":     ("The shape was built but could not be written to a CAD file.",
+                   "Try restating the part as a single solid body."),
+    "constraint": ("The script tried to do assembly work inside a single part.",
+                   "Describe one part at a time, or describe the assembly explicitly."),
+    "import":     ("The script tried to read an external file, which is not available.",
+                   "Describe the geometry directly rather than referencing a file."),
+}
+
+_GENERIC_DIAGNOSIS = (
+    "The geometry could not be generated.",
+    "Try simplifying the request, or stating the key dimensions explicitly.",
+)
+
+
+def user_facing_failure(
+    failure_class: str,
+    part_id: str = "",
+    attempts: int = 0,
+) -> str:
+    """One short, actionable paragraph describing a failure to the user.
+
+    Contains no traceback, no generated code, and no prompt-engineering text.
+    Operator-grade detail stays in the telemetry and in the `script` field of
+    the error payload, where a developer can still reach it.
+    """
+    what, suggestion = _USER_FACING_DIAGNOSIS.get(failure_class, _GENERIC_DIAGNOSIS)
+    where = f" while building '{part_id}'" if part_id else ""
+    tried = f" after {attempts} attempts" if attempts else ""
+    return f"{what}{where}{tried}. {suggestion}"
+
+
 def build_retry_context(
     traceback: str,
     code: str = "",

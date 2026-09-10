@@ -67,6 +67,15 @@ class GeometryCertificate(TypedDict, total=False):
     bounding_box: dict[str, float] | None
     """{'x_mm': float, 'y_mm': float, 'z_mm': float} extents, or None."""
 
+    center_of_mass_mm: dict[str, float] | None
+    """{'x_mm','y_mm','z_mm'} centroid of the solid, or None. Assumes uniform
+    density — it is the geometric centroid, which equals the mass centroid for
+    a single-material part."""
+
+    moments_of_inertia_kg_mm2: dict[str, float] | None
+    """Principal moments {'ixx','iyy','izz'} about the centroid, scaled by the
+    resolved material density. None when density is unknown or OCC is absent."""
+
     checks: dict[str, bool]
     """Per-check pass/fail flags, keyed by check name."""
 
@@ -134,6 +143,8 @@ def _failed_cert(reason: str) -> GeometryCertificate:
         volume_mm3=None,
         surface_area_mm2=None,
         bounding_box=None,
+        center_of_mass_mm=None,
+        moments_of_inertia_kg_mm2=None,
         checks={
             "volume_positive": False,
             "surface_area_positive": False,
@@ -196,6 +207,48 @@ def _measure_volume(occ, shape) -> float | None:
         return v if math.isfinite(v) else None
     except Exception:
         return None
+
+
+def _measure_inertial(occ, shape, density_kg_m3: float | None) -> tuple[
+    dict[str, float] | None, dict[str, float] | None
+]:
+    """Return (centre of mass, principal moments of inertia).
+
+    The same GProp_GProps that yields volume already carries CentreOfMass()
+    and MatrixOfInertia() — they were being computed by OCC and discarded.
+    Centre of mass and the inertia tensor are among the first things an
+    engineer checks on a real part (balance, mounting, dynamics), so both are
+    reported.
+
+    OCC returns inertia for a unit-density solid in mm^5; multiplying by
+    density in kg/mm^3 gives kg·mm². Returns (com, None) when density is
+    unknown rather than reporting an unscaled number as if it were physical.
+    """
+    try:
+        props = occ["GProp_GProps"]()
+        occ["brepgprop_VolumeProperties"](shape, props)
+
+        c = props.CentreOfMass()
+        com = {"x_mm": c.X(), "y_mm": c.Y(), "z_mm": c.Z()}
+        if not all(math.isfinite(v) for v in com.values()):
+            return None, None
+
+        if not density_kg_m3:
+            return com, None
+
+        # kg/m^3 -> kg/mm^3
+        density_kg_mm3 = density_kg_m3 * 1e-9
+        matrix = props.MatrixOfInertia()
+        moments = {
+            "ixx_kg_mm2": matrix.Value(1, 1) * density_kg_mm3,
+            "iyy_kg_mm2": matrix.Value(2, 2) * density_kg_mm3,
+            "izz_kg_mm2": matrix.Value(3, 3) * density_kg_mm3,
+        }
+        if not all(math.isfinite(v) for v in moments.values()):
+            return com, None
+        return com, moments
+    except Exception:
+        return None, None
 
 
 def _measure_surface_area(occ, shape) -> float | None:
@@ -283,6 +336,7 @@ def _check_is_solid(occ, shape) -> tuple[bool, list[str]]:
 def certify_geometry(
     step_path: str,
     propulsion_spec=None,
+    density_kg_m3: float | None = None,
 ) -> GeometryCertificate:
     """Run all 6 OCC geometry checks on a STEP file.
 
@@ -373,6 +427,9 @@ def certify_geometry(
 
     all_passed = all(checks.values())
 
+    # Advisory measurements — never gate the certificate on them.
+    com, moments = _measure_inertial(occ, shape, density_kg_m3)
+
     propulsion_fields = _propulsion_fields(propulsion_spec)
 
     return GeometryCertificate(
@@ -380,6 +437,8 @@ def certify_geometry(
         volume_mm3=volume,
         surface_area_mm2=surface_area,
         bounding_box=bb,
+        center_of_mass_mm=com,
+        moments_of_inertia_kg_mm2=moments,
         checks=checks,
         failures=failures,
         **propulsion_fields,
