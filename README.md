@@ -1,263 +1,221 @@
 # Mirum
 
-**Deterministic Text-to-Assembly Orchestration for Precision Engineering**
+Mirum turns a text description of a mechanical part into a 3D CAD model.
+You type something like "NACA 2412 wing rib, 200 mm chord, 3 bolt holes",
+and it returns a STEP file, a GLB file for viewing, and the CadQuery script
+that produced them.
 
-Mirum converts a natural-language part description into a validated,
-manufacturing-ready 3D assembly — a mathematically exact B-Rep solid,
-not a polygon mesh — in under 60 seconds. It targets aerospace, defense,
-and precision-mechanical applications where dimensional accuracy and
-topological correctness are non-negotiable.
+It is a research project, pre-1.0. See [What doesn't work yet](#what-doesnt-work-yet)
+before relying on the output.
 
----
+## What it does
 
-## The Problem
+- Reads a prompt and pulls out dimensions, material, and part type.
+- Splits the request into parts and the rules for how they fit together.
+- Asks an LLM (Gemini) to write a CadQuery script for each part.
+- Runs each script against the OpenCASCADE geometry kernel. If the script
+  crashes, the error goes back to the LLM for another attempt, up to 3 retries.
+- Runs basic validity checks on the resulting solid.
+- Positions the parts into one assembly and exports it.
 
-Current LLMs fail at engineering CAD in three specific ways:
+The output is B-Rep geometry (exact surfaces), not a triangle mesh. The GLB
+is only for the browser viewer.
 
-1. **Assembly hallucination** — models generate monolithic blobs; they cannot
-   reason about internal structure (ribs, spars, bores, mating surfaces).
-2. **Mathematical imprecision** — natural language is too vague for involute
-   gear tooth geometry, NACA airfoil coordinates, or ISO thread profiles.
-3. **No compilation feedback** — zero-shot generators cannot see that their
-   output crashes the geometry kernel, so they never self-correct.
+## How it works
 
-Mirum solves all three.
+A request to `/generate` goes through these steps, and progress is streamed
+back as server-sent events:
 
----
+1. **Requirements extraction.** An LLM call turns the prompt into a
+   structured `DesignRequirements` object.
+2. **Planner.** An LLM call produces an `AssemblyManifest`: a list of parts
+   and mating rules.
+3. **Domain classifier.** Each part is assigned one of seven categories (see
+   below). The category decides which instructions and helper functions the
+   code-writing step gets.
+4. **Machinist.** An LLM call writes a CadQuery script for the part. Similar
+   past scripts that compiled are added to the prompt as examples (TF-IDF
+   lookup over telemetry).
+5. **Security scan.** The script is parsed and rejected if it imports
+   anything outside `cadquery`, `cq`, `math`, `cad_utils`, `cad_aero`, or
+   uses banned builtins such as `eval`, `exec`, `open`, `getattr`.
+6. **Sandboxed run.** The script runs in a subprocess with a 30 second
+   timeout and a 1.5 GB memory cap. The script is passed on stdin and the
+   API keys are not passed to the subprocess.
+7. **Critic loop.** On failure, the traceback is sent back to the Machinist.
+   Domain C parts also get surface continuity and curvature checks.
+8. **Geometry certificate.** Six checks on the compiled solid: volume > 0,
+   surface area > 0, no degenerate faces, finite bounding box, valid B-Rep
+   topology, at least one solid. A mass estimate is added from a material
+   density table.
+9. **Assembler.** Plain code, no LLM. It loads the STEP files and applies
+   the transforms from the manifest.
 
-## The Solution: Chief Engineer Architecture
+Steps 3 to 8 run concurrently per part.
 
-Mirum abandons zero-shot generation. Instead a hierarchical multi-agent
-system acts as a Chief Engineer — planning, delegating, compiling, checking,
-and assembling — with every step isolated and verifiable.
+### Part categories
+
+| Domain | Covers | Approach |
+|--------|--------|----------|
+| A | Plates, brackets, boxes, enclosures | Extrusions and boolean operations |
+| B | Gears, threads, cams, bearings | Parametric formulas and ISO tables in `cad_utils.py` |
+| C | Handles, shells, bottles, other smooth shapes | Lofts and sweeps over spline cross-sections |
+| D | Airfoils, wing sections, ribs, spars | NACA 4-digit profile generation, wing helpers in `cad_aero.py` |
+| E | Sheet metal panels, trays, bent brackets | Thin-wall helpers with a material thickness parameter |
+| F | Nozzles, combustion chambers, nacelle cowls | Revolved profiles |
+| G | Nose cones, fuselages, fairings | Revolved and multi-station lofted bodies |
+
+When categories overlap, D wins over everything, F wins over B, G wins over
+C, and E wins over A.
+
+### Optional analysis
+
+These are off by default and set per request:
+
+- `run_aero`: runs XFOIL on Domain D parts and returns lift, drag, and
+  moment coefficients against angle of attack, plus a stall estimate. This
+  is 2D section analysis.
+- `run_struct`: computes ISA atmosphere values, FAR-23 maneuver and gust
+  load factors, stall and corner speeds, and single-cell wing-box bending
+  and shear margins.
+
+Results can also be returned as plots (`/analysis/plots`) or a PDF
+(`/analysis/pdf`).
+
+## Running it
+
+You need Docker, Docker Compose, and a Gemini API key.
+
+Create a `.env` file in the repository root:
 
 ```
-                        ┌─────────────────────────┐
-  Natural language  ──► │  REA — Requirements     │ Gemini Flash Lite
-                        │  Extraction Agent       │
-                        └────────────┬────────────┘
-                                     │ DesignRequirements
-                        ┌────────────▼────────────┐
-                        │  Planner                │ Gemini Flash
-                        │  AssemblyManifest:      │
-                        │  parts + mating rules   │
-                        └────────────┬────────────┘
-                                     │ (concurrent per part)
-              ┌──────────────────────▼──────────────────────┐
-              │                                             │
-  ┌───────────▼──────────┐              ┌───────────────────▼──┐
-  │ Domain Classifier    │ Flash Lite   │ ... part N            │
-  │ A / B / C / D / E   │              └───────────────────────┘
-  └───────────┬──────────┘
-              │
-  ┌───────────▼──────────┐
-  │ Machinist            │ Gemini Flash
-  │ CadQuery script      │
-  └───────────┬──────────┘
-              │
-  ┌───────────▼──────────┐
-  │ AST Security Scanner │ (allowlist: cadquery, cq, math, cad_utils)
-  └───────────┬──────────┘
-              │
-  ┌───────────▼──────────┐
-  │ Subprocess Sandbox   │ 30 s · 1.5 GB · SIGKILL process group
-  │ (OCC geometry kernel)│
-  └───────────┬──────────┘
-              │ success / traceback
-  ┌───────────▼──────────┐
-  │ Critic Loop          │ Gemini Flash   (up to 3 retries)
-  │ Domain C: G2 + Gauss │ OCC
-  └───────────┬──────────┘
-              │ validated code + .step
-  ┌───────────▼──────────┐
-  │ Geometry Certificate │ OCC  (6 structural checks + mass)
-  └───────────┬──────────┘
-              │
-  ┌───────────▼──────────┐
-  │ Assembler            │ deterministic, zero-LLM
-  │ .step files →        │
-  │ manifest → .glb      │
-  └───────────┬──────────┘
-              │
-         SSE stream → glb · script · geometry_certificate · aero_report
+GEMINI_API_KEY_HEAVY=your_key
 ```
 
----
+`GEMINI_API_KEY_PRO` is optional. Set it only if your Pro-model quota is on
+a different key. `ADMIN_API_KEY` is needed only for the `/admin` endpoints.
 
-## Five Geometric Domains
-
-The domain classifier routes every part to one of five strategies before
-any code is generated. The wrong strategy produces wrong geometry; the right
-one produces exact geometry.
-
-| Domain | Description | Key template functions |
-|--------|-------------|----------------------|
-| **A** Primitives / Structural | Boxes, plates, brackets, enclosures | `.box()`, `.cylinder()`, boolean ops |
-| **B** Mechanical / Parametric | Gears, threads, cams, bearings | `make_involute_spur_gear`, `make_metric_thread`, ISO tables |
-| **C** Organic / Ergonomic | Handles, shells, fairings, dragsters | `.loft()`, `.sweep()`, `.spline()` cross-sections |
-| **D** Aerospace / Aerodynamics | Airfoils, wing segments, ribs, spars | `make_naca_airfoil` (80-pt cosine + OCC B-spline) |
-| **E** Sheet Metal / Thin-Wall | Enclosure panels, PCB trays, bent brackets | `make_bent_bracket`, `make_enclosure_panel` |
-
-Priority rules: **D overrides everything** when aerospace keywords appear.
-**E overrides A** when gauge/bend keywords appear.
-
----
-
-## Geometry Verification
-
-Every compiled STEP file receives an OCC-based **Geometry Certificate** before
-assembly. Six checks run automatically:
-
-- Volume > 0 (catches degenerate solids)
-- Surface area > 0 (catches empty shells)
-- No degenerate faces (area > 10⁻⁶ mm²)
-- Bounding box finite and < 10⁶ mm
-- BRep topology valid (`BRepCheck_Analyzer`)
-- Shape contains ≥ 1 solid sub-shape
-
-The certificate is augmented with **estimated mass** from a 20-material
-density table (aluminum through Inconel). Results appear in a collapsible
-card in the frontend UI. A failing cert is advisory — it never blocks
-delivery of the model, but it surfaces issues immediately.
-
----
-
-## Aerodynamic Analysis (Domain D)
-
-For Domain D parts, opt-in XFOIL polar analysis computes:
-
-- Lift coefficient (Cl) vs. angle of attack
-- Drag coefficient (Cd) vs. angle of attack
-- Pitching moment coefficient (Cm) vs. angle of attack
-- Lift-to-drag ratio (L/D)
-- Stall prediction (dCl/dα sign-change + 5% Cl_max drop)
-
-A reusable structural / flight-envelope module (`analysis/structures.py`)
-computes ISA atmosphere, cruise CL, FAR-23 maneuvering + gust load
-factors (limit & ultimate), 1-g stall speed, corner speed, V_NE, and
-single-cell wing-box bending/shear margins against a small metallic
-allowables table. Standalone today; pipeline-wired via opt-in `run_struct`.
-
-Results stream back in the SSE `complete` event and render as interactive
-charts in the frontend PerformanceCard.
-
----
-
-## Security Sandbox
-
-All LLM-generated code is scanned by a pure-AST allowlist scanner before
-execution. The scanner runs in < 1 ms (pure Python, no subprocess).
-
-**Only four modules may be imported**: `cadquery`, `cq`, `math`, `cad_utils`.
-Every other import — including `os`, `sys`, `subprocess`, `importlib`,
-`ctypes`, `socket`, `pickle` — is rejected at the AST level, not at runtime.
-
-Bare use of dangerous names (e.g. `importlib.import_module(...)` without an
-import statement) is caught via a secondary `ast.Name` node scan.
-
-Approved code runs in a sandboxed subprocess: stdin delivery (no temp file),
-30-second timeout, 1.5 GB memory cap (`RLIMIT_AS`), and `SIGKILL` sent to the
-entire process group on timeout.
-
----
-
-## Quick Start
+Then:
 
 ```bash
-# Prerequisites: Docker + Docker Compose + two Gemini API keys
-
-export GEMINI_API_KEY_HEAVY="your_heavy_tier_key"
-export GEMINI_API_KEY_LITE="your_lite_tier_key"
-
 docker compose up --build
-# → http://localhost:8000   (API)
-# → http://localhost:8501   (Streamlit frontend)
 ```
 
-Generate a part:
+- API: http://localhost:8000
+- Web UI: http://localhost:8501
+
+Example request:
+
 ```bash
 curl -X POST http://localhost:8000/generate \
   -H "Content-Type: application/json" \
   -d '{"prompt": "NACA 2412 wing rib, 200mm chord, 3 bolt holes, 1.5mm 6061 aluminium"}' \
   --no-buffer
-# Streams SSE events: planner → machinist:rib → export → complete{glb, cert, aero_report}
 ```
 
----
+The response is an event stream. The final `complete` event contains the
+GLB (base64), the CadQuery script, and the geometry certificate.
 
-## Tech Stack
+### Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/generate` | POST | Full pipeline, streamed |
+| `/plan` | POST | Planner only, returns the manifest |
+| `/requirements` | POST | Requirements extraction only |
+| `/clarify` | POST | Returns clarifying questions for a vague prompt |
+| `/run` | POST | Runs a CadQuery script you supply and returns a GLB |
+| `/refine` | POST | Edits an existing result through follow-up prompts |
+| `/pmi/extract`, `/pmi/annotate` | POST | Read or add tolerance annotations on a STEP file |
+| `/export/parasolid` | POST | Parasolid export (see limitations) |
+| `/analysis/plots`, `/analysis/pdf` | POST | XFOIL results as plots or a PDF |
+| `/stats` | GET | Failure rates by domain and operation |
+| `/admin/model-config` | GET, POST | Read or change which model each agent uses |
+
+## What doesn't work yet
+
+- **Not every prompt produces a part.** In the last recorded full run of the
+  evaluation set (2026-05-26, `output/qa-reports/2026-05-26-full-litesub.md`),
+  78 of 82 prompts passed. The 4 failures were three Domain C parts
+  (two "Nothing to loft" errors and one OpenCASCADE `StdFail_NotDone`) and
+  one Domain E part (the generated script used a wrong attribute name).
+- **Smooth organic shapes are the weakest area.** Lofts and sweeps fail more
+  often than anything else, and a part can compile and still not look like
+  what was asked for.
+- **Speed varies.** In that same run, simple parts took about 10 to 40
+  seconds. Harder parts took one to two minutes, and the slowest took over
+  four.
+- **The geometry certificate is advisory.** A failed check is reported but
+  does not stop the model from being returned. Passing it means the solid is
+  well-formed, not that it matches the prompt or can be manufactured.
+- **Parasolid export is not active.** It needs a commercial CAD Exchanger
+  license. Without one the endpoint falls back to STEP.
+- **Model training has not been run.** The scripts in `training/`,
+  `inference/`, and `data_pipeline/` (fine-tuning, RLAIF, the mate-prediction
+  GNN, dataset converters) are scaffolds. They are waiting on a GPU and on
+  dataset access. The live pipeline uses stock Gemini models.
+- **The memory cap does not apply on Windows.** It relies on `RLIMIT_AS`,
+  which is Linux-only. Run it in Docker.
+- **The sandbox is a filter, not a guarantee.** It is an allowlist over
+  LLM-written Python plus a resource-limited subprocess. Escapes have been
+  found and fixed before. Do not expose the API to untrusted users without
+  further isolation.
+- **CI coverage is narrow.** CI runs the schema tests, the airfoil tests
+  against a mock XFOIL binary, and the aero integration tests. It does not
+  run the CadQuery tests or make any live LLM calls.
+- **Aerodynamic and structural numbers are estimates.** XFOIL is a 2D
+  panel method and the structural module uses a simplified single-cell
+  wing-box. Neither has been validated against test data here.
+- **No tagged releases.** Everything ships from `main`.
+
+## Tech stack
 
 | Layer | Technology |
 |-------|-----------|
-| LLM (pro)   | `gemini-3.1-pro-preview` via `google-generativeai` (Planner, REA) |
-| LLM (heavy) | `gemini-3.5-flash` (Machinist, Critic, Refiner, eval) |
-| LLM (lite)  | `gemini-3.5-flash` (classifier, PMI, clarifier — same key as Heavy) |
-| Geometry kernel | CadQuery 2.x / OpenCASCADE Technology (OCCT) |
-| Aerodynamics | XFOIL (wrapped via `analysis.airfoil`) |
-| Backend | FastAPI + Uvicorn, SSE streaming |
-| Frontend | Streamlit + Babylon.js (WebGPU/WebGL 3D viewer) |
-| Security | AST allowlist + subprocess sandbox (`RLIMIT_AS`) |
-| Retrieval | FAISS few-shot index (description → code) |
-| Environment | Miniconda3 / conda-forge (OCC requires native conda build) |
+| LLM | Gemini via `google-generativeai`: `gemini-3.1-pro-preview` for the Planner and requirements extraction, `gemini-3.5-flash` for everything else |
+| Geometry | CadQuery 2.x on OpenCASCADE |
+| Aerodynamics | XFOIL |
+| Backend | FastAPI, Uvicorn, server-sent events |
+| Frontend | Streamlit with a Babylon.js viewer |
+| Environment | Conda (conda-forge), because OpenCASCADE needs a native build |
 
----
+Model names are set in `backend/config.py`.
 
-## Repository Layout
+## Repository layout
 
 ```
 backend/
-  agents.py          — subagent orchestrator (Planner, Machinist, Assembler, …)
-  classifier.py      — NLP domain classifier (A/B/C/D/E)
-  compiler.py        — AST scanner + subprocess sandbox
-  cad_utils.py       — deterministic geometry functions + ISO tables
-  schemas.py         — Pydantic models (AssemblyManifest, DesignRequirements, …)
-  strategies.py      — per-domain CadQuery strategy templates
-  rendering.py       — zebra render pipeline (pyrender + OSMesa fallback)
-  continuity_check.py — G2 continuity checks for Domain C
-  geometry_analysis.py — Gaussian curvature checks for Domain C
-  verification/
-    geometry.py      — GeometryCertificate (6 OCC checks)
-    material.py      — density table + mass_properties()
-  subagents/
-    base.py          — SubagentBase ABC + TelemetryMixin
-    planner.py / machinist.py / critic.py / assembler.py
-    rea.py / clarifier.py / aero.py / orchestrator.py
+  main.py              FastAPI endpoints and the streaming pipeline
+  agents.py            Planner, Machinist, Critic, Refiner, Assembler
+  classifier.py        Domain classifier (A to G)
+  compiler.py          AST scanner and subprocess sandbox
+  cad_utils.py         Geometry helpers and ISO tables (available to generated scripts)
+  cad_aero.py          Wing and airfoil helpers (available to generated scripts)
+  strategies.py        Per-domain instructions for the Machinist
+  schemas.py           Pydantic models
+  retrieval.py         Example lookup for few-shot prompts
+  continuity_check.py  Surface continuity checks for Domain C
+  geometry_analysis.py Curvature checks for Domain C
+  rendering.py         Zebra-stripe renders used by the Domain C checks
+  exporters.py         Export formats
+  verification/        Geometry certificate and material mass
+  subagents/           Agent wrappers, telemetry, model registry
+  propulsion/          Domain F code
+  eval_harness/        Evaluation prompts and runner
   tests/
-    test_classifier.py         — 28 tests, all 5 domains + priority rules
-    test_compiler_security.py  — 31 tests, 15 attack patterns blocked
-    test_geometry_verification.py — 18 tests (OCC-gated), TypedDict checks
-    test_subagents_base.py     — 23 tests, pure stdlib
-    test_vlm_stubs.py          — 22 tests, VLM zebra rendering stubs
-analysis/                — standalone analysis modules (no pipeline imports)
-  airfoil.py             — STEP slicer + XFOIL runner + stall predictor
-  structures.py          — ISA atmosphere + load-factor envelope + wing-box margins
-  plots.py / pdf_report.py
-  tests/
-    test_airfoil.py      — 2-D airfoil + XFOIL contract (XFOIL-gated B-group)
-    test_structures.py   — 27 unit tests, stdlib only (FAR-23 envelope, margins)
+analysis/              Standalone analysis: airfoil (XFOIL), structures,
+                       AVL, lifting line, plots, PDF report
 frontend/
-  app.py             — Streamlit UI: 3D viewer, geometry cert card, aero charts
-architecture.md      — full system architecture (this generation's source of truth)
-DIRECTIVES.md        — 6 operational directives with bad/good code examples
+  app.py               Streamlit UI
+data_pipeline/         Dataset preparation scripts (scaffold)
+training/              Fine-tuning scripts (scaffold)
+inference/             Constrained decoding and GNN models (scaffold)
+docs/                  Design notes
+output/                Plans, QA reports, demo assets
+architecture.md        More detail on each pipeline stage
+SECURITY.md            Security policy and how to report an issue
 ```
 
----
+## License
 
-## Key Differentiators
-
-**Deterministic assembly** — The assembler is zero-LLM. It reads pre-compiled
-`.step` files produced by each Machinist and applies manifest-specified
-topological translations. Coordinate hallucination is structurally impossible.
-
-**Domain-first routing** — The five-domain classifier prevents the Machinist
-from applying organic-surface strategies to structural parts (and vice versa),
-eliminating an entire class of generation failures before they occur.
-
-**Compile-and-verify loop** — Every part is compiled against the live OCC
-kernel. Failures return tracebacks to the Machinist for self-correction (up to
-3 retries). The loop has produced > 90% first-attempt compile success rates on
-the internal QA harness.
-
-**Manufacturing-grade output** — Output is STEP (ISO 10303-21), not STL or
-GLB alone. STEP files carry exact B-Rep geometry, tolerance annotations (PMI),
-and can be imported directly into CAM software (Fusion 360, Mastercam, CATIA).
+See `LICENSE`.
