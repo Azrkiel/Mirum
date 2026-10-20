@@ -304,6 +304,25 @@ def make_naca_wire(
     return wire
 
 
+def make_naca_wire_xz(
+    naca_code: str = "2412",
+    chord_length: float = 200.0,
+    y: float = 0.0,
+) -> cq.Wire:
+    """NACA 4-digit section in the Domain D wing frame shared with cad_aero.
+
+    X = chordwise with the leading edge at x=0 (trailing edge at +chord),
+    Z = thickness with the upper (suction) surface toward +Z, and the wire
+    lies in the XZ plane at spanwise station ``y``. Units are millimetres.
+
+    Rotating make_naca_wire() by +90 deg about X maps its thickness axis +Y
+    to +Z (a -90 deg rotation would put the upper surface at -Z).
+    """
+    wire = make_naca_wire(naca_code, chord_length)
+    wire = wire.rotate((0, 0, 0), (1, 0, 0), 90)
+    return wire.translate(cq.Vector(chord_length / 2.0, y, 0.0))
+
+
 def make_naca_airfoil(
     naca_code: str = "2412",
     chord_length: float = 200.0,
@@ -1203,7 +1222,8 @@ def make_planform_wires(
     """Generate root and tip NACA wires for a swept / dihedral / tapered wing.
 
     Produces two CadQuery wire objects already:
-      - Rotated into the XZ plane (chord along X, thickness along Z)
+      - In the XZ plane in the shared wing frame (chord along X from the
+        leading edge at x=0, upper surface toward +Z; same as cad_aero)
       - Translated to their correct spanwise positions
       - Offset for leading-edge sweep (tip shifted along X)
       - Offset for dihedral (tip shifted along Z)
@@ -1238,18 +1258,15 @@ def make_planform_wires(
     sweep_le_deg = max(-60.0, min(60.0, sweep_le_deg))
     dihedral_deg = max(-30.0, min(30.0, dihedral_deg))
 
-    # --- Root wire: rotate into XZ, stays at origin ---
-    root_wire = make_naca_wire(naca_code, chord_length=root_chord)
-    root_wire = root_wire.rotate((0, 0, 0), (1, 0, 0), -90)
-
-    # --- Tip wire: rotate into XZ, apply twist, then translate ---
-    tip_wire = make_naca_wire(naca_code, chord_length=tip_chord)
-    tip_wire = tip_wire.rotate((0, 0, 0), (1, 0, 0), -90)
+    # --- Wires in the shared wing frame: LE at x=0, upper surface +Z ---
+    root_wire = make_naca_wire_xz(naca_code, chord_length=root_chord)
+    tip_wire = make_naca_wire_xz(naca_code, chord_length=tip_chord)
 
     # Apply washout twist around the Y-axis (span axis) BEFORE translation
-    # so the rotation centre is the local leading edge, not world origin.
+    # so the rotation centre is the local leading edge. With +Z up, a
+    # negative rotation about +Y raises the trailing edge (nose-down).
     if abs(twist_tip_deg) > 0.001:
-        tip_wire = tip_wire.rotate((0, 0, 0), (0, 1, 0), twist_tip_deg)
+        tip_wire = tip_wire.rotate((0, 0, 0), (0, 1, 0), -twist_tip_deg)
 
     # Compute tip position offsets
     x_sweep = span * math.tan(math.radians(sweep_le_deg))
