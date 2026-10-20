@@ -1022,32 +1022,15 @@ async def generate(body: GenerateRequest, request: Request):
 @app.post("/run")
 @limiter.limit("10/minute")
 async def run_script(body: RunRequest, request: Request):
-    """Execute a CadQuery script directly and return the GLB model."""
-    output_filename = str(_WORK_DIR / (uuid.uuid4().hex + ".glb"))
-    script = body.script.replace("output.glb", output_filename)
-
-    result = await execute_cad_script(script)
-    if result["status"] == "error":
-        debug_log_event(
-            "run_script",
-            "subprocess returned error",
-            {"raw_traceback": result["traceback"][:4000]},
-        )
-        return {"status": "error", "detail": _safe_error(result["traceback"])}
-
-    if not os.path.exists(output_filename):
-        debug_log_event(
-            "run_script",
-            "expected .glb not found",
-            {"output_filename": output_filename},
-        )
-        return {"status": "error", "detail": "Script ran but no .glb file was created."}
-
-    with open(output_filename, "rb") as f:
-        glb_b64 = base64.b64encode(f.read()).decode("utf-8")
-    os.remove(output_filename)
-
-    return {"status": "ok", "glb": glb_b64}
+    """Deliver only structurally accepted STEP-derived geometry, not a preview."""
+    from verification.acceptance import accept_script, AcceptanceError
+    try:
+        delivery = await accept_script(body.script, execute=execute_cad_script)
+    except AcceptanceError as exc:
+        debug_log_event("run_script", "structural acceptance rejected", {"reason": str(exc)})
+        return {"status": "error", "detail": _safe_error(exc)}
+    return {"status": "ok", "glb": base64.b64encode(delivery["glb"]).decode("utf-8"),
+            "geometry_certificate": delivery["geometry_certificate"]}
 
 
 @app.get("/stats")
