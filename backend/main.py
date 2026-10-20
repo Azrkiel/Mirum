@@ -759,7 +759,10 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             _aero_script = (
                 f"{code}\n\n"
                 f"import cadquery as cq\n"
-                f"cq.exporters.export(result, r'{_aero_step_path}')\n"
+                f"if isinstance(result, cq.Assembly):\n"
+                f"    result.save(r'{_aero_step_path}')\n"
+                f"else:\n"
+                f"    cq.exporters.export(result, r'{_aero_step_path}')\n"
             )
             _aero_exec = await execute_cad_script(_aero_script)
             if _aero_exec["status"] == "success" and os.path.exists(_aero_step_path):
@@ -812,7 +815,10 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             _cert_script = (
                 f"{code}\n\n"
                 f"import cadquery as cq\n"
-                f"cq.exporters.export(result, r'{_cert_step_path}')\n"
+                f"if isinstance(result, cq.Assembly):\n"
+                f"    result.save(r'{_cert_step_path}')\n"
+                f"else:\n"
+                f"    cq.exporters.export(result, r'{_cert_step_path}')\n"
             )
             _cert_exec = await execute_cad_script(_cert_script)
             if _cert_exec["status"] == "success" and os.path.exists(_cert_step_path):
@@ -1229,7 +1235,13 @@ async def refine_assembly(body: RefineRequest, request: Request):
                 import tempfile, pathlib
                 tmp_step = str(_WORK_DIR / f"{pid}_{uuid.uuid4().hex[:8]}.step")
                 reuse_script = body.original_scripts[pid]
-                export_script = reuse_script.rstrip() + f"\n\nimport cadquery as cq\ncq.exporters.export(result, r'{tmp_step}')\n"
+                export_script = reuse_script.rstrip() + (
+                    f"\n\nimport cadquery as cq\n"
+                    f"if isinstance(result, cq.Assembly):\n"
+                    f"    result.save(r'{tmp_step}')\n"
+                    f"else:\n"
+                    f"    cq.exporters.export(result, r'{tmp_step}')\n"
+                )
                 result_exec = await execute_cad_script(export_script)
                 if result_exec["status"] == "success":
                     step_files[pid] = tmp_step
@@ -1274,6 +1286,7 @@ async def refine_assembly(body: RefineRequest, request: Request):
     return {
         "status": "ok",
         "glb": glb_b64,
+        "script": asm_script.replace(output_filename, "output.glb"),
         "updated_manifest": updated_manifest.model_dump(),
         "updated_scripts": new_scripts,
         "regenerated_parts": list(parts_to_regenerate),
