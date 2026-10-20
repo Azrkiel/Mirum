@@ -532,6 +532,13 @@ def analyze_wing_structure(
     # Loads are already ultimate → load_factor = 1.0 in the margin calls.
     bending = bending_margin(box, bending_nm, mat, load_factor=1.0)
     shear = shear_margin(box, shear_n, mat, load_factor=1.0)
+    # A compatibility zero placeholder is not an evaluated load case. Preserve
+    # numeric fields for existing consumers, but never expose it as a pass.
+    bending_evaluated = root_bending_moment_nm is not None or bool(wing.get("span_m"))
+    bending["evaluated"] = bending_evaluated
+    if not bending_evaluated:
+        bending["passed"] = False
+    operating_condition_feasible = math.isfinite(cl) and 0 < cl <= cl_max
 
     return {
         "cruise":                 cruise,
@@ -544,6 +551,6 @@ def analyze_wing_structure(
         "bending":                bending,
         "shear":                  shear,
         "material":               material_id,
-        "passed":                 bending["passed"] and shear["passed"],
+        "passed":                 bending["passed"] and shear["passed"] and operating_condition_feasible,
         "warnings":               warnings,
     }
