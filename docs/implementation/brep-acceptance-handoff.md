@@ -1,6 +1,6 @@
 # Mirum — structural B-rep acceptance implementation handoff
 
-**Status: implemented and native-tested in isolation; final independent API/UI review pending. Not production-approved, merged or deployed.**
+**Status: implemented and native-tested; independent API/UI review completed 2026-10-19 with four fixes (see `phase1-api-ui-review.md`). Not production-approved, merged or deployed.**
 
 ## 1. Location and baseline
 
@@ -23,7 +23,7 @@
 - Requires closed shells, geometric BRepCheck validity, finite strictly positive per-solid volume/area and finite tessellation-independent optimal bounds.
 - Audits actual imported face/edge/vertex tolerances against a **0.001-mm application numeric ceiling**.
 - Checks potentially intersecting final-position body pairs using native Boolean common; rejects measured positive-volume interpenetration while permitting face contact and separated bodies.
-- Bounds inspection to **32 solid occurrences**, **100000 traversed topology occurrences** and **500 MiB STEP input**.
+- Bounds inspection to **64 solid occurrences** (raised from 32 after review; see `phase1-api-ui-review.md`), **100000 traversed topology occurrences** and **500 MiB STEP input**.
 
 These are declared structural/numerical application policies, not manufacturing tolerances or a mathematical proof against every pathological B-rep. STEP translation may normalize/heal the imported representation. Native Boolean zero is not proof of exact disjointness.
 
