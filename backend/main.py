@@ -578,44 +578,69 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             code, step_path, cert = await run_critic_loop(part)
             return part.part_id, code, step_path, cert
 
-        tasks = [_build_part(part) for part in parts]
+        tasks = [asyncio.create_task(_build_part(part)) for part in parts]
         part_scripts: dict[str, str] = {}
         _part_certs: dict[str, dict | None] = {}
-        for coro in asyncio.as_completed(tasks):
-            try:
-                part_id, code, step_path, cert = await coro
-                part_scripts[part_id] = code
-                step_files[part_id] = step_path
-                _part_certs[part_id] = cert
-                yield _event(labels[part_id], "done", f"Part '{part_id}' validated")
-            except ScriptError as e:
-                logger.exception("Machinist failed (multi-part)")
-                debug_log_error(
-                    "machinist_multi",
-                    e,
-                    {"script_excerpt": (e.script or "")[:1500]},
-                )
-                yield _event("machinist", "error", _safe_error(e))
-                error_complete = {
-                    "step": "complete",
-                    "status": "error",
-                    "message": _safe_error(e),
-                    "script": e.script,
-                }
-                yield f"data: {json.dumps(error_complete)}\n\n"
-                return
-            except Exception as e:
-                logger.exception("Machinist failed (multi-part)")
-                debug_log_error("machinist_multi", e, None)
-                yield _event("machinist", "error", _safe_error(e))
-                error_complete = {
-                    "step": "complete",
-                    "status": "error",
-                    "message": _safe_error(e),
-                    "script": getattr(e, "script", ""),
-                }
-                yield f"data: {json.dumps(error_complete)}\n\n"
-                return
+
+        async def _drain_part_tasks():
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            joined = asyncio.gather(*tasks, return_exceptions=True)
+            interrupted = False
+            while not joined.done():
+                try:
+                    await asyncio.shield(joined)
+                except asyncio.CancelledError:
+                    # Repeated disconnect cancellation must not cancel children
+                    # again while they are draining subprocesses/native work.
+                    interrupted = True
+            joined.result()
+            if interrupted:
+                raise asyncio.CancelledError
+
+        try:
+            for coro in asyncio.as_completed(tasks):
+                try:
+                    part_id, code, step_path, cert = await coro
+                    part_scripts[part_id] = code
+                    step_files[part_id] = step_path
+                    _part_certs[part_id] = cert
+                    yield _event(labels[part_id], "done", f"Part '{part_id}' validated")
+                except ScriptError as e:
+                    logger.exception("Machinist failed (multi-part)")
+                    debug_log_error(
+                        "machinist_multi",
+                        e,
+                        {"script_excerpt": (e.script or "")[:1500]},
+                    )
+                    await _drain_part_tasks()
+                    yield _event("machinist", "error", _safe_error(e))
+                    error_complete = {
+                        "step": "complete",
+                        "status": "error",
+                        "message": _safe_error(e),
+                        "script": e.script,
+                    }
+                    yield f"data: {json.dumps(error_complete)}\n\n"
+                    return
+                except Exception as e:
+                    logger.exception("Machinist failed (multi-part)")
+                    debug_log_error("machinist_multi", e, None)
+                    await _drain_part_tasks()
+                    yield _event("machinist", "error", _safe_error(e))
+                    error_complete = {
+                        "step": "complete",
+                        "status": "error",
+                        "message": _safe_error(e),
+                        "script": getattr(e, "script", ""),
+                    }
+                    yield f"data: {json.dumps(error_complete)}\n\n"
+                    return
+        finally:
+            # SSE disconnects and failed parts retain ownership until every
+            # sibling LLM/CAD operation is cancelled and joined.
+            await _drain_part_tasks()
 
         # Deterministic assembler (no LLM, no retries)
         yield _event("assembler", "running", "Assembling from pre-compiled .step files")
