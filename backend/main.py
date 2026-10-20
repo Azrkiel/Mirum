@@ -1080,44 +1080,36 @@ async def export_to_parasolid(body: RunRequest, request: Request):
     Returns: {"format": "parasolid"|"step", "data_b64": "...", "filename": "..."}
     """
     import tempfile
+    from pathlib import Path
     from exporters import export_parasolid
-
-    # Run the script to produce output.glb + output.step
-    step_path = str(_WORK_DIR / (uuid.uuid4().hex + ".step"))
-    # Patch script to also export STEP
-    patched = body.script + f"\n\nimport cadquery as cq\ncq.exporters.export(result, r'{step_path}')\n"
-
-    result = await execute_cad_script(patched)
-    if result["status"] == "error":
-        return {"status": "error", "detail": _safe_error(result["traceback"])}
-
-    if not os.path.exists(step_path):
-        return {"status": "error", "detail": "Script ran but no STEP file was produced."}
-
-    xt_path = step_path.replace(".step", ".x_t")
-    success, actual_path = export_parasolid(step_path, xt_path, fallback_to_step=True)
+    from verification.acceptance import accept_script, AcceptanceError
 
     try:
-        with open(actual_path, "rb") as f:
-            data_b64 = base64.b64encode(f.read()).decode("utf-8")
-    except Exception:
-        return {"status": "error", "detail": "Export file could not be read."}
-    finally:
-        for p in [step_path, xt_path, actual_path]:
-            try:
-                os.remove(p)
-            except OSError:
-                pass
-
-    fmt = "parasolid" if success else "step"
-    ext = ".x_t" if success else ".step"
-    return {
-        "status": "ok",
-        "format": fmt,
-        "data_b64": data_b64,
-        "filename": f"assembly{ext}",
-        "note": "" if success else "CAD Exchanger not available — STEP provided instead.",
-    }
+        delivery = await accept_script(body.script, execute=execute_cad_script)
+    except AcceptanceError as exc:
+        return {"status": "error", "detail": _safe_error(exc)}
+    with tempfile.TemporaryDirectory(prefix="export-", dir=_WORK_DIR) as temporary:
+        stage = Path(temporary)
+        step_path = stage / "validated-input.step"
+        step_path.write_bytes(delivery["step"])
+        # Different basenames prevent the legacy same-file fallback copy.
+        success, actual_path = export_parasolid(str(step_path), str(stage / "converted.x_t"),
+                                                fallback_to_step=True)
+        if success:
+            return {"status": "error", "detail": "Parasolid conversion is not yet revalidated; use the verified STEP export."}
+        try:
+            output = Path(actual_path)
+            if output.resolve().parent != stage.resolve():
+                raise ValueError("Export escaped its owned workspace")
+            data = output.read_bytes()
+        except (OSError, ValueError):
+            return {"status": "error", "detail": "Export file could not be read."}
+        if data != delivery["step"]:
+            return {"status": "error", "detail": "STEP fallback changed the accepted artifact."}
+        return {"status": "ok", "format": "step",
+                "data_b64": base64.b64encode(data).decode("utf-8"),
+                "filename": "assembly.step", "geometry_certificate": delivery["geometry_certificate"],
+                "note": "Verified STEP provided; Parasolid output validation is not supported."}
 
 
 @app.post("/refine")
