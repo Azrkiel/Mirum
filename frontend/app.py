@@ -22,6 +22,15 @@ st.markdown(
 )
 
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
+# Public deployments set MIRUM_ACCESS_GATE=1 and the backend MIRUM_ACCESS_TOKEN.
+# The visitor types the token; it is never baked into this public frontend.
+ACCESS_GATE = os.environ.get("MIRUM_ACCESS_GATE", "") == "1"
+
+
+def _auth_headers() -> dict:
+    token = st.session_state.get("access_token", "")
+    return {"X-Mirum-Access-Token": token} if token else {}
+
 
 STEP_LABELS = {
     "planner": "Planning blueprint",
@@ -247,6 +256,7 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     try:
         with requests.post(
             f"{BACKEND_URL}/generate",
+            headers=_auth_headers(),
             json={"prompt": prompt, "run_aero": run_aero, "run_struct": run_struct},
             stream=True,
             timeout=300,
@@ -365,7 +375,8 @@ def run_script(script: str) -> None:
     st.session_state.status = "Running..."
     try:
         data = requests.post(
-            f"{BACKEND_URL}/run", json={"script": script}, timeout=120
+            f"{BACKEND_URL}/run", json={"script": script}, timeout=120,
+            headers=_auth_headers(),
         ).json()
         if not isinstance(data, dict):
             raise ValueError("Invalid manual-run response envelope")
@@ -426,6 +437,7 @@ def fetch_clarifications(prompt: str) -> list[str]:
     try:
         resp = requests.post(
             f"{BACKEND_URL}/clarify",
+            headers=_auth_headers(),
             json={"prompt": prompt},
             timeout=30,
         )
@@ -439,6 +451,7 @@ def fetch_plan(prompt: str) -> dict | None:
     try:
         resp = requests.post(
             f"{BACKEND_URL}/plan",
+            headers=_auth_headers(),
             json={"prompt": prompt},
             timeout=180,
         )
@@ -496,6 +509,7 @@ def _fetch_aero_plots(report: dict) -> dict | None:
     try:
         resp = requests.post(
             f"{BACKEND_URL}/analysis/plots",
+            headers=_auth_headers(),
             json={
                 "naca_code": naca_code,
                 "polar": report,
@@ -533,6 +547,7 @@ def _fetch_xfoil_pdf(report: dict) -> bytes | None:
     try:
         resp = requests.post(
             f"{BACKEND_URL}/analysis/pdf",
+            headers=_auth_headers(),
             json={
                 "naca_code": naca_code,
                 "polar": report,
@@ -761,6 +776,23 @@ def _render_performance_card(report: dict) -> None:
         )
 
 
+# ── Access gate (public deployments) ────────────────────────
+if ACCESS_GATE and not st.session_state.get("access_token"):
+    st.markdown("**Access token**")
+    entered = st.text_input("Access token", type="password", label_visibility="collapsed")
+    if entered:
+        try:
+            # Generous timeout: a stopped backend machine cold-starts on demand.
+            ok = requests.get(f"{BACKEND_URL}/auth/check",
+                              headers={"X-Mirum-Access-Token": entered}, timeout=90).status_code == 200
+        except requests.RequestException:
+            ok = False
+        if ok:
+            st.session_state.access_token = entered
+            st.rerun()
+        st.error("Invalid access token, or the backend is still starting. Try again in a moment.")
+    st.stop()
+
 # ── Page Layout ─────────────────────────────────────────────
 
 # 1) Prompt
@@ -978,7 +1010,8 @@ if st.session_state.glb_bytes and st.session_state.get("last_manifest"):
             try:
                 import requests as _req
                 resp = _req.post(
-                    "http://backend:8000/refine",
+                    f"{BACKEND_URL}/refine",
+                    headers=_auth_headers(),
                     json={
                         "original_manifest": st.session_state.last_manifest,
                         "original_scripts": st.session_state.get("last_scripts", {}),

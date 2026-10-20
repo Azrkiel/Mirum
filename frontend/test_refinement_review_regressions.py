@@ -47,7 +47,7 @@ def generated_ui(monkeypatch):
     requests = SimpleNamespace(post=Mock(return_value=response), ConnectionError=ConnectionError,
                                Timeout=TimeoutError, RequestException=real_requests.RequestException)
     monkeypatch.setitem(sys.modules, 'requests', requests)
-    ns = dict(st=st, requests=requests, BACKEND_URL='http://fixture', base64=base64, json=json,
+    ns = dict(st=st, requests=requests, BACKEND_URL='http://fixture', _auth_headers=lambda: {}, base64=base64, json=json,
               _progress_md=str, _step_label=str, refinement_text='double the chord')
     exec(compile(ast.Module(body=[stream], type_ignores=[]), str(APP), 'exec'), ns)
     ns['stream_pipeline']('old wing', Mock())

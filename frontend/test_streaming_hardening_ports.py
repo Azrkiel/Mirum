@@ -33,7 +33,7 @@ def run_stream(events):
     response.iter_lines.return_value = [e if isinstance(e,str) else 'data: '+json.dumps(e) for e in events]
     requests = SimpleNamespace(post=Mock(return_value=response), ConnectionError=ConnectionError, Timeout=TimeoutError, RequestException=RuntimeError)
     st = SimpleNamespace(session_state=state, error=Mock())
-    ns = dict(st=st, requests=requests, BACKEND_URL='http://fixture', json=json, base64=base64,
+    ns = dict(st=st, requests=requests, BACKEND_URL='http://fixture', _auth_headers=lambda: {}, json=json, base64=base64,
               _progress_md=lambda steps: str(steps), _step_label=lambda step: step)
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(APP), 'exec'), ns)
     ns['stream_pipeline']('box', Mock())
