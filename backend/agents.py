@@ -1234,7 +1234,10 @@ def run_assembler_constraint(
 
         src_safe = _sanitize_part_id(rule.source_part_id)
         tgt_safe = _sanitize_part_id(rule.target_part_id)
-        constraint_types = MATE_CONSTRAINTS.get(str(rule.mate_type), ["Plane"])
+        mate_name = rule.mate_type.value if isinstance(rule.mate_type, MateType) else str(rule.mate_type)
+        if mate_name not in MATE_CONSTRAINTS:
+            raise ScriptError(f"Unsupported metadata-only mate type: {mate_name}")
+        constraint_types = MATE_CONSTRAINTS[mate_name]
 
         # Build CadQuery selector strings
         # anchor format is ">Z", "<Z" etc — we use faces@ prefix
@@ -1249,11 +1252,10 @@ def run_assembler_constraint(
 
     lines.append("")
     lines.append("# Solve the constraint system")
-    lines.append("try:")
-    lines.append("    assembly.solve()")
-    lines.append("    print('SOLVER_SUCCESS')")
-    lines.append("except Exception as _solve_err:")
-    lines.append("    print(f'SOLVER_FAILURE: {_solve_err}')")
+    # Execution success must not hide a failed solve or publish an unsolved GLB.
+    lines.append("from cad_utils import solve_assembly_checked")
+    lines.append("solve_assembly_checked(assembly)")
+    lines.append("print('SOLVER_SUCCESS')")
     lines.append("")
     lines.append("assembly.save('output.glb')")
 
@@ -1316,6 +1318,8 @@ async def run_assembly_critic_loop(
 
     # Log assembly telemetry
     solver_ok = "SOLVER_FAILURE" not in result.get("output", "")
+    if use_constraints and (not solver_ok or "SOLVER_SUCCESS" not in result.get("output", "")):
+        raise ScriptError("Assembly solver did not report success.", script=script)
     try:
         from telemetry import log_assembly_event
         log_assembly_event(
