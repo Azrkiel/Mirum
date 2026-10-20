@@ -117,6 +117,29 @@ async def execute_cad_script(script_string: str) -> dict:
             if _val:
                 env[_key] = _val
 
+        if _HAS_RESOURCE:
+            # Own and drain the child on cancellation instead of abandoning a
+            # background communicate() thread. Keep the audited stdin script.
+            if __package__:
+                from .process_runner import ProcessRunner
+            else:
+                from process_runner import ProcessRunner
+            env.update(OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1")
+            runner = ProcessRunner(timeout=30, output_limit=1048576, memory_mb=1536)
+            try:
+                outcome = await runner.run(
+                    [sys.executable, "-"], input=sandboxed_script.encode("utf-8"),
+                    cwd=str(_WORK_DIR) if _WORK_DIR.exists() else None, env=env,
+                )
+            finally:
+                await runner.close()
+            if outcome.get("code"):
+                return {"status": "error", "traceback": outcome["code"]}
+            if outcome["returncode"] != 0:
+                return {"status": "error", "traceback": outcome["stderr"]}
+            return {"status": "success", "output": outcome["stdout"]}
+
+        # Native Windows is compatibility-only: no POSIX resource/process cap.
         popen_kwargs: dict = dict(
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
