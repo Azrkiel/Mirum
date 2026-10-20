@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+import requests as real_requests
 
 APP = Path(__file__).with_name('app.py')
 
@@ -43,7 +44,8 @@ def generated_ui(monkeypatch):
     response.__enter__ = Mock(return_value=response)
     response.__exit__ = Mock(return_value=False)
     response.iter_lines.return_value = ['data: ' + json.dumps(old)]
-    requests = SimpleNamespace(post=Mock(return_value=response), ConnectionError=ConnectionError, Timeout=TimeoutError)
+    requests = SimpleNamespace(post=Mock(return_value=response), ConnectionError=ConnectionError,
+                               Timeout=TimeoutError, RequestException=real_requests.RequestException)
     monkeypatch.setitem(sys.modules, 'requests', requests)
     ns = dict(st=st, requests=requests, BACKEND_URL='http://fixture', base64=base64, json=json,
               _progress_md=str, _step_label=str, refinement_text='double the chord')

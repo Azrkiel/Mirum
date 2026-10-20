@@ -284,6 +284,13 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
                         aero_report = ev.get("aero_report")  # Phase 3
                         struct_report = ev.get("struct_report")  # Phase 6
                         geometry_cert = ev.get("geometry_certificate")  # G-05
+                        if isinstance(geometry_cert, dict) and geometry_cert.get("scope") == "structural_solid_set_v1":
+                            import hashlib
+                            if (geometry_cert.get("passed") is not True
+                                    or geometry_cert.get("engineering_certified") is not False
+                                    or not isinstance(geometry_cert.get("artifacts"), dict)
+                                    or geometry_cert["artifacts"].get("glb_sha256") != hashlib.sha256(glb_bytes or b"").hexdigest()):
+                                raise ValueError("Generation evidence does not match the delivered model")
                         # T2-08: store manifest for refinement
                         if ev.get("manifest"):
                             staged_manifest = ev["manifest"]
@@ -378,12 +385,19 @@ def run_script(script: str) -> None:
         decoded = base64.b64decode(glb_b64, validate=True)
         if not decoded:
             raise ValueError("Empty manual-run model")
-        # Publish the new result only after validation. Legacy /run does not
-        # recompute certificates or analysis, so invalidate prior evidence and
-        # generation/refinement context instead of attaching it to edited CAD.
+        # Only current, hash-bound structural evidence may follow an edit.
+        certificate = data.get("geometry_certificate")
+        if certificate is not None:
+            import hashlib
+            if (not isinstance(certificate, dict) or certificate.get("passed") is not True
+                    or certificate.get("scope") != "structural_solid_set_v1"
+                    or certificate.get("engineering_certified") is not False
+                    or not isinstance(certificate.get("artifacts"), dict)
+                    or certificate["artifacts"].get("glb_sha256") != hashlib.sha256(decoded).hexdigest()):
+                raise ValueError("Manual-run evidence does not match the delivered model")
         st.session_state.glb_bytes = decoded
         st.session_state.script_code = script
-        st.session_state.geometry_certificate = None
+        st.session_state.geometry_certificate = certificate
         st.session_state.struct_report = None
         st.session_state.parameters = {}
         st.session_state.last_manifest = None
@@ -545,11 +559,12 @@ def _render_geometry_cert_card(cert: dict) -> None:
     Shows pass/fail status, volume, surface area, mass (if available),
     and per-check details in a Streamlit expander.
     """
-    passed = cert.get("passed", False)
+    passed = cert.get("passed") is True
     icon = "✅" if passed else "❌"
-    label = f"{icon} Geometry Certificate — {'PASSED' if passed else 'FAILED'}"
+    label = f"{icon} Structural Geometry Checks — {'PASSED' if passed else 'FAILED'}"
 
     with st.expander(label, expanded=not passed):
+        st.caption("Kernel/topology checks only — not engineering certification, GD&T, manufacturing tolerance or physical-safety verification.")
         # Key metrics row
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -587,11 +602,9 @@ def _render_geometry_cert_card(cert: dict) -> None:
                 "is_solid": "Shape is solid",
             }
             rows = []
-            for key, label_text in check_labels.items():
-                if key in checks:
-                    rows.append(
-                        f"{'✅' if checks[key] else '❌'} {label_text}"
-                    )
+            for key, value in checks.items():
+                label_text = check_labels.get(key, key.replace("_", " ").capitalize())
+                rows.append(f"{'✅' if value is True else '❌'} {label_text}")
             st.markdown("\n".join(rows))
 
         # Failures
@@ -601,7 +614,7 @@ def _render_geometry_cert_card(cert: dict) -> None:
 
         # Multi-part note
         if cert.get("part_count", 1) > 1:
-            st.caption(f"Aggregate of {cert['part_count']} parts")
+            st.caption(f"Final positioned assembly; {cert['part_count']} planned components")
 
 
 def _render_structural_card(report: dict) -> None:
@@ -880,6 +893,8 @@ if st.session_state.glb_bytes:
     geo_cert = st.session_state.get("geometry_certificate")
     if geo_cert:
         _render_geometry_cert_card(geo_cert)
+    else:
+        st.caption("Unverified preview — no current structural acceptance evidence is attached.")
 
     # Phase 6: structural & flight-envelope cards (Domain D, opt-in run_struct)
     struct_report = st.session_state.get("struct_report")
@@ -981,10 +996,18 @@ if st.session_state.glb_bytes and st.session_state.get("last_manifest"):
                     refined_glb = _b64.b64decode(glb_b64, validate=True)
                     if not refined_glb:
                         raise ValueError("Refinement returned empty geometry — prior result retained.")
+                    certificate = data.get("geometry_certificate")
+                    if certificate is not None:
+                        import hashlib
+                        if (not isinstance(certificate, dict) or certificate.get("passed") is not True
+                                or certificate.get("scope") != "structural_solid_set_v1"
+                                or certificate.get("engineering_certified") is not False
+                                or not isinstance(certificate.get("artifacts"), dict)
+                                or certificate["artifacts"].get("glb_sha256") != hashlib.sha256(refined_glb).hexdigest()):
+                            raise ValueError("Refinement evidence does not match the delivered model")
                     st.session_state.glb_bytes = refined_glb
-                    # /refine does not recertify or rerun aero/structural analysis.
-                    # Never attach evidence (or editable parameters) from the old model.
-                    st.session_state.geometry_certificate = None
+                    # Adopt only current structural evidence; physics remains stale.
+                    st.session_state.geometry_certificate = certificate
                     st.session_state.struct_report = None
                     st.session_state.aero_report = None
                     st.session_state.aero_plots = None

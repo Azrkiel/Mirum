@@ -54,3 +54,26 @@ def test_failed_manual_edit_retains_previous_accepted_model_and_evidence(respons
     assert state.last_manifest == {'old':1}
     assert state.script_code == 'old script'
     assert state.status == 'Run failed'
+
+
+def test_manual_run_keeps_only_fresh_hash_bound_structural_evidence():
+    import hashlib
+    data = b'new'
+    cert = {'passed': True, 'scope': 'structural_solid_set_v1',
+            'engineering_certified': False,
+            'artifacts': {'glb_sha256': hashlib.sha256(data).hexdigest()}}
+    state = run_manual({'status': 'ok', 'glb': base64.b64encode(data).decode(),
+                        'geometry_certificate': cert})
+    assert state.geometry_certificate == cert
+    assert state.struct_report is None
+    assert state.status == 'Ready'
+
+
+def test_manual_run_rejects_foreign_certificate_without_replacing_accepted_model():
+    cert = {'passed': True, 'scope': 'structural_solid_set_v1',
+            'artifacts': {'glb_sha256': 'wrong'}}
+    state = run_manual({'status': 'ok', 'glb': base64.b64encode(b'new').decode(),
+                        'geometry_certificate': cert})
+    assert state.glb_bytes == b'old'
+    assert state.geometry_certificate == {'passed': True}
+    assert state.status == 'Run failed'
