@@ -39,13 +39,20 @@ try:
     from OCC.Core.IFSelect import IFSelect_RetDone
     _OCC_AVAILABLE = True
 except ModuleNotFoundError:
-    _OCC_AVAILABLE = False
+    try:
+        # CadQuery ships OCP, not pythonocc-core. Run the same assertions on
+        # the actual supported binding instead of silently skipping native CI.
+        from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeSphere
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeShell, BRepBuilderAPI_MakeSolid
+        from OCP.BRep import BRep_Builder
+        from OCP.TopoDS import TopoDS_Compound
+        from OCP.STEPControl import STEPControl_Writer, STEPControl_AsIs
+        from OCP.IFSelect import IFSelect_RetDone
+        _OCC_AVAILABLE = True
+    except ModuleNotFoundError:
+        _OCC_AVAILABLE = False
 
-_SKIP_MSG = (
-    "pythonocc-core not installed in this environment — "
-    "tests require OCC (available in Docker/production only). "
-    "Install with: conda install -c conda-forge pythonocc-core"
-)
+_SKIP_MSG = "OpenCascade bindings unavailable: install CadQuery/OCP or pythonocc-core."
 
 
 def _write_step(shape, path: str) -> None:

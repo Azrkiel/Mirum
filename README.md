@@ -145,9 +145,11 @@ GLB (base64), the CadQuery script, and the geometry certificate.
 - **Speed varies.** In that same run, simple parts took about 10 to 40
   seconds. Harder parts took one to two minutes, and the slowest took over
   four.
-- **The geometry certificate is advisory.** A failed check is reported but
-  does not stop the model from being returned. Passing it means the solid is
-  well-formed, not that it matches the prompt or can be manufactured.
+- **Generation requires a passing geometry certificate.** `/generate` fails
+  closed if a required solid check fails or cannot run. Passing means the solid
+  is well-formed, not that it matches the prompt, has correct assembly mates,
+  or can be manufactured. Legacy `/run` and `/refine` still have narrower
+  validation; they are not equivalent to the hardened Text-2-CAD acceptance pipeline.
 - **Parasolid export is not active.** It needs a commercial CAD Exchanger
   license. Without one the endpoint falls back to STEP.
 - **Model training has not been run.** The scripts in `training/`,
@@ -160,13 +162,32 @@ GLB (base64), the CadQuery script, and the geometry certificate.
   LLM-written Python plus a resource-limited subprocess. Escapes have been
   found and fixed before. Do not expose the API to untrusted users without
   further isolation.
-- **CI coverage is narrow.** CI runs the schema tests, the airfoil tests
-  against a mock XFOIL binary, and the aero integration tests. It does not
-  run the CadQuery tests or make any live LLM calls.
+- **Offline CI includes native CAD tests.** In addition to lightweight schema
+  and mocked analysis gates, `Dockerfile.verify` runs the native geometry,
+  process-lifecycle and API tests. Model responses in these tests are fixtures;
+  no live LLM generation quality or provider authentication is established.
 - **Aerodynamic and structural numbers are estimates.** XFOIL is a 2D
   panel method and the structural module uses a simplified single-cell
   wing-box. Neither has been validated against test data here.
 - **No tagged releases.** Everything ships from `main`.
+
+## Verification
+
+Targeted hardening ports and their scope are described in
+[the integration notes](docs/implementation/text2cad-hardening-ports.md).
+
+```bash
+docker build -f Dockerfile.verify -t mirum-integration-verify .
+docker run --rm --network none --read-only --init \
+  --cap-drop ALL --security-opt no-new-privileges \
+  --memory 4g --cpus 2 --tmpfs /tmp:rw,size=1g,mode=1777 \
+  -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent \
+  -e GEMINI_API_KEY= -e GOOGLE_API_KEY= mirum-integration-verify
+```
+
+In Windows Git Bash, prefix the `docker run` command with
+`MSYS_NO_PATHCONV=1`. The image uses CadQuery/OCP on Linux; native Windows
+DLL execution is not required. Paid-provider tests are excluded by default.
 
 ## Tech stack
 

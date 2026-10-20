@@ -63,6 +63,12 @@ _COL_W  = _PAGE_W - 2 * _MARGIN  # usable width
 class _MirumPDF(FPDF):
     """FPDF subclass that renders a branded footer on every page."""
 
+    def normalize_text(self, text: str) -> str:
+        # Core Helvetica is Latin-1, not Unicode. Preserve the meaning of the
+        # report's two unsupported labels without requiring system fonts.
+        text = text.translate({ord("α"): "alpha", ord("—"): "-"})
+        return super().normalize_text(text)
+
     def footer(self) -> None:
         self.set_y(-12)
         self.set_font("Helvetica", "I", 7)

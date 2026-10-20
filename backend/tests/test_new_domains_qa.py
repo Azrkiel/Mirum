@@ -19,6 +19,9 @@ Exit code: 0 if all tests pass, 1 if any fail.
 """
 from __future__ import annotations
 
+# This is an explicit live QA CLI, not parametrized pytest fixture tests.
+__test__ = False
+
 import argparse
 import ast
 import asyncio
