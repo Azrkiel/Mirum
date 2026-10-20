@@ -11,6 +11,24 @@ import math
 import cadquery as cq
 
 
+def solve_assembly_checked(assembly: cq.Assembly) -> cq.Assembly:
+    """Solve and reject non-convergence before any trusted assembly export.
+
+    CadQuery's solve_limited() can return without raising even when IPOPT
+    fails. Inspect its native statistics here, in trusted helper code, rather
+    than weakening the generated-script private-attribute policy.
+    """
+    if not isinstance(assembly, cq.Assembly):
+        raise TypeError("A native CadQuery Assembly is required")
+    assembly.solve()
+    stats = getattr(assembly, "_solve_result", None)
+    if not isinstance(stats, dict) or stats.get("success") is not True:
+        raise RuntimeError("Assembly solver did not converge successfully")
+    if stats.get("return_status") not in {"Solve_Succeeded", "Solved_To_Acceptable_Level"}:
+        raise RuntimeError("Assembly solver reported an unacceptable termination")
+    return assembly
+
+
 def make_involute_spur_gear(
     num_teeth: int = 20,
     module: float = 2.0,

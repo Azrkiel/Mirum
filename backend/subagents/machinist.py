@@ -118,7 +118,7 @@ class MachinistSubagent(SubagentBase):
             )
 
         t0 = time.perf_counter()
-        code, step_path = await run_critic_loop(
+        code, step_path, geometry_certificate = await run_critic_loop(
             part_def,
             max_retries=self.max_retries,
             save_step=self.save_step,
@@ -132,6 +132,7 @@ class MachinistSubagent(SubagentBase):
                 "code": code,
                 "step_path": step_path,
                 "code_len": len(code),
+                "geometry_certificate": geometry_certificate,
             },
             latency_ms=latency_ms,
         )
