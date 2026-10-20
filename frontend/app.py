@@ -975,11 +975,22 @@ if st.session_state.glb_bytes and st.session_state.get("last_manifest"):
                 data = resp.json()
                 if data.get("status") == "ok":
                     glb_b64 = data.get("glb")
-                    if glb_b64:
-                        import base64 as _b64
-                        st.session_state.glb_bytes = _b64.b64decode(glb_b64)
-                    else:
-                        st.warning("Refinement succeeded but no geometry was returned — viewer not updated.")
+                    if not glb_b64:
+                        raise ValueError("Refinement returned no geometry — prior result retained.")
+                    import base64 as _b64
+                    refined_glb = _b64.b64decode(glb_b64, validate=True)
+                    if not refined_glb:
+                        raise ValueError("Refinement returned empty geometry — prior result retained.")
+                    st.session_state.glb_bytes = refined_glb
+                    # /refine does not recertify or rerun aero/structural analysis.
+                    # Never attach evidence (or editable parameters) from the old model.
+                    st.session_state.geometry_certificate = None
+                    st.session_state.struct_report = None
+                    st.session_state.aero_report = None
+                    st.session_state.aero_plots = None
+                    st.session_state.xfoil_pdf_bytes = None
+                    st.session_state.parameters = {}
+                    st.session_state.script_code = data.get("script") or ""
                     st.session_state.last_manifest = data.get("updated_manifest", st.session_state.last_manifest)
                     st.session_state.last_scripts = data.get("updated_scripts", {})
                     regen = data.get("regenerated_parts", [])
