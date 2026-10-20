@@ -87,3 +87,37 @@ def test_solid_budget_covers_the_manifest_part_limit(tmp_path):
     result = inspector()(step(tmp_path, compound(*(box(i * 20) for i in range(50)))))
     assert result['passed'], result
     assert result['solid_count'] == 50
+
+
+def test_refine_reuse_step_cannot_escape_work_dir(offline_models, monkeypatch):  # noqa: F811
+    import glob
+    import re
+    from pathlib import Path
+    from fastapi.testclient import TestClient
+    from schemas import ManifestDiff
+    from backend.tests.test_native_api_hardening_ports import BOX_SOURCE
+
+    hostile = "../../../../tmp/escape'part"
+    manifest = offline_models.model_dump(mode='json')
+    manifest['parts'][0]['part_id'] = hostile
+    monkeypatch.setattr(main, 'run_refiner', AsyncMock(return_value=ManifestDiff()))
+    original_execute, scripts = main.execute_cad_script, []
+
+    async def recording_execute(script):
+        scripts.append(script)
+        return await original_execute(script)
+
+    monkeypatch.setattr(main, 'execute_cad_script', recording_execute)
+    with TestClient(main.app) as client:
+        client.post('/refine', json={'original_manifest': manifest,
+                                     'original_scripts': {hostile: BOX_SOURCE},
+                                     'refinement_prompt': 'keep unchanged'})
+    reuse = [s for s in scripts if 'isinstance(result, cq.Assembly)' in s]
+    assert reuse, scripts
+    work_dir = Path(main._WORK_DIR).resolve()
+    for script in reuse:
+        targets = re.findall(r"""result\.save\((r?['"].*?\.step['"])\)""", script)
+        assert targets, script
+        for literal in targets:
+            assert Path(eval(literal)).resolve().parent == work_dir, literal
+    assert not glob.glob('/tmp/escape*')
