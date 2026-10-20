@@ -1,0 +1,30 @@
+# Offline native gate. Pinned CAD/test environment ported from Text-2-CAD.
+FROM python:3.10-slim-bookworm AS dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 libglu1-mesa libxrender1 libsm6 libxext6 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements-linux.lock /tmp/requirements-linux.lock
+RUN python -m pip install --no-cache-dir -r /tmp/requirements-linux.lock
+# Mirum-specific PDF and headless rendering dependencies are not in that lock.
+COPY requirements-mirum-verification.lock /tmp/mirum-verification.lock
+RUN python -m pip install --no-cache-dir -r /tmp/mirum-verification.lock \
+    && python -m pip check
+RUN apt-get update && apt-get install -y --no-install-recommends xfoil libosmesa6 libgles2 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/workspace:/workspace/backend \
+    MIRUM_WORK_DIR=/tmp/mirum/work MIRUM_TELEMETRY_DIR=/tmp/mirum/telemetry \
+    MIRUM_XFOIL_BIN=/workspace/analysis/tests/mock_xfoil \
+    OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 PYOPENGL_PLATFORM=osmesa
+RUN groupadd --gid 10001 caduser && useradd --uid 10001 --gid 10001 \
+    --no-create-home --home-dir /tmp --shell /usr/sbin/nologin caduser
+COPY backend/ /workspace/backend/
+COPY analysis/ /workspace/analysis/
+COPY frontend/ /workspace/frontend/
+COPY data_pipeline/ /workspace/data_pipeline/
+COPY output/wing_assembly_oml_reference.json /workspace/output/wing_assembly_oml_reference.json
+COPY pytest.ini /workspace/pytest.ini
+# Git-Bash checkouts may contain CRLF shebangs; normalize trusted test shims.
+RUN python -c "from pathlib import Path; [(p.write_bytes(p.read_bytes().replace(bytes([13,10]),bytes([10]))), p.chmod(0o755)) for p in [Path('analysis/tests/mock_avl'),Path('analysis/tests/mock_xfoil')]]"
+USER 10001:10001
+CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "--tb=short"]
