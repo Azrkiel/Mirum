@@ -360,10 +360,14 @@ def run_script(script: str) -> None:
         data = requests.post(
             f"{BACKEND_URL}/run", json={"script": script}, timeout=120
         ).json()
+        if not isinstance(data, dict):
+            raise ValueError("Invalid manual-run response envelope")
         if data.get("status") == "error":
             st.session_state.status = "Run failed"
             st.error(f"Script execution failed:\n\n```\n{data.get('detail', 'Unknown error')}\n```")
             return
+        if data.get("status") != "ok":
+            raise ValueError("Manual run did not report terminal success")
         glb_b64 = data.get("glb")
         if not glb_b64:
             st.session_state.status = "Run failed"
@@ -371,7 +375,21 @@ def run_script(script: str) -> None:
                 f"Script returned no geometry. Backend response:\n\n```\n{data.get('detail', data)}\n```"
             )
             return
-        st.session_state.glb_bytes = base64.b64decode(glb_b64)
+        decoded = base64.b64decode(glb_b64, validate=True)
+        if not decoded:
+            raise ValueError("Empty manual-run model")
+        # Publish the new result only after validation. Legacy /run does not
+        # recompute certificates or analysis, so invalidate prior evidence and
+        # generation/refinement context instead of attaching it to edited CAD.
+        st.session_state.glb_bytes = decoded
+        st.session_state.script_code = script
+        st.session_state.geometry_certificate = None
+        st.session_state.struct_report = None
+        st.session_state.parameters = {}
+        st.session_state.last_manifest = None
+        st.session_state.last_scripts = {}
+        st.session_state.pending_plan = None
+        st.session_state.show_plan = False
         # Manual script re-run changes geometry — clear stale aero data so the
         # PerformanceCard doesn't show a polar that doesn't match the new model.
         st.session_state.aero_report = None
@@ -384,6 +402,9 @@ def run_script(script: str) -> None:
     except requests.Timeout:
         st.session_state.status = "Timeout"
         st.error("Script execution timed out.")
+    except (requests.RequestException, ValueError, TypeError):
+        st.session_state.status = "Run failed"
+        st.error("The backend returned an invalid or interrupted model response.")
 
 
 def fetch_clarifications(prompt: str) -> list[str]:
