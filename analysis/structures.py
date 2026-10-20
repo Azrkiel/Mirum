@@ -39,11 +39,30 @@ elliptical-lift point-load model (root shear = half the total lift, root
 bending = that half-lift acting at the spanwise centre of pressure).  It is a
 sizing-grade estimate, not an FEA result — pass explicit ``root_bending_moment_nm``
 / ``root_shear_force_n`` when you have better loads.
+
+Signed loads and validation
+---------------------------
+  * Loads are signed.  The margin model is a symmetric two-cap idealisation
+    with a single tensile allowable Ftu and a sign-independent shear allowable
+    Fsu, so margins use stress *magnitude*: a moment of either sign puts one
+    cap in tension with |σ| = |M|·(h/2)/I, and |τ| = |V|/(n_spars·h·t).
+    ``stress_pa`` is reported signed, ``stress_magnitude_pa`` as |stress|.
+  * Cap compression / stability / buckling and web shear buckling are NOT
+    evaluated (for either sign); ``compression_evaluated`` is False and the
+    report carries a warning.  Results are an "analytic sizing estimate"
+    (``engineering_certified`` False), not FEA or certification.
+  * When loads are estimated, both the positive and negative ultimate cases
+    are evaluated and the governing (lower-margin) case is reported.
+  * Invalid inputs (non-finite, non-positive geometry/allowables, bad spar
+    count, degenerate or overflowing computed quantities) raise
+    ``StructuralInputError``; a zero stress is never substituted.  An exactly
+    zero load with valid geometry is status "zero_load" with MS = inf.
 """
 
 from __future__ import annotations
 
 import math
+import numbers
 from typing import Optional, TypedDict
 
 # ---------------------------------------------------------------------------
@@ -130,11 +149,28 @@ class LoadFactorEnvelope(TypedDict):
     v_ne_ms:          float
 
 
-class MarginResult(TypedDict):
-    stress_pa:        float
-    allowable_pa:     float
-    margin_of_safety: float
-    passed:           bool
+class _MarginRequired(TypedDict):
+    stress_pa:           float   # signed stress (sign follows the load)
+    stress_magnitude_pa: float   # |stress|; the margin is computed from this
+    allowable_pa:        float
+    margin_of_safety:    float
+    passed:              bool
+    status:              str     # "evaluated" | "zero_load" | "not_evaluated"
+
+
+class MarginResult(_MarginRequired, total=False):
+    evaluated:             bool   # set by analyze_wing_structure
+    compression_evaluated: bool   # bending only; always False
+
+
+class LoadCase(TypedDict):
+    name:                   str     # positive_ultimate | negative_ultimate | explicit
+    load_factor:            float
+    root_bending_moment_nm: float   # signed
+    root_shear_force_n:     float   # signed
+    bending:                MarginResult
+    shear:                  MarginResult
+    passed:                 bool
 
 
 class StructuralReport(TypedDict):
@@ -143,11 +179,15 @@ class StructuralReport(TypedDict):
     cl_cruise:              float
     wing_loading_pa:        float
     envelope:               LoadFactorEnvelope
-    root_bending_moment_nm: float
-    root_shear_force_n:     float
-    bending:                MarginResult
-    shear:                  MarginResult
+    root_bending_moment_nm: float   # governing load case
+    root_shear_force_n:     float   # governing load case
+    bending:                MarginResult   # governing load case
+    shear:                  MarginResult   # governing load case
+    load_cases:             list[LoadCase]
+    governing_load_case:    str
     material:               str
+    method:                 str     # always "analytic_sizing_estimate"
+    engineering_certified:  bool    # always False
     passed:                 bool
     warnings:               list[str]
 
@@ -380,13 +420,107 @@ def load_factor_envelope(
 
 
 # ---------------------------------------------------------------------------
-# Structural margins (single-cell wing box at one station)
+# Input validation
 # ---------------------------------------------------------------------------
+
+class StructuralInputError(ValueError):
+    """Invalid input (or non-finite / degenerate computed quantity) in the
+    structural analysis.  Raised instead of ever substituting a zero stress,
+    so an invalid analysis can never be mistaken for a safe one."""
+
+
+def _real(name: str, value: object) -> float:
+    """Return ``value`` as a finite float; reject bool, non-numbers, NaN, ±inf."""
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        raise StructuralInputError(f"{name} must be a finite real number, got {value!r}")
+    try:
+        out = float(value)
+    except (OverflowError, ValueError, TypeError):
+        raise StructuralInputError(f"{name} must be a finite real number, got {value!r}") from None
+    if not math.isfinite(out):
+        raise StructuralInputError(f"{name} must be finite, got {value!r}")
+    return out
+
+
+def _positive(name: str, value: object) -> float:
+    out = _real(name, value)
+    if not out > 0.0:
+        raise StructuralInputError(f"{name} must be > 0, got {value!r}")
+    return out
+
+
+def _nonnegative(name: str, value: object) -> float:
+    out = _real(name, value)
+    if out < 0.0:
+        raise StructuralInputError(f"{name} must be >= 0, got {value!r}")
+    return out
+
+
+def _computed_positive(name: str, value: float) -> float:
+    """A derived quantity (section property) must be finite and strictly > 0."""
+    if not (math.isfinite(value) and value > 0.0):
+        raise StructuralInputError(
+            f"computed {name} is not finite and positive ({value!r}); "
+            "check geometry for underflow/overflow"
+        )
+    return value
+
+
+def _validate_box(box: BoxSizing) -> tuple[float, float, float, float, int]:
+    """Validate wing-box geometry → (chord, t/c, cap_area, web_t, n_spars)."""
+    chord = _positive("box.chord_root_m", box.get("chord_root_m"))
+    tc = _positive("box.thickness_to_chord", box.get("thickness_to_chord"))
+    cap = _positive("box.cap_area_m2", box.get("cap_area_m2"))
+    web_t = _positive("box.spar_web_thickness_m", box.get("spar_web_thickness_m"))
+    n_spars = box.get("n_spars", 2)
+    if isinstance(n_spars, bool) or not isinstance(n_spars, numbers.Integral) or n_spars < 1:
+        raise StructuralInputError(f"box.n_spars must be an integer >= 1, got {n_spars!r}")
+    return chord, tc, cap, web_t, int(n_spars)
+
+
+def _validate_load_factor(load_factor: object) -> float:
+    return _positive("load_factor", load_factor)
+
 
 def _box_height(box: BoxSizing) -> float:
     """Structural box height h = (t/c)·chord at the analysed station."""
     return box["thickness_to_chord"] * box["chord_root_m"]
 
+
+def _signed_stress_result(
+    stress: float, allowable: float, *, compression_evaluated: Optional[bool] = None,
+) -> MarginResult:
+    """Build a MarginResult from a signed stress and a sign-independent allowable."""
+    if not math.isfinite(stress):
+        raise StructuralInputError(
+            "computed stress is not finite (load too large for the section)"
+        )
+    magnitude = abs(stress)
+    if magnitude == 0.0:
+        ms, status = math.inf, "zero_load"
+    else:
+        ms = allowable / magnitude - 1.0
+        if not math.isfinite(ms):
+            raise StructuralInputError(
+                "computed margin of safety is not finite (stress magnitude underflow)"
+            )
+        status = "evaluated"
+    result: MarginResult = {
+        "stress_pa":           stress,
+        "stress_magnitude_pa": magnitude,
+        "allowable_pa":        allowable,
+        "margin_of_safety":    ms,
+        "passed":              ms >= 0.0,
+        "status":              status,
+    }
+    if compression_evaluated is not None:
+        result["compression_evaluated"] = compression_evaluated
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Structural margins (single-cell wing box at one station)
+# ---------------------------------------------------------------------------
 
 def bending_margin(
     box: BoxSizing,
@@ -395,31 +529,33 @@ def bending_margin(
     *,
     load_factor: float = 1.0,
 ) -> MarginResult:
-    """Spar-cap bending margin of safety.
+    """Spar-cap bending margin of safety (tension-cap check).
 
     Idealisation: two spar caps of area ``cap_area_m2`` separated by the box
     height h, so the second moment of area is I = 2·A_cap·(h/2)².  Extreme-fibre
     stress σ = M·(h/2)/I with M scaled by ``load_factor`` (pass the limit moment
     with load_factor = n_ult, or an already-ultimate moment with load_factor = 1).
 
-    MS = Ftu/σ − 1.
-    """
-    h = _box_height(box)
-    inertia = 2.0 * box["cap_area_m2"] * (h / 2.0) ** 2
-    moment = bending_moment_nm * load_factor
-    sigma = moment * (h / 2.0) / inertia if inertia > 0 else 0.0
+    Sign convention: the moment is signed.  Either sign puts one cap in
+    tension with |σ| = |M|·(h/2)/I, so the margin uses the magnitude:
+    MS = Ftu/|σ| − 1.  ``stress_pa`` keeps the sign; ``stress_magnitude_pa``
+    is |σ|.  Cap compression/buckling is NOT evaluated for either sign
+    (``compression_evaluated`` is False).  ``load_factor`` must be > 0; the
+    sign belongs to the load.  An exactly-zero moment gives status
+    "zero_load" with MS = inf.
 
-    allowable = material["ftu_pa"]
-    if sigma <= 0.0:
-        ms = math.inf
-    else:
-        ms = allowable / sigma - 1.0
-    return {
-        "stress_pa":        sigma,
-        "allowable_pa":     allowable,
-        "margin_of_safety": ms,
-        "passed":           ms >= 0.0,
-    }
+    Raises ``StructuralInputError`` for invalid inputs; never substitutes zero
+    stress for a degenerate section.
+    """
+    chord, tc, cap, _web, _n = _validate_box(box)
+    allowable = _positive("material.ftu_pa", material["ftu_pa"])
+    lf = _validate_load_factor(load_factor)
+    moment = _real("bending_moment_nm", bending_moment_nm) * lf
+
+    h = _computed_positive("box height", tc * chord)
+    inertia = _computed_positive("section inertia", 2.0 * cap * (h / 2.0) * (h / 2.0))
+    sigma = moment * (h / 2.0) / inertia
+    return _signed_stress_result(sigma, allowable, compression_evaluated=False)
 
 
 def shear_margin(
@@ -432,30 +568,57 @@ def shear_margin(
     """Spar-web shear margin of safety.
 
     Average web shear stress τ = V / (n_spars·h·t_web), V scaled by
-    ``load_factor``.  MS = Fsu/τ − 1.
-    """
-    h = _box_height(box)
-    n_spars = box.get("n_spars", 2)
-    web_t = box["spar_web_thickness_m"]
-    shear = shear_force_n * load_factor
-    tau = shear / (n_spars * h * web_t) if (n_spars * h * web_t) > 0 else 0.0
+    ``load_factor``.  The shear allowable is sign-independent, so the margin
+    uses the magnitude: MS = Fsu/|τ| − 1.  ``stress_pa`` keeps the sign.
+    Web shear buckling is NOT evaluated.  Zero shear gives status "zero_load".
 
-    allowable = material["fsu_pa"]
-    if tau <= 0.0:
-        ms = math.inf
-    else:
-        ms = allowable / tau - 1.0
-    return {
-        "stress_pa":        tau,
-        "allowable_pa":     allowable,
-        "margin_of_safety": ms,
-        "passed":           ms >= 0.0,
-    }
+    Raises ``StructuralInputError`` for invalid inputs.
+    """
+    chord, tc, _cap, web_t, n_spars = _validate_box(box)
+    allowable = _positive("material.fsu_pa", material["fsu_pa"])
+    lf = _validate_load_factor(load_factor)
+    shear = _real("shear_force_n", shear_force_n) * lf
+
+    h = _computed_positive("box height", tc * chord)
+    web_area = _computed_positive("web area", n_spars * h * web_t)
+    tau = shear / web_area
+    return _signed_stress_result(tau, allowable)
 
 
 # ---------------------------------------------------------------------------
 # High-level convenience
 # ---------------------------------------------------------------------------
+
+def _validate_inputs(
+    spec: AircraftSpec,
+    wing: WingSizing,
+    cop_frac: object,
+) -> None:
+    _positive("spec.mtow_kg", spec["mtow_kg"])
+    _positive("spec.cruise_speed_ms", spec["cruise_speed_ms"])
+    _real("spec.cruise_alt_m", spec["cruise_alt_m"])
+    for key in ("cl_max", "lift_curve_slope", "vne_factor"):
+        if spec.get(key) is not None:
+            _positive(f"spec.{key}", spec[key])
+    if spec.get("gust_velocity_ms") is not None:
+        _nonnegative("spec.gust_velocity_ms", spec["gust_velocity_ms"])
+    _positive("wing.area_m2", wing["area_m2"])
+    for key in ("span_m", "mean_chord_m"):
+        if wing.get(key) is not None:
+            _positive(f"wing.{key}", wing[key])
+    cop = _real("center_of_pressure_frac", cop_frac)
+    if not 0.0 < cop <= 1.0:
+        raise StructuralInputError(
+            f"center_of_pressure_frac must be in (0, 1], got {cop_frac!r}"
+        )
+
+
+def _case_margin(case: LoadCase) -> float:
+    ms = case["shear"]["margin_of_safety"]
+    if case["bending"].get("status") != "not_evaluated":
+        ms = min(ms, case["bending"]["margin_of_safety"])
+    return ms
+
 
 def analyze_wing_structure(
     spec: AircraftSpec,
@@ -472,20 +635,44 @@ def analyze_wing_structure(
     Pipeline:
       1. ISA atmosphere at cruise altitude → ρ, q.
       2. Cruise CL from lift = weight.
-      3. Flight envelope → ultimate positive load factor n_ult.
-      4. Estimate ultimate root loads (unless supplied):
-           total ultimate lift  L = n_ult·W
-           root shear            V = L / 2                (one semi-span)
+      3. Flight envelope → ultimate load factors n_ult⁺ and n_ult⁻ (< 0).
+      4. Estimate ultimate root loads (unless supplied), for each of the
+         positive and negative ultimate cases:
+           total ultimate lift  L = n_ult·W        (signed)
+           root shear            V = L / 2          (one semi-span)
            root bending          M = (L/2)·(cop·semi_span) (elliptical default)
       5. Bending & shear margins against the chosen material.
 
+    Load cases: with estimated loads both ``positive_ultimate`` and
+    ``negative_ultimate`` are evaluated and reported in ``load_cases``; the
+    case with the lower margin governs (ties prefer positive) and populates
+    the top-level ``root_*``/``bending``/``shear`` keys.  Explicitly supplied
+    loads form one signed case named ``explicit`` used verbatim (already
+    ultimate); a component not supplied is estimated from the positive case.
+    Overall ``passed`` needs every case to pass, bending to be evaluated and
+    the operating condition to be feasible.
+
+    Signed-load model: symmetric two-cap idealisation, one tensile allowable
+    Ftu and a sign-independent shear allowable Fsu; margins use stress
+    magnitude.  Cap compression/buckling and web shear buckling are not
+    evaluated.  Results are an ``analytic_sizing_estimate`` (not certified).
+
     ``center_of_pressure_frac`` defaults to 0.4244 (centroid of an elliptical
-    lift distribution over the semi-span).  Pass explicit ``root_bending_moment_nm``
-    / ``root_shear_force_n`` to bypass the estimate with known loads.
+    lift distribution over the semi-span).
+
+    Raises ``StructuralInputError`` for invalid inputs, ``KeyError`` for an
+    unknown material.
     """
     warnings: list[str] = []
     material_id = material.strip().upper()
     mat = get_material(material_id)
+
+    _validate_inputs(spec, wing, center_of_pressure_frac)
+    _validate_box(box)
+    if root_bending_moment_nm is not None:
+        _real("root_bending_moment_nm", root_bending_moment_nm)
+    if root_shear_force_n is not None:
+        _real("root_shear_force_n", root_shear_force_n)
 
     cruise = isa_atmosphere(spec["cruise_alt_m"])
     rho = cruise["density_kgm3"]
@@ -504,40 +691,69 @@ def analyze_wing_structure(
         )
 
     env = load_factor_envelope(spec, wing)
-    n_ult = env["n_ultimate_pos"]
-    lift_ult = n_ult * weight_n
-
-    # --- Root shear (one semi-span carries half the lift) ---
-    if root_shear_force_n is None:
-        shear_n = lift_ult / 2.0
-    else:
-        shear_n = root_shear_force_n
-
-    # --- Root bending (needs span for the moment arm) ---
-    if root_bending_moment_nm is None:
-        span = wing.get("span_m")
-        if span:
-            semi_span = span / 2.0
-            arm = center_of_pressure_frac * semi_span
-            bending_nm = (lift_ult / 2.0) * arm
-        else:
-            bending_nm = 0.0
-            warnings.append(
-                "wing span_m not provided — cannot estimate root bending "
-                "moment; pass root_bending_moment_nm explicitly."
-            )
-    else:
-        bending_nm = root_bending_moment_nm
-
-    # Loads are already ultimate → load_factor = 1.0 in the margin calls.
-    bending = bending_margin(box, bending_nm, mat, load_factor=1.0)
-    shear = shear_margin(box, shear_n, mat, load_factor=1.0)
-    # A compatibility zero placeholder is not an evaluated load case. Preserve
-    # numeric fields for existing consumers, but never expose it as a pass.
-    bending_evaluated = root_bending_moment_nm is not None or bool(wing.get("span_m"))
-    bending["evaluated"] = bending_evaluated
+    span = wing.get("span_m")
+    bending_evaluated = root_bending_moment_nm is not None or bool(span)
     if not bending_evaluated:
-        bending["passed"] = False
+        warnings.append(
+            "wing span_m not provided — cannot estimate root bending "
+            "moment; pass root_bending_moment_nm explicitly."
+        )
+
+    def _estimate(n_ult: float) -> tuple[float, float]:
+        """Signed (shear, bending) estimate for ultimate load factor n_ult."""
+        lift_ult = n_ult * weight_n
+        shear_est = lift_ult / 2.0
+        if span:
+            bending_est = (lift_ult / 2.0) * (center_of_pressure_frac * span / 2.0)
+        else:
+            bending_est = 0.0
+        return shear_est, bending_est
+
+    def _make_case(name: str, load_factor: float, shear_n: float, bending_nm: float) -> LoadCase:
+        # Loads are already ultimate → load_factor = 1.0 in the margin calls.
+        bending = bending_margin(box, bending_nm, mat, load_factor=1.0)
+        shear = shear_margin(box, shear_n, mat, load_factor=1.0)
+        # A compatibility zero placeholder is not an evaluated load case.
+        # Preserve numeric fields for existing consumers, but never expose it
+        # as a pass.
+        bending["evaluated"] = bending_evaluated
+        if not bending_evaluated:
+            bending["passed"] = False
+            bending["status"] = "not_evaluated"
+        return {
+            "name":                   name,
+            "load_factor":            load_factor,
+            "root_bending_moment_nm": bending_nm,
+            "root_shear_force_n":     shear_n,
+            "bending":                bending,
+            "shear":                  shear,
+            "passed":                 bending["passed"] and shear["passed"],
+        }
+
+    cases: list[LoadCase] = []
+    if root_bending_moment_nm is None and root_shear_force_n is None:
+        for case_name, n_ult in (("positive_ultimate", env["n_ultimate_pos"]),
+                                 ("negative_ultimate", env["n_ultimate_neg"])):
+            shear_n, bending_nm = _estimate(n_ult)
+            cases.append(_make_case(case_name, n_ult, shear_n, bending_nm))
+    else:
+        shear_est, bending_est = _estimate(env["n_ultimate_pos"])
+        cases.append(_make_case(
+            "explicit", 1.0,
+            shear_est if root_shear_force_n is None else root_shear_force_n,
+            bending_est if root_bending_moment_nm is None else root_bending_moment_nm,
+        ))
+
+    governing = cases[0]
+    for case in cases[1:]:
+        if _case_margin(case) < _case_margin(governing):
+            governing = case
+
+    warnings.append(
+        "spar-cap compression/buckling and web shear buckling are not "
+        "evaluated; tension-cap and average web shear checks only "
+        "(analytic sizing estimate)."
+    )
     operating_condition_feasible = math.isfinite(cl) and 0 < cl <= cl_max
 
     return {
@@ -546,11 +762,15 @@ def analyze_wing_structure(
         "cl_cruise":              cl,
         "wing_loading_pa":        wing_loading,
         "envelope":               env,
-        "root_bending_moment_nm": bending_nm,
-        "root_shear_force_n":     shear_n,
-        "bending":                bending,
-        "shear":                  shear,
+        "root_bending_moment_nm": governing["root_bending_moment_nm"],
+        "root_shear_force_n":     governing["root_shear_force_n"],
+        "bending":                governing["bending"],
+        "shear":                  governing["shear"],
+        "load_cases":             cases,
+        "governing_load_case":    governing["name"],
         "material":               material_id,
-        "passed":                 bending["passed"] and shear["passed"] and operating_condition_feasible,
+        "method":                 "analytic_sizing_estimate",
+        "engineering_certified":  False,
+        "passed":                 all(c["passed"] for c in cases) and operating_condition_feasible,
         "warnings":               warnings,
     }

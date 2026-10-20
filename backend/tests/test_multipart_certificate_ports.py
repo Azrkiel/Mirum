@@ -12,7 +12,8 @@ import pytest
 
 os.environ.setdefault('GEMINI_API_KEY_HEAVY', 'offline-fixture-never-sent')
 import main
-from schemas import AssemblyManifest, DesignRequirements, PartDefinition
+from pydantic import ValidationError
+from schemas import AssemblyManifest, DesignRequirements, MatingRule, PartDefinition
 
 CERT = dict(passed=True, volume_mm3=1., surface_area_mm2=6., failures=[])
 FINAL = "import cadquery as cq\nassembly = cq.Assembly(cq.Workplane('XY').box(1,1,1))\nassembly.save('output.glb')\n"
@@ -20,10 +21,18 @@ FINAL = "import cadquery as cq\nassembly = cq.Assembly(cq.Workplane('XY').box(1,
 
 @pytest.mark.parametrize('variant', ['valid', 'false', 'missing', 'truthy', 'unavailable', 'duplicate'])
 def test_multipart_required_certificates_are_strict_and_complete(monkeypatch, variant):
-    names = ['base','base'] if variant == 'duplicate' else ['base','cap']
+    if variant == 'duplicate':
+        # Duplicate ids are rejected at the typed manifest boundary, before
+        # any part is built or certificates are aggregated.
+        with pytest.raises(ValidationError, match='Duplicate part_id'):
+            AssemblyManifest(assembly_name='pair',parts=[
+                PartDefinition(part_id='base',description='base',anchor_tags=['>Z']) for _ in range(2)
+            ],mating_rules=[])
+        return
+    names = ['base','cap']
     manifest = AssemblyManifest(assembly_name='pair',parts=[
         PartDefinition(part_id=name,description=name,anchor_tags=['>Z']) for name in names
-    ],mating_rules=[])
+    ],mating_rules=[MatingRule(source_part_id='base',target_part_id='cap',source_anchor='>Z',target_anchor='>Z',translation='0, 0, 1',clearance=0)])
     monkeypatch.setattr(main,'run_rea',AsyncMock(return_value=DesignRequirements(
         primary_function='pair',user_facing_insights=['pair'],geometric_constraints=[])))
     monkeypatch.setattr(main,'run_planner',AsyncMock(return_value=manifest))

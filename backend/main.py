@@ -369,7 +369,10 @@ async def _run_struct_stage(
         _repo_root = _Path(__file__).resolve().parent.parent
         if str(_repo_root) not in _sys.path:
             _sys.path.insert(0, str(_repo_root))
-        from analysis.structures import analyze_wing_structure  # noqa: PLC0415
+        from analysis.structures import (  # noqa: PLC0415
+            StructuralInputError,
+            analyze_wing_structure,
+        )
         from schemas import StructuralReport  # noqa: PLC0415
     except ImportError as e:
         return None, f"analysis module unavailable ({_safe_error(str(e))})"
@@ -400,7 +403,7 @@ async def _run_struct_stage(
         "spar_web_thickness_m": float(wb.spar_web_thickness_m),
     }
     if wb.n_spars is not None:
-        box_dict["n_spars"] = int(wb.n_spars)
+        box_dict["n_spars"] = wb.n_spars  # validated (no int() truncation)
 
     material = (getattr(requirements, "material_class", None) or "AL2024-T3")
 
@@ -412,6 +415,9 @@ async def _run_struct_stage(
             spec_dict, wing_dict, box_dict,
             material=material,
         )
+    except StructuralInputError as e:
+        # Invalid analysis must be "skipped", never a passed report.
+        return None, f"invalid structural input: {_safe_error(str(e))}"
     except KeyError as e:
         return None, f"unknown material: {_safe_error(str(e))}"
     except Exception as e:
@@ -451,6 +457,11 @@ async def _run_struct_stage(
             shear_allowable_pa=shear["allowable_pa"],
             shear_margin_of_safety=shear["margin_of_safety"],
             shear_passed=shear["passed"],
+            bending_status=bending["status"],
+            shear_status=shear["status"],
+            governing_load_case=report["governing_load_case"],
+            method=report["method"],
+            engineering_certified=report["engineering_certified"],
             material=report["material"],
             passed=report["passed"],
             warnings=report["warnings"],
@@ -660,6 +671,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             await _drain_part_tasks()
 
         # Deterministic assembler (no LLM, no retries)
+        assembly_joint_report: dict | None = None
         yield _event("assembler", "running", "Assembling from pre-compiled .step files")
         try:
             final_script = await run_assembly_critic_loop(manifest, step_files)
@@ -717,6 +729,20 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 "script": final_script,
             }
             yield f"data: {json.dumps(error_complete)}\n\n"
+            return
+        # Joint relations are re-measured on the accepted STEP itself; a
+        # placement that only "ran" is not evidence the joints hold.
+        from verification.joints import verify_assembly_joints
+        assembly_joint_report = await verify_assembly_joints(result["acceptance"]["step"], manifest)
+        if assembly_joint_report.get("passed") is not True:
+            try:
+                os.remove(output_filename)
+            except OSError:
+                pass
+            failures = "; ".join(assembly_joint_report.get("failures", [])[:5]) or "unavailable"
+            msg = _safe_error(f"Assembly joint verification failed: {failures}")
+            yield _event("assembler", "error", msg)
+            yield f"data: {json.dumps({'step': 'complete', 'status': 'error', 'message': msg, 'script': final_script})}\n\n"
             return
         yield _event("assembler", "done")
 
@@ -860,6 +886,8 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 geometry_certificate["part_count"] = len(_part_certs)
                 geometry_certificate["per_part"] = dict(_part_certs)
                 geometry_certificate["failures"] = geometry_certificate["failures"] + all_failures
+                if assembly_joint_report is not None:
+                    geometry_certificate["assembly_joints"] = assembly_joint_report
 
         # Domain F: requested throat/exit areas and expansion ratio are spec
         # metadata, not measurements, for single- and multi-part results alike.
@@ -887,6 +915,13 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         yield _event("geometry", "error", message)
         yield f"data: {json.dumps({'step': 'complete', 'status': 'error', 'message': message, 'script': final_script})}\n\n"
         return
+
+    # Fastener helpers produce simplified geometry; label it so a delivered
+    # bolt/nut is never read as manufacturing-thread or fit evidence.
+    from verification.fasteners import fastener_evidence
+    _fastener_label = fastener_evidence({manifest.parts[0].part_id: code} if single else part_scripts)
+    if _fastener_label is not None:
+        geometry_certificate["fastener_representation"] = _fastener_label
 
     # Bind evidence to the portable source returned to the editor, not the
     # server-owned transient GLB pathname used during capture.
@@ -1254,6 +1289,16 @@ async def refine_assembly(body: RefineRequest, request: Request):
 
     if exec_result["status"] == "error":
         return {"status": "error", "detail": _safe_error(exec_result["traceback"])}
+    from verification.joints import verify_assembly_joints
+    joint_report = await verify_assembly_joints(exec_result["acceptance"]["step"], updated_manifest)
+    if joint_report.get("passed") is not True:
+        try:
+            os.remove(output_filename)
+        except OSError:
+            pass
+        failures = "; ".join(joint_report.get("failures", [])[:5]) or "unavailable"
+        return {"status": "error", "detail": _safe_error(f"Assembly joint verification failed: {failures}")}
+    exec_result["acceptance"]["geometry_certificate"]["assembly_joints"] = joint_report
 
     if not os.path.exists(output_filename):
         return {"status": "error", "detail": "Assembly succeeded but no .glb was produced."}

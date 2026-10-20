@@ -103,7 +103,7 @@ def test_refine_reuses_exported_source_without_another_machinist(offline_models,
     agents.run_machinist.assert_not_awaited()
 
 
-def test_native_constraint_assembly_runs_real_solver(tmp_path):
+def test_native_mate_assembly_runs_closed_form_placement(tmp_path):
     import asyncio
     import cadquery as cq
     from schemas import MateType, MatingRule
@@ -118,4 +118,4 @@ def test_native_constraint_assembly_runs_real_solver(tmp_path):
     ], mating_rules=[MatingRule(source_part_id='base',target_part_id='cap',source_anchor='>Z',
         target_anchor='<Z',mate_type=MateType.FASTENED,clearance=0)])
     script = asyncio.run(agents.run_assembly_critic_loop(manifest, paths))
-    assert "solve_assembly_checked(assembly)" in script
+    assert "assemble_mated_parts(" in script
