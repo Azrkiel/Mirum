@@ -755,6 +755,17 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         with open(_aero_step_path, "wb") as stream:
             stream.write(result["acceptance"]["step"])
         _analysis_step_files = {manifest.assembly_name: _aero_step_path}
+        if not single:
+            # Mid-span slicing assumes the wing's own frame. Use the wing
+            # component's certified part STEP when the plan names one, not the
+            # whole positioned assembly (fuselage, spars, ribs, ...).
+            _wing_steps = {
+                pid: path for pid, path in step_files.items()
+                if any(kw in pid.lower() for kw in ("wing", "oml", "skin"))
+                and os.path.isfile(path)
+            }
+            if _wing_steps:
+                _analysis_step_files = _wing_steps
 
         yield _event("aero", "running", "Running XFOIL polar analysis")
         aero_report, aero_msg = await _run_aero_stage(_analysis_step_files, requirements)
