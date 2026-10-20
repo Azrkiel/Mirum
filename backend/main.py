@@ -1067,6 +1067,11 @@ async def auth_check():
     return {"ok": True}
 
 
+# Explicit typed, no-LLM engineering path; existing routes retain their scope.
+from engineering.api import attach_engineering_routes
+attach_engineering_routes(app, limiter)
+
+
 @app.get("/stats")
 async def get_stats():
     """Return failure rate statistics stratified by domain and operation type."""
