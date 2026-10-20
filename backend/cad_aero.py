@@ -60,6 +60,42 @@ class CadAeroError(ValueError):
     """A builder produced a missing, invalid, degenerate, or runaway solid."""
 
 
+# Units: every builder takes and returns METRES (the aero/structures analysis
+# unit). Mirum's CAD and STEP unit is the MILLIMETRE, so builder output must
+# pass through to_mm() before it is delivered or assembled with mm geometry.
+MM_PER_M = 1000.0
+
+
+def _location_to_mm(loc: cq.Location) -> cq.Location:
+    """Same rotation, translation scaled from metres to millimetres."""
+    (x, y, z), (rx, ry, rz) = loc.toTuple()
+    return cq.Location(x * MM_PER_M, y * MM_PER_M, z * MM_PER_M, rx, ry, rz)
+
+
+def to_mm(obj):
+    """Convert metre geometry to millimetres (uniform x1000 about the origin).
+
+    Accepts a cq.Workplane, cq.Shape or cq.Assembly and returns the same kind.
+    Assembly names, colours and child locations are kept; solver constraints
+    are not copied (solve before converting).
+    """
+    if isinstance(obj, cq.Assembly):
+        out = cq.Assembly(
+            to_mm(obj.obj) if obj.obj is not None else None,
+            loc=_location_to_mm(obj.loc), name=obj.name, color=obj.color,
+        )
+        for child in obj.children:
+            out.add(to_mm(child))
+        return out
+    if isinstance(obj, cq.Workplane):
+        return obj.newObject(
+            [v.scale(MM_PER_M) if isinstance(v, cq.Shape) else v for v in obj.vals()]
+        )
+    if isinstance(obj, cq.Shape):
+        return obj.scale(MM_PER_M)
+    raise CadAeroError(f"to_mm: unsupported object {type(obj).__name__}")
+
+
 def _validate_solid(
     obj,
     name: str,
@@ -659,12 +695,17 @@ _AL2024T3_DENSITY_KGM3 = 2780.0
 EXPECTED_PART_COUNT = 16
 
 
-def canonical_wing_parts() -> dict:
+def canonical_wing_parts(units: str = "m") -> dict:
     """Build the canonical semi-span wing as an ordered {name: cq.Workplane}.
 
     Multi-Y builders (spar/skin/stringer) bake in dihedral + twist; the
     single-station ribs are positioned at the composition layer (dihedral
-    Z-offset + local twist) so they meet the dihedral-shifted spars."""
+    Z-offset + local twist) so they meet the dihedral-shifted spars.
+
+    ``units="m"`` (default) keeps the analysis/reference unit; pass
+    ``units="mm"`` for geometry that is delivered as Mirum CAD."""
+    if units not in ("m", "mm"):
+        raise CadAeroError(f"canonical_wing_parts: units must be 'm' or 'mm', not {units!r}")
     p = CANONICAL_WING
     af = naca4_points(p["naca"], 1.0)
     span, root, tip = p["span_m"], p["root_chord_m"], p["tip_chord_m"]
@@ -721,6 +762,8 @@ def canonical_wing_parts() -> dict:
         front_spar_x_frac=front, rear_spar_x_frac=rear,
         fitting_thickness_m=p["web_thickness_m"] * 3,
     )
+    if units == "mm":
+        return {name: to_mm(wp) for name, wp in parts.items()}
     return parts
 
 

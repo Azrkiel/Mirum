@@ -1,0 +1,17 @@
+.git
+.env
+.env.*
+.venv
+.hermes
+.claude
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.cache
+output/*
+!output/wing_assembly_oml_reference.json
+**/telemetry_logs
+**/tmp_parts
+artifacts
+*.zip
+deploy/fly/*.toml

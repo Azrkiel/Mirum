@@ -121,6 +121,7 @@ GLB (base64), the CadQuery script, and the geometry certificate.
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/generate` | POST | Full pipeline, streamed |
+| `/engineering/generate` | POST | Deterministic typed cantilever CAD + measured STEP checks + bounded beam FEA; no LLM (API only) |
 | `/plan` | POST | Planner only, returns the manifest |
 | `/requirements` | POST | Requirements extraction only |
 | `/clarify` | POST | Returns clarifying questions for a vague prompt |
@@ -134,6 +135,13 @@ GLB (base64), the CadQuery script, and the geometry certificate.
 
 ## What doesn't work yet
 
+The new **[deterministic engineering API](docs/implementation/deterministic-physics.md)**
+adds typed cantilever generation, independent STEP measurements, beam finite-element
+checks and bounded solver-feedback sizing without model calls. It is API-only and
+limited to a slender rectangular cantilever under a transverse end force. It is not
+3D solid FEA, a PINN, or engineering standards certification; unsupported requests
+must not be presented as verified.
+
 - **Not every prompt produces a part.** In the last recorded full run of the
   evaluation set (2026-05-26, `output/qa-reports/2026-05-26-full-litesub.md`),
   78 of 82 prompts passed. The 4 failures were three Domain C parts
@@ -145,9 +153,11 @@ GLB (base64), the CadQuery script, and the geometry certificate.
 - **Speed varies.** In that same run, simple parts took about 10 to 40
   seconds. Harder parts took one to two minutes, and the slowest took over
   four.
-- **The geometry certificate is advisory.** A failed check is reported but
-  does not stop the model from being returned. Passing it means the solid is
-  well-formed, not that it matches the prompt or can be manufactured.
+- **Generation requires a passing geometry certificate.** `/generate` fails
+  closed if a required solid check fails or cannot run. Passing means the solid
+  is well-formed, not that it matches the prompt, has correct assembly mates,
+  or can be manufactured. Legacy `/run` and `/refine` still have narrower
+  validation; they are not equivalent to the hardened Text-2-CAD acceptance pipeline.
 - **Parasolid export is not active.** It needs a commercial CAD Exchanger
   license. Without one the endpoint falls back to STEP.
 - **Model training has not been run.** The scripts in `training/`,
@@ -160,13 +170,32 @@ GLB (base64), the CadQuery script, and the geometry certificate.
   LLM-written Python plus a resource-limited subprocess. Escapes have been
   found and fixed before. Do not expose the API to untrusted users without
   further isolation.
-- **CI coverage is narrow.** CI runs the schema tests, the airfoil tests
-  against a mock XFOIL binary, and the aero integration tests. It does not
-  run the CadQuery tests or make any live LLM calls.
+- **Offline CI includes native CAD tests.** In addition to lightweight schema
+  and mocked analysis gates, `Dockerfile.verify` runs the native geometry,
+  process-lifecycle and API tests. Model responses in these tests are fixtures;
+  no live LLM generation quality or provider authentication is established.
 - **Aerodynamic and structural numbers are estimates.** XFOIL is a 2D
   panel method and the structural module uses a simplified single-cell
   wing-box. Neither has been validated against test data here.
 - **No tagged releases.** Everything ships from `main`.
+
+## Verification
+
+Targeted hardening ports and their scope are described in
+[the integration notes](docs/implementation/text2cad-hardening-ports.md).
+
+```bash
+docker build -f Dockerfile.verify -t mirum-integration-verify .
+docker run --rm --network none --read-only --init \
+  --cap-drop ALL --security-opt no-new-privileges \
+  --memory 4g --cpus 2 --tmpfs /tmp:rw,size=1g,mode=1777 \
+  -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent \
+  -e GEMINI_API_KEY= -e GOOGLE_API_KEY= mirum-integration-verify
+```
+
+In Windows Git Bash, prefix the `docker run` command with
+`MSYS_NO_PATHCONV=1`. The image uses CadQuery/OCP on Linux; native Windows
+DLL execution is not required. Paid-provider tests are excluded by default.
 
 ## Tech stack
 

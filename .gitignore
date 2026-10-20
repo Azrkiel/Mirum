@@ -1,5 +1,7 @@
 # Environment variables — NEVER commit this
 .env
+.env.*
+.hermes/
 
 # Python
 __pycache__/

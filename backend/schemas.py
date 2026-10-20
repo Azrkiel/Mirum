@@ -5,9 +5,14 @@ These Pydantic models define the strict inter-agent communication contract.
 They are used as `response_schema` in Gemini API calls to enforce structured,
 hallucination-resistant output from every subagent.
 
-CORE RULE: All spatial relationships are TOPOLOGICAL and RELATIVE.
-Absolute floating-point coordinates (x, y, z) are FORBIDDEN for mating.
-Parts are connected via named anchor tags that reference CadQuery selectors.
+PREFERRED: spatial relationships are TOPOLOGICAL and RELATIVE. Parts are
+connected via named anchor tags (CadQuery selectors) and MatingRule.mate_type
+constraints solved by the Assembler.
+
+LEGACY EXCEPTION: MatingRule.translation is an absolute 'X, Y, Z' offset in mm.
+It is deprecated but still honoured when a rule has no mate_type (and for the
+single-part self-referencing rule '0, 0, 0'), so absolute placement remains
+possible through that one field.
 """
 
 import math

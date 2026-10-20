@@ -5,9 +5,12 @@ Runs 6 structural checks on a compiled STEP file and returns a
 GeometryCertificate TypedDict containing measurement values, per-check
 pass/fail flags, and a consolidated list of failure reasons.
 
-The certificate is advisory — it is attached to the API "complete" event
-and displayed in the frontend cert card, but a failing certificate does NOT
-block delivery of the GLB model.
+The helper returns measurements without delivering artifacts. The live
+/generate caller requires a passing certificate before its successful complete
+event. Legacy /run and /refine have their separately documented narrower checks.
+
+Passing certifies only these structural checks, not engineering intent or
+compliance with a requested design. Propulsion values are spec-derived metadata.
 
 Checks:
   1. volume_positive     — solid volume > 0 (catches degenerate/empty solids)
@@ -18,9 +21,9 @@ Checks:
   6. is_solid            — shape contains at least one solid sub-shape
 
 Requirements:
-  pythonocc-core (OCC) — conda install -c conda-forge pythonocc-core
-  Available in the project Docker image. Gracefully degrades in environments
-  without OCC (returns a failed cert with an informative failure message).
+  OpenCASCADE via CadQuery's OCP (used in the Docker image) or pythonocc-core.
+  Gracefully degrades when neither binding is installed (returns a failed cert
+  with an informative failure message).
 """
 
 from __future__ import annotations
@@ -96,7 +99,38 @@ class GeometryCertificate(TypedDict, total=False):
 # ---------------------------------------------------------------------------
 
 def _import_occ():
-    """Import OCC modules; raise ImportError if not installed."""
+    """Import pythonocc-core or CadQuery's OCP behind the helper dictionary."""
+    try:
+        return _import_pythonocc()
+    except ImportError:
+        from OCP.STEPControl import STEPControl_Reader
+        from OCP.BRep import BRep_Builder
+        from OCP.BRepGProp import BRepGProp
+        from OCP.GProp import GProp_GProps
+        from OCP.BRepBndLib import BRepBndLib
+        from OCP.Bnd import Bnd_Box
+        from OCP.BRepCheck import BRepCheck_Analyzer
+        from OCP.TopExp import TopExp_Explorer
+        from OCP.TopAbs import TopAbs_FACE, TopAbs_SOLID
+        from OCP.IFSelect import IFSelect_RetDone
+        return {
+            "STEPControl_Reader": STEPControl_Reader,
+            "BRep_Builder": BRep_Builder,
+            "brepgprop_VolumeProperties": BRepGProp.VolumeProperties_s,
+            "brepgprop_SurfaceProperties": BRepGProp.SurfaceProperties_s,
+            "GProp_GProps": GProp_GProps,
+            "brepbndlib_Add": BRepBndLib.Add_s,
+            "Bnd_Box": Bnd_Box,
+            "BRepCheck_Analyzer": BRepCheck_Analyzer,
+            "TopExp_Explorer": TopExp_Explorer,
+            "TopAbs_FACE": TopAbs_FACE,
+            "TopAbs_SOLID": TopAbs_SOLID,
+            "IFSelect_RetDone": IFSelect_RetDone,
+        }
+
+
+def _import_pythonocc():
+    """Keep the legacy binding internally consistent; never mix OCP shapes."""
     from OCC.Core.STEPControl import STEPControl_Reader  # type: ignore[import]
     from OCC.Core.BRep import BRep_Builder  # type: ignore[import]
     from OCC.Core.BRepGProp import brepgprop_VolumeProperties, brepgprop_SurfaceProperties  # type: ignore[import]
@@ -306,7 +340,7 @@ def certify_geometry(
     # --- Guard: OCC must be available ---
     try:
         occ = _import_occ()
-    except (ImportError, ModuleNotFoundError) as exc:
+    except (ImportError, AttributeError) as exc:
         return _failed_cert(
             f"OCC not available ({exc}). Install with: "
             "conda install -c conda-forge pythonocc-core"

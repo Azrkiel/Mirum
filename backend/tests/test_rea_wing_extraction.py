@@ -16,6 +16,9 @@ import sys
 import unittest
 from pathlib import Path
 
+import pytest
+pytestmark = pytest.mark.live
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))          # backend
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))   # repo root
 
