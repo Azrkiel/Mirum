@@ -240,7 +240,7 @@ class Orchestrator:
             yield _event(label, "running", "Manufacturing single part")
             t0 = time.perf_counter()
             try:
-                code, _ = await run_critic_loop(part, save_step=False)
+                code, _, geometry_certificate = await run_critic_loop(part, save_step=False)
             except Exception as exc:
                 latency_ms = (time.perf_counter() - t0) * 1000
                 self.ctx.history.append(SubagentMessage.error(
@@ -256,7 +256,8 @@ class Orchestrator:
             self.ctx.history.append(SubagentMessage.ok(
                 trace_id=self.ctx.trace_id, parent_id=None,
                 agent_type="machinist",
-                payload={"part_id": part.part_id, "code_len": len(code)},
+                payload={"part_id": part.part_id, "code_len": len(code),
+                         "geometry_certificate": geometry_certificate},
                 latency_ms=(time.perf_counter() - t0) * 1000,
             ))
             yield _event(label, "done", f"Part '{part.part_id}' validated")
@@ -292,8 +293,8 @@ class Orchestrator:
                              f"Manufacturing part {i}/{len(parts)}")
 
             async def _build_part(part):
-                code, step_path = await run_critic_loop(part)
-                return part.part_id, code, step_path
+                code, step_path, geometry_certificate = await run_critic_loop(part)
+                return part.part_id, code, step_path, geometry_certificate
 
             # Semaphore: cap concurrent Machinist instances (T4-04 config hook)
             max_concurrent = int(os.environ.get("MIRUM_MAX_MACHINIST", "4"))
@@ -308,13 +309,14 @@ class Orchestrator:
             for coro in asyncio.as_completed(tasks):
                 t0 = time.perf_counter()
                 try:
-                    part_id, code, step_path = await coro
+                    part_id, code, step_path, geometry_certificate = await coro
                     part_scripts[part_id] = code
                     self._step_files[part_id] = step_path
                     self.ctx.history.append(SubagentMessage.ok(
                         trace_id=self.ctx.trace_id, parent_id=None,
                         agent_type="machinist",
-                        payload={"part_id": part_id, "step_path": step_path},
+                        payload={"part_id": part_id, "step_path": step_path,
+                                 "geometry_certificate": geometry_certificate},
                         latency_ms=(time.perf_counter() - t0) * 1000,
                     ))
                     yield _event(labels[part_id], "done",
