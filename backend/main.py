@@ -1208,7 +1208,7 @@ async def refine_assembly(body: RefineRequest, request: Request):
     try:
         asm_script = await run_assembly_critic_loop(updated_manifest, step_files)
         asm_script = asm_script.replace("output.glb", output_filename)
-        exec_result = await execute_cad_script(asm_script)
+        exec_result = await _execute_accepted(asm_script, output_filename, "assembly")
     except Exception as e:
         return {"status": "error", "detail": _safe_error(e)}
 
@@ -1242,6 +1242,7 @@ async def refine_assembly(body: RefineRequest, request: Request):
         "status": "ok",
         "glb": glb_b64,
         "script": asm_script.replace(output_filename, "output.glb"),
+        "geometry_certificate": exec_result["acceptance"]["geometry_certificate"],
         "updated_manifest": updated_manifest.model_dump(),
         "updated_scripts": new_scripts,
         "regenerated_parts": list(parts_to_regenerate),

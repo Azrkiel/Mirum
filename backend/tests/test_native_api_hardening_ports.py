@@ -55,11 +55,22 @@ def test_generate_exports_real_geometry_and_refinement_context(offline_models):
 
 
 def test_failed_geometry_certificate_never_delivers_success(offline_models, monkeypatch):
-    import verification.geometry as geometry
-    monkeypatch.setattr(geometry, 'certify_geometry', lambda *a, **k: {'passed':False,'volume_mm3':None,
-        'checks':{},'failures':['fixture required check failed']})
+    from process_runner import ProcessRunner
+    original_run = ProcessRunner.run
+    observed = []
+    async def fail_native(self, command, **kwargs):
+        if len(command) > 1 and Path(command[1]).name == 'acceptance_worker.py':
+            observed.append(True)
+            Path(command[-1]).write_text(json.dumps({'passed': False, 'checks': {},
+                'failures': ['fixture required check failed']}), encoding='utf-8')
+            return {'code': None, 'returncode': 0, 'stdout': '', 'stderr': ''}
+        return await original_run(self, command, **kwargs)
+    # Native acceptance now runs in its own bounded process; inject failure at
+    # that actual boundary, rather than monkeypatching the obsolete parent helper.
+    monkeypatch.setattr(ProcessRunner, 'run', fail_native)
     with TestClient(main.app) as client:
         result = events(client.post('/generate', json={'prompt':'fixture box'}))[-1]
+    assert observed, 'The required native acceptance boundary was not reached'
     assert result['status'] == 'error', result
     assert not result.get('glb')
 
