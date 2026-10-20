@@ -843,12 +843,12 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 geometry_certificate["part_count"] = len(_part_certs)
                 geometry_certificate["per_part"] = dict(_part_certs)
                 geometry_certificate["failures"] = geometry_certificate["failures"] + all_failures
-                # Domain F: derive aggregate throat/exit area + expansion ratio
-                # from propulsion_spec when available, so the cert card surfaces
-                # the same fields for multi-part thrust-chamber assemblies.
-                if _prop_spec is not None:
-                    from verification.geometry import _propulsion_fields
-                    geometry_certificate["requested_spec_metadata"] = _propulsion_fields(_prop_spec)
+
+        # Domain F: requested throat/exit areas and expansion ratio are spec
+        # metadata, not measurements, for single- and multi-part results alike.
+        if geometry_certificate is not None and _prop_spec is not None:
+            from verification.geometry import _propulsion_fields
+            geometry_certificate["requested_spec_metadata"] = _propulsion_fields(_prop_spec)
 
         # Augment cert with material mass if we have volume + requirements
         if geometry_certificate and geometry_certificate.get("volume_mm3"):
