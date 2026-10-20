@@ -121,6 +121,7 @@ GLB (base64), the CadQuery script, and the geometry certificate.
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/generate` | POST | Full pipeline, streamed |
+| `/engineering/generate` | POST | Deterministic typed cantilever CAD + measured STEP checks + bounded beam FEA; no LLM (API only) |
 | `/plan` | POST | Planner only, returns the manifest |
 | `/requirements` | POST | Requirements extraction only |
 | `/clarify` | POST | Returns clarifying questions for a vague prompt |
@@ -133,6 +134,13 @@ GLB (base64), the CadQuery script, and the geometry certificate.
 | `/admin/model-config` | GET, POST | Read or change which model each agent uses |
 
 ## What doesn't work yet
+
+The new **[deterministic engineering API](docs/implementation/deterministic-physics.md)**
+adds typed cantilever generation, independent STEP measurements, beam finite-element
+checks and bounded solver-feedback sizing without model calls. It is API-only and
+limited to a slender rectangular cantilever under a transverse end force. It is not
+3D solid FEA, a PINN, or engineering standards certification; unsupported requests
+must not be presented as verified.
 
 - **Not every prompt produces a part.** In the last recorded full run of the
   evaluation set (2026-05-26, `output/qa-reports/2026-05-26-full-litesub.md`),
