@@ -1,9 +1,10 @@
 """
 Few-Shot Retrieval for Machinist Context Augmentation.
 
-Builds and queries a simple in-memory retrieval index over successful
-CadQuery generation attempts from telemetry. Uses TF-IDF-style word
-overlap for similarity (no external dependencies required).
+Builds and queries a simple in-memory retrieval index over compile-successful
+CadQuery generation attempts from telemetry, not semantically validated final
+acceptances. Uses TF-IDF-style word overlap for similarity (no external
+dependencies required).
 
 The index is populated from the telemetry JSONL log on startup and
 updated incrementally as new successes are logged.
@@ -90,7 +91,7 @@ def _build_idf(docs: list[list[str]]) -> dict[str, float]:
     for doc in docs:
         for term in set(doc):
             df[term] += 1
-    return {term: math.log(n / (1 + count)) for term, count in df.items()}
+    return {term: math.log((1 + n) / (1 + count)) + 1.0 for term, count in df.items()}
 
 
 def _tfidf_vector(tokens: list[str], idf: dict[str, float]) -> dict[str, float]:
@@ -120,13 +121,15 @@ def build_index() -> None:
 
     records = []
     try:
-        with open(_LOG_FILE, encoding="utf-8") as f:
+        with open(_LOG_FILE, "rb") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 try:
-                    r = json.loads(line)
+                    r = json.loads(line.decode("utf-8"))
+                    if not isinstance(r, dict):
+                        continue
                     if (
                         r.get("success_status")
                         and r.get("event_type") != "assembly"
@@ -140,7 +143,7 @@ def build_index() -> None:
                             "domain": r.get("domain_classification", "A"),
                             "techniques": extract_techniques(code_str),
                         })
-                except json.JSONDecodeError:
+                except (UnicodeDecodeError, json.JSONDecodeError):
                     continue
     except OSError:
         pass
@@ -149,7 +152,7 @@ def build_index() -> None:
     seen_codes: set[str] = set()
     unique = []
     for r in records:
-        key = r["code"][:200]
+        key = r["code"]
         if key not in seen_codes:
             seen_codes.add(key)
             unique.append(r)
@@ -178,7 +181,7 @@ def retrieve_few_shots(
     if not _INDEX_BUILT:
         build_index()
 
-    if not _INDEX:
+    if k <= 0 or not _INDEX:
         return []
 
     query_tokens = _tokenize(description)
@@ -193,19 +196,19 @@ def retrieve_few_shots(
         scored.append((sim, i))
 
     scored.sort(reverse=True)
-    top_k = [_INDEX[i] for _, i in scored[:k] if scored[0][0] > 0.05]
+    top_k = [_INDEX[i] for score, i in scored[:k] if score > 0.05]
 
     return top_k
 
 
 def add_to_index(description: str, code: str, domain: str) -> None:
     """Add a new successful generation to the retrieval index."""
-    global _INDEX_BUILT
+    global _INDEX_BUILT, _IDF, _TFIDF
     if not _INDEX_BUILT:
         build_index()
 
-    tokens = _tokenize(description)
-    vec = _tfidf_vector(tokens, _IDF)
+    if any(record["code"] == code for record in _INDEX):
+        return
 
     _INDEX.append({
         "description": description,
@@ -213,12 +216,14 @@ def add_to_index(description: str, code: str, domain: str) -> None:
         "domain": domain,
         "techniques": extract_techniques(code),
     })
-    _TFIDF.append(vec)
 
     # Trim to 500 entries
     if len(_INDEX) > 500:
         _INDEX.pop(0)
-        _TFIDF.pop(0)
+
+    tokenized = [_tokenize(r["description"]) for r in _INDEX]
+    _IDF = _build_idf(tokenized)
+    _TFIDF = [_tfidf_vector(tokens, _IDF) for tokens in tokenized]
 
 
 # Maps a failure class (from failure_analysis.classify_failure) to the technique
@@ -256,7 +261,7 @@ def retrieve_for_failure(
     global _INDEX_BUILT
     if not _INDEX_BUILT:
         build_index()
-    if not _INDEX:
+    if k <= 0 or not _INDEX:
         return []
 
     target = _FAILURE_TO_TECHNIQUE.get(failure_class)
