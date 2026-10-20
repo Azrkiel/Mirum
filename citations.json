@@ -1,0 +1,179 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": 1,
+      "url": "https://github.com/Azrkiel/Mirum/blob/4501ff067e5e89556210611c910be0463e222d7b/backend/verification/geometry.py",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "Return True if shape contains at least one solid sub-shape.",
+          "added": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "url": "https://github.com/Azrkiel/Mirum/blob/4501ff067e5e89556210611c910be0463e222d7b/backend/agents.py",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "constraint_types = MATE_CONSTRAINTS.get(str(rule.mate_type), [\"Plane\"])",
+          "added": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "url": "https://github.com/Azrkiel/Mirum/blob/4501ff067e5e89556210611c910be0463e222d7b/backend/eval_harness/runner.py",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "code, _step, _cert = await run_critic_loop(part, max_retries=max_retries, save_step=False)",
+          "added": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "url": "https://dev.opencascade.org/doc/refman/html/class_b_rep_check___analyzer.html",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "If False only topological informaions are checked.",
+          "added": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "url": "https://www.asme.org/codes-standards/find-codes-standards/y14-5-dimensioning-tolerancing",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "geometric dimensioning and tolerancing",
+          "added": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "url": "https://www.iso.org/standard/73464.html",
+      "title": "",
+      "accessed": "2026-10-19"
+    },
+    {
+      "id": 7,
+      "url": "https://github.com/Azrkiel/Mirum/blob/4501ff067e5e89556210611c910be0463e222d7b/backend/schemas.py",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "A detailed physical description of the part that the Machinist",
+          "added": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "url": "https://github.com/Azrkiel/Mirum/blob/4501ff067e5e89556210611c910be0463e222d7b/backend/cad_utils.py",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "Generate a stable ribbed-cylinder approximation of a metric thread.",
+          "added": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "url": "https://github.com/Azrkiel/Mirum/blob/4501ff067e5e89556210611c910be0463e222d7b/backend/cad_aero.py",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "corners.append(cq.Vector(xr, y, z0 + zr))",
+          "added": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "url": "https://github.com/Azrkiel/Mirum/blob/4501ff067e5e89556210611c910be0463e222d7b/analysis/structures.py",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "ms = math.inf",
+          "added": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "url": "https://github.com/Azrkiel/Mirum/blob/4501ff067e5e89556210611c910be0463e222d7b/analysis/airfoil.py",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "Try OCC slice first; fall back to analytical NACA if unavailable",
+          "added": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "url": "https://github.com/Azrkiel/Mirum/blob/4501ff067e5e89556210611c910be0463e222d7b/backend/postprocessing.py",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "Fallback: copy STEP file and write PMI as a JSON sidecar.",
+          "added": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "url": "https://github.com/Azrkiel/Mirum/blob/4501ff067e5e89556210611c910be0463e222d7b/backend/main.py",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "overall passed = all parts passed.",
+          "added": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "url": "https://github.com/Azrkiel/Mirum/blob/4501ff067e5e89556210611c910be0463e222d7b/backend/rendering.py",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "Never raises.  If all rendering attempts fail, a synthetic striped image",
+          "added": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "url": "https://github.com/Azrkiel/Mirum/blob/4501ff067e5e89556210611c910be0463e222d7b/backend/strategies.py",
+      "title": "",
+      "accessed": "2026-10-19",
+      "quotes": [
+        {
+          "text": "It is NEVER hollowed, NEVER shelled, and NEVER boolean-subtracted.",
+          "added": "2026-10-19"
+        }
+      ]
+    }
+  ]
+}
