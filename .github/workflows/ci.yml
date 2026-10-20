@@ -73,3 +73,20 @@ jobs:
 
       - name: Run Phase 3 integration tests
         run: python backend/tests/test_aero_integration.py
+
+  native-integration:
+    name: Native CAD and offline API regression gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the native verification image
+        run: docker build -f Dockerfile.verify -t mirum-integration-verify .
+      - name: Run offline tests with real CAD and no provider network
+        run: |
+          docker run --rm --network none --read-only --init \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --memory 4g --cpus 2 --tmpfs /tmp:rw,size=1g,mode=1777 \
+            -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent \
+            -e GEMINI_API_KEY= -e GOOGLE_API_KEY= \
+            mirum-integration-verify

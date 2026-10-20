@@ -1,0 +1,4 @@
+# Keep executable Python shims valid when cloned on Windows and run in Linux.
+analysis/tests/mock_avl text eol=lf
+analysis/tests/mock_xfoil text eol=lf
+*.sh text eol=lf

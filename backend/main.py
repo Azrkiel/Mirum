@@ -7,6 +7,7 @@ a live checklist.
 """
 
 import base64
+import hmac
 import json
 import logging
 import os
@@ -21,7 +22,7 @@ from contextlib import asynccontextmanager
 import google.generativeai as genai
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -140,6 +141,21 @@ async def audit_log(request: Request, call_next):
         elapsed,
     )
     return response
+
+
+@app.middleware("http")
+async def access_token_gate(request: Request, call_next):
+    """Require X-Mirum-Access-Token on every route when MIRUM_ACCESS_TOKEN is set.
+
+    Unset (local compose, tests) leaves the API open as before. Admin routes
+    still also need their own ADMIN_API_KEY bearer token.
+    """
+    expected = os.environ.get("MIRUM_ACCESS_TOKEN", "")
+    if expected:
+        supplied = request.headers.get("X-Mirum-Access-Token", "")
+        if not hmac.compare_digest(supplied.encode(), expected.encode()):
+            return JSONResponse(status_code=401, content={"detail": "Access token required."})
+    return await call_next(request)
 
 
 class GenerateRequest(BaseModel):
@@ -538,7 +554,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         final_script, param_dict = parameterize_script(final_script)
         yield _event("script", "done", final_script)
         try:
-            result = await execute_cad_script(final_script)
+            result = await _execute_accepted(final_script, output_filename, "result")
         except Exception as e:
             debug_log_error("export_single", e, {"part_id": part.part_id})
             result = {"status": "error", "traceback": str(e)}
@@ -579,44 +595,69 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             code, step_path, cert = await run_critic_loop(part)
             return part.part_id, code, step_path, cert
 
-        tasks = [_build_part(part) for part in parts]
+        tasks = [asyncio.create_task(_build_part(part)) for part in parts]
         part_scripts: dict[str, str] = {}
         _part_certs: dict[str, dict | None] = {}
-        for coro in asyncio.as_completed(tasks):
-            try:
-                part_id, code, step_path, cert = await coro
-                part_scripts[part_id] = code
-                step_files[part_id] = step_path
-                _part_certs[part_id] = cert
-                yield _event(labels[part_id], "done", f"Part '{part_id}' validated")
-            except ScriptError as e:
-                logger.exception("Machinist failed (multi-part)")
-                debug_log_error(
-                    "machinist_multi",
-                    e,
-                    {"script_excerpt": (e.script or "")[:1500]},
-                )
-                yield _event("machinist", "error", _safe_error(e))
-                error_complete = {
-                    "step": "complete",
-                    "status": "error",
-                    "message": _safe_error(e),
-                    "script": e.script,
-                }
-                yield f"data: {json.dumps(error_complete)}\n\n"
-                return
-            except Exception as e:
-                logger.exception("Machinist failed (multi-part)")
-                debug_log_error("machinist_multi", e, None)
-                yield _event("machinist", "error", _safe_error(e))
-                error_complete = {
-                    "step": "complete",
-                    "status": "error",
-                    "message": _safe_error(e),
-                    "script": getattr(e, "script", ""),
-                }
-                yield f"data: {json.dumps(error_complete)}\n\n"
-                return
+
+        async def _drain_part_tasks():
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            joined = asyncio.gather(*tasks, return_exceptions=True)
+            interrupted = False
+            while not joined.done():
+                try:
+                    await asyncio.shield(joined)
+                except asyncio.CancelledError:
+                    # Repeated disconnect cancellation must not cancel children
+                    # again while they are draining subprocesses/native work.
+                    interrupted = True
+            joined.result()
+            if interrupted:
+                raise asyncio.CancelledError
+
+        try:
+            for coro in asyncio.as_completed(tasks):
+                try:
+                    part_id, code, step_path, cert = await coro
+                    part_scripts[part_id] = code
+                    step_files[part_id] = step_path
+                    _part_certs[part_id] = cert
+                    yield _event(labels[part_id], "done", f"Part '{part_id}' validated")
+                except ScriptError as e:
+                    logger.exception("Machinist failed (multi-part)")
+                    debug_log_error(
+                        "machinist_multi",
+                        e,
+                        {"script_excerpt": (e.script or "")[:1500]},
+                    )
+                    await _drain_part_tasks()
+                    yield _event("machinist", "error", _safe_error(e))
+                    error_complete = {
+                        "step": "complete",
+                        "status": "error",
+                        "message": _safe_error(e),
+                        "script": e.script,
+                    }
+                    yield f"data: {json.dumps(error_complete)}\n\n"
+                    return
+                except Exception as e:
+                    logger.exception("Machinist failed (multi-part)")
+                    debug_log_error("machinist_multi", e, None)
+                    await _drain_part_tasks()
+                    yield _event("machinist", "error", _safe_error(e))
+                    error_complete = {
+                        "step": "complete",
+                        "status": "error",
+                        "message": _safe_error(e),
+                        "script": getattr(e, "script", ""),
+                    }
+                    yield f"data: {json.dumps(error_complete)}\n\n"
+                    return
+        finally:
+            # SSE disconnects and failed parts retain ownership until every
+            # sibling LLM/CAD operation is cancelled and joined.
+            await _drain_part_tasks()
 
         # Deterministic assembler (no LLM, no retries)
         yield _event("assembler", "running", "Assembling from pre-compiled .step files")
@@ -654,7 +695,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
 
         yield _event("script", "done", final_script)
         try:
-            result = await execute_cad_script(final_script)
+            result = await _execute_accepted(final_script, output_filename, "assembly")
         except Exception as e:
             debug_log_error("assembler_exec", e, None)
             result = {"status": "error", "traceback": str(e)}
@@ -726,28 +767,27 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     # block can never prevent the "complete" event from being emitted.
     aero_report: dict | None = None
     if run_aero:
-        # Single-part fast path never calls _save_part_step, so step_files is
-        # empty.  For Domain D (wing) single-part prompts we need a STEP for
-        # XFOIL's geometry extraction.  Generate a temporary one on the fly
-        # using the same pattern as the geometry-cert block below.
-        if single and not step_files:
-            _aero_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_aero.step"))
-            _aero_script = (
-                f"{code}\n\n"
-                f"import cadquery as cq\n"
-                f"cq.exporters.export(result, r'{_aero_step_path}')\n"
-            )
-            _aero_exec = await execute_cad_script(_aero_script)
-            if _aero_exec["status"] == "success" and os.path.exists(_aero_step_path):
-                step_files = {manifest.parts[0].part_id: _aero_step_path}
-            # If export fails step_files stays empty and _run_aero_stage will
-            # return a skip message — the GLB has already been sent so this is
-            # non-fatal.
+        # Use the captured final STEP, not another model-source execution.
+        _aero_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_aero.step"))
+        with open(_aero_step_path, "wb") as stream:
+            stream.write(result["acceptance"]["step"])
+        _analysis_step_files = {manifest.assembly_name: _aero_step_path}
+        if not single:
+            # Mid-span slicing assumes the wing's own frame. Use the wing
+            # component's certified part STEP when the plan names one, not the
+            # whole positioned assembly (fuselage, spars, ribs, ...).
+            _wing_steps = {
+                pid: path for pid, path in step_files.items()
+                if any(kw in pid.lower() for kw in ("wing", "oml", "skin"))
+                and os.path.isfile(path)
+            }
+            if _wing_steps:
+                _analysis_step_files = _wing_steps
 
         yield _event("aero", "running", "Running XFOIL polar analysis")
-        aero_report, aero_msg = await _run_aero_stage(step_files, requirements)
+        aero_report, aero_msg = await _run_aero_stage(_analysis_step_files, requirements)
         # Clean up the temporary STEP file generated for single-part aero.
-        if single and "_aero_step_path" in locals():
+        if "_aero_step_path" in locals():
             try:
                 os.remove(_aero_step_path)
             except OSError:
@@ -772,7 +812,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
 
     # Geometry certificate — aggregate across all parts.
     # Multi-part: use the certs collected during _build_part().
-    # Single-part: save a temp STEP and run the check (lightweight, advisory).
+    # Single-part: save a temp STEP and run the required delivery check.
     geometry_certificate: dict | None = None
     try:
         from verification.geometry import certify_geometry
@@ -783,29 +823,20 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         _prop_spec = getattr(requirements, "propulsion_spec", None) if requirements else None
 
         if single:
-            # Single-part: write a temp STEP from the validated code
-            _cert_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_cert.step"))
-            _cert_script = (
-                f"{code}\n\n"
-                f"import cadquery as cq\n"
-                f"cq.exporters.export(result, r'{_cert_step_path}')\n"
-            )
-            _cert_exec = await execute_cad_script(_cert_script)
-            if _cert_exec["status"] == "success" and os.path.exists(_cert_step_path):
-                geometry_certificate = dict(
-                    certify_geometry(_cert_step_path, propulsion_spec=_prop_spec)
-                )
-                try:
-                    os.remove(_cert_step_path)
-                except OSError:
-                    pass
+            # Evidence comes from the exact captured native revision, not a
+            # separate execution of the unparameterized model source.
+            geometry_certificate = dict(result["acceptance"]["geometry_certificate"])
         else:
             # Multi-part: merge per-part certs — aggregate volume + surface area,
             # overall passed = all parts passed.
             if _part_certs:
-                all_passed = all(
-                    c is not None and c.get("passed", False)
-                    for c in _part_certs.values()
+                all_passed = (
+                    len(_part_certs) == len(parts)
+                    and set(_part_certs) == {p.part_id for p in parts}
+                    and all(
+                        isinstance(c, dict) and c.get("passed") is True
+                        for c in _part_certs.values()
+                    )
                 )
                 total_vol = sum(
                     (c["volume_mm3"] or 0.0)
@@ -822,24 +853,19 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                     if c:
                         for f in c.get("failures", []):
                             all_failures.append(f"{pid}: {f}")
-                geometry_certificate = {
-                    "passed": all_passed,
-                    "volume_mm3": total_vol if total_vol > 0 else None,
-                    "surface_area_mm2": total_sa if total_sa > 0 else None,
-                    "bounding_box": None,  # undefined for multi-part aggregate
-                    "checks": {},
-                    "failures": all_failures,
-                    "part_count": len(_part_certs),
-                    "per_part": {
-                        pid: c for pid, c in _part_certs.items()
-                    },
-                }
-                # Domain F: derive aggregate throat/exit area + expansion ratio
-                # from propulsion_spec when available, so the cert card surfaces
-                # the same fields for multi-part thrust-chamber assemblies.
-                if _prop_spec is not None:
-                    from verification.geometry import _propulsion_fields
-                    geometry_certificate.update(_propulsion_fields(_prop_spec))
+                # Component coverage remains required, but cannot replace a
+                # certificate of the final positioned assembly.
+                geometry_certificate = dict(result["acceptance"]["geometry_certificate"])
+                geometry_certificate["passed"] = geometry_certificate["passed"] is True and all_passed
+                geometry_certificate["part_count"] = len(_part_certs)
+                geometry_certificate["per_part"] = dict(_part_certs)
+                geometry_certificate["failures"] = geometry_certificate["failures"] + all_failures
+
+        # Domain F: requested throat/exit areas and expansion ratio are spec
+        # metadata, not measurements, for single- and multi-part results alike.
+        if geometry_certificate is not None and _prop_spec is not None:
+            from verification.geometry import _propulsion_fields
+            geometry_certificate["requested_spec_metadata"] = _propulsion_fields(_prop_spec)
 
         # Augment cert with material mass if we have volume + requirements
         if geometry_certificate and geometry_certificate.get("volume_mm3"):
@@ -854,10 +880,23 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         logger.debug("geometry certificate generation failed: %s", _cert_exc)
         geometry_certificate = None
 
+    # Port Text-2-CAD's fail-closed acceptance principle: compilation alone
+    # cannot turn a missing or failed required geometry check into success.
+    if geometry_certificate is None or geometry_certificate.get("passed") is not True:
+        message = "Required geometry validation failed or was unavailable."
+        yield _event("geometry", "error", message)
+        yield f"data: {json.dumps({'step': 'complete', 'status': 'error', 'message': message, 'script': final_script})}\n\n"
+        return
+
+    # Bind evidence to the portable source returned to the editor, not the
+    # server-owned transient GLB pathname used during capture.
+    final_script = final_script.replace(output_filename, "output.glb")
     complete_payload = {
         "step": "complete",
         "status": "done",
         "glb": glb_b64,
+        "manifest": manifest.model_dump(mode="json"),
+        "scripts": {manifest.parts[0].part_id: code} if single else part_scripts,
         "script": final_script,
         "parameters": param_dict_final,  # T1-06
         "export_formats": get_available_formats(),  # T2-09
@@ -986,6 +1025,19 @@ async def plan_assembly(body: GenerateRequest, request: Request):
     }
 
 
+async def _execute_accepted(script: str, output_path: str, output_variable: str = "auto") -> dict:
+    """Capture one native revision and write only its accepted STEP-derived GLB."""
+    from verification.acceptance import accept_script, AcceptanceError
+    try:
+        delivery = await accept_script(script.replace(output_path, "output.glb"),
+                                       output_variable=output_variable, execute=execute_cad_script)
+        with open(output_path, "wb") as stream:
+            stream.write(delivery["glb"])
+        return {"status": "success", "acceptance": delivery}
+    except AcceptanceError as exc:
+        return {"status": "error", "traceback": str(exc)}
+
+
 @app.post("/generate")
 @limiter.limit("5/minute")
 async def generate(body: GenerateRequest, request: Request):
@@ -998,32 +1050,26 @@ async def generate(body: GenerateRequest, request: Request):
 @app.post("/run")
 @limiter.limit("10/minute")
 async def run_script(body: RunRequest, request: Request):
-    """Execute a CadQuery script directly and return the GLB model."""
-    output_filename = str(_WORK_DIR / (uuid.uuid4().hex + ".glb"))
-    script = body.script.replace("output.glb", output_filename)
+    """Deliver only structurally accepted STEP-derived geometry, not a preview."""
+    from verification.acceptance import accept_script, AcceptanceError
+    try:
+        delivery = await accept_script(body.script, execute=execute_cad_script)
+    except AcceptanceError as exc:
+        debug_log_event("run_script", "structural acceptance rejected", {"reason": str(exc)})
+        return {"status": "error", "detail": _safe_error(exc)}
+    return {"status": "ok", "glb": base64.b64encode(delivery["glb"]).decode("utf-8"),
+            "geometry_certificate": delivery["geometry_certificate"]}
 
-    result = await execute_cad_script(script)
-    if result["status"] == "error":
-        debug_log_event(
-            "run_script",
-            "subprocess returned error",
-            {"raw_traceback": result["traceback"][:4000]},
-        )
-        return {"status": "error", "detail": _safe_error(result["traceback"])}
 
-    if not os.path.exists(output_filename):
-        debug_log_event(
-            "run_script",
-            "expected .glb not found",
-            {"output_filename": output_filename},
-        )
-        return {"status": "error", "detail": "Script ran but no .glb file was created."}
+@app.get("/auth/check")
+async def auth_check():
+    """Cheap probe the UI uses to validate an access token (gated by middleware)."""
+    return {"ok": True}
 
-    with open(output_filename, "rb") as f:
-        glb_b64 = base64.b64encode(f.read()).decode("utf-8")
-    os.remove(output_filename)
 
-    return {"status": "ok", "glb": glb_b64}
+# Explicit typed, no-LLM engineering path; existing routes retain their scope.
+from engineering.api import attach_engineering_routes
+attach_engineering_routes(app, limiter)
 
 
 @app.get("/stats")
@@ -1073,44 +1119,36 @@ async def export_to_parasolid(body: RunRequest, request: Request):
     Returns: {"format": "parasolid"|"step", "data_b64": "...", "filename": "..."}
     """
     import tempfile
+    from pathlib import Path
     from exporters import export_parasolid
-
-    # Run the script to produce output.glb + output.step
-    step_path = str(_WORK_DIR / (uuid.uuid4().hex + ".step"))
-    # Patch script to also export STEP
-    patched = body.script + f"\n\nimport cadquery as cq\ncq.exporters.export(result, r'{step_path}')\n"
-
-    result = await execute_cad_script(patched)
-    if result["status"] == "error":
-        return {"status": "error", "detail": _safe_error(result["traceback"])}
-
-    if not os.path.exists(step_path):
-        return {"status": "error", "detail": "Script ran but no STEP file was produced."}
-
-    xt_path = step_path.replace(".step", ".x_t")
-    success, actual_path = export_parasolid(step_path, xt_path, fallback_to_step=True)
+    from verification.acceptance import accept_script, AcceptanceError
 
     try:
-        with open(actual_path, "rb") as f:
-            data_b64 = base64.b64encode(f.read()).decode("utf-8")
-    except Exception:
-        return {"status": "error", "detail": "Export file could not be read."}
-    finally:
-        for p in [step_path, xt_path, actual_path]:
-            try:
-                os.remove(p)
-            except OSError:
-                pass
-
-    fmt = "parasolid" if success else "step"
-    ext = ".x_t" if success else ".step"
-    return {
-        "status": "ok",
-        "format": fmt,
-        "data_b64": data_b64,
-        "filename": f"assembly{ext}",
-        "note": "" if success else "CAD Exchanger not available — STEP provided instead.",
-    }
+        delivery = await accept_script(body.script, execute=execute_cad_script)
+    except AcceptanceError as exc:
+        return {"status": "error", "detail": _safe_error(exc)}
+    with tempfile.TemporaryDirectory(prefix="export-", dir=_WORK_DIR) as temporary:
+        stage = Path(temporary)
+        step_path = stage / "validated-input.step"
+        step_path.write_bytes(delivery["step"])
+        # Different basenames prevent the legacy same-file fallback copy.
+        success, actual_path = export_parasolid(str(step_path), str(stage / "converted.x_t"),
+                                                fallback_to_step=True)
+        if success:
+            return {"status": "error", "detail": "Parasolid conversion is not yet revalidated; use the verified STEP export."}
+        try:
+            output = Path(actual_path)
+            if output.resolve().parent != stage.resolve():
+                raise ValueError("Export escaped its owned workspace")
+            data = output.read_bytes()
+        except (OSError, ValueError):
+            return {"status": "error", "detail": "Export file could not be read."}
+        if data != delivery["step"]:
+            return {"status": "error", "detail": "STEP fallback changed the accepted artifact."}
+        return {"status": "ok", "format": "step",
+                "data_b64": base64.b64encode(data).decode("utf-8"),
+                "filename": "assembly.step", "geometry_certificate": delivery["geometry_certificate"],
+                "note": "Verified STEP provided; Parasolid output validation is not supported."}
 
 
 @app.post("/refine")
@@ -1192,7 +1230,13 @@ async def refine_assembly(body: RefineRequest, request: Request):
                 # part_id is client-supplied: keep the file name inside _WORK_DIR.
                 tmp_step = str(_WORK_DIR / f"{_sanitize_part_id(pid)}_{uuid.uuid4().hex[:8]}.step")
                 reuse_script = body.original_scripts[pid]
-                export_script = reuse_script.rstrip() + f"\n\nimport cadquery as cq\ncq.exporters.export(result, {tmp_step!r})\n"
+                export_script = reuse_script.rstrip() + (
+                    f"\n\nimport cadquery as cq\n"
+                    f"if isinstance(result, cq.Assembly):\n"
+                    f"    result.save({tmp_step!r})\n"
+                    f"else:\n"
+                    f"    cq.exporters.export(result, {tmp_step!r})\n"
+                )
                 result_exec = await execute_cad_script(export_script)
                 if result_exec["status"] == "success":
                     step_files[pid] = tmp_step
@@ -1204,7 +1248,7 @@ async def refine_assembly(body: RefineRequest, request: Request):
     try:
         asm_script = await run_assembly_critic_loop(updated_manifest, step_files)
         asm_script = asm_script.replace("output.glb", output_filename)
-        exec_result = await execute_cad_script(asm_script)
+        exec_result = await _execute_accepted(asm_script, output_filename, "assembly")
     except Exception as e:
         return {"status": "error", "detail": _safe_error(e)}
 
@@ -1237,6 +1281,8 @@ async def refine_assembly(body: RefineRequest, request: Request):
     return {
         "status": "ok",
         "glb": glb_b64,
+        "script": asm_script.replace(output_filename, "output.glb"),
+        "geometry_certificate": exec_result["acceptance"]["geometry_certificate"],
         "updated_manifest": updated_manifest.model_dump(),
         "updated_scripts": new_scripts,
         "regenerated_parts": list(parts_to_regenerate),

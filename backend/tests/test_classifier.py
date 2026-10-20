@@ -17,7 +17,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # sys.modules stub — inject a fake google.generativeai before any import
@@ -41,27 +41,11 @@ def _make_model_mock(domain: str, reasoning: str = "test", key_params: str = "")
 
 
 def _install_initial_stub() -> types.ModuleType:
-    """Install the google.generativeai stub into sys.modules (first time only).
-
-    Subsequent calls by tests MUST mutate this same object in-place because
-    classifier.py caches `import google.generativeai as genai` at import time.
-    Replacing sys.modules["google.generativeai"] with a new object has no
-    effect on the already-imported `genai` reference inside classifier.py.
-    """
-    if "google" not in sys.modules:
-        google_pkg = types.ModuleType("google")
-        google_pkg.__path__ = []  # type: ignore[attr-defined]
-        sys.modules["google"] = google_pkg
-    else:
-        google_pkg = sys.modules["google"]
-
-    # Create the stub once
+    """Build a local SDK double; never replace another test's global module."""
     stub = types.ModuleType("google.generativeai")
     _, cls = _make_model_mock("A")
-    stub.GenerativeModel = cls  # type: ignore[attr-defined]
-    stub.configure = MagicMock()  # type: ignore[attr-defined]
-    sys.modules["google.generativeai"] = stub
-    google_pkg.generativeai = stub  # type: ignore[attr-defined]
+    stub.GenerativeModel = cls
+    stub.configure = MagicMock()
     return stub
 
 
@@ -78,7 +62,7 @@ def _set_response(domain: str, reasoning: str = "test", key_params: str = ""):
     # Mutate the existing module object — this is what classifier.py's `genai` refs
     _GENAI_STUB.GenerativeModel = mock_model_cls  # type: ignore[attr-defined]
     # Also update sys.modules entry to be safe
-    sys.modules["google.generativeai"].GenerativeModel = mock_model_cls  # type: ignore[attr-defined]
+    _GENAI_STUB.GenerativeModel = mock_model_cls  # type: ignore[attr-defined]
     return mock_model, mock_model_cls
 
 
@@ -97,7 +81,9 @@ from classifier import classify_part  # noqa: E402
 # ---------------------------------------------------------------------------
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    import classifier
+    with patch.object(classifier, "genai", _GENAI_STUB):
+        return asyncio.run(coro)
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +273,7 @@ class TestReturnShape(unittest.TestCase):
         mock_model_cls = MagicMock(return_value=mock_model)
         # Mutate in-place — replacement would be ignored by classifier.py's cached ref
         _GENAI_STUB.GenerativeModel = mock_model_cls  # type: ignore[attr-defined]
-        sys.modules["google.generativeai"].GenerativeModel = mock_model_cls  # type: ignore[attr-defined]
+        _GENAI_STUB.GenerativeModel = mock_model_cls  # type: ignore[attr-defined]
         result = _run(classify_part("Some part"))
         self.assertIsInstance(result, dict)
         self.assertIn("domain", result)

@@ -15,6 +15,7 @@ and applies manifest translations directly via CadQuery, with zero LLM
 involvement. Telemetry is captured for every Machinist attempt.
 """
 
+import ast
 import asyncio
 import copy
 import json
@@ -97,6 +98,61 @@ class ScriptError(RuntimeError):
 
 # Max concurrent Machinist calls (respects Gemini rate limits)
 _MACHINIST_SEMAPHORE = asyncio.Semaphore(3)
+
+# cad_aero builders that take and return METRES; Mirum CAD/STEP is millimetres.
+_METRE_BUILDERS = frozenset({
+    "make_spar", "make_rib", "make_stringer", "make_wing_skin_panel",
+    "make_root_fitting", "make_control_surface", "extrude_airfoil_section",
+    "canonical_wing_parts",
+})
+
+
+def unconverted_metre_builders(code: str) -> str | None:
+    """Critic feedback when cad_aero metre geometry is never converted to mm.
+
+    Each builder call must sit inside ``to_mm(...)`` or be assigned to a name
+    that is later passed to ``to_mm(...)``; ``canonical_wing_parts(units="mm")``
+    is already converted. Static AST check: the script is not executed.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None  # the compiler reports syntax errors itself
+
+    def called(node) -> str | None:
+        func = node.func
+        return func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+    converted = {a.id for c in calls if called(c) == "to_mm" for a in c.args if isinstance(a, ast.Name)}
+    offenders = []
+    for call in calls:
+        name = called(call)
+        if name not in _METRE_BUILDERS:
+            continue
+        if name == "canonical_wing_parts" and any(
+            k.arg == "units" and isinstance(k.value, ast.Constant) and k.value.value == "mm"
+            for k in call.keywords
+        ):
+            continue
+        node, wrapped = call, False
+        while node in parents and not wrapped:
+            node = parents[node]
+            wrapped = isinstance(node, ast.Call) and called(node) == "to_mm"
+        parent = parents.get(call)
+        if wrapped or (isinstance(parent, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id in converted for t in parent.targets)):
+            continue
+        offenders.append(name)
+    if not offenders:
+        return None
+    return (
+        "UnitError: cad_aero builders return METRES but Mirum CAD/STEP is MILLIMETRES. "
+        f"Wrap the result of {', '.join(sorted(set(offenders)))} with cad_aero.to_mm(...) "
+        "(or call canonical_wing_parts(units='mm')) before assembling or assigning result; "
+        "otherwise a 5.36 m wing is delivered as 5.36 mm."
+    )
 
 # Maps mate types to CadQuery constraint type strings for assembly.solve()
 MATE_CONSTRAINTS: dict[str, list[str]] = {
@@ -839,7 +895,11 @@ async def run_critic_loop(
                 retry_failure_class=retry_failure_class,
                 retry_techniques=retry_techniques,
             )
-            result = await execute_cad_script(code)
+            unit_error = unconverted_metre_builders(code)
+            result = (
+                {"status": "error", "traceback": unit_error}
+                if unit_error else await execute_cad_script(code)
+            )
 
             success = result["status"] == "success"
             failure_op = None
@@ -952,7 +1012,8 @@ async def run_critic_loop(
                 )
 
                 # Geometry certificate — runs for all domains when a STEP file
-                # was produced.  Never blocks delivery; failures are informational.
+                # was produced. Return failures to the caller; live /generate
+                # requires all final certificates to pass before delivery.
                 geometry_cert: dict | None = None
                 if step_path:
                     try:
@@ -1234,7 +1295,10 @@ def run_assembler_constraint(
 
         src_safe = _sanitize_part_id(rule.source_part_id)
         tgt_safe = _sanitize_part_id(rule.target_part_id)
-        constraint_types = MATE_CONSTRAINTS.get(str(rule.mate_type), ["Plane"])
+        mate_name = rule.mate_type.value if isinstance(rule.mate_type, MateType) else str(rule.mate_type)
+        if mate_name not in MATE_CONSTRAINTS:
+            raise ScriptError(f"Unsupported metadata-only mate type: {mate_name}")
+        constraint_types = MATE_CONSTRAINTS[mate_name]
 
         # Build CadQuery selector strings
         # anchor format is ">Z", "<Z" etc — we use faces@ prefix
@@ -1249,11 +1313,10 @@ def run_assembler_constraint(
 
     lines.append("")
     lines.append("# Solve the constraint system")
-    lines.append("try:")
-    lines.append("    assembly.solve()")
-    lines.append("    print('SOLVER_SUCCESS')")
-    lines.append("except Exception as _solve_err:")
-    lines.append("    print(f'SOLVER_FAILURE: {_solve_err}')")
+    # Execution success must not hide a failed solve or publish an unsolved GLB.
+    lines.append("from cad_utils import solve_assembly_checked")
+    lines.append("solve_assembly_checked(assembly)")
+    lines.append("print('SOLVER_SUCCESS')")
     lines.append("")
     lines.append("assembly.save('output.glb')")
 
@@ -1316,6 +1379,8 @@ async def run_assembly_critic_loop(
 
     # Log assembly telemetry
     solver_ok = "SOLVER_FAILURE" not in result.get("output", "")
+    if use_constraints and (not solver_ok or "SOLVER_SUCCESS" not in result.get("output", "")):
+        raise ScriptError("Assembly solver did not report success.", script=script)
     try:
         from telemetry import log_assembly_event
         log_assembly_event(

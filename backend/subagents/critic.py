@@ -93,7 +93,7 @@ class CriticSubagent(SubagentBase):
         max_retries = self.max_retries if self.max_retries is not None else CRITIC_MAX_RETRIES
 
         t0 = time.perf_counter()
-        code, step_path = await run_critic_loop(
+        code, step_path, geometry_certificate = await run_critic_loop(
             part_def,
             max_retries=max_retries,
             save_step=self.save_step,
@@ -105,6 +105,7 @@ class CriticSubagent(SubagentBase):
             "code":      code,
             "step_path": step_path,
             "code_len":  len(code),
+            "geometry_certificate": geometry_certificate,
         }, latency_ms=latency_ms)
 
 

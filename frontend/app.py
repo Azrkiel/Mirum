@@ -22,6 +22,15 @@ st.markdown(
 )
 
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
+# Public deployments set MIRUM_ACCESS_GATE=1 and the backend MIRUM_ACCESS_TOKEN.
+# The visitor types the token; it is never baked into this public frontend.
+ACCESS_GATE = os.environ.get("MIRUM_ACCESS_GATE", "") == "1"
+
+
+def _auth_headers() -> dict:
+    token = st.session_state.get("access_token", "")
+    return {"X-Mirum-Access-Token": token} if token else {}
+
 
 STEP_LABELS = {
     "planner": "Planning blueprint",
@@ -46,6 +55,7 @@ for key, default in [
     ("parameters", {}),
     ("last_manifest", None),   # T2-08: for refinement
     ("last_scripts", {}),      # T2-08: for refinement
+    ("run_struct", False),
     ("run_aero", False),       # Phase 3: opt-in XFOIL polar
     ("aero_report", None),     # Phase 3: PolarReport dict from /generate complete event
     ("aero_plots", None),      # T2-16: cached {cl_alpha, cd_alpha, cp_dist} base64 PNGs
@@ -88,6 +98,7 @@ _VIEWER_TEMPLATE = """<!doctype html>
   const canvas = document.getElementById("renderCanvas");
   let engine, scene, camera, ground, gridMat;
   let loadedMeshes = [];
+  let modelBounds = null;
 
   async function initEngine() {
     try {
@@ -129,6 +140,25 @@ _VIEWER_TEMPLATE = """<!doctype html>
     return s;
   }
 
+  function fitCameraToModel() {
+    if (!modelBounds) return;
+    const size = modelBounds.max.subtract(modelBounds.min);
+    const span = Math.max(size.x, size.y, size.z, 0.001);
+    const sphereRadius = Math.max(size.length() * 0.5, 0.0005);
+    const aspect = Math.max(engine.getRenderWidth(), 1) / Math.max(engine.getRenderHeight(), 1);
+    // Account for the limiting FOV: vertical on wide screens, horizontal on
+    // narrow screens. A bounding sphere fits for every orbit orientation.
+    camera.fovMode = BABYLON.Camera.FOVMODE_VERTICAL_FIXED;
+    const halfVertical = camera.fov * 0.5;
+    const halfHorizontal = Math.atan(Math.tan(halfVertical) * aspect);
+    camera.setTarget(modelBounds.min.add(modelBounds.max).scale(0.5));
+    camera.radius = sphereRadius * 1.15 / Math.sin(Math.min(halfVertical, halfHorizontal));
+    camera.minZ = Math.max(span / 10000, 0.000001);
+    camera.maxZ = Math.max(span * 100, camera.radius * 4, 10);
+    camera.lowerRadiusLimit = span * 0.05;
+    camera.upperRadiusLimit = Math.max(span * 100, camera.radius * 4);
+  }
+
   async function updateViewer(blob) {
     for (const m of loadedMeshes) m.dispose(false, true);
     loadedMeshes = [];
@@ -143,22 +173,39 @@ _VIEWER_TEMPLATE = """<!doctype html>
     for (const m of loadedMeshes) {
       const pbr = new BABYLON.PBRMaterial("pbr_" + m.name, scene);
       pbr.albedoColor = new BABYLON.Color3(0.78, 0.78, 0.82);
-      pbr.metallic = 1.0;
-      pbr.roughness = 0.3;
+      // A fully metallic surface is nearly black without an environment map.
+      pbr.metallic = 0.05;
+      pbr.roughness = 0.55;
       m.material = pbr;
     }
     // Dispose ground before framing — getWorldExtends ignores setEnabled(false), so
     // a hidden 50x50 ground would still dominate the bounding box and push the camera out.
     ground.dispose();
     gridMat.dispose();
-    scene.createDefaultCameraOrLight(true, true, true);
+    // Keep the deliberately tilted CAD camera. Babylon's default-camera
+    // replacement resets it to a front view, making flat plates look edge-on.
+    for (const m of loadedMeshes) m.computeWorldMatrix(true);
+    const bounds = scene.getWorldExtends();
+    modelBounds = bounds;
+    const size = bounds.max.subtract(bounds.min);
+    const span = Math.max(size.x, size.y, size.z, 0.001);
+    camera.alpha = -Math.PI / 3;
+    camera.beta = Math.PI / 3;
+    fitCameraToModel();
     [ground, gridMat] = createGround(scene);
+    // Do not slice through geometry centered on the origin.
+    ground.position.y = bounds.min.y - span * 0.05;
+    ground.scaling.x = span * 0.04;
+    ground.scaling.z = span * 0.04;
   }
 
   engine = await initEngine();
   scene = buildScene();
   engine.runRenderLoop(() => scene.render());
-  window.addEventListener("resize", () => engine.resize());
+  window.addEventListener("resize", () => {
+    engine.resize();
+    fitCameraToModel();
+  });
 
   const b64 = "__GLB_B64__";
   const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
@@ -196,17 +243,21 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     steps, idx = [], {}
     script_code, glb_bytes = "", None
     error_message = ""
+    terminal_done = False
+    staged_manifest = staged_scripts = None
     params = {}
     aero_report = None
     struct_report = None  # Phase 6: structural & flight-envelope report
     geometry_cert = None  # G-05: geometry certificate
     # Phase 3: opt-in aerodynamic analysis (checkbox state lives in session)
     run_aero = bool(st.session_state.get("run_aero", False))
+    run_struct = bool(st.session_state.get("run_struct", False))
 
     try:
         with requests.post(
             f"{BACKEND_URL}/generate",
-            json={"prompt": prompt, "run_aero": run_aero},
+            headers=_auth_headers(),
+            json={"prompt": prompt, "run_aero": run_aero, "run_struct": run_struct},
             stream=True,
             timeout=300,
         ) as resp:
@@ -225,20 +276,36 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
                 if not raw or not raw.startswith("data: "):
                     continue
                 ev = json.loads(raw[6:])
+                if (not isinstance(ev, dict)
+                        or not isinstance(ev.get("step"), str) or not ev["step"]
+                        or not isinstance(ev.get("status"), str) or not ev["status"]):
+                    raise ValueError("Invalid pipeline event envelope")
                 step, status = ev["step"], ev["status"]
 
                 if step == "complete":
                     if status == "done":
-                        glb_bytes = base64.b64decode(ev.get("glb", ""))
+                        try:
+                            glb_bytes = base64.b64decode(ev.get("glb", ""), validate=True)
+                            terminal_done = bool(glb_bytes)
+                        except (ValueError, TypeError):
+                            error_message = "Backend returned invalid model data."
+                            glb_bytes = None
                         params = ev.get("parameters", {})
                         aero_report = ev.get("aero_report")  # Phase 3
                         struct_report = ev.get("struct_report")  # Phase 6
                         geometry_cert = ev.get("geometry_certificate")  # G-05
+                        if isinstance(geometry_cert, dict) and geometry_cert.get("scope") == "structural_solid_set_v1":
+                            import hashlib
+                            if (geometry_cert.get("passed") is not True
+                                    or geometry_cert.get("engineering_certified") is not False
+                                    or not isinstance(geometry_cert.get("artifacts"), dict)
+                                    or geometry_cert["artifacts"].get("glb_sha256") != hashlib.sha256(glb_bytes or b"").hexdigest()):
+                                raise ValueError("Generation evidence does not match the delivered model")
                         # T2-08: store manifest for refinement
                         if ev.get("manifest"):
-                            st.session_state.last_manifest = ev["manifest"]
+                            staged_manifest = ev["manifest"]
                         if ev.get("scripts"):
-                            st.session_state.last_scripts = ev["scripts"]
+                            staged_scripts = ev["scripts"]
                     elif status == "error":
                         error_message = ev.get("message", "")
                     script_code = ev.get("script", script_code)
@@ -262,6 +329,22 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
         st.error("Request timed out.")
         return
 
+    except (requests.RequestException, ValueError, TypeError):
+        error_message = "The response was invalid or interrupted before completion."
+
+    has_error = bool(error_message) or any(s["status"] == "error" for s in steps)
+    if has_error or not terminal_done:
+        # A failed or truncated attempt must not destroy the last accepted view.
+        message = error_message or ("Generation failed." if has_error else "Generation ended without a complete model.")
+        st.session_state.status = "Error: generation failed"
+        st.error(message)
+        progress_ph.markdown(_progress_md(steps))
+        return
+
+    if staged_manifest is not None:
+        st.session_state.last_manifest = staged_manifest
+    if staged_scripts is not None:
+        st.session_state.last_scripts = staged_scripts
     st.session_state.script_code = script_code
     st.session_state.glb_bytes = glb_bytes
     st.session_state.parameters = params
@@ -292,12 +375,17 @@ def run_script(script: str) -> None:
     st.session_state.status = "Running..."
     try:
         data = requests.post(
-            f"{BACKEND_URL}/run", json={"script": script}, timeout=120
+            f"{BACKEND_URL}/run", json={"script": script}, timeout=120,
+            headers=_auth_headers(),
         ).json()
+        if not isinstance(data, dict):
+            raise ValueError("Invalid manual-run response envelope")
         if data.get("status") == "error":
             st.session_state.status = "Run failed"
             st.error(f"Script execution failed:\n\n```\n{data.get('detail', 'Unknown error')}\n```")
             return
+        if data.get("status") != "ok":
+            raise ValueError("Manual run did not report terminal success")
         glb_b64 = data.get("glb")
         if not glb_b64:
             st.session_state.status = "Run failed"
@@ -305,7 +393,28 @@ def run_script(script: str) -> None:
                 f"Script returned no geometry. Backend response:\n\n```\n{data.get('detail', data)}\n```"
             )
             return
-        st.session_state.glb_bytes = base64.b64decode(glb_b64)
+        decoded = base64.b64decode(glb_b64, validate=True)
+        if not decoded:
+            raise ValueError("Empty manual-run model")
+        # Only current, hash-bound structural evidence may follow an edit.
+        certificate = data.get("geometry_certificate")
+        if certificate is not None:
+            import hashlib
+            if (not isinstance(certificate, dict) or certificate.get("passed") is not True
+                    or certificate.get("scope") != "structural_solid_set_v1"
+                    or certificate.get("engineering_certified") is not False
+                    or not isinstance(certificate.get("artifacts"), dict)
+                    or certificate["artifacts"].get("glb_sha256") != hashlib.sha256(decoded).hexdigest()):
+                raise ValueError("Manual-run evidence does not match the delivered model")
+        st.session_state.glb_bytes = decoded
+        st.session_state.script_code = script
+        st.session_state.geometry_certificate = certificate
+        st.session_state.struct_report = None
+        st.session_state.parameters = {}
+        st.session_state.last_manifest = None
+        st.session_state.last_scripts = {}
+        st.session_state.pending_plan = None
+        st.session_state.show_plan = False
         # Manual script re-run changes geometry — clear stale aero data so the
         # PerformanceCard doesn't show a polar that doesn't match the new model.
         st.session_state.aero_report = None
@@ -318,6 +427,9 @@ def run_script(script: str) -> None:
     except requests.Timeout:
         st.session_state.status = "Timeout"
         st.error("Script execution timed out.")
+    except (requests.RequestException, ValueError, TypeError):
+        st.session_state.status = "Run failed"
+        st.error("The backend returned an invalid or interrupted model response.")
 
 
 def fetch_clarifications(prompt: str) -> list[str]:
@@ -325,6 +437,7 @@ def fetch_clarifications(prompt: str) -> list[str]:
     try:
         resp = requests.post(
             f"{BACKEND_URL}/clarify",
+            headers=_auth_headers(),
             json={"prompt": prompt},
             timeout=30,
         )
@@ -338,6 +451,7 @@ def fetch_plan(prompt: str) -> dict | None:
     try:
         resp = requests.post(
             f"{BACKEND_URL}/plan",
+            headers=_auth_headers(),
             json={"prompt": prompt},
             timeout=180,
         )
@@ -395,6 +509,7 @@ def _fetch_aero_plots(report: dict) -> dict | None:
     try:
         resp = requests.post(
             f"{BACKEND_URL}/analysis/plots",
+            headers=_auth_headers(),
             json={
                 "naca_code": naca_code,
                 "polar": report,
@@ -432,6 +547,7 @@ def _fetch_xfoil_pdf(report: dict) -> bytes | None:
     try:
         resp = requests.post(
             f"{BACKEND_URL}/analysis/pdf",
+            headers=_auth_headers(),
             json={
                 "naca_code": naca_code,
                 "polar": report,
@@ -458,11 +574,12 @@ def _render_geometry_cert_card(cert: dict) -> None:
     Shows pass/fail status, volume, surface area, mass (if available),
     and per-check details in a Streamlit expander.
     """
-    passed = cert.get("passed", False)
+    passed = cert.get("passed") is True
     icon = "✅" if passed else "❌"
-    label = f"{icon} Geometry Certificate — {'PASSED' if passed else 'FAILED'}"
+    label = f"{icon} Structural Geometry Checks — {'PASSED' if passed else 'FAILED'}"
 
     with st.expander(label, expanded=not passed):
+        st.caption("Kernel/topology checks only — not engineering certification, GD&T, manufacturing tolerance or physical-safety verification.")
         # Key metrics row
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -500,11 +617,9 @@ def _render_geometry_cert_card(cert: dict) -> None:
                 "is_solid": "Shape is solid",
             }
             rows = []
-            for key, label_text in check_labels.items():
-                if key in checks:
-                    rows.append(
-                        f"{'✅' if checks[key] else '❌'} {label_text}"
-                    )
+            for key, value in checks.items():
+                label_text = check_labels.get(key, key.replace("_", " ").capitalize())
+                rows.append(f"{'✅' if value is True else '❌'} {label_text}")
             st.markdown("\n".join(rows))
 
         # Failures
@@ -514,7 +629,7 @@ def _render_geometry_cert_card(cert: dict) -> None:
 
         # Multi-part note
         if cert.get("part_count", 1) > 1:
-            st.caption(f"Aggregate of {cert['part_count']} parts")
+            st.caption(f"Final positioned assembly; {cert['part_count']} planned components")
 
 
 def _render_structural_card(report: dict) -> None:
@@ -661,6 +776,23 @@ def _render_performance_card(report: dict) -> None:
         )
 
 
+# ── Access gate (public deployments) ────────────────────────
+if ACCESS_GATE and not st.session_state.get("access_token"):
+    st.markdown("**Access token**")
+    entered = st.text_input("Access token", type="password", label_visibility="collapsed")
+    if entered:
+        try:
+            # Generous timeout: a stopped backend machine cold-starts on demand.
+            ok = requests.get(f"{BACKEND_URL}/auth/check",
+                              headers={"X-Mirum-Access-Token": entered}, timeout=90).status_code == 200
+        except requests.RequestException:
+            ok = False
+        if ok:
+            st.session_state.access_token = entered
+            st.rerun()
+        st.error("Invalid access token, or the backend is still starting. Try again in a moment.")
+    st.stop()
+
 # ── Page Layout ─────────────────────────────────────────────
 
 # 1) Prompt
@@ -682,6 +814,11 @@ st.checkbox(
         "at mid-span and runs XFOIL for Cl/Cd/Cm vs angle of attack. Failure "
         "is non-blocking — the GLB is delivered either way."
     ),
+)
+st.checkbox(
+    "Run structural estimates (Domain D wings only)",
+    key="run_struct",
+    help="Simplified wing-box and flight-envelope estimates, not engineering certification.",
 )
 generate = st.button(
     "Generate (Ctrl+Enter)", type="primary", use_container_width=True
@@ -788,6 +925,8 @@ if st.session_state.glb_bytes:
     geo_cert = st.session_state.get("geometry_certificate")
     if geo_cert:
         _render_geometry_cert_card(geo_cert)
+    else:
+        st.caption("Unverified preview — no current structural acceptance evidence is attached.")
 
     # Phase 6: structural & flight-envelope cards (Domain D, opt-in run_struct)
     struct_report = st.session_state.get("struct_report")
@@ -871,7 +1010,8 @@ if st.session_state.glb_bytes and st.session_state.get("last_manifest"):
             try:
                 import requests as _req
                 resp = _req.post(
-                    "http://backend:8000/refine",
+                    f"{BACKEND_URL}/refine",
+                    headers=_auth_headers(),
                     json={
                         "original_manifest": st.session_state.last_manifest,
                         "original_scripts": st.session_state.get("last_scripts", {}),
@@ -883,11 +1023,30 @@ if st.session_state.glb_bytes and st.session_state.get("last_manifest"):
                 data = resp.json()
                 if data.get("status") == "ok":
                     glb_b64 = data.get("glb")
-                    if glb_b64:
-                        import base64 as _b64
-                        st.session_state.glb_bytes = _b64.b64decode(glb_b64)
-                    else:
-                        st.warning("Refinement succeeded but no geometry was returned — viewer not updated.")
+                    if not glb_b64:
+                        raise ValueError("Refinement returned no geometry — prior result retained.")
+                    import base64 as _b64
+                    refined_glb = _b64.b64decode(glb_b64, validate=True)
+                    if not refined_glb:
+                        raise ValueError("Refinement returned empty geometry — prior result retained.")
+                    certificate = data.get("geometry_certificate")
+                    if certificate is not None:
+                        import hashlib
+                        if (not isinstance(certificate, dict) or certificate.get("passed") is not True
+                                or certificate.get("scope") != "structural_solid_set_v1"
+                                or certificate.get("engineering_certified") is not False
+                                or not isinstance(certificate.get("artifacts"), dict)
+                                or certificate["artifacts"].get("glb_sha256") != hashlib.sha256(refined_glb).hexdigest()):
+                            raise ValueError("Refinement evidence does not match the delivered model")
+                    st.session_state.glb_bytes = refined_glb
+                    # Adopt only current structural evidence; physics remains stale.
+                    st.session_state.geometry_certificate = certificate
+                    st.session_state.struct_report = None
+                    st.session_state.aero_report = None
+                    st.session_state.aero_plots = None
+                    st.session_state.xfoil_pdf_bytes = None
+                    st.session_state.parameters = {}
+                    st.session_state.script_code = data.get("script") or ""
                     st.session_state.last_manifest = data.get("updated_manifest", st.session_state.last_manifest)
                     st.session_state.last_scripts = data.get("updated_scripts", {})
                     regen = data.get("regenerated_parts", [])
