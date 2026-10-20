@@ -20,7 +20,7 @@ def run_manual(response):
     st = SimpleNamespace(session_state=state,error=Mock())
     req = SimpleNamespace(post=Mock(return_value=SimpleNamespace(json=lambda:response)),
         ConnectionError=requests.ConnectionError,Timeout=requests.Timeout,RequestException=requests.RequestException)
-    ns = dict(st=st,requests=req,base64=base64,BACKEND_URL='http://fixture')
+    ns = dict(st=st,requests=req,base64=base64,BACKEND_URL='http://fixture', _auth_headers=lambda: {})
     exec(compile(ast.Module(body=[fn],type_ignores=[]),str(app),'exec'),ns)
     ns['run_script']('new runnable script')
     return state
