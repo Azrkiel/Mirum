@@ -14,7 +14,7 @@ import pytest
 
 os.environ.setdefault('GEMINI_API_KEY_HEAVY', 'offline-fixture-never-sent')
 import main
-from schemas import AssemblyManifest, DesignRequirements, PartDefinition
+from schemas import AssemblyManifest, DesignRequirements, MatingRule, PartDefinition
 
 from backend.tests.test_native_api_hardening_ports import events, offline_models  # noqa: F401
 from backend.tests.test_solid_set_acceptance import box, compound, inspector, step
@@ -32,7 +32,9 @@ def test_multipart_aero_slices_the_wing_component_step(monkeypatch, tmp_path):
 
     manifest = AssemblyManifest(assembly_name='plane', parts=[
         PartDefinition(part_id=name, description=name, anchor_tags=['>Z'])
-        for name in ('fuselage', 'wing')], mating_rules=[])
+        for name in ('fuselage', 'wing')], mating_rules=[MatingRule(
+            source_part_id='fuselage', target_part_id='wing', source_anchor='>Z',
+            target_anchor='>Z', translation='30, 0, 0', clearance=0)])
     monkeypatch.setattr(main, 'run_rea', AsyncMock(return_value=SimpleNamespace(
         inferred_domain='D', airfoil_spec=SimpleNamespace(naca_code='0012', chord_mm=10, span_mm=10),
         flight_env=None, propulsion_spec=None, material_class=None,

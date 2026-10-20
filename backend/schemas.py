@@ -16,12 +16,33 @@ possible through that one field.
 """
 
 import math
+import re
 from enum import Enum
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from propulsion.specs import PropulsionSpec
+
+_SAFE_ID_RE = re.compile(r"[^a-zA-Z0-9_]")
+
+# Planar-face selectors the mate-joint assembler can resolve on an imported
+# STEP body: a signed axis direction, optionally indexed ('>Z[-2]'). Named
+# semantic anchors do not survive STEP export, so they cannot carry a joint.
+NATIVE_FACE_SELECTOR_RE = re.compile(r"[<>][XYZ](\[-?\d{1,2}\])?")
+
+# Upper bound on a declared joint clearance (mm). Larger values are not a fit.
+MAX_CLEARANCE_MM = 1000.0
+
+
+def sanitize_part_id(raw: str) -> str:
+    """Strip part_id to alphanumeric + underscore only (max 64 chars).
+
+    This is the namespace the generated assembly actually uses (node names,
+    STEP labels, temporary file stems), so manifest uniqueness is checked
+    here as well as on the raw strings.
+    """
+    return _SAFE_ID_RE.sub("_", raw)[:64] or "unnamed_part"
 
 
 class MateType(str, Enum):
@@ -179,10 +200,12 @@ class MatingRule(BaseModel):
     clearance: float = Field(
         ...,
         description=(
-            "Gap in millimeters between the two mated surfaces. "
-            "Use 0.0 for flush contact. Use small positive values for "
-            "mechanical clearance (e.g., 0.1 for a slip fit, 0.5 for a loose "
-            "fit)."
+            "Axial gap in millimeters between the source and target anchor "
+            "faces, measured along the source anchor face normal. "
+            "Use 0.0 for flush contact; small positive values separate the "
+            "faces (e.g., 0.5). It is NOT a radial or diametral fit. Must be "
+            "0.0 for BALL joints and for translation-only rules (an absolute "
+            "translation cannot apply a gap)."
         ),
     )
 
@@ -263,6 +286,27 @@ class MatingRule(BaseModel):
                 "MatingRule must have either 'mate_type' or 'translation'. "
                 "Provide mate_type (preferred) for constraint-based assembly, "
                 "or translation 'X, Y, Z' for legacy positioning."
+            )
+        if self.mate_type is not None and self.translation is not None:
+            raise ValueError(
+                "MatingRule has both 'mate_type' and an absolute 'translation'; "
+                "a joint places the target, so the translation would be ignored. "
+                "Provide only one."
+            )
+        c = self.clearance
+        if not math.isfinite(c) or c < 0.0 or c > MAX_CLEARANCE_MM:
+            raise ValueError(
+                f"clearance must be a finite gap in [0, {MAX_CLEARANCE_MM:g}] mm, got {c!r}"
+            )
+        if c != 0.0 and self.mate_type is None:
+            raise ValueError(
+                "clearance must be 0 on a translation-only rule: the absolute "
+                "translation fully places the part and no gap would be applied."
+            )
+        if c != 0.0 and self.mate_type == MateType.BALL:
+            raise ValueError(
+                "clearance must be 0 for a BALL joint: a ball/socket radial gap "
+                "is not representable by planar anchor faces."
             )
         return self
 
@@ -471,6 +515,14 @@ class StructuralReport(BaseModel):
     shear_margin_of_safety:   float
     shear_passed:             bool
 
+    # Evidence status (disambiguates a null/inf margin: "zero_load" is a
+    # genuine zero load; "not_evaluated" is missing evidence) + provenance.
+    bending_status:        str = "evaluated"
+    shear_status:          str = "evaluated"
+    governing_load_case:   str = "positive_ultimate"
+    method:                str = "analytic_sizing_estimate"
+    engineering_certified: bool = False
+
     material:  str
     passed:    bool
     warnings:  list[str]
@@ -569,6 +621,22 @@ class AssemblyManifest(BaseModel):
                     f"anchor tags. Maximum is 20."
                 )
 
+        # --- Identity: non-empty, unique raw ids, unique generated names ---
+        if not self.parts:
+            raise ValueError("AssemblyManifest requires at least one part.")
+        safe_names: dict[str, str] = {}
+        for part in self.parts:
+            safe = sanitize_part_id(part.part_id)
+            if safe in safe_names:
+                other = safe_names[safe]
+                if other == part.part_id:
+                    raise ValueError(f"Duplicate part_id {part.part_id!r}; every part_id must be unique.")
+                raise ValueError(
+                    f"part_ids {other!r} and {part.part_id!r} collide as assembly "
+                    f"name {safe!r}; rename one of them."
+                )
+            safe_names[safe] = part.part_id
+
         # --- Referential integrity ---
         valid_ids = {p.part_id for p in self.parts}
         for rule in self.mating_rules:
@@ -580,6 +648,94 @@ class AssemblyManifest(BaseModel):
                 raise ValueError(
                     f"Mating rule references undefined part: {rule.target_part_id}"
                 )
+
+        # --- Self-reference and anchor resolution ---
+        declared = {p.part_id: set(p.anchor_tags) for p in self.parts}
+        for rule in self.mating_rules:
+            if rule.source_part_id == rule.target_part_id:
+                # Only the legacy absolute self-placement ('0, 0, 0' for a
+                # single part) is meaningful; a part cannot form a joint
+                # with itself. Its anchors are not used.
+                if rule.mate_type is not None:
+                    raise ValueError(
+                        f"Self-referencing mating rule on {rule.source_part_id!r} cannot "
+                        f"carry mate_type {rule.mate_type.value}; only a translation-only "
+                        "self-placement is allowed."
+                    )
+                continue
+            for pid, anchor in ((rule.source_part_id, rule.source_anchor),
+                                (rule.target_part_id, rule.target_anchor)):
+                native = NATIVE_FACE_SELECTOR_RE.fullmatch(anchor) is not None
+                if rule.mate_type is not None and not native:
+                    raise ValueError(
+                        f"Unsupported anchor {anchor!r} on part {pid!r}: a mate_type joint "
+                        "needs a planar face selector such as '>Z' or '<X' (optionally "
+                        "indexed, '>Z[-2]'); named anchors are not resolvable on the "
+                        "imported part geometry."
+                    )
+                if not native and anchor not in declared[pid]:
+                    raise ValueError(
+                        f"Anchor {anchor!r} is not declared in part {pid!r} anchor_tags "
+                        "and is not a supported face selector."
+                    )
+
+        # --- Placement / connectivity policy (multi-part only) ---
+        # parts[0] is the grounded base. A part is placed either by a chain of
+        # mate joints from exactly one placed root (the base, or a part with
+        # an explicit translation), or by its own explicit translation. A part
+        # with neither would silently land at the origin.
+        if len(self.parts) > 1:
+            ground = self.parts[0].part_id
+            translations: dict[str, str] = {}
+            for rule in self.mating_rules:
+                if rule.mate_type is not None:
+                    continue
+                pid = rule.target_part_id
+                xyz = tuple(float(v) for v in rule.translation.split(","))
+                if pid in translations and translations[pid] != xyz:
+                    raise ValueError(
+                        f"Part {pid!r} has conflicting placement: two different "
+                        "absolute translations."
+                    )
+                translations[pid] = xyz
+            parent = {p.part_id: p.part_id for p in self.parts}
+
+            def find(pid: str) -> str:
+                while parent[pid] != pid:
+                    parent[pid] = parent[parent[pid]]
+                    pid = parent[pid]
+                return pid
+
+            mated: set[str] = set()
+            for rule in self.mating_rules:
+                if rule.mate_type is None or rule.source_part_id == rule.target_part_id:
+                    continue
+                mated.update((rule.source_part_id, rule.target_part_id))
+                parent[find(rule.source_part_id)] = find(rule.target_part_id)
+            components: dict[str, list[str]] = {}
+            for part in self.parts:
+                if part.part_id in mated:
+                    components.setdefault(find(part.part_id), []).append(part.part_id)
+            for members in components.values():
+                roots = [m for m in members if m == ground or m in translations]
+                if not roots:
+                    raise ValueError(
+                        f"Parts {sorted(members)} are not connected by mate joints to the "
+                        f"grounded base part {ground!r} or to an explicitly placed part."
+                    )
+                if len(roots) > 1:
+                    extra = [m for m in roots if m != ground] if ground in roots else roots[1:]
+                    raise ValueError(
+                        f"Part {extra[0]!r} has conflicting placement: it is positioned by "
+                        "mate joints and also by an absolute translation."
+                    )
+            for part in self.parts:
+                pid = part.part_id
+                if pid not in mated and pid != ground and pid not in translations:
+                    raise ValueError(
+                        f"Part {pid!r} has no placement: no mate joint path to the grounded "
+                        f"base part {ground!r} and no explicit translation."
+                    )
         return self
 
 

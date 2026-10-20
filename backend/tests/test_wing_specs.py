@@ -23,6 +23,7 @@ from schemas import (  # noqa: E402
     AircraftSpec,
     AssemblyManifest,
     DesignRequirements,
+    PartDefinition,
     Wing3DAeroReport,
     WingBoxSpec,
 )
@@ -96,7 +97,8 @@ class TestDesignRequirementsWiring(unittest.TestCase):
 
 class TestManifestWing3DReport(unittest.TestCase):
     def test_wing_aero_report_optional(self):
-        m = AssemblyManifest(assembly_name="wing", parts=[], mating_rules=[])
+        m = AssemblyManifest(assembly_name="wing", parts=[PartDefinition(
+            part_id="wing", description="wing", anchor_tags=[">Z"])], mating_rules=[])
         self.assertIsNone(m.wing_aero_report)
 
 
