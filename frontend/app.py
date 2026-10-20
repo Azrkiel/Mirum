@@ -88,6 +88,7 @@ _VIEWER_TEMPLATE = """<!doctype html>
   const canvas = document.getElementById("renderCanvas");
   let engine, scene, camera, ground, gridMat;
   let loadedMeshes = [];
+  let modelBounds = null;
 
   async function initEngine() {
     try {
@@ -129,6 +130,25 @@ _VIEWER_TEMPLATE = """<!doctype html>
     return s;
   }
 
+  function fitCameraToModel() {
+    if (!modelBounds) return;
+    const size = modelBounds.max.subtract(modelBounds.min);
+    const span = Math.max(size.x, size.y, size.z, 0.001);
+    const sphereRadius = Math.max(size.length() * 0.5, 0.0005);
+    const aspect = Math.max(engine.getRenderWidth(), 1) / Math.max(engine.getRenderHeight(), 1);
+    // Account for the limiting FOV: vertical on wide screens, horizontal on
+    // narrow screens. A bounding sphere fits for every orbit orientation.
+    camera.fovMode = BABYLON.Camera.FOVMODE_VERTICAL_FIXED;
+    const halfVertical = camera.fov * 0.5;
+    const halfHorizontal = Math.atan(Math.tan(halfVertical) * aspect);
+    camera.setTarget(modelBounds.min.add(modelBounds.max).scale(0.5));
+    camera.radius = sphereRadius * 1.15 / Math.sin(Math.min(halfVertical, halfHorizontal));
+    camera.minZ = Math.max(span / 10000, 0.000001);
+    camera.maxZ = Math.max(span * 100, camera.radius * 4, 10);
+    camera.lowerRadiusLimit = span * 0.05;
+    camera.upperRadiusLimit = Math.max(span * 100, camera.radius * 4);
+  }
+
   async function updateViewer(blob) {
     for (const m of loadedMeshes) m.dispose(false, true);
     loadedMeshes = [];
@@ -143,22 +163,39 @@ _VIEWER_TEMPLATE = """<!doctype html>
     for (const m of loadedMeshes) {
       const pbr = new BABYLON.PBRMaterial("pbr_" + m.name, scene);
       pbr.albedoColor = new BABYLON.Color3(0.78, 0.78, 0.82);
-      pbr.metallic = 1.0;
-      pbr.roughness = 0.3;
+      // A fully metallic surface is nearly black without an environment map.
+      pbr.metallic = 0.05;
+      pbr.roughness = 0.55;
       m.material = pbr;
     }
     // Dispose ground before framing — getWorldExtends ignores setEnabled(false), so
     // a hidden 50x50 ground would still dominate the bounding box and push the camera out.
     ground.dispose();
     gridMat.dispose();
-    scene.createDefaultCameraOrLight(true, true, true);
+    // Keep the deliberately tilted CAD camera. Babylon's default-camera
+    // replacement resets it to a front view, making flat plates look edge-on.
+    for (const m of loadedMeshes) m.computeWorldMatrix(true);
+    const bounds = scene.getWorldExtends();
+    modelBounds = bounds;
+    const size = bounds.max.subtract(bounds.min);
+    const span = Math.max(size.x, size.y, size.z, 0.001);
+    camera.alpha = -Math.PI / 3;
+    camera.beta = Math.PI / 3;
+    fitCameraToModel();
     [ground, gridMat] = createGround(scene);
+    // Do not slice through geometry centered on the origin.
+    ground.position.y = bounds.min.y - span * 0.05;
+    ground.scaling.x = span * 0.04;
+    ground.scaling.z = span * 0.04;
   }
 
   engine = await initEngine();
   scene = buildScene();
   engine.runRenderLoop(() => scene.render());
-  window.addEventListener("resize", () => engine.resize());
+  window.addEventListener("resize", () => {
+    engine.resize();
+    fitCameraToModel();
+  });
 
   const b64 = "__GLB_B64__";
   const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
