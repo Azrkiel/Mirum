@@ -796,7 +796,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
 
     # Geometry certificate — aggregate across all parts.
     # Multi-part: use the certs collected during _build_part().
-    # Single-part: save a temp STEP and run the check (lightweight, advisory).
+    # Single-part: save a temp STEP and run the required delivery check.
     geometry_certificate: dict | None = None
     try:
         from verification.geometry import certify_geometry
@@ -827,9 +827,13 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             # Multi-part: merge per-part certs — aggregate volume + surface area,
             # overall passed = all parts passed.
             if _part_certs:
-                all_passed = all(
-                    c is not None and c.get("passed", False)
-                    for c in _part_certs.values()
+                all_passed = (
+                    len(_part_certs) == len(parts)
+                    and set(_part_certs) == {p.part_id for p in parts}
+                    and all(
+                        isinstance(c, dict) and c.get("passed") is True
+                        for c in _part_certs.values()
+                    )
                 )
                 total_vol = sum(
                     (c["volume_mm3"] or 0.0)
@@ -878,10 +882,20 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         logger.debug("geometry certificate generation failed: %s", _cert_exc)
         geometry_certificate = None
 
+    # Port Text-2-CAD's fail-closed acceptance principle: compilation alone
+    # cannot turn a missing or failed required geometry check into success.
+    if geometry_certificate is None or geometry_certificate.get("passed") is not True:
+        message = "Required geometry validation failed or was unavailable."
+        yield _event("geometry", "error", message)
+        yield f"data: {json.dumps({'step': 'complete', 'status': 'error', 'message': message, 'script': final_script})}\n\n"
+        return
+
     complete_payload = {
         "step": "complete",
         "status": "done",
         "glb": glb_b64,
+        "manifest": manifest.model_dump(mode="json"),
+        "scripts": {manifest.parts[0].part_id: code} if single else part_scripts,
         "script": final_script,
         "parameters": param_dict_final,  # T1-06
         "export_formats": get_available_formats(),  # T2-09

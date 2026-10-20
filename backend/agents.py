@@ -952,7 +952,8 @@ async def run_critic_loop(
                 )
 
                 # Geometry certificate — runs for all domains when a STEP file
-                # was produced.  Never blocks delivery; failures are informational.
+                # was produced. Return failures to the caller; live /generate
+                # requires all final certificates to pass before delivery.
                 geometry_cert: dict | None = None
                 if step_path:
                     try:
