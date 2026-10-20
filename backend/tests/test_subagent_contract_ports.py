@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import agents
 import compiler
-from schemas import AssemblyManifest, PartDefinition
+from schemas import AssemblyManifest, MatingRule, PartDefinition
 from subagents.machinist import MachinistSubagent
 from subagents.messages import SubagentContext
 from subagents.orchestrator import Orchestrator, PipelineState
@@ -33,7 +33,9 @@ def test_machinist_wrapper_preserves_geometry_certificate(monkeypatch, part):
 @pytest.mark.parametrize('count', [1, 2])
 def test_orchestrator_machine_stage_accepts_three_value_critic(monkeypatch, part, tmp_path, count):
     parts = [part] if count == 1 else [part, PartDefinition(part_id='cap', description='cap', anchor_tags=['<Z'])]
-    manifest = AssemblyManifest(assembly_name='boxes', parts=parts, mating_rules=[])
+    rules = [] if count == 1 else [MatingRule(source_part_id=part.part_id, target_part_id='cap',
+        source_anchor='>Z', target_anchor='<Z', translation='0, 0, 5', clearance=0)]
+    manifest = AssemblyManifest(assembly_name='boxes', parts=parts, mating_rules=rules)
     monkeypatch.setattr(agents, 'run_critic_loop', AsyncMock(return_value=('result = 1', '/tmp/box.step', {'passed': True})))
     monkeypatch.setattr(agents, 'run_single_part_export', AsyncMock(return_value='result = 1'))
     monkeypatch.setattr(compiler, 'execute_cad_script', AsyncMock(return_value={'status': 'success', 'output': ''}))

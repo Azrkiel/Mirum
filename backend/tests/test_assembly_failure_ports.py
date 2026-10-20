@@ -23,40 +23,34 @@ def manifest(kind=MateType.REVOLUTE):
 
 
 def execute_generated(monkeypatch, *, fail=False):
-    saved, constraints = [], []
+    saved, placed = [], []
     class Assembly:
-        def add(self, *args, **kwargs): return self
-        def constrain(self, *args): constraints.append(args); return self
-        def solve(self):
-            if fail: raise RuntimeError("fixture unsatisfied constraints")
-            self._solve_result = {"success": True, "return_status": "Solve_Succeeded"}
-            return self
         def save(self, path): saved.append(path)
-    cq = SimpleNamespace(Assembly=Assembly, importers=SimpleNamespace(importStep=lambda path: object()))
+    def assemble_mated_parts(bodies, ground, joints, placements=None):
+        # Lightweight double of the trusted helper; the native joint tests
+        # (test_joint_semantics.py) exercise the real OCP placement.
+        if fail:
+            raise ValueError("fixture overconstrained joints")
+        placed.append((ground, list(joints), dict(placements or {})))
+        return Assembly()
+    cq = SimpleNamespace(importers=SimpleNamespace(importStep=lambda path: object()))
     monkeypatch.setitem(sys.modules, "cadquery", cq)
-    # Execute the real trusted helper against this lightweight assembly double;
-    # the separate native solver regression exercises actual OCP/CasADi.
-    import ast
-    tree = ast.parse((Path(__file__).resolve().parents[1]/'cad_utils.py').read_text(encoding='utf-8'))
-    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'solve_assembly_checked')
-    ns = {'cq': cq}
-    exec(compile(ast.Module(body=[fn], type_ignores=[]), '<trusted-helper-test>', 'exec'), ns)
-    monkeypatch.setitem(sys.modules, 'cad_utils', SimpleNamespace(solve_assembly_checked=ns['solve_assembly_checked']))
+    monkeypatch.setitem(sys.modules, "cad_utils", SimpleNamespace(assemble_mated_parts=assemble_mated_parts))
     script = agents.run_assembler_constraint(manifest(), {"base": "/tmp/base.step", "cap": "/tmp/cap.step"})
-    return script, saved, constraints
+    return script, saved, placed
 
 
-def test_solver_error_prevents_export(monkeypatch):
+def test_placement_error_prevents_export(monkeypatch):
     script, saved, _ = execute_generated(monkeypatch, fail=True)
-    with pytest.raises(RuntimeError, match="fixture unsatisfied"):
+    with pytest.raises(ValueError, match="fixture overconstrained"):
         exec(compile(script, "<generated-assembly-test>", "exec"), {})
     assert saved == []
 
 
-def test_enum_selects_the_declared_constraint_not_fallback_plane(monkeypatch):
-    script, saved, constraints = execute_generated(monkeypatch)
+def test_enum_selects_the_declared_joint_not_a_fallback(monkeypatch):
+    script, saved, placed = execute_generated(monkeypatch)
     exec(compile(script, "<generated-assembly-test>", "exec"), {})
-    assert [call[-1] for call in constraints] == ["Axis"]
+    assert placed == [("base", [("base", ">Z", "cap", "<Z", "REVOLUTE", 0.0)], {})]
     assert saved == ["output.glb"]
 
 
@@ -65,9 +59,9 @@ def test_metadata_coupling_is_not_silently_enforced_as_plane():
         agents.run_assembler_constraint(manifest(MateType.GEAR), {"base": "/tmp/base.step", "cap": "/tmp/cap.step"})
 
 
-def test_assembly_critic_rejects_solver_failure_even_with_zero_exit(monkeypatch):
+def test_assembly_critic_rejects_unreported_placement_even_with_zero_exit(monkeypatch):
     monkeypatch.setattr(agents, "check_assembly_interpenetration", lambda _: [])
     monkeypatch.setattr(agents, "execute_cad_script", AsyncMock(return_value={
-        "status": "success", "output": "SOLVER_FAILURE: fixture constraints unsatisfied"}))
-    with pytest.raises(agents.ScriptError, match="[Ss]olv"):
+        "status": "success", "output": "fixture exited without placing joints"}))
+    with pytest.raises(agents.ScriptError, match="placement"):
         asyncio.run(agents.run_assembly_critic_loop(manifest(), {"base": "/tmp/base.step", "cap": "/tmp/cap.step"}))
