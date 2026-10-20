@@ -97,7 +97,12 @@ def test_changed_refinement_returns_actual_runnable_script_without_old_certifica
         assert 'output.glb' in revised['script']
         assert revised['updated_scripts'] == {'box': revised_source}
         assert revised['regenerated_parts'] == ['box']
-        assert 'geometry_certificate' not in revised
+        assert revised['geometry_certificate']['passed'] is True
+        assert revised['geometry_certificate']['volume_mm3'] == pytest.approx(1200)
+        assert revised['geometry_certificate'] != original['geometry_certificate']
+        import hashlib
+        assert revised['geometry_certificate']['artifacts']['glb_sha256'] == hashlib.sha256(
+            base64.b64decode(revised['glb'])).hexdigest()
         assert 'aero_report' not in revised
         assert 'struct_report' not in revised
         assert_valid_glb(revised['glb'])
