@@ -29,6 +29,130 @@ def solve_assembly_checked(assembly: cq.Assembly) -> cq.Assembly:
     return assembly
 
 
+def _body_shape(body):
+    """Single native shape for an imported part (multi-root STEP -> Compound)."""
+    if isinstance(body, cq.Workplane):
+        values = [v for v in body.vals() if isinstance(v, cq.Shape)]
+        if not values:
+            raise ValueError("Imported part contains no shapes")
+        return values[0] if len(values) == 1 else cq.Compound.makeCompound(values)
+    if isinstance(body, cq.Shape):
+        return body
+    raise TypeError("Part bodies must be cq.Workplane or cq.Shape")
+
+
+def anchor_frame(shape, selector: str):
+    """(origin, unit normal) of the single planar face ``selector`` selects.
+
+    The selector is evaluated in the part's own modelled frame. Zero, several,
+    or non-planar matches are an indeterminate joint frame and are rejected.
+    """
+    from joint_contract import unit
+
+    faces = cq.Workplane(obj=shape).faces(selector).vals()
+    if len(faces) != 1:
+        raise ValueError(f"Anchor {selector!r} selects {len(faces)} faces; exactly one planar face is required")
+    face = faces[0]
+    if face.geomType() != "PLANE" or not face.Area() > 1e-9:
+        raise ValueError(f"Anchor {selector!r} is not a planar face with positive area")
+    center = face.Center()
+    normal = face.normalAt(center)
+    return (center.x, center.y, center.z), unit((normal.x, normal.y, normal.z))
+
+
+def _location(rotation, translation):
+    from joint_contract import matrix_axis_angle
+
+    axis, angle = matrix_axis_angle(rotation)
+    return cq.Location(cq.Vector(*translation), cq.Vector(*axis), math.degrees(angle))
+
+
+def assemble_mated_parts(bodies: dict, ground: str, joints: list, placements: dict | None = None) -> cq.Assembly:
+    """Place parts by the bounded joint contract (see ``joint_contract``).
+
+    ``bodies`` maps assembly names to imported parts; ``joints`` holds
+    (source, source_anchor, target, target_anchor, joint_type, clearance)
+    tuples; ``placements`` maps explicitly placed parts to absolute (x, y, z)
+    translations. Each joint component is placed in closed form from exactly
+    one root (``ground`` or an explicitly placed part). Joints that close a
+    loop must already hold at the tree pose (redundant), otherwise the
+    assembly is overconstrained and rejected. No solver is involved, so there
+    is no unconverged or arbitrary pose to export.
+    """
+    from joint_contract import (IDENTITY, align_rotation, joint_residuals, mat_mul, mat_vec,
+                                place_child, plane_basis, require_supported, residuals_within,
+                                scale, tolerances)
+
+    placements = dict(placements or {})
+    if ground not in bodies:
+        raise ValueError(f"Ground part {ground!r} is not in the assembly")
+    shapes = {name: _body_shape(body) for name, body in bodies.items()}
+    for name in placements:
+        if name not in shapes:
+            raise ValueError(f"Placement names unknown part {name!r}")
+    edges = []
+    for joint in joints:
+        src, src_anchor, tgt, tgt_anchor, kind, clearance = joint
+        require_supported(kind)
+        if src not in shapes or tgt not in shapes or src == tgt:
+            raise ValueError(f"Joint {src!r}->{tgt!r} must connect two different known parts")
+        clearance = float(clearance)
+        if not math.isfinite(clearance) or clearance < 0:
+            raise ValueError("Joint clearance must be a finite non-negative gap")
+        if kind == "BALL" and clearance != 0:
+            raise ValueError("BALL joint clearance must be 0")
+        edges.append((src, anchor_frame(shapes[src], src_anchor),
+                      tgt, anchor_frame(shapes[tgt], tgt_anchor), kind, clearance))
+
+    pose = {}
+    roots = [ground] + [name for name in placements if name != ground]
+    for root in roots:
+        pose[root] = (IDENTITY, tuple(float(v) for v in placements.get(root, (0.0, 0.0, 0.0))))
+    for name in shapes:
+        if name not in pose and not any(name in (e[0], e[2]) for e in edges):
+            raise ValueError(f"Part {name!r} has no placement")
+    # Breadth-first from the roots; a joint traversed target->source places
+    # the source with the same relation (the convention is symmetric).
+    used = set()
+    frontier = list(roots)
+    while frontier:
+        current = frontier.pop(0)
+        for index, (src, fa, tgt, fb, kind, clearance) in enumerate(edges):
+            if index in used or current not in (src, tgt):
+                continue
+            other = tgt if current == src else src
+            if other in pose:
+                continue
+            parent_frame, child_frame = (fa, fb) if current == src else (fb, fa)
+            rotation, translation, _flip = place_child(*pose[current], parent_frame, child_frame, clearance)
+            pose[other] = (rotation, translation)
+            used.add(index)
+            frontier.append(other)
+    missing = [name for name in shapes if name not in pose]
+    if missing:
+        raise ValueError(f"Parts {missing} are not connected to a placed root")
+
+    # Every joint (tree and loop-closing) must hold at the final pose.
+    for src, fa, tgt, fb, kind, clearance in edges:
+        (ra, ta), (rb, tb) = pose[src], pose[tgt]
+        a = (tuple(x + y for x, y in zip(mat_vec(ra, fa[0]), ta)), mat_vec(ra, fa[1]))
+        b = (tuple(x + y for x, y in zip(mat_vec(rb, fb[0]), tb)), mat_vec(rb, fb[1]))
+        ref = plane_basis(fb[1])[0]
+        q, _ = align_rotation(fb[1], scale(fa[1], -1.0))
+        spin = (mat_vec(mat_mul(ra, q), ref), mat_vec(rb, ref))
+        bbox = max(shapes[src].BoundingBox().DiagonalLength, shapes[tgt].BoundingBox().DiagonalLength)
+        if not residuals_within(joint_residuals(kind, a, b, clearance, spin), tolerances(bbox)):
+            raise ValueError(
+                f"Overconstrained assembly: joint {src!r}->{tgt!r} ({kind}) conflicts with the "
+                "placement implied by the other joints"
+            )
+
+    assembly = cq.Assembly()
+    for name, shape in shapes.items():
+        assembly.add(cq.Workplane(obj=shape), name=name, loc=_location(*pose[name]))
+    return assembly
+
+
 def make_involute_spur_gear(
     num_teeth: int = 20,
     module: float = 2.0,
@@ -415,29 +539,80 @@ _ISO_HEX_NUT_DIMS = {
 }
 
 
+# Fastener geometry representations. Neither is a manufacturing thread:
+#   "preview"  - legacy look-alike: annular ribs up to the major diameter on a
+#                minor-diameter core (bolt), plain minor-diameter bore (nut).
+#                A preview bolt and preview nut INTERPENETRATE (82 mm^3 for a
+#                coaxial M10x1.5 pair); use only for single-part visuals.
+#   "envelope" - non-interfering packaging envelope: plain cylinder at the
+#                nominal major diameter (bolt), plain bore at the nominal major
+#                diameter (nut). Mating pairs touch, they do not overlap.
+# No helical/physical thread mode is implemented: requesting one fails
+# closed. No representation is evidence of thread engagement, fit class,
+# stripping strength, preload, fatigue or certified fastener performance.
+THREAD_REPRESENTATIONS = ("preview", "envelope")
+
+
+def _require_thread_representation(representation: str) -> None:
+    if representation not in THREAD_REPRESENTATIONS:
+        raise ValueError(
+            f"Unsupported thread representation {representation!r}; supported: "
+            f"{THREAD_REPRESENTATIONS}. No qualified helical/physical thread geometry "
+            "is available."
+        )
+
+
+def _positive(name: str, value) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) \
+            or not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a finite positive number, got {value!r}")
+
+
+def _thread_dims(diameter, pitch) -> tuple[float, float]:
+    _positive("diameter", diameter)
+    _positive("pitch", pitch)
+    major_r = diameter / 2.0
+    minor_r = major_r - 0.6134 * pitch  # standard 60° thread depth
+    if minor_r <= 0:
+        raise ValueError(f"pitch {pitch} is too coarse for diameter {diameter}.")
+    return major_r, minor_r
+
+
 def make_metric_thread(
     diameter: float,
     pitch: float,
     length: float,
+    representation: str = "preview",
 ) -> cq.Workplane:
-    """Generate a stable ribbed-cylinder approximation of a metric thread.
+    """Generate a simplified, NON-helical stand-in for an external thread.
 
-    Per Domain B rules, a true 3D helical sweep crashes the BRep kernel.
-    Instead, this builds a cylindrical shaft with evenly spaced annular ribs
-    that approximate thread crests. The result is a manifold solid that
-    OpenCASCADE can reliably boolean-union or boolean-cut.
+    ``representation="preview"`` (default, legacy): a minor-diameter core with
+    evenly spaced annular ribs up to the major diameter that look like thread
+    crests. Annular ribs cannot reproduce a helix's screw motion or contact,
+    so this is PREVIEW-ONLY geometry and interferes with ``make_hex_nut``'s
+    preview bore. ``representation="envelope"``: a plain cylinder at the
+    nominal major diameter, which does not overlap an envelope nut bore.
+
+    Neither mode is a manufacturing thread or evidence of engagement, fit
+    class or strength (see ``THREAD_REPRESENTATIONS``).
 
     Args:
         diameter: Nominal (major) thread diameter in mm.
         pitch: Thread pitch in mm (distance between crests).
         length: Total thread length in mm.
+        representation: "preview" or "envelope"; anything else is rejected.
 
     Returns:
         cq.Workplane solid centered at the origin.
     """
-    major_r = diameter / 2.0
-    minor_r = major_r - 0.6134 * pitch  # standard 60° thread depth
-    rib_height = major_r - minor_r
+    _require_thread_representation(representation)
+    major_r, minor_r = _thread_dims(diameter, pitch)
+    _positive("length", length)
+
+    if representation == "envelope":
+        result = cq.Workplane("XY").circle(major_r).extrude(length)
+        return result.translate((0, 0, -length / 2.0))
+
     rib_width = pitch * 0.4
 
     # Core cylinder at the minor diameter
@@ -477,11 +652,14 @@ def make_hex_bolt(
     shank_length: float,
     head_width_across_flats: float | None = None,
     head_thickness: float | None = None,
+    representation: str = "preview",
 ) -> cq.Workplane:
-    """ISO-style hex-head bolt with a threaded shank, centered at the origin.
+    """ISO-style hex-head bolt with a simplified shank, centered at the origin.
 
-    The shank uses ``make_metric_thread``'s ribbed-cylinder approximation —
-    visually thread-like and kernel-safe (true helical sweeps crash BRep).
+    The shank is ``make_metric_thread(..., representation)``: the default
+    "preview" ribbed look-alike, or a plain "envelope" cylinder at the nominal
+    diameter. Neither is a manufacturing thread (see THREAD_REPRESENTATIONS);
+    use "envelope" when the bolt is assembled with a nut or tapped part.
     The head points +Z; the shank points -Z.
 
     Args:
@@ -490,10 +668,12 @@ def make_hex_bolt(
         shank_length: Length of the threaded shank in mm.
         head_width_across_flats: Hex head AF in mm. ``None`` → ISO 4014 default.
         head_thickness: Hex head thickness in mm. ``None`` → ISO 4014 default.
+        representation: "preview" (default) or "envelope".
 
     Returns:
         cq.Workplane solid centered at the origin.
     """
+    _require_thread_representation(representation)
     if head_width_across_flats is None or head_thickness is None:
         af_default, th_default = _ISO_HEX_HEAD_DIMS.get(
             nominal_diameter, (1.5 * nominal_diameter, 0.7 * nominal_diameter)
@@ -516,7 +696,7 @@ def make_hex_bolt(
 
     # Thread returns a Z-centered solid; translate so its top face sits at Z=0.
     # Result: shank spans [-shank_length, 0].
-    thread = make_metric_thread(nominal_diameter, pitch, shank_length)
+    thread = make_metric_thread(nominal_diameter, pitch, shank_length, representation=representation)
     thread = thread.translate((0, 0, -shank_length / 2.0))
 
     bolt = head.union(thread)
@@ -539,24 +719,30 @@ def make_hex_nut(
     pitch: float,
     width_across_flats: float | None = None,
     height: float | None = None,
+    representation: str = "preview",
 ) -> cq.Workplane:
-    """ISO-style hex nut with a minor-diameter through-bore, centered at origin.
+    """ISO-style hex nut with a plain through-bore, centered at origin.
 
-    The bore is a plain cylinder at the thread's minor diameter — the same
-    minor-diameter core ``make_metric_thread`` uses for the bolt shank's
-    ribbed approximation. That gives a self-consistent visual: the bolt's
-    thread ribs thread into the nut's minor-diameter bore without BRep
-    booleans that would crash the kernel.
+    ``representation="preview"`` (default, legacy): the bore is at the
+    thread's minor diameter. A preview bolt's ribs reach the major diameter,
+    so a coaxial preview bolt and preview nut INTERPENETRATE — this is
+    preview-only geometry and must not be assembled as a fit.
+    ``representation="envelope"``: the bore is at the nominal major diameter,
+    so it touches but does not overlap an envelope (or preview) bolt shank.
+    Neither mode models internal threads, engagement or fit class.
 
     Args:
         nominal_diameter: Major thread diameter in mm (e.g. 10.0 for M10).
         pitch: Thread pitch in mm.
         width_across_flats: Hex AF in mm. ``None`` → ISO 4032 default.
         height: Nut height in mm. ``None`` → ISO 4032 default.
+        representation: "preview" (default) or "envelope".
 
     Returns:
         cq.Workplane solid centered at the origin.
     """
+    _require_thread_representation(representation)
+    _thread_dims(nominal_diameter, pitch)
     if width_across_flats is None or height is None:
         af_default, h_default = _ISO_HEX_NUT_DIMS.get(
             nominal_diameter, (1.5 * nominal_diameter, 0.8 * nominal_diameter)
@@ -567,7 +753,12 @@ def make_hex_nut(
             height = h_default
 
     circum_dia = width_across_flats / math.cos(math.radians(30.0))
-    minor_dia = nominal_diameter - 1.0825 * pitch
+    if representation == "envelope":
+        bore_dia = nominal_diameter
+    else:
+        bore_dia = nominal_diameter - 1.0825 * pitch
+    if bore_dia <= 0 or bore_dia >= width_across_flats:
+        raise ValueError("Nut bore must be positive and smaller than the width across flats.")
 
     nut = (
         cq.Workplane("XY")
@@ -575,7 +766,7 @@ def make_hex_nut(
         .extrude(height)
         .faces(">Z")
         .workplane()
-        .hole(minor_dia)
+        .hole(bore_dia)
     )
     nut = nut.translate((0, 0, -height / 2.0))
 
@@ -729,56 +920,119 @@ def make_bracket(
     """L-bracket with mounting holes in the base flange.
 
     Generates an L-shaped bracket: a flat base plate with an upright wall
-    at one end. Mounting holes are evenly spaced along the base length.
+    at one end. Mounting holes are evenly spaced along the free part of the
+    base flange (the base length not covered by the wall).
+
+    Frame: the base plate is centered at the origin, so its bottom face is at
+    Z = -base_thickness/2 and its top face (the wall datum) is at
+    Z = +base_thickness/2. The wall occupies the -X end of the base and its
+    top face is exactly ``wall_height`` above the base top. Base length runs
+    along X, base width along Y.
+
+    Hole layout: hole centres sit on Y = 0, ``hole_diameter`` in from each
+    end of the free flange X in [-base_length/2 + wall_thickness,
+    base_length/2] (a single hole is centred on the free flange). Holes go
+    through the base only and never cut the wall. Before 2026-10-20 the wall
+    was centred one base thickness above the base *centre*, so the wall rose
+    only ``wall_height/2 + base_thickness/2`` above the base top, and the
+    first hole could cut into the wall; neither is preserved.
 
     Args:
         base_width: Width of the base flange (mm).
         base_length: Length of the base flange (mm).
         base_thickness: Thickness of the base plate (mm).
-        wall_height: Height of the vertical wall above the base (mm).
+        wall_height: Height of the vertical wall above the base top (mm).
         wall_thickness: Thickness of the vertical wall (mm).
         n_mounting_holes: Number of through holes in the base (0 = none).
         hole_diameter: Diameter of each mounting hole (mm).
 
     Returns:
         cq.Workplane containing the L-bracket solid.
+
+    Raises:
+        ValueError: For non-finite or non-positive dimensions, a wall that
+            does not fit on the base, or holes that do not fit in the free
+            flange.
     """
-    # Base plate
+    dims = {
+        "base_width": base_width,
+        "base_length": base_length,
+        "base_thickness": base_thickness,
+        "wall_height": wall_height,
+        "wall_thickness": wall_thickness,
+    }
+    for name, value in dims.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be a finite positive number, got {value!r}")
+    if wall_thickness >= base_length:
+        raise ValueError(
+            f"wall_thickness ({wall_thickness}) must be less than base_length ({base_length})."
+        )
+    if isinstance(n_mounting_holes, bool) or not isinstance(n_mounting_holes, int) \
+            or n_mounting_holes < 0:
+        raise ValueError(f"n_mounting_holes must be a non-negative integer, got {n_mounting_holes!r}")
+
+    offsets: list[float] = []
+    if n_mounting_holes > 0:
+        if isinstance(hole_diameter, bool) or not isinstance(hole_diameter, (int, float)) \
+                or not math.isfinite(hole_diameter) or hole_diameter <= 0:
+            raise ValueError(f"hole_diameter must be a finite positive number, got {hole_diameter!r}")
+        if hole_diameter >= base_width:
+            raise ValueError(
+                f"hole_diameter ({hole_diameter}) must be less than base_width ({base_width})."
+            )
+        flange_start = -base_length / 2.0 + wall_thickness
+        flange_end = base_length / 2.0
+        if n_mounting_holes == 1:
+            if flange_end - flange_start <= hole_diameter:
+                raise ValueError("The mounting hole does not fit in the free base flange.")
+            offsets = [(flange_start + flange_end) / 2.0]
+        else:
+            spacing = (flange_end - flange_start - 2 * hole_diameter) / (n_mounting_holes - 1)
+            # Adjacent holes must leave material between them.
+            if spacing <= hole_diameter:
+                raise ValueError(
+                    f"{n_mounting_holes} holes of diameter {hole_diameter} do not fit "
+                    "in the free base flange."
+                )
+            offsets = [flange_start + hole_diameter + i * spacing for i in range(n_mounting_holes)]
+
+    # Base plate, centered at the origin
     base = (
         cq.Workplane("XY")
         .box(base_length, base_width, base_thickness)
     )
 
-    # Vertical wall at one end of the base
+    # Vertical wall at the -X end, standing on the base top datum
     wall = (
         cq.Workplane("XY")
-        .workplane(offset=base_thickness)
-        .center(-base_length / 2.0 + wall_thickness / 2.0, 0)
         .box(wall_thickness, base_width, wall_height)
+        .translate((
+            -base_length / 2.0 + wall_thickness / 2.0,
+            0,
+            base_thickness / 2.0 + wall_height / 2.0,
+        ))
     )
 
     result = base.union(wall)
 
-    # Mounting holes in the base (linear pattern along X)
-    if n_mounting_holes > 0 and hole_diameter > 0:
-        if n_mounting_holes == 1:
-            offsets = [0.0]
-        else:
-            spacing = (base_length - 2 * hole_diameter) / (n_mounting_holes - 1)
-            offsets = [
-                -base_length / 2.0 + hole_diameter + i * spacing
-                for i in range(n_mounting_holes)
-            ]
-        for x_off in offsets:
-            result = (
-                result
-                .faces(">Z")
-                .workplane()
-                .center(x_off, 0)
-                .circle(hole_diameter / 2.0)
-                .cutThruAll()
-            )
+    # Mounting holes through the base only (explicit cylinders; no face
+    # selector, so the wall top can never become the hole workplane). The
+    # tool overshoots both base faces to avoid coplanar boolean faces; only
+    # the flange lies above the holes, so the overshoot removes nothing else.
+    if offsets:
+        holes = (
+            cq.Workplane("XY")
+            .workplane(offset=-1.5 * base_thickness)
+            .pushPoints([(x_off, 0.0) for x_off in offsets])
+            .circle(hole_diameter / 2.0)
+            .extrude(3.0 * base_thickness)
+        )
+        result = result.cut(holes)
 
+    if len(result.solids().vals()) != 1:
+        raise ValueError("Bracket construction did not produce exactly one solid.")
     return result
 
 
@@ -1166,9 +1420,10 @@ def make_enclosure_panel(
 # Expose template function names for strategy prompt injection
 AVAILABLE_TEMPLATES = [
     "make_hex_bolt(nominal_diameter, pitch, shank_length, "
-    "head_width_across_flats=None, head_thickness=None)",
-    "make_hex_nut(nominal_diameter, pitch, width_across_flats=None, height=None)",
-    "make_metric_thread(diameter, pitch, length)",
+    "head_width_across_flats=None, head_thickness=None, representation='preview')",
+    "make_hex_nut(nominal_diameter, pitch, width_across_flats=None, height=None, "
+    "representation='preview')",
+    "make_metric_thread(diameter, pitch, length, representation='preview')",
     "make_flanged_housing(OD, ID, height, flange_OD, flange_thickness, "
     "bolt_circle_diameter, n_bolt_holes, bolt_hole_diameter)",
     "make_shaft(diameter, length, keyway_width=0, keyway_depth=0, chamfer_end=0.5)",

@@ -10,13 +10,13 @@ os.environ.setdefault('GEMINI_API_KEY_HEAVY','offline-fixture-never-sent')
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import main
 from agents import ScriptError
-from schemas import AssemblyManifest, DesignRequirements, PartDefinition
+from schemas import AssemblyManifest, DesignRequirements, MatingRule, PartDefinition
 
 
 def _configure(monkeypatch):
     manifest = AssemblyManifest(assembly_name='pair',parts=[
         PartDefinition(part_id=name,description=name,anchor_tags=['>Z']) for name in ['base','cap']
-    ],mating_rules=[])
+    ],mating_rules=[MatingRule(source_part_id='base',target_part_id='cap',source_anchor='>Z',target_anchor='>Z',translation='0, 0, 1',clearance=0)])
     monkeypatch.setattr(main,'run_rea',AsyncMock(return_value=DesignRequirements(
         primary_function='pair',user_facing_insights=['pair'],geometric_constraints=[])))
     monkeypatch.setattr(main,'run_planner',AsyncMock(return_value=manifest))

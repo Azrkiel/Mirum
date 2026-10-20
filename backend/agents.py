@@ -46,7 +46,7 @@ from retrieval import (
     retrieve_for_failure,
 )
 from strategies import get_active_rules
-from schemas import AssemblyManifest, DesignRequirements, MateType, PartDefinition
+from schemas import AssemblyManifest, DesignRequirements, MateType, PartDefinition, sanitize_part_id
 from strategies import get_strategy
 from telemetry import log_attempt
 from config import GEMINI_MODEL_HEAVY, GEMINI_MODEL_LITE, GEMINI_MODEL_PRO
@@ -67,12 +67,9 @@ _TMP_PARTS_DIR = pathlib.Path(
     os.environ.get("MIRUM_PARTS_DIR", "/tmp/mirum/parts")
 )
 
-_SAFE_ID_RE = re.compile(r"[^a-zA-Z0-9_]")
-
-
-def _sanitize_part_id(raw: str) -> str:
-    """Strip part_id to alphanumeric + underscore only (max 64 chars)."""
-    return _SAFE_ID_RE.sub("_", raw)[:64] or "unnamed_part"
+# One shared namespace: the manifest validator checks uniqueness of exactly
+# these generated names.
+_sanitize_part_id = sanitize_part_id
 
 
 def cleanup_tmp_parts() -> None:
@@ -154,15 +151,11 @@ def unconverted_metre_builders(code: str) -> str | None:
         "otherwise a 5.36 m wing is delivered as 5.36 mm."
     )
 
-# Maps mate types to CadQuery constraint type strings for assembly.solve()
-MATE_CONSTRAINTS: dict[str, list[str]] = {
-    "FASTENED":    ["Plane"],
-    "REVOLUTE":    ["Axis"],
-    "SLIDER":      ["Plane"],
-    "CYLINDRICAL": ["Axis"],
-    "PLANAR":      ["Plane"],
-    "BALL":        ["Point"],
-}
+# Mate joints are placed in closed form by cad_utils.assemble_mated_parts
+# under the bounded contract in joint_contract.py. The former mapping to
+# CadQuery solver constraints (FASTENED->Plane, REVOLUTE->Axis, ...) did not
+# encode the intended freedoms: Plane leaves spin free and Axis leaves all
+# translations free, and clearance was never applied.
 
 # Fields that Gemini's structured output schema does NOT support.
 _UNSUPPORTED_SCHEMA_KEYS = {
@@ -588,11 +581,21 @@ async def run_planner(
             "Available mate types: "
             "  FASTENED — fully rigid, no relative motion (use for bolted joints, welds, press fits) "
             "  REVOLUTE — rotation only about shared axis (use for hinges, pins, shafts in bearings) "
-            "  SLIDER — translation only along shared axis (use for drawer slides, linear guides) "
-            "  CYLINDRICAL — rotation + translation along axis (use for loose shafts in clearance bores) "
+            "  SLIDER — NOT SUPPORTED by the assembler (planar anchors do not define a slide "
+            "direction); the assembly is rejected. Use PLANAR for sliding contact instead. "
+            "  CYLINDRICAL — rotation + translation along the anchor-face normal "
             "  PLANAR — translation in the contact plane (use for sliding plates) "
             "  BALL — free rotation about contact point (use for ball joints, universal joints) "
-            "When mate_type is provided, the constraint solver will automatically compute correct positions. "
+            "When mate_type is provided, the assembler places the target so the two anchor faces "
+            "oppose each other, centred on a common axis, separated by 'clearance' mm along the "
+            "source face normal (clearance is an axial face gap, never a radial fit; it must be 0 "
+            "for BALL and for translation-only rules). A rule must not set both mate_type and "
+            "translation. Every part must be reachable from the first part through mate joints, "
+            "or carry its own translation. Joint anchors must be planar face selectors "
+            "('>Z', '<Z', '>X', '<X', '>Y', '<Y'); named anchors cannot carry a joint. "
+            "A joint aligns the CENTRES of the two anchor faces; for parts at an off-centre "
+            "position on a face (bolt patterns, several parts on one face) use an explicit "
+            "translation for that part instead of a mate_type. "
             "You do NOT need to specify translation coordinates when using mate_type. "
             "For the source_anchor and target_anchor, use face selectors that describe the mating surfaces: "
             "  '>Z' = top face (pointing up), '<Z' = bottom face (pointing down) "
@@ -1143,9 +1146,10 @@ def run_assembler(
                 break
 
         safe_path = step_files[pid].replace("\\", "/")
-        var = safe_pid if safe_pid.isidentifier() else f"part_{safe_pid}"
+        # Always prefixed: a bare id could be a keyword or shadow 'cq'/'assembly'.
+        var = f"part_{safe_pid}"
 
-        lines.append(f"{var} = cq.importers.importStep(r'{safe_path}')")
+        lines.append(f"{var} = cq.importers.importStep({safe_path!r})")
         lines.append(
             f"assembly.add({var}, name='{safe_pid}', "
             f"loc=cq.Location(cq.Vector({tx}, {ty}, {tz})))"
@@ -1211,112 +1215,59 @@ def run_assembler_constraint(
     manifest: AssemblyManifest,
     step_files: dict[str, str],
 ) -> str:
-    """Constraint-based assembler — uses cq.Constraint + assembly.solve().
+    """Mate-joint assembler — closed-form placement under the joint contract.
 
-    Generates a CadQuery script that:
-    1. Loads each .step file
-    2. Adds all parts to a cq.Assembly (no location — solver positions them)
-    3. Applies typed constraints from mating_rules
-    4. Calls assembly.solve() to let OCCT compute positions
-    5. Saves the result
-
-    Falls back gracefully: if mate_type is missing for a rule, skips that
-    constraint (the part will remain at its default position).
+    Generates a CadQuery script that loads each .step file and calls the
+    trusted ``cad_utils.assemble_mated_parts`` helper, which places every
+    joint component from its root (the base part ``parts[0]`` or an
+    explicitly translated part) using the planar anchor frames, the declared
+    joint type and the axial clearance. Unsupported joint types fail closed
+    here, before any execution. The joint relations of the delivered STEP
+    are verified independently afterwards (``verification.joints``).
     """
-    lines = ["import cadquery as cq", ""]
+    from joint_contract import require_supported
 
-    # Load all parts
-    added: set[str] = set()
-    var_names: dict[str, str] = {}
-    for part in manifest.parts:
-        pid = part.part_id
-        if pid in added or pid not in step_files:
-            continue
-        safe_pid = _sanitize_part_id(pid)
-        var = safe_pid if safe_pid.isidentifier() else f"part_{safe_pid}"
-        var_names[pid] = var
-        safe_path = step_files[pid].replace("\\", "/")
-        lines.append(f"{var} = cq.importers.importStep(r'{safe_path}')")
-        added.add(pid)
-
-    lines.append("")
-    lines.append("assembly = cq.Assembly()")
-    lines.append("")
-
-    # Mixed-mode manifests: the solver only places parts that carry a
-    # mate_type. A part whose only rule is translation-only would otherwise be
-    # added with no location and silently left at the origin. Pre-compute an
-    # initial location for those parts so they land where the manifest says.
-    # Parts that ARE the target of a real constraint are left to the solver.
-    constrained_targets = {
-        r.target_part_id
-        for r in manifest.mating_rules
-        if r.mate_type is not None and r.source_part_id != r.target_part_id
-    }
-    translation_locs: dict[str, tuple[float, float, float]] = {}
-    for r in manifest.mating_rules:
-        if r.source_part_id == r.target_part_id or r.mate_type is not None:
-            continue
-        if r.translation is None or r.target_part_id in constrained_targets:
-            continue
-        try:
-            cx, cy, cz = [float(v.strip()) for v in r.translation.split(",")]
-        except (ValueError, IndexError):
-            continue  # malformed — MatingRule's validator should prevent this
-        translation_locs[r.target_part_id] = (cx, cy, cz)
-
-    # Add all parts to assembly; constrained parts get no location (solver
-    # positions them), translation-only parts get their manifest location.
-    for part in manifest.parts:
-        pid = part.part_id
-        if pid not in var_names:
-            continue
-        safe_pid = _sanitize_part_id(pid)
-        var = var_names[pid]
-        if pid in translation_locs:
-            tx, ty, tz = translation_locs[pid]
-            lines.append(
-                f"assembly.add({var}, name='{safe_pid}', "
-                f"loc=cq.Location(cq.Vector({tx}, {ty}, {tz})))"
-            )
-        else:
-            lines.append(f"assembly.add({var}, name='{safe_pid}')")
-
-    lines.append("")
-    lines.append("# Apply kinematic constraints")
-
-    # Apply constraints from mating rules
+    joints = []
+    placements: dict[str, tuple[float, float, float]] = {}
     for rule in manifest.mating_rules:
-        # Skip self-referencing rules (single-part assemblies)
-        if rule.source_part_id == rule.target_part_id:
-            continue
-        if rule.mate_type is None:
-            continue  # No mate_type — skip (part stays at default position)
-
         src_safe = _sanitize_part_id(rule.source_part_id)
         tgt_safe = _sanitize_part_id(rule.target_part_id)
+        if rule.mate_type is None:
+            # Explicit absolute placement (including the base part's legacy
+            # self-referencing '0, 0, 0').
+            placements[tgt_safe] = tuple(float(v.strip()) for v in rule.translation.split(","))
+            continue
         mate_name = rule.mate_type.value if isinstance(rule.mate_type, MateType) else str(rule.mate_type)
-        if mate_name not in MATE_CONSTRAINTS:
-            raise ScriptError(f"Unsupported metadata-only mate type: {mate_name}")
-        constraint_types = MATE_CONSTRAINTS[mate_name]
+        try:
+            require_supported(mate_name)
+        except ValueError as exc:
+            raise ScriptError(str(exc)) from None
+        joints.append((src_safe, rule.source_anchor, tgt_safe, rule.target_anchor,
+                       mate_name, float(rule.clearance)))
 
-        # Build CadQuery selector strings
-        # anchor format is ">Z", "<Z" etc — we use faces@ prefix
-        src_sel = f"faces@{rule.source_anchor}"
-        tgt_sel = f"faces@{rule.target_anchor}"
-
-        for ct in constraint_types:
-            lines.append(
-                f"assembly.constrain('{src_safe}@{src_sel}', "
-                f"'{tgt_safe}@{tgt_sel}', '{ct}')"
-            )
-
+    lines = ["import cadquery as cq", "from cad_utils import assemble_mated_parts", ""]
+    lines.append("bodies = {")
+    for part in manifest.parts:
+        pid = part.part_id
+        if pid not in step_files:
+            continue
+        safe_path = step_files[pid].replace("\\", "/")
+        lines.append(f"    {_sanitize_part_id(pid)!r}: cq.importers.importStep({safe_path!r}),")
+    lines.append("}")
     lines.append("")
-    lines.append("# Solve the constraint system")
-    # Execution success must not hide a failed solve or publish an unsolved GLB.
-    lines.append("from cad_utils import solve_assembly_checked")
-    lines.append("solve_assembly_checked(assembly)")
-    lines.append("print('SOLVER_SUCCESS')")
+    lines.append("# (source, source_anchor, target, target_anchor, joint, clearance_mm)")
+    lines.append("joints = [")
+    for joint in joints:
+        lines.append(f"    {joint!r},")
+    lines.append("]")
+    lines.append(f"placements = {placements!r}")
+    lines.append("")
+    lines.append("assembly = assemble_mated_parts(")
+    lines.append(f"    bodies, ground={_sanitize_part_id(manifest.parts[0].part_id)!r},")
+    lines.append("    joints=joints, placements=placements,")
+    lines.append(")")
+    # Execution success must not hide a failed placement or publish a GLB.
+    lines.append("print('JOINTS_PLACED')")
     lines.append("")
     lines.append("assembly.save('output.glb')")
 
@@ -1333,7 +1284,14 @@ async def run_assembly_critic_loop(
     script is deterministic. If it fails, the error is structural
     (bad .step file or missing part) and retrying won't help.
     """
-    if len(step_files) != len(manifest.parts):
+    # Re-run the typed manifest contract: a manifest built with
+    # model_construct()/model_copy() or mutated after validation must not
+    # reach script execution.
+    try:
+        manifest = AssemblyManifest.model_validate(manifest.model_dump())
+    except ValueError as exc:
+        raise ScriptError(f"Assembly failed: invalid manifest: {exc}") from None
+    if len(step_files) != len(manifest.parts) or set(step_files) != {p.part_id for p in manifest.parts}:
         raise ScriptError(
             f"Assembly failed: Missing compiled parts. Expected "
             f"{len(manifest.parts)} parts, but only got {len(step_files)}."
@@ -1378,9 +1336,9 @@ async def run_assembly_critic_loop(
         )
 
     # Log assembly telemetry
-    solver_ok = "SOLVER_FAILURE" not in result.get("output", "")
-    if use_constraints and (not solver_ok or "SOLVER_SUCCESS" not in result.get("output", "")):
-        raise ScriptError("Assembly solver did not report success.", script=script)
+    solver_ok = not use_constraints or "JOINTS_PLACED" in result.get("output", "")
+    if not solver_ok:
+        raise ScriptError("Assembly joint placement did not report success.", script=script)
     try:
         from telemetry import log_assembly_event
         log_assembly_event(

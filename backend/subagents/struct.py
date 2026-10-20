@@ -186,7 +186,10 @@ class StructSubagent(SubagentBase):
             _repo_root = _Path(__file__).resolve().parent.parent.parent
             if str(_repo_root) not in _sys.path:
                 _sys.path.insert(0, str(_repo_root))
-            from analysis.structures import analyze_wing_structure  # noqa: PLC0415
+            from analysis.structures import (  # noqa: PLC0415
+                StructuralInputError,
+                analyze_wing_structure,
+            )
             from schemas import StructuralReport  # noqa: PLC0415
         except ImportError as e:
             return None, f"analysis module unavailable ({_safe_local_error(e)})"
@@ -216,7 +219,7 @@ class StructSubagent(SubagentBase):
             "spar_web_thickness_m": float(wb.spar_web_thickness_m),
         }
         if wb.n_spars is not None:
-            box_dict["n_spars"] = int(wb.n_spars)
+            box_dict["n_spars"] = wb.n_spars  # validated (no int() truncation)
 
         material = (getattr(requirements, "material_class", None) or "AL2024-T3")
 
@@ -227,6 +230,8 @@ class StructSubagent(SubagentBase):
                 spec_dict, wing_dict, box_dict,
                 material=material,
             )
+        except StructuralInputError as e:
+            return None, f"invalid structural input: {_safe_local_error(e)}"
         except KeyError as e:
             return None, f"unknown material: {_safe_local_error(e)}"
         except Exception as e:
@@ -265,6 +270,11 @@ class StructSubagent(SubagentBase):
                 shear_allowable_pa=shear["allowable_pa"],
                 shear_margin_of_safety=shear["margin_of_safety"],
                 shear_passed=shear["passed"],
+                bending_status=bending["status"],
+                shear_status=shear["status"],
+                governing_load_case=report["governing_load_case"],
+                method=report["method"],
+                engineering_certified=report["engineering_certified"],
                 material=report["material"],
                 passed=report["passed"],
                 warnings=report["warnings"],
