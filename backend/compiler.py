@@ -7,7 +7,6 @@ with strict timeout enforcement. This is the runtime behind the QA Inspector
 Machinist subagent for correction.
 """
 
-import ast
 import asyncio
 import logging
 import os
@@ -48,43 +47,14 @@ except OSError:
 # ---------------------------------------------------------------------------
 # AST Security Scanner (Allowlist Architecture)
 # ---------------------------------------------------------------------------
-_ALLOWED_MODULES = {"cadquery", "cq", "math", "cad_utils", "cad_aero"}
-_BANNED_BUILTINS = {
-    "eval", "exec", "open", "compile", "__import__", "getattr", "setattr",
-    "delattr", "globals", "locals", "vars", "breakpoint", "input",
-    "memoryview", "type",
-}
-# Dunder access is the classic sandbox-escape highway:
-#   ().__class__.__bases__[0].__subclasses__()        → reach arbitrary types,
-#   obj.__getattribute__('__subclasses__')()          → same, smuggled via a
-#                                                        string the old attr
-#                                                        denylist never saw.
-# Denylisting a handful of dunders is futile — __getattribute__ walks around
-# it. So we ban ALL dunder *attribute* access and all dunder *name* loads,
-# keeping only a tiny allowlist of harmless module dunders that legitimate
-# scripts occasionally read (e.g. `if __name__ == "__main__":`).
-_ALLOWED_DUNDER_NAMES = {"__name__", "__file__", "__doc__"}
-# Importlib gap fix: block bare use of dangerous stdlib module names as
-# ast.Name nodes (e.g. `importlib.import_module(...)` without a prior
-# import statement, exploiting a pre-loaded reference in __builtins__).
-# The import-statement path is already caught by the allowlist above, but
-# belt-and-suspenders coverage prevents any residual name-binding tricks.
-_BANNED_BARE_NAMES = {
-    "importlib", "ctypes", "subprocess", "socket", "shutil",
-    "pickle", "pathlib", "tempfile", "pty", "fcntl", "mmap",
-    "multiprocessing", "threading",
-}
-_MEM_LIMIT_BYTES = int(1.5 * 1024 * 1024 * 1024)  # 1.5 GB
+# Package and historical backend-on-PYTHONPATH entrypoints share one policy.
+if __package__:
+    from .script_policy import _ALLOWED_MODULES, _BANNED_BUILTINS, _check_ast_security
+else:
+    from script_policy import _ALLOWED_MODULES, _BANNED_BUILTINS, _check_ast_security
 
-# Runtime backstop (defence in depth behind the AST gate). Prepended to every
-# script before it is piped to the subprocess. Installs a PEP-578 audit hook
-# that hard-blocks process-spawn / shell-exec primitives — a geometry script
-# has no legitimate reason to spawn a process, and these are the events an
-# attacker would reach for AFTER any future AST bypass. Kept to a SINGLE line
-# so it does not shift user-script traceback line numbers (the Machinist reads
-# those tracebacks to self-correct). It imports `sys` directly; that is fine —
-# the AST allowlist is only applied to the user portion, never to this trusted
-# preamble.
+_MEM_LIMIT_BYTES = int(1.5 * 1024 * 1024 * 1024)
+
 _SANDBOX_RUNTIME_PREAMBLE = (
     "import sys as _mirum_sys; _mirum_sys.addaudithook("
     "lambda e, a: (_ for _ in ()).throw(PermissionError("
@@ -92,95 +62,6 @@ _SANDBOX_RUNTIME_PREAMBLE = (
     "'os.system', 'os.exec', 'os.spawn', 'os.posix_spawn', 'os.fork', "
     "'os.forkpty', 'pty.spawn', 'subprocess.Popen') else None)\n"
 )
-
-
-def _is_dunder(name: str) -> bool:
-    """True for double-underscore names like __class__, __getattribute__."""
-    return len(name) >= 5 and name.startswith("__") and name.endswith("__")
-
-
-def _check_ast_security(script_string: str) -> str | None:
-    """Return an error message if the script imports or calls banned targets.
-
-    Uses an ALLOWLIST for imports: only modules in _ALLOWED_MODULES may be
-    imported.  All other modules (os, sys, subprocess, importlib, ctypes,
-    pickle, socket, shutil, pathlib, etc.) are rejected automatically.
-
-    Additionally, bare use of any name in _BANNED_BARE_NAMES is rejected
-    even without an import statement (importlib gap fix).
-    """
-    try:
-        tree = ast.parse(script_string)
-    except SyntaxError as exc:
-        return f"SyntaxError in script: {exc}"
-
-    for node in ast.walk(tree):
-        # --- Import allowlist ---
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                top = alias.name.split(".")[0]
-                if top not in _ALLOWED_MODULES:
-                    return (
-                        f"Security violation: import of '{alias.name}' is not "
-                        f"allowed. Permitted modules: {sorted(_ALLOWED_MODULES)}."
-                    )
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                top = node.module.split(".")[0]
-                if top not in _ALLOWED_MODULES:
-                    return (
-                        f"Security violation: import from '{node.module}' is "
-                        f"not allowed. Permitted modules: {sorted(_ALLOWED_MODULES)}."
-                    )
-
-        # --- Banned bare names (importlib gap fix) ---
-        # Check ast.Name nodes that are NOT part of an import statement;
-        # the import-statement branch above handles those separately.
-        if isinstance(node, ast.Name) and node.id in _BANNED_BARE_NAMES:
-            return (
-                f"Security violation: use of '{node.id}' is not allowed "
-                f"(forbidden stdlib module name)."
-            )
-
-        # --- Banned builtins, by reference not just by call ---
-        # A bare `ast.Name` load of a banned builtin is rejected wherever it
-        # appears, not only at a call site. This closes the indirect-call
-        # escape `fn = exec; fn(code)` (and any other aliasing), where the
-        # call site only ever sees the harmless-looking alias.
-        if (
-            isinstance(node, ast.Name)
-            and isinstance(node.ctx, ast.Load)
-            and node.id in _BANNED_BUILTINS
-        ):
-            return (
-                f"Security violation: reference to builtin '{node.id}' is "
-                f"banned (forbidden builtins may not be called or aliased)."
-            )
-
-        # --- Dunder name loads (e.g. __builtins__, __loader__) ---
-        if (
-            isinstance(node, ast.Name)
-            and isinstance(node.ctx, ast.Load)
-            and _is_dunder(node.id)
-            and node.id not in _ALLOWED_DUNDER_NAMES
-        ):
-            return (
-                f"Security violation: access to dunder name '{node.id}' is "
-                f"banned."
-            )
-
-        # --- Dunder attribute access (ALL of them) ---
-        # Banning every `obj.__x__` closes the attribute-chain escape
-        # `().__class__.__bases__[0].__subclasses__()` AND its string-smuggled
-        # cousin `obj.__getattribute__('__subclasses__')`, where only the final
-        # `.__subclasses__` link used to be on a narrow denylist.
-        if isinstance(node, ast.Attribute) and _is_dunder(node.attr):
-            return (
-                f"Security violation: access to dunder attribute "
-                f"'{node.attr}' is banned."
-            )
-
-    return None
 
 
 def _preexec_sandbox() -> None:
