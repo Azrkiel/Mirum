@@ -537,7 +537,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         final_script, param_dict = parameterize_script(final_script)
         yield _event("script", "done", final_script)
         try:
-            result = await execute_cad_script(final_script)
+            result = await _execute_accepted(final_script, output_filename, "result")
         except Exception as e:
             debug_log_error("export_single", e, {"part_id": part.part_id})
             result = {"status": "error", "traceback": str(e)}
@@ -678,7 +678,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
 
         yield _event("script", "done", final_script)
         try:
-            result = await execute_cad_script(final_script)
+            result = await _execute_accepted(final_script, output_filename, "assembly")
         except Exception as e:
             debug_log_error("assembler_exec", e, None)
             result = {"status": "error", "traceback": str(e)}
@@ -750,31 +750,16 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     # block can never prevent the "complete" event from being emitted.
     aero_report: dict | None = None
     if run_aero:
-        # Single-part fast path never calls _save_part_step, so step_files is
-        # empty.  For Domain D (wing) single-part prompts we need a STEP for
-        # XFOIL's geometry extraction.  Generate a temporary one on the fly
-        # using the same pattern as the geometry-cert block below.
-        if single and not step_files:
-            _aero_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_aero.step"))
-            _aero_script = (
-                f"{code}\n\n"
-                f"import cadquery as cq\n"
-                f"if isinstance(result, cq.Assembly):\n"
-                f"    result.save(r'{_aero_step_path}')\n"
-                f"else:\n"
-                f"    cq.exporters.export(result, r'{_aero_step_path}')\n"
-            )
-            _aero_exec = await execute_cad_script(_aero_script)
-            if _aero_exec["status"] == "success" and os.path.exists(_aero_step_path):
-                step_files = {manifest.parts[0].part_id: _aero_step_path}
-            # If export fails step_files stays empty and _run_aero_stage will
-            # return a skip message — the GLB has already been sent so this is
-            # non-fatal.
+        # Use the captured final STEP, not another model-source execution.
+        _aero_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_aero.step"))
+        with open(_aero_step_path, "wb") as stream:
+            stream.write(result["acceptance"]["step"])
+        _analysis_step_files = {manifest.assembly_name: _aero_step_path}
 
         yield _event("aero", "running", "Running XFOIL polar analysis")
-        aero_report, aero_msg = await _run_aero_stage(step_files, requirements)
+        aero_report, aero_msg = await _run_aero_stage(_analysis_step_files, requirements)
         # Clean up the temporary STEP file generated for single-part aero.
-        if single and "_aero_step_path" in locals():
+        if "_aero_step_path" in locals():
             try:
                 os.remove(_aero_step_path)
             except OSError:
@@ -810,25 +795,9 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         _prop_spec = getattr(requirements, "propulsion_spec", None) if requirements else None
 
         if single:
-            # Single-part: write a temp STEP from the validated code
-            _cert_step_path = str(_WORK_DIR / (uuid.uuid4().hex + "_cert.step"))
-            _cert_script = (
-                f"{code}\n\n"
-                f"import cadquery as cq\n"
-                f"if isinstance(result, cq.Assembly):\n"
-                f"    result.save(r'{_cert_step_path}')\n"
-                f"else:\n"
-                f"    cq.exporters.export(result, r'{_cert_step_path}')\n"
-            )
-            _cert_exec = await execute_cad_script(_cert_script)
-            if _cert_exec["status"] == "success" and os.path.exists(_cert_step_path):
-                geometry_certificate = dict(
-                    certify_geometry(_cert_step_path, propulsion_spec=_prop_spec)
-                )
-                try:
-                    os.remove(_cert_step_path)
-                except OSError:
-                    pass
+            # Evidence comes from the exact captured native revision, not a
+            # separate execution of the unparameterized model source.
+            geometry_certificate = dict(result["acceptance"]["geometry_certificate"])
         else:
             # Multi-part: merge per-part certs — aggregate volume + surface area,
             # overall passed = all parts passed.
@@ -856,24 +825,19 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                     if c:
                         for f in c.get("failures", []):
                             all_failures.append(f"{pid}: {f}")
-                geometry_certificate = {
-                    "passed": all_passed,
-                    "volume_mm3": total_vol if total_vol > 0 else None,
-                    "surface_area_mm2": total_sa if total_sa > 0 else None,
-                    "bounding_box": None,  # undefined for multi-part aggregate
-                    "checks": {},
-                    "failures": all_failures,
-                    "part_count": len(_part_certs),
-                    "per_part": {
-                        pid: c for pid, c in _part_certs.items()
-                    },
-                }
+                # Component coverage remains required, but cannot replace a
+                # certificate of the final positioned assembly.
+                geometry_certificate = dict(result["acceptance"]["geometry_certificate"])
+                geometry_certificate["passed"] = geometry_certificate["passed"] is True and all_passed
+                geometry_certificate["part_count"] = len(_part_certs)
+                geometry_certificate["per_part"] = dict(_part_certs)
+                geometry_certificate["failures"] = geometry_certificate["failures"] + all_failures
                 # Domain F: derive aggregate throat/exit area + expansion ratio
                 # from propulsion_spec when available, so the cert card surfaces
                 # the same fields for multi-part thrust-chamber assemblies.
                 if _prop_spec is not None:
                     from verification.geometry import _propulsion_fields
-                    geometry_certificate.update(_propulsion_fields(_prop_spec))
+                    geometry_certificate["requested_spec_metadata"] = _propulsion_fields(_prop_spec)
 
         # Augment cert with material mass if we have volume + requirements
         if geometry_certificate and geometry_certificate.get("volume_mm3"):
@@ -896,6 +860,9 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         yield f"data: {json.dumps({'step': 'complete', 'status': 'error', 'message': message, 'script': final_script})}\n\n"
         return
 
+    # Bind evidence to the portable source returned to the editor, not the
+    # server-owned transient GLB pathname used during capture.
+    final_script = final_script.replace(output_filename, "output.glb")
     complete_payload = {
         "step": "complete",
         "status": "done",
@@ -1028,6 +995,19 @@ async def plan_assembly(body: GenerateRequest, request: Request):
         "dof_violations": dof_violations,   # T2-02
         "kinematic": kinematic_meta,        # T2-03
     }
+
+
+async def _execute_accepted(script: str, output_path: str, output_variable: str = "auto") -> dict:
+    """Capture one native revision and write only its accepted STEP-derived GLB."""
+    from verification.acceptance import accept_script, AcceptanceError
+    try:
+        delivery = await accept_script(script.replace(output_path, "output.glb"),
+                                       output_variable=output_variable, execute=execute_cad_script)
+        with open(output_path, "wb") as stream:
+            stream.write(delivery["glb"])
+        return {"status": "success", "acceptance": delivery}
+    except AcceptanceError as exc:
+        return {"status": "error", "traceback": str(exc)}
 
 
 @app.post("/generate")
