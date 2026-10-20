@@ -125,9 +125,10 @@ def test_step_size_limit_is_explicit(tmp_path):
 
 
 def test_solid_limit_is_explicit(tmp_path):
-    result = inspector()(step(tmp_path, compound(*(box(i * 20) for i in range(33)))))
+    limit = importlib.import_module("backend.verification.solid_set").MAX_SOLIDS
+    result = inspector()(step(tmp_path, compound(*(box(i * 20) for i in range(limit + 1)))))
     assert not result["passed"], result
-    assert any("32 solid" in issue for issue in result["failures"])
+    assert any(f"{limit} solid" in issue for issue in result["failures"])
 
 
 def test_topology_limit_is_explicit(tmp_path, monkeypatch):

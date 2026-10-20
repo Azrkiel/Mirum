@@ -8,7 +8,8 @@ import os
 
 SCOPE = "structural_solid_set_v1"
 MAX_STEP_BYTES = 500 * 1024 * 1024
-MAX_SOLIDS = 32
+# Covers AssemblyManifest's 50-part limit; pairwise checks are broad-phase pruned.
+MAX_SOLIDS = 64
 MAX_TOPOLOGY_ELEMENTS = 100000
 # Application numerical policy, not a manufacturing tolerance.
 MAX_TOPOLOGY_TOLERANCE_MM = 0.001
@@ -81,7 +82,7 @@ def inspect_step(step_path: str) -> dict:
                 solids.append(TopoDS.Solid_s(node))
                 result["solid_count"] = len(solids)
                 require("solid_limit", len(solids) <= MAX_SOLIDS,
-                        "STEP exceeds the 32 solid inspection limit.")
+                        f"STEP exceeds the {MAX_SOLIDS} solid inspection limit.")
             if kind == TopAbs_SHELL:
                 require("closed_shells", BRep_Tool.IsClosed_s(node),
                         "Solid contains an open shell.")
