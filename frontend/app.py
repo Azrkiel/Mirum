@@ -46,6 +46,7 @@ for key, default in [
     ("parameters", {}),
     ("last_manifest", None),   # T2-08: for refinement
     ("last_scripts", {}),      # T2-08: for refinement
+    ("run_struct", False),
     ("run_aero", False),       # Phase 3: opt-in XFOIL polar
     ("aero_report", None),     # Phase 3: PolarReport dict from /generate complete event
     ("aero_plots", None),      # T2-16: cached {cl_alpha, cd_alpha, cp_dist} base64 PNGs
@@ -719,6 +720,11 @@ st.checkbox(
         "at mid-span and runs XFOIL for Cl/Cd/Cm vs angle of attack. Failure "
         "is non-blocking — the GLB is delivered either way."
     ),
+)
+st.checkbox(
+    "Run structural estimates (Domain D wings only)",
+    key="run_struct",
+    help="Simplified wing-box and flight-envelope estimates, not engineering certification.",
 )
 generate = st.button(
     "Generate (Ctrl+Enter)", type="primary", use_container_width=True
