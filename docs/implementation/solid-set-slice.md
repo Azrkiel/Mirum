@@ -27,7 +27,7 @@ worker timeout, native crash, memory limit, and publication/artifact binding.
   Reject loose shells/faces/wires/edges/vertices and empty wrappers. Within
   solids, enforce native solid/shell/face/wire/edge/vertex containment. Native
   face/edge geometry leaves need not have children; native validity still applies.
-- At most 32 solid occurrences; at most 100000 traversed topology occurrences,
+- At most 64 solid occurrences (raised from 32 so the 50-part manifest limit fits); at most 100000 traversed topology occurrences,
   including the root and repeated/shared subshapes. This conservative occurrence
   budget also bounds the traversal stack; it is not a unique-TShape count.
 - Every shell must be closed according to `BRep_Tool.IsClosed_s`; every solid
@@ -64,7 +64,7 @@ Coverage includes a known 10 mm box, solid plus each loose topology type, open
 shell, nested compounds/compsolids, coincident and overlapping boxes (including
 0.001 mm penetration), separated and face-touching boxes, corrupt/empty STEP,
 missing file/backend, null shape, transfer failure/partial transfer, native
-exception redaction, sparse file above 500 MiB, 33-solid rejection and 32-solid
+exception redaction, sparse file above 500 MiB, 65-solid rejection, 32- and 50-solid
 acceptance. A lowered traversal budget exercises topology-limit rejection using
 real transferred STEP rather than building a very large hostile fixture.
 
