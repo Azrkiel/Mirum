@@ -29,6 +29,7 @@ from slowapi.util import get_remote_address
 
 from agents import (
     ScriptError,
+    _sanitize_part_id,
     apply_manifest_diff,
     cleanup_tmp_parts,
     extract_kinematic_metadata,
@@ -1199,14 +1200,15 @@ async def refine_assembly(body: RefineRequest, request: Request):
             # Write a temporary .step for the reused part
             try:
                 import tempfile, pathlib
-                tmp_step = str(_WORK_DIR / f"{pid}_{uuid.uuid4().hex[:8]}.step")
+                # part_id is client-supplied: keep the file name inside _WORK_DIR.
+                tmp_step = str(_WORK_DIR / f"{_sanitize_part_id(pid)}_{uuid.uuid4().hex[:8]}.step")
                 reuse_script = body.original_scripts[pid]
                 export_script = reuse_script.rstrip() + (
                     f"\n\nimport cadquery as cq\n"
                     f"if isinstance(result, cq.Assembly):\n"
-                    f"    result.save(r'{tmp_step}')\n"
+                    f"    result.save({tmp_step!r})\n"
                     f"else:\n"
-                    f"    cq.exporters.export(result, r'{tmp_step}')\n"
+                    f"    cq.exporters.export(result, {tmp_step!r})\n"
                 )
                 result_exec = await execute_cad_script(export_script)
                 if result_exec["status"] == "success":
