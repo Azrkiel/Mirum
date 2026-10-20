@@ -234,17 +234,20 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     steps, idx = [], {}
     script_code, glb_bytes = "", None
     error_message = ""
+    terminal_done = False
+    staged_manifest = staged_scripts = None
     params = {}
     aero_report = None
     struct_report = None  # Phase 6: structural & flight-envelope report
     geometry_cert = None  # G-05: geometry certificate
     # Phase 3: opt-in aerodynamic analysis (checkbox state lives in session)
     run_aero = bool(st.session_state.get("run_aero", False))
+    run_struct = bool(st.session_state.get("run_struct", False))
 
     try:
         with requests.post(
             f"{BACKEND_URL}/generate",
-            json={"prompt": prompt, "run_aero": run_aero},
+            json={"prompt": prompt, "run_aero": run_aero, "run_struct": run_struct},
             stream=True,
             timeout=300,
         ) as resp:
@@ -263,20 +266,29 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
                 if not raw or not raw.startswith("data: "):
                     continue
                 ev = json.loads(raw[6:])
+                if (not isinstance(ev, dict)
+                        or not isinstance(ev.get("step"), str) or not ev["step"]
+                        or not isinstance(ev.get("status"), str) or not ev["status"]):
+                    raise ValueError("Invalid pipeline event envelope")
                 step, status = ev["step"], ev["status"]
 
                 if step == "complete":
                     if status == "done":
-                        glb_bytes = base64.b64decode(ev.get("glb", ""))
+                        try:
+                            glb_bytes = base64.b64decode(ev.get("glb", ""), validate=True)
+                            terminal_done = bool(glb_bytes)
+                        except (ValueError, TypeError):
+                            error_message = "Backend returned invalid model data."
+                            glb_bytes = None
                         params = ev.get("parameters", {})
                         aero_report = ev.get("aero_report")  # Phase 3
                         struct_report = ev.get("struct_report")  # Phase 6
                         geometry_cert = ev.get("geometry_certificate")  # G-05
                         # T2-08: store manifest for refinement
                         if ev.get("manifest"):
-                            st.session_state.last_manifest = ev["manifest"]
+                            staged_manifest = ev["manifest"]
                         if ev.get("scripts"):
-                            st.session_state.last_scripts = ev["scripts"]
+                            staged_scripts = ev["scripts"]
                     elif status == "error":
                         error_message = ev.get("message", "")
                     script_code = ev.get("script", script_code)
@@ -300,6 +312,22 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
         st.error("Request timed out.")
         return
 
+    except (requests.RequestException, ValueError, TypeError):
+        error_message = "The response was invalid or interrupted before completion."
+
+    has_error = bool(error_message) or any(s["status"] == "error" for s in steps)
+    if has_error or not terminal_done:
+        # A failed or truncated attempt must not destroy the last accepted view.
+        message = error_message or ("Generation failed." if has_error else "Generation ended without a complete model.")
+        st.session_state.status = "Error: generation failed"
+        st.error(message)
+        progress_ph.markdown(_progress_md(steps))
+        return
+
+    if staged_manifest is not None:
+        st.session_state.last_manifest = staged_manifest
+    if staged_scripts is not None:
+        st.session_state.last_scripts = staged_scripts
     st.session_state.script_code = script_code
     st.session_state.glb_bytes = glb_bytes
     st.session_state.parameters = params
