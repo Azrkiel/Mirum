@@ -1,0 +1,12 @@
+# Mirum-only additions to the Text-2-CAD-derived Linux verification lock.
+# Versions captured from the exercised native CAD/PDF verification image.
+defusedxml==0.7.1
+fpdf2==2.8.9
+freetype-py==2.5.1
+imageio==2.34.2
+networkx==3.4.2
+pyglet==2.1.19
+PyOpenGL==3.1.0
+pyrender==0.1.45
+scipy==1.15.3
+trimesh==4.4.3
