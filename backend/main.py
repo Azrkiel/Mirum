@@ -7,6 +7,7 @@ a live checklist.
 """
 
 import base64
+import hmac
 import json
 import logging
 import os
@@ -21,7 +22,7 @@ from contextlib import asynccontextmanager
 import google.generativeai as genai
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -140,6 +141,21 @@ async def audit_log(request: Request, call_next):
         elapsed,
     )
     return response
+
+
+@app.middleware("http")
+async def access_token_gate(request: Request, call_next):
+    """Require X-Mirum-Access-Token on every route when MIRUM_ACCESS_TOKEN is set.
+
+    Unset (local compose, tests) leaves the API open as before. Admin routes
+    still also need their own ADMIN_API_KEY bearer token.
+    """
+    expected = os.environ.get("MIRUM_ACCESS_TOKEN", "")
+    if expected:
+        supplied = request.headers.get("X-Mirum-Access-Token", "")
+        if not hmac.compare_digest(supplied.encode(), expected.encode()):
+            return JSONResponse(status_code=401, content={"detail": "Access token required."})
+    return await call_next(request)
 
 
 class GenerateRequest(BaseModel):
@@ -1043,6 +1059,12 @@ async def run_script(body: RunRequest, request: Request):
         return {"status": "error", "detail": _safe_error(exc)}
     return {"status": "ok", "glb": base64.b64encode(delivery["glb"]).decode("utf-8"),
             "geometry_certificate": delivery["geometry_certificate"]}
+
+
+@app.get("/auth/check")
+async def auth_check():
+    """Cheap probe the UI uses to validate an access token (gated by middleware)."""
+    return {"ok": True}
 
 
 @app.get("/stats")
