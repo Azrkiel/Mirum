@@ -1,0 +1,41 @@
+# PicoGK native runtime for linux-x64. Derived from upstream Misc/Dockerfile.
+# Build context: this directory. Requires avast-ca.pem (machine-local, see RESULTS.md).
+FROM gcc:15
+
+COPY avast-ca.pem /usr/local/share/ca-certificates/avast-ca.crt
+RUN update-ca-certificates
+
+# Upstream Misc/Dockerfile package set, with Debian's blosc in place of an
+# unpinned git clone of c-blosc, plus Ninja.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      cmake ninja-build git pkg-config python3 \
+      libboost-iostreams-dev libboost-dev libtbb-dev libblosc-dev \
+      zlib1g-dev libzstd-dev liblz4-dev \
+      libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules \
+      xorg-dev mesa-common-dev libgl1-mesa-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG PICOGK_RUNTIME_SHA=0f26321c18ed878a7820ef769c38fd5d49d39242
+
+WORKDIR /src
+RUN git clone https://github.com/leap71/PicoGKRuntime . \
+ && git checkout "$PICOGK_RUNTIME_SHA" \
+ && git submodule update --init --recursive --depth 1 \
+ && git submodule status --recursive | tee /submodules.txt
+
+# Same one-line change as upstream PR #30: emit picogk.26.2.so, the name the
+# C# library imports, with a matching SONAME. Fail if the line has moved.
+RUN grep -q '^if( WIN32 )$' CMakeLists.txt \
+ && sed -i '0,/^if( WIN32 )$/s//if( WIN32 OR (UNIX AND NOT APPLE) )/' CMakeLists.txt \
+ && git diff --stat
+
+# Only the library target: skips APITests and everything EXCLUDE_FROM_ALL.
+# 6 jobs crashed the Docker engine with Docker Desktop's default 8 GB VM.
+ARG BUILD_JOBS=3
+RUN cmake -S . -B Build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+ && cmake --build Build --target picogk.26.2 -j "$BUILD_JOBS" \
+ && mkdir -p /picogk \
+ && cp Build/lib/picogk.26.2.so /picogk/ \
+ && sha256sum /picogk/picogk.26.2.so | tee /picogk/picogk.26.2.so.sha256 \
+ && ldd /picogk/picogk.26.2.so | tee /picogk/ldd.txt \
+ && ! grep -q 'not found' /picogk/ldd.txt
