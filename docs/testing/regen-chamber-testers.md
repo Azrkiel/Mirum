@@ -16,7 +16,7 @@ So far this has only been run on one Windows 11 machine. Reports from other setu
 
 ## Run it
 
-1. Download the image (about 824 MB):
+1. Download the image (824 MB once unpacked):
 
    ```
    docker pull ghcr.io/azrkiel/mirum-regen:slice-1
