@@ -233,3 +233,506 @@ def test_bbox_and_volume_checks_state_tolerance():
     assert rm.check_volume(v * 1.03, s)['state'] == 'fail'
     assert rm.check_volume(v * 0.97, s)['state'] == 'fail'
     assert rm.VOLUME_TOLERANCE == 0.02
+
+
+# ---- closed-mesh adversarial regressions -----------------------------------------------------
+# Deterministic synthetic parts: material = shell - (helical channels + 2 manifold rings + 2 wall ports),
+# the construction the spec defines. The part is meshed by marching tetrahedra on a fixed grid, so every
+# mesh is closed, 2-manifold and outward wound by construction. Mutations change the void/solid field in a
+# narrow z window that contains no station plane, so the seven-station checks cannot see them.
+# Geometry only: nothing here says anything about flow, heat or strength.
+import functools
+import json
+
+from engineering.regen_spec import PORT_OVERSHOOT_MM, RegenChamberSpec, inner_radius
+
+_ADV_H = 0.25
+_ADV_ORIGIN = np.array([-17.0113, -17.0071, -0.5317])
+_ADV_NODES = (139, 139, 167)
+_ADV_BAND = 1.0
+_ADV_TWO_PI = 2 * math.pi
+
+
+def adv_spec():
+    """Spec-valid by the normal validator (no model_construct); steepest wall slope is ~0.67 (tan 35 = 0.70)."""
+    return RegenChamberSpec.model_validate(dict(
+        family='regen_chamber', units='mm', chamber_radius_mm=10.0, chamber_length_mm=12.0,
+        convergent_length_mm=14.0, throat_radius_mm=6.0, divergent_length_mm=14.0,
+        exit_radius_mm=12.0, wall_thickness_mm=4.4, channel_count=16, channel_radius_mm=0.6,
+        channel_twist_rad_per_mm=0.02, manifold_radius_mm=1.0, end_margin_mm=3.5,
+        voxel_size_mm=0.25, assumptions='geometry_only_no_gas_dynamics_thermal_or_structural_analysis'))
+
+
+def _adv_ri(spec, z):
+    z = np.asarray(z, dtype=np.float64)
+    cl, zt, big_l = spec.chamber_length_mm, spec.throat_z_mm, spec.total_length_mm
+    rt, rc, re = spec.throat_radius_mm, spec.chamber_radius_mm, spec.exit_radius_mm
+    t1 = np.clip((z - cl) / spec.convergent_length_mm, 0.0, 1.0)
+    t2 = np.clip((z - zt) / spec.divergent_length_mm, 0.0, 1.0)
+    conv = rt + (rc - rt) * 0.5 * (1 + np.cos(np.pi * t1))
+    div = rt + (re - rt) * 0.5 * (1 - np.cos(np.pi * t2))
+    return np.where(z <= cl, rc, np.where(z <= zt, conv, np.where(z <= big_l, div, re)))
+
+
+def _adv_bump(z, z0, hw):
+    u = (np.asarray(z, dtype=np.float64) - z0) / hw
+    return np.where(np.abs(u) < 1.0, (1.0 - u * u) ** 2, 0.0)
+
+
+def _adv_centre(spec, c, z, dents):
+    """Channel centreline (radius, angle) at z; `dents` displace it locally (dr radial mm, dt tangential mm)."""
+    base = _adv_ri(spec, z) + spec.wall_thickness_mm / 2
+    rho = base.copy()
+    th = c * (_ADV_TWO_PI / spec.channel_count) + z * spec.channel_twist_rad_per_mm
+    for d in dents:
+        g = _adv_bump(z, d['z'], d['hw']) * (c == d['ch'])
+        rho = rho + d.get('dr', 0.0) * g
+        th = th + d.get('dt', 0.0) * g / base
+    return rho, th
+
+
+def _adv_xyz(rho, th, z):
+    return np.stack([rho * np.cos(th), rho * np.sin(th), np.broadcast_to(z, rho.shape)], axis=-1)
+
+
+def _adv_seg_dist(p, a, b):
+    ab = b - a
+    ap = p - a
+    den = np.maximum(np.einsum('...k,...k->...', ab, ab), 1e-18)
+    t = np.clip(np.einsum('...k,...k->...', ap, ab) / den, 0.0, 1.0)
+    d = ap - t[..., None] * ab
+    return np.sqrt(np.einsum('...k,...k->...', d, d))
+
+
+def _adv_channel_void(spec, P, dents, exact):
+    """min over nearby channels of (distance to the swept centreline - channel radius)."""
+    n_ch, rc = spec.channel_count, spec.channel_radius_mm
+    delta = _ADV_TWO_PI / n_ch
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    k0 = np.rint((np.arctan2(y, x) - z * spec.channel_twist_rad_per_mm) / delta).astype(np.int64)
+    best = np.full(len(P), 10.0)
+    eps = 1e-3
+    for j in (-1, 0, 1):
+        c = (k0 + j) % n_ch
+        rho, th = _adv_centre(spec, c, z, dents)
+        rho_p, th_p = _adv_centre(spec, c, z + eps, dents)
+        rho_m, th_m = _adv_centre(spec, c, z - eps, dents)
+        dr_dz = (rho_p - rho_m) / (2 * eps)
+        dth_dz = (th_p - th_m) / (2 * eps)
+        xc, yc = rho * np.cos(th), rho * np.sin(th)
+        off_r = (x - xc) * np.cos(th) + (y - yc) * np.sin(th)
+        off_t = -(x - xc) * np.sin(th) + (y - yc) * np.cos(th)
+        tan = np.stack([dr_dz, rho * dth_dz, np.ones_like(z)], axis=-1)
+        off = np.stack([off_r, off_t, np.zeros_like(z)], axis=-1)
+        t2 = np.einsum('ij,ij->i', tan, tan)
+        d2 = np.einsum('ij,ij->i', off, off) - np.einsum('ij,ij->i', off, tan) ** 2 / t2
+        d = np.sqrt(np.maximum(d2, 0.0))
+        if exact:   # distance to the polyline of the displaced centreline (no tangent-line approximation)
+            near = np.nonzero(d < rc + 0.8)[0]
+            for s in range(0, len(near), 20000):
+                idx = near[s:s + 20000]
+                zs = z[idx, None] + np.linspace(-1.5, 1.5, 31)[None, :]
+                cc = np.broadcast_to(c[idx, None], zs.shape)
+                r_s, t_s = _adv_centre(spec, cc, zs, dents)
+                nodes = _adv_xyz(r_s, t_s, zs)
+                dd = _adv_seg_dist(P[idx, None, None, :], nodes[:, None, :-1], nodes[:, None, 1:])
+                d[idx] = dd.reshape(len(idx), -1).min(axis=1)
+        best = np.minimum(best, d - rc)
+    return best
+
+
+def _adv_ring_port_void(spec, P, ports, bridges):
+    w, rm = spec.wall_thickness_mm, spec.manifold_radius_mm
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    rho = np.hypot(x, y)
+    out = np.full(len(P), 10.0)
+    for j, mz in enumerate(spec.manifold_z_mm):
+        r_ring = float(inner_radius(spec, mz)) + w / 2
+        out = np.minimum(out, np.hypot(rho - r_ring, z - mz) - rm)
+        ang = ports.get(j, 0.0)
+        if ang is None:
+            continue
+        xr = x * math.cos(ang) + y * math.sin(ang)
+        yr = -x * math.sin(ang) + y * math.cos(ang)
+        r_end = float(inner_radius(spec, mz)) + w + PORT_OVERSHOOT_MM
+        tt = np.clip(xr, r_ring, r_end)
+        out = np.minimum(out, np.sqrt((xr - tt) ** 2 + yr ** 2 + (z - mz) ** 2) - rm)
+    for b in bridges:
+        ra, ta = _adv_centre(spec, b['a'], np.float64(b['z']), [])
+        rb, tb = _adv_centre(spec, b['b'], np.float64(b['z']), [])
+        a_pt = _adv_xyz(ra, ta, np.float64(b['z']))
+        b_pt = _adv_xyz(rb, tb, np.float64(b['z']))
+        out = np.minimum(out, _adv_seg_dist(P, a_pt, b_pt) - b['radius'])
+    return out
+
+
+def _adv_void_field(spec, P, mut, exact):
+    mut = mut or {}
+    c = np.minimum(_adv_channel_void(spec, P, mut.get('dents', []), exact),
+                   _adv_ring_port_void(spec, P, mut.get('ports', {}), mut.get('bridges', [])))
+    z = P[:, 2]
+    phi = np.arctan2(P[:, 1], P[:, 0])
+    rho = np.hypot(P[:, 0], P[:, 1])
+    for pl in mut.get('plugs', []):   # solid plug inside one channel
+        r_c, t_c = _adv_centre(spec, pl['ch'], z, [])
+        dist = np.hypot(P[:, 0] - r_c * np.cos(t_c), P[:, 1] - r_c * np.sin(t_c))
+        c = np.where((np.abs(z - pl['z']) <= pl['hw']) & (dist < spec.channel_radius_mm + 0.4), 1.0, c)
+    for gp in mut.get('ring_gaps', []):   # solid bridge across one manifold ring
+        mz = spec.manifold_z_mm[gp['ring']]
+        r_ring = float(inner_radius(spec, mz)) + spec.wall_thickness_mm / 2
+        dang = np.abs((phi - gp['angle'] + math.pi) % _ADV_TWO_PI - math.pi)
+        hit = ((np.abs(z - mz) < spec.manifold_radius_mm + 0.4)
+               & (np.abs(rho - r_ring) < spec.manifold_radius_mm + 0.3) & (dang < gp['half_angle']))
+        c = np.where(hit, 1.0, c)
+    return c
+
+
+def _adv_shell(spec, xs, ys, zs):
+    w = spec.wall_thickness_mm
+    rho = np.hypot(xs[:, None], ys[None, :])[:, :, None]
+    ri = _adv_ri(spec, np.clip(zs, 0.01, spec.total_length_mm - 0.01))
+    cosa = 1.0 / np.sqrt(1.0 + np.gradient(ri, zs) ** 2)
+    radial = np.maximum(ri[None, None, :] - rho, rho - ri[None, None, :] - w) * cosa[None, None, :]
+    axial = np.maximum(-zs, zs - spec.total_length_mm)[None, None, :]
+    return np.maximum(radial, axial)
+
+
+@functools.lru_cache(maxsize=1)
+def _adv_base():
+    spec = adv_spec()
+    nx, ny, nz = _ADV_NODES
+    xs = _ADV_ORIGIN[0] + _ADV_H * np.arange(nx)
+    ys = _ADV_ORIGIN[1] + _ADV_H * np.arange(ny)
+    zs = _ADV_ORIGIN[2] + _ADV_H * np.arange(nz)
+    shell = _adv_shell(spec, xs, ys, zs).astype(np.float32)
+    cool = np.full(shell.shape, 10.0, dtype=np.float32)
+    ii, jj, kk = np.nonzero(shell < _ADV_BAND)
+    for s in range(0, len(ii), 400000):
+        sl = slice(s, s + 400000)
+        P = np.stack([xs[ii[sl]], ys[jj[sl]], zs[kk[sl]]], axis=-1)
+        cool[ii[sl], jj[sl], kk[sl]] = _adv_void_field(spec, P, None, False)
+    return spec, xs, ys, zs, shell, cool
+
+
+def _adv_field(mut):
+    spec, xs, ys, zs, shell, cool = _adv_base()
+    if mut:
+        cool = cool.copy()
+        lo, hi = mut['window']
+        k0 = max(0, int((lo - _ADV_ORIGIN[2]) / _ADV_H))
+        k1 = min(len(zs), int((hi - _ADV_ORIGIN[2]) / _ADV_H) + 2)
+        ii, jj, kk = np.nonzero(shell[:, :, k0:k1] < _ADV_BAND)
+        P = np.stack([xs[ii], ys[jj], zs[kk + k0]], axis=-1)
+        cool[ii, jj, kk + k0] = _adv_void_field(spec, P, mut, True)
+    return np.maximum(shell, -cool).astype(np.float64)
+
+
+def _adv_marching_tets(f, origin, h):
+    """Closed, 2-manifold, outward-wound triangles of {f < 0}; vertices sit on grid edges and are shared by id."""
+    nx, ny, nz = f.shape
+    inside = f < 0
+    s = inside.astype(np.int8)
+    acc = np.zeros((nx - 1, ny - 1, nz - 1), dtype=np.int8)
+    for di in (0, 1):
+        for dj in (0, 1):
+            for dk in (0, 1):
+                acc += s[di:nx - 1 + di, dj:ny - 1 + dj, dk:nz - 1 + dk]
+    ci, cj, ck = np.nonzero((acc > 0) & (acc < 8))
+    flat_f = f.reshape(-1)
+    flat_in = inside.reshape(-1)
+    total = nx * ny * nz
+
+    def pos(ids):
+        i, j, k = ids // (ny * nz), (ids // nz) % ny, ids % nz
+        return origin + h * np.stack([i, j, k], axis=-1)
+
+    def ekey(u, v):
+        return np.minimum(u, v) * total + np.maximum(u, v)
+
+    axes = np.eye(3, dtype=np.int64)
+    tri_keys, refs = [], []
+    for perm in ((0, 1, 2), (0, 2, 1), (1, 0, 2), (1, 2, 0), (2, 0, 1), (2, 1, 0)):
+        o1 = axes[perm[0]]
+        offs = [np.zeros(3, dtype=np.int64), o1, o1 + axes[perm[1]], np.ones(3, dtype=np.int64)]
+        t = np.stack([((ci + o[0]) * ny + (cj + o[1])) * nz + (ck + o[2]) for o in offs], axis=1)
+        ins = flat_in[t]
+        cnt = ins.sum(axis=1)
+        srt = np.take_along_axis(t, np.argsort(~ins, axis=1, kind='stable'), axis=1)   # inside nodes first
+        for case in (1, 2, 3):
+            n = srt[cnt == case]
+            if not len(n):
+                continue
+            a, b, c, d = n[:, 0], n[:, 1], n[:, 2], n[:, 3]
+            if case == 1:
+                groups = [[(a, b), (a, c), (a, d)]]
+                p_in, p_out = pos(a), (pos(b) + pos(c) + pos(d)) / 3
+            elif case == 3:
+                groups = [[(d, a), (d, b), (d, c)]]
+                p_in, p_out = (pos(a) + pos(b) + pos(c)) / 3, pos(d)
+            else:
+                groups = [[(a, c), (a, d), (b, d)], [(a, c), (b, d), (b, c)]]
+                p_in, p_out = (pos(a) + pos(b)) / 2, (pos(c) + pos(d)) / 2
+            for g in groups:
+                tri_keys.append(np.stack([ekey(u, v) for u, v in g], axis=1))
+                refs.append(p_out - p_in)
+    keys = np.concatenate(tri_keys)
+    ref = np.concatenate(refs)
+    ukeys, inv = np.unique(keys.reshape(-1), return_inverse=True)
+    faces = inv.reshape(-1, 3).astype(np.int64)
+    lo, hi = ukeys // total, ukeys % total
+    f_lo, f_hi = flat_f[lo], flat_f[hi]
+    tcut = np.clip(f_lo / (f_lo - f_hi), 0.01, 0.99)
+    p_lo = pos(lo)
+    verts = p_lo + tcut[:, None] * (pos(hi) - p_lo)
+    v0, v1, v2 = verts[faces[:, 0]], verts[faces[:, 1]], verts[faces[:, 2]]
+    flip = np.einsum('ij,ij->i', np.cross(v1 - v0, v2 - v0), ref) < 0
+    faces[flip] = faces[flip][:, [0, 2, 1]]
+    return verts[faces].astype(np.float32)
+
+
+def adv_mesh(name):
+    """Triangles (float32, shape (n,3,3)) for a named, fixed mutation of the positive control."""
+    return _adv_marching_tets(_adv_field(ADV_MUTATIONS[name]), _ADV_ORIGIN, _ADV_H)
+
+
+
+def _adv_win(z, half):
+    return (z - half - 2.5, z + half + 2.5)
+
+
+def _adv_mutations():
+    spec = adv_spec()
+    n = spec.channel_count
+    delta = _ADV_TWO_PI / n
+    tw = spec.channel_twist_rad_per_mm
+    z_rib = 20.0
+    rho_rib = float(_adv_ri(spec, z_rib)) + spec.wall_thickness_mm / 2
+    rib_shift = _ADV_TWO_PI * rho_rib / n - 2 * spec.channel_radius_mm - 0.35   # leaves ~0.35 mm of rib
+    zf = spec.manifold_z_mm[0]
+    # in-plane hot-wall gap on the steepest wall is G - rc/cos; aim at ~0.8 mm in plane (floor is 0.75)
+    cos_a = math.cos(math.atan(spec.max_slope))
+    in_plane = spec.wall_thickness_mm / 2 - spec.channel_radius_mm / cos_a
+    slope_dr = -(in_plane - 0.74)
+
+    def dent(ch, z, hw, **kw):
+        return {'window': _adv_win(z, hw), 'dents': [dict(ch=ch, z=z, hw=hw, **kw)]}
+
+    return {
+        'control': None,
+        # blockage: solid plug inside one channel, 1.0 mm and 0.5 mm long
+        'blocked_channel': {'window': _adv_win(10.57, 0.5), 'plugs': [dict(ch=3, z=10.57, hw=0.5)]},
+        'blocked_channel_narrow': {'window': _adv_win(10.57, 0.25), 'plugs': [dict(ch=3, z=10.57, hw=0.25)]},
+        # unintended connection: a void tube joins two neighbouring channels
+        'channels_joined': {'window': _adv_win(20.0, 0.8), 'bridges': [dict(a=6, b=7, z=20.0, radius=0.6)]},
+        # path deviation: channel 8 wanders 1.0 mm sideways (walls and ribs stay legal)
+        'channel_detour': dent(8, 29.43, 1.6, dt=1.0),
+        # missing / wrong manifold + port geometry (all still one closed surface)
+        'forward_port_missing': {'window': _adv_win(zf, 1.5), 'ports': {0: None}},
+        'aft_port_wrong_angle': {'window': _adv_win(spec.manifold_z_mm[1], 1.5), 'ports': {1: math.pi}},
+        'forward_ring_broken': {'window': _adv_win(zf, 1.5), 'ring_gaps': [
+            dict(ring=0, angle=(4.5 * delta + zf * tw), half_angle=0.05),
+            dict(ring=0, angle=(9.5 * delta + zf * tw), half_angle=0.05)]},
+        # local wall defects
+        'thin_hot_wall': dent(5, 10.57, 2.0, dr=-1.25),
+        'thin_hot_wall_narrow': dent(5, 10.57, 0.7, dr=-1.25),
+        'thin_cold_wall': dent(9, 15.29, 2.0, dr=1.25),
+        'thin_rib': dent(2, z_rib, 2.0, dt=rib_shift),
+        'sloped_wall_normal_thin': dent(12, 33.4, 1.3, dr=slope_dr),
+        'wall_breach': dent(5, 10.57, 2.0, dr=-2.0),
+    }
+
+
+ADV_MUTATIONS = _adv_mutations()
+
+
+# ---- the adversarial cases ----------------------------------------------------------------
+# name -> (defect centre z, half support in z). Every support lies strictly between two station planes.
+ADV_DEFECT_Z = {
+    'blocked_channel': (10.57, 0.5), 'blocked_channel_narrow': (10.57, 0.25), 'channels_joined': (20.0, 0.8),
+    'channel_detour': (29.43, 1.6), 'forward_port_missing': (None, None), 'aft_port_wrong_angle': (None, None),
+    'forward_ring_broken': (None, None), 'thin_hot_wall': (10.57, 2.0), 'thin_hot_wall_narrow': (10.57, 0.7),
+    'thin_cold_wall': (15.29, 2.0), 'thin_rib': (20.0, 2.0), 'sloped_wall_normal_thin': (33.4, 1.3),
+    'wall_breach': (10.57, 2.0),
+}
+ADV_CIRCUIT = ['blocked_channel', 'blocked_channel_narrow', 'channels_joined', 'channel_detour',
+               'forward_port_missing', 'aft_port_wrong_angle', 'forward_ring_broken']
+ADV_WALLS = ['thin_hot_wall', 'thin_hot_wall_narrow', 'thin_cold_wall', 'thin_rib', 'sloped_wall_normal_thin']
+ADV_OLD_CHECKS = ('components', 'edge_manifold', 'winding', 'bbox', 'volume', 'channel_count', 'hot_wall',
+                  'cold_wall', 'rib')
+
+
+def _adv_old_gate_errors(spec, tris):
+    """Re-run every pre-existing gate through the public low-level functions; [] means all of them pass."""
+    errs = []
+    r = rm.clean_and_check(tris)
+    errs += list(r.failures)
+    for k in ('components', 'edge_manifold', 'winding'):
+        if r.checks[k]['state'] != 'pass':
+            errs.append(f'{k} failed')
+    pts = r.verts[np.unique(r.faces)]
+    if rm.check_bbox(pts.min(axis=0), pts.max(axis=0), spec)['state'] != 'pass':
+        errs.append('bbox failed')
+    vol = rm.check_volume(r.volume, spec)
+    if vol['state'] != 'pass' or abs(vol['relative_error']) > 0.02:
+        errs.append(f'volume failed ({vol["relative_error"]:.4f})')
+    zs = rm.station_zs(spec)
+    if len(zs) != 7:
+        errs.append('expected seven stations')
+    for z in zs:
+        m = rm.slice_station(r.verts, r.faces, z, spec.channel_count)
+        errs += rm.station_failures(m, spec.channel_count, spec.min_feature_mm, spec.voxel_size_mm)
+    return errs
+
+
+@functools.lru_cache(maxsize=None)
+def _adv_eval(name):
+    spec = adv_spec()
+    tris = adv_mesh(name)
+    report, _ = rm.verify(spec, tris)
+    probe = None
+    zc, _hw = ADV_DEFECT_Z.get(name, (None, None))
+    if zc is not None:
+        verts, faces = rm.weld(tris)
+        probe = rm.slice_station(verts, faces, zc, spec.channel_count)
+    return {'report': report, 'old_gate_errors': _adv_old_gate_errors(spec, tris), 'probe': probe,
+            'triangles': len(tris)}
+
+
+def _assert_safety_fields(report):
+    assert report['engineering_certified'] is False
+    assert report['physics'] == {'state': 'not_evaluated'}
+    assert report['standards'] == {'state': 'not_evaluated'}
+
+
+def test_adv_spec_is_valid_without_bypass():
+    spec = adv_spec()
+    assert RegenChamberSpec.model_validate(spec.model_dump()) == spec
+    assert len(rm.station_zs(spec)) == 7
+    assert spec.max_slope <= math.tan(math.radians(35.0))
+    for z in (0.0, 5.0, 12.0, 20.0, 26.0, 33.0, 40.0):   # local field model matches the spec contour
+        assert float(_adv_ri(spec, z)) == pytest.approx(inner_radius(spec, z), abs=1e-12)
+
+
+def test_adv_positive_control_passes_complete_verifier():
+    got = _adv_eval('control')
+    rep = got['report']
+    assert got['old_gate_errors'] == []
+    assert rep['failures'] == [] and rep['passed'] is True
+    assert rep['design_intent'] == {'state': 'geometry_matches_spec'}
+    assert all(c['state'] == 'pass' for c in rep['checks'].values())
+    assert abs(rep['checks']['volume']['relative_error']) < 0.02
+    _assert_safety_fields(rep)
+
+
+@pytest.mark.parametrize('name', sorted(n for n, v in ADV_DEFECT_Z.items() if v[0] is not None))
+def test_adv_defects_sit_between_station_planes(name):
+    zc, hw = ADV_DEFECT_Z[name]
+    for z in rm.station_zs(adv_spec()):
+        assert abs(zc - z) - hw > 0.1, f'{name}: defect support reaches station z={z:.3f}'
+
+
+@pytest.mark.parametrize('name', ADV_CIRCUIT + ADV_WALLS + ['wall_breach'])
+def test_adv_fixtures_pass_every_existing_gate(name):
+    """Closed, one component, wound outward, bbox + volume (<=2 %) + all seven stations clean."""
+    got = _adv_eval(name)
+    assert got['old_gate_errors'] == []
+    rep = got['report']
+    for k in ADV_OLD_CHECKS:
+        assert rep['checks'][k]['state'] == 'pass', k
+    assert rep['checks']['components']['found'] == 1
+    assert abs(rep['checks']['volume']['relative_error']) <= 0.02
+
+
+def _adv_expect_defect_present(name, got):
+    """The mesh really contains the defect: a slice through the defect plane (not a station) shows it."""
+    spec = adv_spec()
+    floor = spec.min_feature_mm - spec.voxel_size_mm
+    p = got['probe']
+    if name in ('blocked_channel', 'blocked_channel_narrow', 'channels_joined', 'wall_breach'):
+        assert p['channel_loops'] == spec.channel_count - 1
+    elif name in ('thin_hot_wall', 'thin_hot_wall_narrow'):
+        assert p['hot_wall_mm'] < floor
+    elif name == 'sloped_wall_normal_thin':
+        assert p['hot_wall_mm'] < 1.0
+    elif name == 'thin_cold_wall':
+        assert p['cold_wall_mm'] < floor
+    elif name == 'thin_rib':
+        assert p['rib_mm'] < floor
+    elif name == 'channel_detour':
+        assert p['channel_loops'] == spec.channel_count and p['rib_mm'] < 1.6   # nominal rib here is ~2.3 mm
+
+
+@pytest.mark.parametrize('name', ADV_CIRCUIT + ['wall_breach'])
+def test_adv_coolant_circuit_defect_off_station_is_rejected(name):
+    got = _adv_eval(name)
+    assert got['old_gate_errors'] == []
+    if got['probe'] is not None:
+        _adv_expect_defect_present(name, got)
+    rep = got['report']
+    assert rep['passed'] is False, f'{name}: coolant-circuit defect accepted'
+    assert rep['failures']
+    assert rep['design_intent'] == {'state': 'geometry_rejected'}
+    _assert_safety_fields(rep)
+
+
+@pytest.mark.parametrize('name', ADV_WALLS)
+def test_adv_local_thin_wall_off_station_is_rejected(name):
+    got = _adv_eval(name)
+    assert got['old_gate_errors'] == []
+    _adv_expect_defect_present(name, got)
+    rep = got['report']
+    assert rep['passed'] is False, f'{name}: locally thin wall accepted'
+    assert rep['failures']
+    assert rep['design_intent'] == {'state': 'geometry_rejected'}
+    _assert_safety_fields(rep)
+
+
+def test_adv_sloped_wall_in_plane_distance_conceals_thin_normal_wall():
+    spec = adv_spec()
+    got = _adv_eval('sloped_wall_normal_thin')
+    zc, _ = ADV_DEFECT_Z['sloped_wall_normal_thin']
+    floor = spec.min_feature_mm - spec.voxel_size_mm
+    dz = 1e-3
+    slope = (inner_radius(spec, zc + dz) - inner_radius(spec, zc - dz)) / (2 * dz)
+    cos_a = 1.0 / math.sqrt(1.0 + slope ** 2)
+    in_plane = got['probe']['hot_wall_mm']
+    assert in_plane >= floor, 'in-plane hot wall must look acceptable'
+    assert in_plane * cos_a < floor, 'surface-normal thickness must be below the minimum'
+    assert got['report']['passed'] is False
+
+
+@pytest.mark.parametrize('name', ['blocked_channel_narrow', 'thin_hot_wall_narrow'])
+def test_adv_narrow_defect_between_sampling_locations_is_rejected(name):
+    zc, hw = ADV_DEFECT_Z[name]
+    zs = rm.station_zs(adv_spec())
+    below = max(z for z in zs if z < zc)
+    above = min(z for z in zs if z > zc)
+    assert zc - hw - below > 1.0 and above - (zc + hw) > 1.0
+    assert 2 * hw <= 1.4   # the whole defect is narrower than the clear gap on each side of it
+    got = _adv_eval(name)
+    assert got['old_gate_errors'] == []
+    assert got['report']['passed'] is False
+
+
+def test_adv_wall_breach_cannot_be_covered_and_is_rejected():
+    """Channel 5 breaks into the bore between stations: the plane has 15 channel loops and the inner wall
+    loop swallows one, so wall/rib coverage there cannot be established. A verifier must reject, not skip."""
+    got = _adv_eval('wall_breach')
+    assert got['old_gate_errors'] == []
+    assert got['probe']['channel_loops'] == adv_spec().channel_count - 1
+    rep = got['report']
+    assert rep['passed'] is False and rep['failures']
+    _assert_safety_fields(rep)
+
+
+def test_adv_reports_are_deterministic():
+    spec = adv_spec()
+    name = 'blocked_channel_narrow'
+    first = _adv_eval(name)['report']
+    tris = adv_mesh(name)            # rebuilt from scratch
+    again, _ = rm.verify(spec, tris)
+    again2, _ = rm.verify(spec, tris.copy())
+    assert json.dumps(first, sort_keys=True, default=str) == json.dumps(again, sort_keys=True, default=str)
+    assert json.dumps(again, sort_keys=True, default=str) == json.dumps(again2, sort_keys=True, default=str)
+    assert first['stl_sha256'] == again['stl_sha256']
+    assert first['passed'] is False and again['passed'] is False
