@@ -68,7 +68,9 @@ def test_builder_run_with_runtime_is_accepted_and_labelled(tmp_path, monkeypatch
     sp.write_text(json.dumps(spec_data()))
     out = tmp_path / 'out'
     assert regen_cli.main([str(sp), str(out)]) == 0
-    assert json.loads((out / 'report.json').read_text())['geometry_source'] == 'picogk_builder'
+    report = json.loads((out / 'report.json').read_text())
+    assert report['geometry_source'] == 'picogk_builder'
+    assert report['safety_notice'] == regen_cli.SAFETY_NOTICE
 
 
 def test_malformed_json_exits_2(tmp_path):

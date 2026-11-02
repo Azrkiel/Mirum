@@ -19,9 +19,16 @@ COPY --from=picogk-runtime:26.2 /usr/local/lib64/libgcc_s.so.1 /usr/local/lib/pi
 COPY --from=publish /app /app
 COPY --from=picogk-runtime:26.2 /picogk/picogk.26.2.so /app/picogk.26.2.so
 COPY --from=picogk-runtime:26.2 /picogk/picogk.26.2.so.sha256 /app/picogk.26.2.so.sha256
+COPY --from=picogk-runtime:26.2 /src/LICENSE /licenses/PicoGKRuntime-LICENSE
+COPY --from=picogk-runtime:26.2 /src/openvdb/LICENSE /licenses/OpenVDB-LICENSE
+COPY --from=picogk-runtime:26.2 /src/GLFW/LICENSE.md /licenses/GLFW-LICENSE.md
+COPY --from=picogk-runtime:26.2 /src/imgui/LICENSE.txt /licenses/imgui-LICENSE.txt
+COPY picogk-builder/THIRD_PARTY_NOTICES.md /licenses/THIRD_PARTY_NOTICES.md
 # Only the regen files. backend/engineering/__init__.py is a docstring, so no side effects.
 COPY backend/engineering/__init__.py backend/engineering/regen_spec.py backend/engineering/regen_mesh.py backend/engineering/regen_cli.py /py/engineering/
 # LD_LIBRARY_PATH is NOT set globally (it could break scipy); regen_cli sets it for the builder subprocess only.
 ENV REGEN_BUILDER=/app/builder REGEN_GCC_LIB=/usr/local/lib/picogk-gcc PYTHONPATH=/py PYTHONDONTWRITEBYTECODE=1
+LABEL org.opencontainers.image.source="https://github.com/Azrkiel/Mirum" \
+      org.opencontainers.image.description="Mirum regen chamber generator test build. Geometry checks only; do not manufacture or fire hardware based on its output."
 WORKDIR /out
 ENTRYPOINT ["python3", "-m", "engineering.regen_cli"]
