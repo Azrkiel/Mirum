@@ -25,6 +25,8 @@ MAX_SPEC_BYTES = 65536
 DEFAULT_BUILDER = '/app/builder'
 DEFAULT_GCC_LIB = '/usr/local/lib/picogk-gcc'
 RUNTIME_SO = 'picogk.26.2.so'
+SAFETY_NOTICE = ('Geometry checks only. No gas dynamics, thermal, structural, or manufacturing analysis was done. '
+                 'Do not manufacture or fire hardware based on this output.')
 
 EXIT_ACCEPTED, EXIT_UNAVAILABLE, EXIT_REJECTED, EXIT_PREBUILT_PASSED = 0, 1, 2, 3
 
@@ -122,6 +124,8 @@ def main(argv=None) -> int:
         report, cleaned = regen_mesh.verify(spec, tris, raw_stl_sha256=raw_hash, runtime_so_sha256=so_hash,
                                             builder_stats=stats)
         report['geometry_source'] = 'prebuilt_test_hook' if args.prebuilt_stl else 'picogk_builder'
+        report['safety_notice'] = SAFETY_NOTICE
+        print(f'NOTICE: {SAFETY_NOTICE}', file=sys.stderr)
         body = (json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + '\n').encode()
         if not report['passed']:
             _atomic_write(outdir / 'rejected_report.json', body)
