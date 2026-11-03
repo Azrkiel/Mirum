@@ -360,7 +360,7 @@ WP_BLOCK = 300_000
 WP_FACING_MARGIN = 0.2       # |cos| of the angle between the pair direction and each surface normal
 WP_THICKNESS_ALLOWANCE_VOXELS = 0.5   # combined iso-surface placement allowance for a surface pair
 WP_REPORT_LOCATIONS = 8
-WP_MEMORY_BUDGET = 1 << 30
+WP_MEMORY_BUDGET = 1536 << 20  # Large meshes run alone under the external 3 GiB cap.
 WP_NEIGHBOR_BUDGET = 20_000
 WP_COVERAGE_BUDGET = 60_000_000
 WP_QUEUE_BUDGET = 100_000
@@ -553,7 +553,16 @@ def _build_leaves(ctx, verts, faces):
                 stats['unsplit_over_target'] += int(big.sum()) if adapt == 0 else 0
                 split = np.zeros(len(T), dtype=bool)
                 terminal = ~split
-            res = _classify(ctx, c, r)
+            # Mandatory splits do not use a parent's classification. Only
+            # terminal patches can be retained or drive adaptive refinement.
+            res = {'conform': np.zeros(len(T), dtype=bool),
+                   'reason': np.zeros(len(T), dtype=np.int8),
+                   'label': np.zeros(len(T), dtype=np.int8),
+                   'cert': np.zeros(len(T), dtype=bool)}
+            if terminal.any():
+                classified = _classify(ctx, c[terminal], r[terminal])
+                for key, values in classified.items():
+                    res[key][terminal] = values
             good = terminal & res['conform']
             record(T, N, c, r, res, good)
             bad = terminal & ~res['conform']
@@ -595,10 +604,18 @@ def _build_leaves(ctx, verts, faces):
             process_block(queue)
     if not total:
         raise _Exhausted('leaf_budget exhausted (no leaves)')
-    b.memory(total * 80 + 2048)
-    out = {k: np.concatenate(v) for k, v in store.items()}
-    b.live -= stored_bytes
-    b.retain(total * 80 + 2048)
+    # Replace one field's blocks at a time. Keeping every old field until all
+    # concatenations finish needlessly doubles the entire retained leaf set.
+    b.retain(2048)
+    out = {}
+    for key in keys:
+        parts = store.pop(key)
+        size = sum(part.nbytes for part in parts)
+        b.retain(size)
+        out[key] = np.concatenate(parts)
+        del parts
+        b.live -= size
+    b.live -= stored_bytes - total * 80
     out['stats'] = stats
     return out
 
@@ -631,12 +648,13 @@ def _fidelity(ctx, L):
             findings.add(L['cen'][i], {'at_mm': _loc(L['cen'][i]), 'reason': reason,
                          'certified_deviation': bool(L['cert'][i]),
                          'patch_radius_mm': round(float(L['rho'][i]), 4)},
-                         extra=(int(L['reason'][i]),))
+                         extra=(not bool(L['cert'][i]), int(L['reason'][i])))
     st = L['stats']
     ok = findings.count == 0 and st['unsplit_over_target'] == 0
     return {'state': 'pass' if ok else 'fail', 'surface_tolerance_mm': ctx.tau,
             'sample_radius_target_mm': ctx.rho_target, 'sample_radius_max_mm': float(L['rho'].max()),
             'leaf_patches': int(len(L['rho'])), 'nonconforming_patches': findings.count,
+            'certified_nonconforming_patches': findings.count - unresolved,
             'uncertified_nonconforming_patches': unresolved, 'unsplit_over_radius_target': st['unsplit_over_target'],
             'by_reason': by_reason, 'locations': findings.records(),
             'void_cover_depth_mm': ctx.void_depth,
@@ -697,8 +715,11 @@ def _coverage_impl(ctx, L):
     g, budget = ctx.g, ctx.budget
     cen, nrm = L['cen'], L['nrm']
     rho_max = float(L['rho'].max())
-    budget.retain(len(cen) * 256 + 4096)  # cKDTree storage + build overlap
-    tree = cKDTree(cen)
+    # With balanced 64-point leaves, 32 bytes/point covers indices, native
+    # nodes and construction overlap. Contiguous float64 centers are shared.
+    copy_bytes = 0 if cen.dtype == np.float64 and cen.flags.c_contiguous else len(cen) * 24
+    budget.retain(len(cen) * 32 + copy_bytes + 4096)
+    tree = cKDTree(cen, leafsize=64)
     r_of = {'channel': g.rc, 'ring': g.rm, 'port': g.rm}
     tau_f = {k: min(ctx.tau, 0.5 * r) for k, r in r_of.items()}
     need_f = {k: r_of[k] - tau_f[k] for k in r_of}
@@ -835,7 +856,8 @@ def _run_pairs(L, ii, jj, thr, leaf_tol, rim, state, budget=None):
     budget = budget or _Budget()
     budget.check('queue_budget', 1)
     budget.check('scratch_budget', 4096)
-    width = min(WP_BLOCK, budget.limits['queue_budget'], budget.limits['scratch_budget'] // 4096)
+    # A parent and all four children can coexist before child batches are queued.
+    width = min(WP_BLOCK, budget.limits['queue_budget'], budget.limits['scratch_budget'] // (5 * 4096))
     if width < 1:
         raise _Exhausted('scratch_budget exhausted')
     for s in range(0, len(ii), width):
@@ -878,8 +900,10 @@ def _process_pair_block(B, blocks, thr, leaf_tol, rim, state, budget):
     if rim is not None:
         # intended port opening: port-side patches lying wholly inside the rim collar are exempt
         rtree, zone = rim
-        a_port = (B['la'] == L_PORT) & (B['lb'] == L_COLD)
-        b_port = (B['lb'] == L_PORT) & (B['la'] == L_COLD)
+        # At the ring/port union the same opening patch may carry either
+        # coolant label. The existing analytic rim collar bounds the exemption.
+        a_port = ((B['la'] == L_PORT) | (B['la'] == L_RING)) & (B['lb'] == L_COLD)
+        b_port = ((B['lb'] == L_PORT) | (B['lb'] == L_RING)) & (B['la'] == L_COLD)
         sel = np.nonzero(open_ & (a_port | b_port))[0]
         if len(sel):
             pc = np.where(a_port[sel, None], ca[sel], cb[sel])
@@ -906,8 +930,10 @@ def _process_pair_block(B, blocks, thr, leaf_tol, rim, state, budget):
     exempt = np.zeros(len(keep), dtype=bool)
     if rim is not None:
         # leaf patches only partly inside the collar: decide by the closest sample on the port side
-        port_pt = np.where((B['la'] == L_PORT)[:, None], pa, pb)
-        is_pair = ((B['la'] == L_PORT) & (B['lb'] == L_COLD)) | ((B['lb'] == L_PORT) & (B['la'] == L_COLD))
+        a_coolant = (B['la'] == L_PORT) | (B['la'] == L_RING)
+        b_coolant = (B['lb'] == L_PORT) | (B['lb'] == L_RING)
+        port_pt = np.where(a_coolant[:, None], pa, pb)
+        is_pair = (a_coolant & (B['lb'] == L_COLD)) | (b_coolant & (B['la'] == L_COLD))
         if is_pair.any():
             near = np.zeros(len(keep), dtype=bool)
             near[is_pair] = rtree.query(port_pt[is_pair])[0] <= zone
@@ -940,11 +966,17 @@ def _process_pair_block(B, blocks, thr, leaf_tol, rim, state, budget):
             sel = np.nonzero(pick)[0]
             if not len(sel):
                 continue
-            width = max(1, min(WP_BLOCK // 4, budget.limits['scratch_budget'] // (4096 * 4)))
+            block_width = max(1, min(WP_BLOCK, budget.limits['scratch_budget'] // (5 * 4096)))
+            width = max(1, block_width // 4)
             for s in range(0, len(sel), width):
                 ch = _split_rows(B, sel[s:s + width], side, budget)
                 ch['k'] += 1
-                blocks.append(ch)
+                if len(ch['ia']) <= block_width:
+                    blocks.append(ch)
+                else:
+                    for start in range(0, len(ch['ia']), block_width):
+                        blocks.append({k: v[start:start + block_width].copy() for k, v in ch.items()})
+                del ch
 
 
 def _candidates(cen, qidx, tree, tidx, r, budget=None, *, kind='candidate'):
@@ -960,28 +992,64 @@ def _candidates(cen, qidx, tree, tidx, r, budget=None, *, kind='candidate'):
         return
     # Mapping conversion and the consumer's previous output batch can overlap
     # the next row. Keep both charged for the entire generator lifetime.
-    carry = min(WP_BLOCK, budget.limits[kind + '_batch_budget']) * 16
-    with budget.hold(len(tidx) * 8 + carry + 4096):
+    width = min(WP_BLOCK, budget.limits[kind + '_batch_budget'])
+    carry = width * 16
+    # Filling buffer, previous consumer batch and next owned output may overlap.
+    with budget.hold(len(tidx) * 8 + 3 * carry + 4096):
         tidx = np.asarray(tidx, dtype=np.int64)
-        for i in qidx:
-            count = int(tree.query_ball_point(cen[i], r, return_length=True))
+        left = np.empty(width, dtype=np.int64)
+        right = np.empty(width, dtype=np.int64)
+        used = 0
+
+        def counted_rows():
+            # Count-only calls have no Python neighbor lists. Bound their
+            # coordinate/index scratch and skip empty rows before Python work.
+            for start in range(0, len(qidx), 256):
+                end = min(start + 256, len(qidx))
+                with budget.hold((end - start) * 128):
+                    ids = np.asarray(qidx[start:end], dtype=np.int64)
+                    counts = tree.query_ball_point(cen[ids], r, return_length=True)
+                    for k in np.flatnonzero(counts):
+                        yield int(ids[k]), int(counts[k])
+                    del ids, counts
+
+        for i, count in counted_rows():
             budget.check(kind + '_batch_budget', count)
             budget.spend(kind + '_budget', count)
             with budget.hold(count * 128 + 4096):
                 neighbors = tree.query_ball_point(cen[i], r, return_sorted=True)
                 if len(neighbors) != count:
                     raise _Exhausted(kind + '_budget exhausted (neighbor count changed)')
-                for s in range(0, count, WP_BLOCK):
-                    row = np.asarray(neighbors[s:s + WP_BLOCK], dtype=np.int64)
-                    yield np.full(len(row), i, dtype=np.int64), tidx[row].copy()
+                start = 0
+                while start < count:
+                    size = min(width - used, count - start)
+                    row = np.asarray(neighbors[start:start + size], dtype=np.int64)
+                    left[used:used + size] = i
+                    right[used:used + size] = tidx[row]
+                    used += size
+                    start += size
                     del row
+                    if used == width:
+                        yield left.copy(), right.copy()
+                        used = 0
                 del neighbors
+        if used:
+            yield left[:used].copy(), right[:used].copy()
 
-def _channel_index(g, cen, nrm, sel):
-    ax = cen[sel] + nrm[sel].astype(np.float64) * g.rc
+def _channel_index(g, cen, nrm, sel, budget=None):
+    budget = budget or g.budget
+    budget.retain(len(sel) * 8)
+    out = np.empty(len(sel), dtype=np.int64)
     delta = 2 * math.pi / g.n_ch
-    ang = np.arctan2(ax[:, 1], ax[:, 0]) - ax[:, 2] * g.twist
-    return np.mod(np.rint(ang / delta).astype(np.int64), g.n_ch)
+    for s in range(0, len(sel), WP_LEAF_BATCH):
+        e = min(s + WP_LEAF_BATCH, len(sel))
+        with budget.hold((e - s) * 256):
+            ids = sel[s:e]
+            ax = cen[ids] + nrm[ids].astype(np.float64) * g.rc
+            ang = np.arctan2(ax[:, 1], ax[:, 0]) - ax[:, 2] * g.twist
+            out[s:e] = np.mod(np.rint(ang / delta).astype(np.int64), g.n_ch)
+            del ids, ax, ang
+    return out
 
 
 def _thickness(ctx, L):
@@ -991,22 +1059,27 @@ def _thickness(ctx, L):
 
 def _thickness_impl(ctx, L):
     g = ctx.g
-    # Selections, channel ids/group copies, KD-trees (including build overlap),
-    # nominal threshold scratch and all concurrently retained arrays.
-    ctx.budget.retain(len(L['cen']) * 1024 + (2 << 20))
+    budget = ctx.budget
     thr = _thresholds(ctx)
     cen, lab, rho = L['cen'], L['label'], L['rho']
     leaf_tol = WP_THICKNESS_ALLOWANCE_VOXELS * g.v / 4
     rmax = float(rho.max())
-    hc = np.nonzero((lab == L_HOT) | (lab == L_COLD))[0]
-    caps = np.nonzero((lab == L_CAP0) | (lab == L_CAPL))[0]
-    chn = np.nonzero(lab == L_CH)[0]
-    mp = np.nonzero((lab == L_RING) | (lab == L_PORT))[0]
-    allc = np.nonzero(lab >= L_CH)[0]
-    trees = {'hc': cKDTree(cen[hc]) if len(hc) else None, 'caps': cKDTree(cen[caps]) if len(caps) else None}
+
+    def select(*labels):
+        with budget.hold(len(lab) * 4):
+            mask = np.zeros(len(lab), dtype=bool)
+            for label in labels:
+                mask |= lab == label
+            budget.retain(int(mask.sum()) * 8)
+            return np.flatnonzero(mask)
+
+    hc = select(L_HOT, L_COLD)
+    caps = select(L_CAP0, L_CAPL)
+    chn = select(L_CH)
+    mp = select(L_RING, L_PORT)
     rim_pts, rim_sp = _rim_points(g, 0.05 * thr['manifold']['effective_threshold_mm'])
-    ctx.budget.retain(len(rim_pts) * 256 + 4096)
-    rim_tree = cKDTree(rim_pts)
+    budget.retain(len(rim_pts) * 64 + 4096)
+    rim_tree = cKDTree(rim_pts, leafsize=64)
     rim_zone = thr['manifold']['effective_threshold_mm'] + ctx.tau + rim_sp
     classes = {}
 
@@ -1024,19 +1097,37 @@ def _thickness_impl(ctx, L):
     def reach(key):
         return thr[key]['effective_threshold_mm'] + 2 * rmax
 
-    for name, qi, tr, tidx, key, rim in (
-            ('hot_cold_wall_vs_channels', chn, trees['hc'], hc, 'wall', None),
-            ('hot_cold_wall_vs_manifold_and_ports', mp, trees['hc'], hc, 'manifold', (rim_tree, rim_zone)),
-            ('end_regions', allc, trees['caps'], caps, 'end', None)):
-        run(name, _candidates(cen, qi, tr, tidx, reach(key), ctx.budget), key, rim)
+    # Retain only the current target tree. Indexed coordinates are owned by
+    # that tree; the reservation includes their copy and construction scratch.
+    with budget.hold(len(hc) * 64 + 4096):
+        tree = cKDTree(cen[hc], leafsize=64) if len(hc) else None
+        run('hot_cold_wall_vs_channels', _candidates(cen, chn, tree, hc, reach('wall'), budget), 'wall')
+        run('hot_cold_wall_vs_manifold_and_ports',
+            _candidates(cen, mp, tree, hc, reach('manifold'), budget), 'manifold', (rim_tree, rim_zone))
+        del tree
+    allc = select(L_CH, L_RING, L_PORT)
+    with budget.hold(len(caps) * 64 + 4096):
+        tree = cKDTree(cen[caps], leafsize=64) if len(caps) else None
+        run('end_regions', _candidates(cen, allc, tree, caps, reach('end'), budget), 'end')
+        del tree
+    released = allc.nbytes + hc.nbytes + caps.nbytes + mp.nbytes
+    del allc, hc, caps, mp
+    budget.live -= released
     if len(chn):
-        cidx = _channel_index(g, cen, L['nrm'], chn)
-        groups = [chn[cidx == c] for c in range(g.n_ch)]
-        gtrees = [cKDTree(cen[x]) if len(x) else None for x in groups]
+        cidx = _channel_index(g, cen, L['nrm'], chn, budget)
         for c in range(g.n_ch):
             nb = (c + 1) % g.n_ch
-            run('ribs_between_channels', _candidates(cen, groups[c], gtrees[nb], groups[nb],
-                                                    reach('rib'), ctx.budget), 'rib')
+            with budget.scope():
+                with budget.hold(len(chn) * 4):
+                    source, target = cidx == c, cidx == nb
+                    budget.retain((int(source.sum()) + int(target.sum())) * 8)
+                    qi, ti = chn[source], chn[target]
+                    del source, target
+                with budget.hold(len(ti) * 64 + 4096):
+                    tree = cKDTree(cen[ti], leafsize=64) if len(ti) else None
+                    run('ribs_between_channels', _candidates(cen, qi, tree, ti, reach('rib'), budget), 'rib')
+                    del tree
+                del qi, ti
     out_cls, nviol = {}, 0
     for name, c in classes.items():
         v = c.pop('violations')
@@ -1064,12 +1155,29 @@ def _thickness_impl(ctx, L):
 def whole_part_checks(spec: RegenChamberSpec, verts: np.ndarray, faces: np.ndarray):
     """Returns (checks, failures, measurements). Any failure to resolve the geometry is a failure."""
     names = ('circuit_fidelity', 'circuit_coverage', 'wall_thickness')
+    fidelity_failure = None
     try:
         ctx = _Ctx(spec)
         # Input arrays remain live throughout all phases, including leaf copies.
         ctx.budget.retain(verts.nbytes + faces.nbytes + 4096)
         L = _build_leaves(ctx, verts, faces)
         fid = _fidelity(ctx, L)
+        if fid['state'] != 'pass':
+            certified = fid['nonconforming_patches'] - fid['uncertified_nonconforming_patches']
+            fidelity_failure = (f'circuit_fidelity: {fid["nonconforming_patches"]} mesh patch(es) '
+                f'not on the specified geometry ({fid["by_reason"]}); {certified} certified deviation(s); '
+                f'first at {[loc["at_mm"] for loc in fid["locations"][:3]]}; '
+                f'{fid["unsplit_over_radius_target"]} patch(es) could not be refined')
+            if certified:
+                # An established geometry failure cannot be overturned by later
+                # checks. Preserve its evidence instead of timing out on them.
+                checks = {'circuit_fidelity': fid}
+                checks.update({name: {'state': 'not_evaluated',
+                    'detail': 'circuit_fidelity already established a certified geometry failure'}
+                    for name in names[1:]})
+                meas = {'patch_stats': L['stats'], 'surface_tolerance_mm': ctx.tau,
+                        'reference_capsules': int(ctx.g.segment_count)}
+                return checks, [fidelity_failure], meas
         cov = _coverage(ctx, L)
         thk = _thickness(ctx, L)
     except (BudgetExceeded, MemoryError) as e:
@@ -1077,11 +1185,7 @@ def whole_part_checks(spec: RegenChamberSpec, verts: np.ndarray, faces: np.ndarr
                else f'unresolved: {e}')
         return ({n: {'state': 'fail', 'detail': msg} for n in names}, [f'{n}: {msg}' for n in names], {})
     checks = {'circuit_fidelity': fid, 'circuit_coverage': cov, 'wall_thickness': thk}
-    failures = []
-    if fid['state'] != 'pass':
-        failures.append(f'circuit_fidelity: {fid["nonconforming_patches"]} mesh patch(es) not on the specified geometry '
-                        f'({fid["by_reason"]}); first at {[loc["at_mm"] for loc in fid["locations"][:3]]}; '
-                        f'{fid["unsplit_over_radius_target"]} patch(es) could not be refined')
+    failures = [fidelity_failure] if fidelity_failure else []
     if cov['state'] != 'pass':
         failures.append(f'circuit_coverage: {cov["failed_samples"]} specified centerline sample(s) not an open void, '
                         f'{cov["void_components"]} void component(s); first at {[loc["at_mm"] for loc in cov["locations"][:3]]}')

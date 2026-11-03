@@ -1,6 +1,6 @@
 """Reference geometry for RegenChamberSpec, mirroring picogk-builder/Program.cs.
 
-Geometry only (no physics). numpy only; no cadquery, no compiler import.
+Geometry only (no physics). numpy/scipy only; no cadquery, no compiler import.
 
 The builder renders  solid = Shell  minus  (helical capsule chains + 2 manifold ring chains + 2 radial ports).
 This module models exactly that construction in float64:
@@ -31,6 +31,7 @@ from contextlib import contextmanager
 from typing import Iterator
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 from .regen_spec import PORT_OVERSHOOT_MM, RegenChamberSpec, inner_radius
 
@@ -46,7 +47,8 @@ class BudgetExceeded(Exception):
 class Budget:
     """Verification-local conservative accounting, independent of process RSS.
 
-    The 1 GiB default leaves headroom under the controller's 1.5 GiB tree cap.
+    The 1 GiB default applies to standalone reference queries. The complete
+    verifier supplies its own working-memory limit and runs under an OS cap.
     Estimates include overlapping numpy temporaries and Python/container overhead;
     this is an allocation guard, not a claim of validated large-mesh performance.
     """
@@ -170,10 +172,31 @@ class RegenGeometry:
         extent = max(self.L, max(s.chamber_radius_mm, s.exit_radius_mm) + self.wall + PORT_OVERSHOOT_MM)
         self.float_slack_mm = 1e-6 * extent + 1e-9  # float32 coordinates in the builder
         self.surface_tolerance_mm = self.v + self.float_slack_mm
-        self._ch_rlo = s.throat_radius_mm + self.wall / 2
         self._ch_rhi = max(s.chamber_radius_mm, s.exit_radius_mm) + self.wall / 2
-        self._ch_step_angle = abs(self.twist) * self.dz + 0.0  # per-step angular advance
-        self._ch_cos = math.cos(min(self._ch_step_angle, math.pi) / 2)
+        self._index_channels()
+
+    def _index_channels(self):
+        """Build the fixed capsule geometry once, with a conservative sphere index."""
+        count = self.n_ch * self.steps
+        self.budget.check('reference_batch_budget', self.steps + 1)
+        self.budget.check('reference_budget', self.budget.used.get('reference_budget', 0)
+                          + self.n_ch * (self.steps + 1))
+        # Endpoints, centers, tree indices/nodes and construction overlap.
+        self.budget.retain(count * 192 + 4096)
+        a = np.empty((count, 3), dtype=np.float64)
+        b = np.empty_like(a)
+        centers = np.empty_like(a)
+        half = 0.
+        for channel in range(self.n_ch):
+            nodes = self.channel_nodes(channel)
+            s = channel * self.steps
+            e = s + self.steps
+            a[s:e], b[s:e] = nodes[:-1], nodes[1:]
+            centers[s:e] = (nodes[:-1] + nodes[1:]) / 2
+            half = max(half, float(np.linalg.norm(nodes[1:] - nodes[:-1], axis=1).max()) / 2)
+        self._channel_a, self._channel_b = a, b
+        self._channel_half = half
+        self._channel_tree = cKDTree(centers, leafsize=32)
 
     # ------------------------------------------------------------------ exact construction access
     @property
@@ -267,37 +290,24 @@ class RegenGeometry:
         return np.minimum(np.minimum(parts['channels'], parts['rings']), parts['ports'])
 
     def _channel_dist(self, p, reach, d):
-        rho = np.hypot(p[:, 0], p[:, 1])
-        z = p[:, 2]
-        rlo = self._ch_rlo * self._ch_cos
-        act = np.nonzero((z >= self.z0 - reach) & (z <= self.z1 + reach)
-                         & (rho >= rlo - reach) & (rho <= self._ch_rhi + reach))[0]
+        # Any segment within reach has its midpoint within reach + half-length.
+        # Query complete radius sets, then evaluate exact point/segment distances.
+        slack = 16 * np.finfo(float).eps * max(1., self.L, self._ch_rhi, reach)
+        radius = reach + self._channel_half + slack
+        counts = self._channel_tree.query_ball_point(p, radius, return_length=True)
+        act = np.flatnonzero(counts)
         if not len(act):
             return
-        delta = 2 * np.pi / self.n_ch
-        reff = np.maximum(np.minimum(rho[act], rlo), 1e-9)
-        am = 2 * np.arcsin(np.minimum(1.0, reach / (2 * reff)))
-        J = np.ceil((am + abs(self.twist) * reach) / delta).astype(np.int64)
-        K = np.minimum(2 * J + 1, self.n_ch)
-        W = int(np.ceil(2 * reach / self.dz)) + 2
-        for sel in _plan_chunks(K * (W + 1), self.budget):
+        for sel in _plan_chunks(counts[act], self.budget):
             idx = act[sel]
-            pc = p[idx]
-            Kc = int(K[sel].max())
-            if Kc >= self.n_ch:
-                cs = np.broadcast_to(np.arange(self.n_ch), (len(idx), self.n_ch))
-            else:
-                phi = np.arctan2(pc[:, 1], pc[:, 0])
-                base = np.rint((phi - pc[:, 2] * self.twist) / delta).astype(np.int64)
-                cs = (base[:, None] + np.arange(-(Kc // 2), Kc // 2 + 1)) % self.n_ch
-            klo = np.floor((pc[:, 2] - reach - self.z0) / self.dz).astype(np.int64)
-            ks = klo[:, None] + np.arange(W + 1)  # nodes
-            nodes = self._nodes(cs[:, :, None], ks[:, None, :])  # (n,K,W+1,3)
-            dist = _seg_dist(pc[:, None, None, :], nodes[:, :, :-1], nodes[:, :, 1:])
-            valid = (ks[:, :-1] >= 0) & (ks[:, :-1] < self.steps)
-            dist = np.where(valid[:, None, :], dist, np.inf)
-            d[idx] = np.minimum(d[idx], dist.reshape(len(idx), -1).min(axis=1))
-            del idx, pc, cs, klo, ks, nodes, dist, valid
+            neighbors = self._channel_tree.query_ball_point(p[idx], radius, return_sorted=True)
+            if any(len(row) != count for row, count in zip(neighbors, counts[idx])):
+                raise BudgetExceeded('reference_budget exhausted (neighbor count changed)')
+            segments = np.concatenate([np.asarray(row, dtype=np.int64) for row in neighbors])
+            rows = np.repeat(idx, counts[idx])
+            distances = _seg_dist(p[rows], self._channel_a[segments], self._channel_b[segments])
+            np.minimum.at(d, rows, distances)
+            del idx, neighbors, segments, rows, distances
 
     def _ring_dist(self, p, reach, d):
         rho = np.hypot(p[:, 0], p[:, 1])
