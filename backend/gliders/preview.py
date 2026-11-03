@@ -1,7 +1,7 @@
 """Fast coarse meshes. No evaluator, optimizer or export imports on this path."""
 from dataclasses import asdict
 import numpy as np
-from .design_spec import VERSION, controls, digest, placement, preset
+from .design_spec import VERSION, FlightConditions, controls, digest, placement, preset
 
 
 def airfoils(spec):
@@ -15,7 +15,7 @@ def airfoils(spec):
 
 def metadata(spec=None):
     spec = spec or preset()
-    return dict(version=VERSION, controls=controls(spec.request), preset=spec.model_dump(), airfoils=airfoils(spec))
+    return dict(version=VERSION, controls=controls(spec.request), preset=spec.model_dump(), flight_controls=FlightConditions.model_json_schema()["properties"], airfoils=airfoils(spec))
 
 
 def geometry(gl):

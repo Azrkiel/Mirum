@@ -38,9 +38,12 @@ def render_explorer(backend, headers):
             data = r.json()
             if action == 'preview':
                 reply['preview'] = data
+                active = st.session_state.get('explorer_evaluation')
+                if active and active['sequence'] == event['sequence'] and active.get('epoch') == event['epoch']:
+                    reply['evaluation_id'] = active['id']
             else:
                 st.session_state.explorer_evaluation = dict(id=data['evaluation_id'],
-                    sequence=event['sequence'], revision=data['input_revision'])
+                    sequence=event['sequence'], epoch=event['epoch'], revision=data['input_revision'])
                 reply['evaluation_id'] = data['evaluation_id']
         elif action in ('poll', 'export'):
             evaluation = st.session_state.get('explorer_evaluation')

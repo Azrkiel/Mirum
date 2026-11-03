@@ -7,7 +7,7 @@ from pydantic import Field, create_model, model_validator
 from .spec import StrictModel, GliderRequest
 from .model.config import CONFIG
 
-VERSION = 'glider-explorer-1'
+VERSION = 'glider-explorer-2'
 FAMILIES = ('wing', 'fuselage', 'tail')
 
 def attribute(key):
@@ -45,11 +45,19 @@ class Placement(StrictModel):
     ballast_kg: float = Field(0, ge=0, le=0.5)
     tail_incidence_deg: float = Field(0, ge=-6, le=3)
 
+class FlightConditions(StrictModel):
+    mode: Literal['automatic_trim', 'specified'] = 'automatic_trim'
+    airspeed_m_s: float = Field(5, ge=1, le=15, description='True airspeed relative to air, not ground speed')
+    alpha_deg: float = Field(4, ge=-10, le=15, description='Angle of attack relative to the body reference')
+    beta_deg: float = Field(0, ge=-10, le=10, description='Sideslip angle')
+    altitude_m: float = Field(0, ge=0, le=5000, description='ISA altitude above sea level; separate from launch height')
+
 class DesignSpec(StrictModel):
     parameters: Parameters
+    flight_conditions: FlightConditions = Field(default_factory=FlightConditions)
     request: GliderRequest = Field(default_factory=GliderRequest)
     placement: Placement = Field(default_factory=Placement)
-    balancing_policy: Literal['rebalance_and_retrim'] = 'rebalance_and_retrim'
+    balancing_policy: Literal['rebalance_and_retrim'] = Field('rebalance_and_retrim', description='Automatic-trim policy only; specified conditions preserve placement')
 
     @model_validator(mode='after')
     def supported(self):
