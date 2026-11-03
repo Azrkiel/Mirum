@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from gliders.model.assembly import Glider
-from .geometry import measure_part
+from .geometry import measure_part, check_accounting, load_part_mesh, spar_enclosure
 from .model import SizedGlider, evaluate_candidate
 
 
@@ -41,6 +41,11 @@ class MeasuredGlider(SizedGlider):
 def verify(gl, sized_result, bundle, directory, request, mission, calibration, process):
     failures, parts = [], []
     try:
+        accounting = check_accounting(gl, bundle, directory)
+    except (ValueError, KeyError, OSError, TypeError):
+        return dict(state='failed', failures=['Required canonical part accounting failed'],
+                    manufacturing_ready=False)
+    try:
         for item in bundle['parts']:
             # All paths originate from the trusted builder, still enforce local
             # containment and exact revision binding before reading any bytes.
@@ -51,6 +56,11 @@ def verify(gl, sized_result, bundle, directory, request, mission, calibration, p
             if measured['sha256'] != item['sha256']:
                 raise ValueError('Mesh changed after construction')
             parts.append(dict(name=item['name'], **measured))
+        by_name = {item['name']: directory / item['file'] for item in bundle['parts']}
+        enclosure = spar_enclosure(load_part_mesh(by_name['spar']),
+                                   [load_part_mesh(by_name[f'wing_{side}']) for side in (0, 1)])
+        if enclosure['state'] != 'passed':
+            failures.append('delivered spar is not certified enclosed by the wing surfaces')
         lower = np.min([p['bounds_m'][0] for p in parts], axis=0)
         upper = np.max([p['bounds_m'][1] for p in parts], axis=0)
         if upper[0] - lower[0] > mission.constraints.max_length_m + 1e-6 or upper[1] - lower[1] > mission.constraints.max_span_m + 1e-6:
@@ -90,6 +100,7 @@ def verify(gl, sized_result, bundle, directory, request, mission, calibration, p
                     mass_relative_error=float(delta), measured_mass_kg=float(mass),
                     measured_spar_stress_pa=float(stress), parts=parts, reanalysis=result,
                     measured_spar_root_inertia_m4=float(section_ixx),
+                    part_accounting=accounting, spar_enclosure=enclosure,
                     delivered_bounds_m=[lower.tolist(), upper.tolist()],
                     scope='Mesh-measured OML skin-equivalent mass and solid rod; not manufactured-part closure',
                     manufacturing_ready=False)
