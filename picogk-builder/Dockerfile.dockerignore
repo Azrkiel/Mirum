@@ -6,5 +6,6 @@
 !picogk-builder/THIRD_PARTY_NOTICES.md
 !backend/engineering/__init__.py
 !backend/engineering/regen_spec.py
+!backend/engineering/regen_geometry.py
 !backend/engineering/regen_mesh.py
 !backend/engineering/regen_cli.py
