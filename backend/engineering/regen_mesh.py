@@ -538,56 +538,61 @@ def _build_leaves(ctx, verts, faces):
         for k in keys[4:]:
             store[k].append(res[k][sel].copy())
 
-    size = min(WP_CHUNK, WP_LEAF_BATCH)
+    def process_block(queue):
+        pending = sum(len(item[0]) for item in queue)
+        b.check('queue_budget', pending)
+        T, N, depth, adapt = queue.pop()
+        # Pending siblings, popped block, selection copies, stats and reference scratch.
+        with b.hold(pending * 256 + len(queue) * 2048 + len(T) * 4096):
+            c, r = _tri_stats(T)
+            big = r > ctx.rho_target
+            if depth < WP_MAX_SPLIT_DEPTH:
+                split = big
+                terminal = ~big
+            else:
+                stats['unsplit_over_target'] += int(big.sum()) if adapt == 0 else 0
+                split = np.zeros(len(T), dtype=bool)
+                terminal = ~split
+            res = _classify(ctx, c, r)
+            good = terminal & res['conform']
+            record(T, N, c, r, res, good)
+            bad = terminal & ~res['conform']
+            adaptive = bad if adapt < WP_FAIL_SPLIT_DEPTH else np.zeros(len(T), dtype=bool)
+            if adapt >= WP_FAIL_SPLIT_DEPTH:
+                record(T, N, c, r, res, bad)
+            # Split only bounded input groups. Queue holds owned arrays, never
+            # slices of a large child allocation. Check the complete expansion first.
+            ns = int(split.sum() + adaptive.sum())
+            if not ns:
+                return
+            b.check('queue_budget', pending - len(T) + 4 * ns)
+            b.spend('leaf_budget', 4 * ns)
+            b.memory(4 * ns * 512 + ns * 128)
+            width = max(1, min(size // 4, WP_LEAF_BATCH // 4))
+            for mask, nd, na in ((split, depth + 1, adapt),
+                                 (adaptive, WP_MAX_SPLIT_DEPTH, adapt + 1)):
+                indices = np.flatnonzero(mask)
+                for start in range(0, len(indices), width):
+                    sel = indices[start:start + width]
+                    nk = 4 * len(sel)
+                    b.check('leaf_batch_budget', nk)
+                    kids = _split4(T[sel])
+                    kn = np.repeat(N[sel], 4, axis=0)
+                    stats['adaptive_leaves'] += nk if na else 0
+                    queue.append((kids, kn, nd, na))
+
+    size = min(WP_CHUNK, WP_LEAF_BATCH, b.limits['leaf_batch_budget'])
     b.check('leaf_batch_budget', max(1, size))
     for s in range(0, len(faces), size):
         count = min(size, len(faces) - s)
+        b.check('queue_budget', count)
         b.spend('leaf_budget', count)
         b.memory(count * 4096)  # face indexing + float64 copy + normals + classification
         T = verts[faces[s:s + count]].astype(np.float64)
         queue = [(T, _tri_normals(T), 0, 0)]
+        del T
         while queue:
-            pending = sum(len(item[0]) for item in queue)
-            b.check('queue_budget', pending)
-            T, N, depth, adapt = queue.pop()
-            # Pending siblings, popped block, selection copies, stats and reference scratch.
-            with b.hold(pending * 128 + len(T) * 4096):
-                c, r = _tri_stats(T)
-                big = r > ctx.rho_target
-                if depth < WP_MAX_SPLIT_DEPTH:
-                    split = big
-                    terminal = ~big
-                else:
-                    stats['unsplit_over_target'] += int(big.sum()) if adapt == 0 else 0
-                    split = np.zeros(len(T), dtype=bool)
-                    terminal = ~split
-                res = _classify(ctx, c, r)
-                good = terminal & res['conform']
-                record(T, N, c, r, res, good)
-                bad = terminal & ~res['conform']
-                adaptive = bad if adapt < WP_FAIL_SPLIT_DEPTH else np.zeros(len(T), dtype=bool)
-                if adapt >= WP_FAIL_SPLIT_DEPTH:
-                    record(T, N, c, r, res, bad)
-                # Split only bounded input groups. Queue holds owned arrays, never
-                # slices of a large child allocation. Check the complete expansion first.
-                ns = int(split.sum() + adaptive.sum())
-                if not ns:
-                    continue
-                b.check('queue_budget', pending - len(T) + 4 * ns)
-                b.spend('leaf_budget', 4 * ns)
-                b.memory(4 * ns * 512 + ns * 128)
-                width = max(1, min(size // 4, WP_LEAF_BATCH // 4))
-                for mask, nd, na in ((split, depth + 1, adapt),
-                                     (adaptive, WP_MAX_SPLIT_DEPTH, adapt + 1)):
-                    indices = np.flatnonzero(mask)
-                    for start in range(0, len(indices), width):
-                        sel = indices[start:start + width]
-                        nk = 4 * len(sel)
-                        b.check('leaf_batch_budget', nk)
-                        kids = _split4(T[sel])
-                        kn = np.repeat(N[sel], 4, axis=0)
-                        stats['adaptive_leaves'] += nk if na else 0
-                        queue.append((kids, kn, nd, na))
+            process_block(queue)
     if not total:
         raise _Exhausted('leaf_budget exhausted (no leaves)')
     b.memory(total * 80 + 2048)
@@ -828,6 +833,8 @@ def _split_rows(B, sel, side, budget):
 def _run_pairs(L, ii, jj, thr, leaf_tol, rim, state, budget=None):
     """Branch and bound over leaf-triangle pairs. Records violations/unresolved in state."""
     budget = budget or _Budget()
+    budget.check('queue_budget', 1)
+    budget.check('scratch_budget', 4096)
     width = min(WP_BLOCK, budget.limits['queue_budget'], budget.limits['scratch_budget'] // 4096)
     if width < 1:
         raise _Exhausted('scratch_budget exhausted')
@@ -855,73 +862,80 @@ def _run_pair_batch(L, ii, jj, thr, leaf_tol, rim, state, budget):
         B = blocks.pop()
         queue_bytes = sum(sum(v.nbytes for v in x.values()) + 2048 for x in blocks)
         budget.check('scratch_budget', len(B['ia']) * 4096)
-        budget.memory(queue_bytes + len(B['ia']) * 4096)
-        state['evaluated'] += len(B['ia'])
-        ca, ra = _tri_stats(B['VA'])
-        cb, rb = _tri_stats(B['VB'])
-        lb_ = np.linalg.norm(ca - cb, axis=1) - ra - rb
-        open_ = lb_ < thr
-        if rim is not None:
-            # intended port opening: port-side patches lying wholly inside the rim collar are exempt
-            rtree, zone = rim
-            a_port = (B['la'] == L_PORT) & (B['lb'] == L_COLD)
-            b_port = (B['lb'] == L_PORT) & (B['la'] == L_COLD)
-            sel = np.nonzero(open_ & (a_port | b_port))[0]
-            if len(sel):
-                pc = np.where(a_port[sel, None], ca[sel], cb[sel])
-                pr_ = np.where(a_port[sel], ra[sel], rb[sel])
-                inside = rtree.query(pc)[0] + pr_ <= zone
-                open_[sel[inside]] = False
-        keep = np.nonzero(open_)[0]
-        if not len(keep):
-            continue
-        B = {k: v[keep] for k, v in B.items()}
-        ca, cb, ra, rb = ca[keep], cb[keep], ra[keep], rb[keep]
-        PA = np.concatenate([B['VA'], ca[:, None, :]], axis=1)
-        PB = np.concatenate([B['VB'], cb[:, None, :]], axis=1)
-        D = np.linalg.norm(PA[:, :, None, :] - PB[:, None, :, :], axis=3).reshape(len(keep), 16)
-        am = D.argmin(axis=1)
-        rows = np.arange(len(keep))
-        ub = D[rows, am]
-        pa = PA[rows, am // 4]
-        pb = PB[rows, am % 4]
-        dv = pb - pa
-        face = ((np.einsum('ij,ij->i', dv, B['NA']) < -WP_FACING_MARGIN * ub)
-                & (np.einsum('ij,ij->i', dv, B['NB']) > WP_FACING_MARGIN * ub)) | (ub <= 1e-6)
-        leaf = (ra + rb) <= leaf_tol
-        exempt = np.zeros(len(keep), dtype=bool)
-        if rim is not None:
-            # leaf patches only partly inside the collar: decide by the closest sample on the port side
-            port_pt = np.where((B['la'] == L_PORT)[:, None], pa, pb)
-            is_pair = ((B['la'] == L_PORT) & (B['lb'] == L_COLD)) | ((B['lb'] == L_PORT) & (B['la'] == L_COLD))
-            if is_pair.any():
-                near = np.zeros(len(keep), dtype=bool)
-                near[is_pair] = rtree.query(port_pt[is_pair])[0] <= zone
-                exempt = is_pair & near
-        at_leaf = leaf & ~exempt & face
-        viol = at_leaf & (ub < thr)
-        gray = at_leaf & (ub >= thr)
-        if viol.any():
-            for i in np.flatnonzero(viol):
-                mid = (pa[i] + pb[i]) / 2
-                state['violations'].add(mid, {'at_mm': _loc(mid), 'distance_mm': round(float(ub[i]), 4),
-                    'surfaces': [LABEL_NAMES[int(B['la'][i])], LABEL_NAMES[int(B['lb'][i])]]},
-                    value=ub[i], extra=(round(float(ub[i]), 4),))
-        if gray.any():
-            for i in np.flatnonzero(gray):
-                mid = (pa[i] + pb[i]) / 2
-                state['marginal'].add(mid, _loc(mid))
-        rest = ~leaf
-        too_deep = rest & (B['k'] >= WP_PAIR_MAX_SPLITS)
-        if too_deep.any():
-            state['too_deep'] += int(too_deep.sum())
-        rest &= ~too_deep
-        children = 4 * int(rest.sum())
-        # Check the complete expansion before indexing triangles or creating children.
-        budget.check('queue_budget', sum(len(x['ia']) for x in blocks) + children)
-        budget.spend('refinement_budget', children)
-        budget.check('scratch_budget', children * 4096)
-        budget.memory(queue_bytes + len(B['ia']) * 4096 + children * 4096)
+        # Keep pending arrays and the current block's scratch charged through
+        # every nested child allocation; helper locals die before the next pop.
+        with budget.hold(queue_bytes + len(B['ia']) * 4096 + 2048):
+            _process_pair_block(B, blocks, thr, leaf_tol, rim, state, budget)
+        del B
+
+
+def _process_pair_block(B, blocks, thr, leaf_tol, rim, state, budget):
+    state['evaluated'] += len(B['ia'])
+    ca, ra = _tri_stats(B['VA'])
+    cb, rb = _tri_stats(B['VB'])
+    lb_ = np.linalg.norm(ca - cb, axis=1) - ra - rb
+    open_ = lb_ < thr
+    if rim is not None:
+        # intended port opening: port-side patches lying wholly inside the rim collar are exempt
+        rtree, zone = rim
+        a_port = (B['la'] == L_PORT) & (B['lb'] == L_COLD)
+        b_port = (B['lb'] == L_PORT) & (B['la'] == L_COLD)
+        sel = np.nonzero(open_ & (a_port | b_port))[0]
+        if len(sel):
+            pc = np.where(a_port[sel, None], ca[sel], cb[sel])
+            pr_ = np.where(a_port[sel], ra[sel], rb[sel])
+            inside = rtree.query(pc)[0] + pr_ <= zone
+            open_[sel[inside]] = False
+    keep = np.nonzero(open_)[0]
+    if not len(keep):
+        return
+    B = {k: v[keep] for k, v in B.items()}
+    ca, cb, ra, rb = ca[keep], cb[keep], ra[keep], rb[keep]
+    PA = np.concatenate([B['VA'], ca[:, None, :]], axis=1)
+    PB = np.concatenate([B['VB'], cb[:, None, :]], axis=1)
+    D = np.linalg.norm(PA[:, :, None, :] - PB[:, None, :, :], axis=3).reshape(len(keep), 16)
+    am = D.argmin(axis=1)
+    rows = np.arange(len(keep))
+    ub = D[rows, am]
+    pa = PA[rows, am // 4]
+    pb = PB[rows, am % 4]
+    dv = pb - pa
+    face = ((np.einsum('ij,ij->i', dv, B['NA']) < -WP_FACING_MARGIN * ub)
+            & (np.einsum('ij,ij->i', dv, B['NB']) > WP_FACING_MARGIN * ub)) | (ub <= 1e-6)
+    leaf = (ra + rb) <= leaf_tol
+    exempt = np.zeros(len(keep), dtype=bool)
+    if rim is not None:
+        # leaf patches only partly inside the collar: decide by the closest sample on the port side
+        port_pt = np.where((B['la'] == L_PORT)[:, None], pa, pb)
+        is_pair = ((B['la'] == L_PORT) & (B['lb'] == L_COLD)) | ((B['lb'] == L_PORT) & (B['la'] == L_COLD))
+        if is_pair.any():
+            near = np.zeros(len(keep), dtype=bool)
+            near[is_pair] = rtree.query(port_pt[is_pair])[0] <= zone
+            exempt = is_pair & near
+    at_leaf = leaf & ~exempt & face
+    viol = at_leaf & (ub < thr)
+    gray = at_leaf & (ub >= thr)
+    if viol.any():
+        for i in np.flatnonzero(viol):
+            mid = (pa[i] + pb[i]) / 2
+            state['violations'].add(mid, {'at_mm': _loc(mid), 'distance_mm': round(float(ub[i]), 4),
+                'surfaces': [LABEL_NAMES[int(B['la'][i])], LABEL_NAMES[int(B['lb'][i])]]},
+                value=ub[i], extra=(round(float(ub[i]), 4),))
+    if gray.any():
+        for i in np.flatnonzero(gray):
+            mid = (pa[i] + pb[i]) / 2
+            state['marginal'].add(mid, _loc(mid))
+    rest = ~leaf
+    too_deep = rest & (B['k'] >= WP_PAIR_MAX_SPLITS)
+    if too_deep.any():
+        raise _Exhausted('refinement_depth_budget exhausted (unresolved triangle pairs)')
+    rest &= ~too_deep
+    children = 4 * int(rest.sum())
+    # Check the complete expansion before indexing triangles or creating children.
+    budget.check('queue_budget', sum(len(x['ia']) for x in blocks) + children)
+    budget.spend('refinement_budget', children)
+    budget.check('scratch_budget', (len(B['ia']) + children) * 4096)
+    with budget.hold(children * 4096):
         for side, pick in (('A', rest & (ra >= rb)), ('B', rest & (ra < rb))):
             sel = np.nonzero(pick)[0]
             if not len(sel):
@@ -944,17 +958,24 @@ def _candidates(cen, qidx, tree, tidx, r, budget=None, *, kind='candidate'):
     budget = budget or _Budget()
     if tree is None:
         return
-    for i in qidx:
-        count = int(tree.query_ball_point(cen[i], r, return_length=True))
-        budget.check(kind + '_batch_budget', count)
-        budget.spend(kind + '_budget', count)
-        with budget.hold(count * 128 + 4096):
-            neighbors = tree.query_ball_point(cen[i], r, return_sorted=True)
-            if len(neighbors) != count:
-                raise _Exhausted(kind + '_budget exhausted (neighbor count changed)')
-            for s in range(0, count, WP_BLOCK):
-                row = np.asarray(neighbors[s:s + WP_BLOCK], dtype=np.int64)
-                yield np.full(len(row), i, dtype=np.int64), np.asarray(tidx)[row].copy()
+    # Mapping conversion and the consumer's previous output batch can overlap
+    # the next row. Keep both charged for the entire generator lifetime.
+    carry = min(WP_BLOCK, budget.limits[kind + '_batch_budget']) * 16
+    with budget.hold(len(tidx) * 8 + carry + 4096):
+        tidx = np.asarray(tidx, dtype=np.int64)
+        for i in qidx:
+            count = int(tree.query_ball_point(cen[i], r, return_length=True))
+            budget.check(kind + '_batch_budget', count)
+            budget.spend(kind + '_budget', count)
+            with budget.hold(count * 128 + 4096):
+                neighbors = tree.query_ball_point(cen[i], r, return_sorted=True)
+                if len(neighbors) != count:
+                    raise _Exhausted(kind + '_budget exhausted (neighbor count changed)')
+                for s in range(0, count, WP_BLOCK):
+                    row = np.asarray(neighbors[s:s + WP_BLOCK], dtype=np.int64)
+                    yield np.full(len(row), i, dtype=np.int64), tidx[row].copy()
+                    del row
+                del neighbors
 
 def _channel_index(g, cen, nrm, sel):
     ax = cen[sel] + nrm[sel].astype(np.float64) * g.rc
@@ -1045,6 +1066,8 @@ def whole_part_checks(spec: RegenChamberSpec, verts: np.ndarray, faces: np.ndarr
     names = ('circuit_fidelity', 'circuit_coverage', 'wall_thickness')
     try:
         ctx = _Ctx(spec)
+        # Input arrays remain live throughout all phases, including leaf copies.
+        ctx.budget.retain(verts.nbytes + faces.nbytes + 4096)
         L = _build_leaves(ctx, verts, faces)
         fid = _fidelity(ctx, L)
         cov = _coverage(ctx, L)
