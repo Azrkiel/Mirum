@@ -28,6 +28,43 @@ def number(value, minimum=None, maximum=None):
     return value
 
 
+def physical_accounting(report, payload):
+    """Require canonical inventory and explicit enclosure evidence in screening."""
+    from cem.glider.geometry import expected_materials
+    from cem.glider.model import configuration, SizedGlider
+    from cem.glider.requirements import GliderMissionRequirements
+    from gliders.model.components import WingParams, FuselageParams, TailParams
+    elite = payload['elite']
+    req = GliderMissionRequirements.model_validate(payload['requirements'])
+    _, cfg = configuration(req, payload['calibration'], elite['process'])
+    p = elite['parameters']
+    gl = SizedGlider(WingParams(**p['wing']), FuselageParams(**p['fuselage']),
+                    TailParams(**p['tail']), cfg, **elite['placement'])
+    expected = expected_materials(gl)
+    closure, manifest = report['closure'], report['bundle']['parts']
+    accounting = closure['part_accounting']
+    if accounting.get('state') != 'passed' or accounting.get('expected_parts') != sorted(expected):
+        raise ValueError('Missing canonical part accounting')
+    names = [part['name'] for part in manifest]
+    measured_names = [part['name'] for part in closure['parts']]
+    files = [f"{report['output_id']}_{name}.stl" for name in sorted(expected)]
+    if (sorted(names) != sorted(expected) or sorted(measured_names) != sorted(expected)
+            or accounting.get('files') != files):
+        raise ValueError('Incomplete physical part accounting')
+    for part in manifest:
+        if part['material'] != expected[part['name']] or part['file'] != f"{report['output_id']}_{part['name']}.stl":
+            raise ValueError('Noncanonical physical part')
+    for part in closure['parts']:
+        if part.get('connected_components') != 1 or part.get('material_law') != expected[part['name']]:
+            raise ValueError('Missing connected-part material evidence')
+    enclosure = closure['spar_enclosure']
+    if (enclosure.get('state') != 'passed' or enclosure.get('method') != 'delivered-wing-face-halfspaces-v1'
+            or enclosure.get('load_path_state') != 'unverified'):
+        raise ValueError('Missing bounded spar enclosure evidence')
+    tolerance = number(enclosure.get('tolerance_m'), 0., 2e-7)
+    number(enclosure.get('max_outside_m'), 0., tolerance)
+
+
 def validate(report, payload, expected, directory):
     def finite_tree(value):
         if isinstance(value, float) and not math.isfinite(value):
@@ -94,6 +131,7 @@ def validate(report, payload, expected, directory):
         return
     if closure['state'] != 'passed' or closure['failures'] or report.get('minimum_performance_passed') is not True:
         raise ValueError('Screened design failed closure')
+    physical_accounting(report, payload)
     number(closure.get('mass_relative_error'), 0., .05)
     number(closure.get('measured_mass_kg'), 0.000001, payload['requirements']['constraints']['max_mass_kg'])
     aero = closure['reanalysis']

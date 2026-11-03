@@ -15,6 +15,91 @@ MAX_FACETS = 100000
 MAX_BYTES = 84 + 50 * MAX_FACETS
 
 
+def expected_materials(gl):
+    """Canonical physical part inventory, independent of the supplied manifest."""
+    from .processes import CARBON
+    result = {}
+    for surface in [gl.wing_surface(), *gl.tail_surfaces()]:
+        density = gl.cfg['materials'][
+            'wing_areal_density_kg_m2' if surface.role == 'wing' else 'tail_areal_density_kg_m2'] / 2
+        for side in range(2 if surface.symmetric else 1):
+            name = f'{surface.name}_{side}'
+            if name in result:
+                raise ValueError('Duplicate canonical part name')
+            result[name] = dict(law='skin_equivalent', areal_density_kg_m2=density)
+    result['fuselage'] = dict(law='skin_equivalent',
+        areal_density_kg_m2=gl.cfg['materials']['fuselage_shell_areal_density_kg_m2'])
+    result['spar'] = dict(law='solid', density_kg_m3=CARBON['density_kg_m3'])
+    return result
+
+
+def check_accounting(gl, bundle, directory):
+    """Reject missing, duplicate, extra, relabelled or unlisted delivered parts."""
+    import re
+    expected = expected_materials(gl)
+    output_id, items = bundle['output_id'], bundle['parts']
+    if not re.fullmatch(r'[a-f0-9]{12}', output_id) or not isinstance(items, list):
+        raise ValueError('Invalid part accounting')
+    if len(items) != len(expected) or {p['name'] for p in items} != set(expected):
+        raise ValueError('Incomplete or duplicate part accounting')
+    files = set()
+    for item in items:
+        filename = f"{output_id}_{item['name']}.stl"
+        if item['file'] != filename or item['material'] != expected[item['name']]:
+            raise ValueError('Part accounting differs from canonical geometry/materials')
+        path = directory / filename
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('Part accounting requires local regular artifacts')
+        files.add(filename)
+    if {p.name for p in directory.iterdir() if p.suffix.lower() == '.stl'} != files:
+        raise ValueError('Unlisted geometry in part accounting')
+    return dict(state='passed', expected_parts=sorted(expected), files=sorted(files))
+
+
+def spar_enclosure(spar, wings, tolerance_m=2e-7):
+    """Conservative enclosure certificate for the delivered straight stock rod.
+
+    Clip every spar triangle at y=0. Each half must lie inside ALL outward
+    wing-face half-spaces on its side. Their convex intersection is a subset
+    of the closed wing interior, so checking the clipped triangle vertices
+    certifies entire triangles, not just sampled points or bounding boxes.
+    Concave panels can fail this sufficient (not necessary) test. No channel,
+    clearance, joint or load-transfer claim follows from enclosure.
+    """
+    if len(wings) != 2 or len(spar.faces) > MAX_FACETS or any(len(w.faces) > MAX_FACETS for w in wings):
+        raise ValueError('Unsupported spar enclosure budget')
+    maximum = 0.
+    for sign in (1., -1.):
+        candidates = [w for w in wings if sign * w.center_mass[1] > 0]
+        if len(candidates) != 1:
+            raise ValueError('Missing distinct closed wing halves')
+        wing = candidates[0]
+        vertices = np.asarray(spar.vertices)
+        points = [vertices[sign * vertices[:, 1] >= 0]]
+        edges = vertices[spar.edges_unique]
+        crossing = edges[:, 0, 1] * edges[:, 1, 1] < 0
+        a, b = edges[crossing, 0], edges[crossing, 1]
+        if len(a):
+            fraction = -a[:, 1] / (b[:, 1] - a[:, 1])
+            points.append(a + fraction[:, None] * (b - a))
+        points = np.vstack(points)
+        if not len(points) or not np.isfinite(points).all():
+            raise ValueError('Missing finite spar half geometry')
+        if len(points) * len(wing.faces) > 2_000_000:
+            raise ValueError('Spar enclosure exceeds plane-test budget')
+        normals = np.asarray(wing.face_normals)
+        planes = np.einsum('ij,ij->i', normals, wing.triangles[:, 0])
+        # Bound each temporary distance matrix even at the mesh facet budget.
+        for start in range(0, len(points), 32):
+            distances = points[start:start+32] @ normals.T - planes
+            maximum = max(maximum, float(np.max(distances)))
+    return dict(state='passed' if maximum <= tolerance_m else 'failed',
+                method='delivered-wing-face-halfspaces-v1', max_outside_m=maximum,
+                tolerance_m=tolerance_m, load_path_state='unverified',
+                limitations=['Conservative enclosure only; concave panels may be rejected.',
+                             'Spar channels, clearance, joints and load transfer remain unverified.'])
+
+
 def closed_mesh(rings):
     import trimesh
     vertices = np.vstack(rings)
@@ -119,9 +204,10 @@ def export_bundle(gl, directory, output_id):
                 missing_features=['spar channels', 'rib layout', 'ballast/payload cavities', 'FDM shell/infill/bed splitting'])
 
 
-def measure_part(path, material):
+def load_part_mesh(path):
+    """Read a bounded, single connected closed STL without repairing it."""
     import trimesh
-    if path.stat().st_size < 84 or path.stat().st_size > MAX_BYTES:
+    if path.is_symlink() or path.stat().st_size < 84 or path.stat().st_size > MAX_BYTES:
         raise ValueError('Mesh size outside evidence budget')
     with path.open('rb') as f:
         f.read(80)
@@ -132,6 +218,20 @@ def measure_part(path, material):
     mesh.apply_scale(.001)  # manufacturing STL units are mm
     if not np.isfinite(mesh.vertices).all() or not mesh.is_watertight or not mesh.is_winding_consistent or mesh.volume <= 0:
         raise ValueError('Required closed oriented geometry evidence is missing')
+    if mesh.body_count != 1:
+        raise ValueError('A physical part must be one connected mesh')
+    return mesh
+
+
+def measure_part(path, material):
+    law = material.get('law')
+    key = {'solid': 'density_kg_m3', 'skin_equivalent': 'areal_density_kg_m2'}.get(law)
+    if key is None or set(material) != {'law', key}:
+        raise ValueError('Unrecognized material law')
+    density = material[key]
+    if type(density) not in (float, int) or not math.isfinite(density) or density <= 0:
+        raise ValueError('Nonphysical material density')
+    mesh = load_part_mesh(path)
     if material['law'] == 'solid':
         props = mesh.mass_properties
         mass = float(props['volume'] * material['density_kg_m3'])
@@ -150,5 +250,6 @@ def measure_part(path, material):
         raise ValueError('Nonphysical measured mass properties')
     return dict(mass_kg=mass, cg_m=cg.tolist(), inertia_kg_m2=inertia.tolist(),
                 volume_m3=float(mesh.volume), area_m2=float(mesh.area),
+                connected_components=1,
                 bounds_m=mesh.bounds.tolist(), material_law=material,
                 sha256=hashlib.sha256(path.read_bytes()).hexdigest())

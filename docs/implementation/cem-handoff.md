@@ -4,6 +4,10 @@ Date: 2026-11-03. This document describes the implementation left in the workspa
 
 ## Start here
 
+Continuation: [delivered-part integrity and spar enclosure](cem-closure-integrity.md)
+records the subsequent G2/G3 integrity checks, tightened build rejection behavior,
+verification and remaining physical-construction work.
+
 The current implementation is a working **engineering screening workflow**, not a completed G0–G8 system or a fabrication-qualified glider generator. Preserve that distinction in code, reports and UI.
 
 Continue from branch `engineering/cem-glider` in the repository below. In the original workspace it lives at `/workspace/Mirum`. This handoff accompanies publication of the implementation on that GitHub branch. The original implementation base was:

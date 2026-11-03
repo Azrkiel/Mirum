@@ -94,6 +94,11 @@ def test_design_json_and_stl_are_repeatable_and_never_claim_manufacturing_accept
         assert path.read_bytes()==(tmp_path/'b'/path.name).read_bytes()
     assert a['accepted_for_manufacture'] is False and a['engineering_certified'] is False
     assert a['closure']['manufacturing_ready'] is False
+    # This fixture retains the original straight stock rod under raised,
+    # swept wing panels. Aerodynamic screening is not installed-spar evidence.
+    assert a['status'] == 'rejected'
+    assert a['closure']['spar_enclosure']['state'] == 'failed'
+    assert any('spar' in reason for reason in a['closure']['failures'])
     assert (tmp_path/'a/performance_report.json').exists()
     from cem.evidence import validate
     from cem.glider.service import identity
@@ -101,7 +106,7 @@ def test_design_json_and_stl_are_repeatable_and_never_claim_manufacturing_accept
     payload=dict(kind='design', requirements=req.model_dump(mode='json'), calibration=initial(), elite=finite_json(elite))
     # Parent validation receives decoded JSON, not NumPy scalars from in-process FEA.
     validate(json.loads(canonical_json(a)),payload,identity(req,initial()),tmp_path/'a')
-    bad=copy.deepcopy(a);bad['uncertainty']=None
+    bad=copy.deepcopy(a);bad['uncertainty']=None;bad['status']='screened'
     with pytest.raises((ValueError,TypeError,KeyError)):
         validate(bad,payload,identity(req,initial()),tmp_path/'a')
 
