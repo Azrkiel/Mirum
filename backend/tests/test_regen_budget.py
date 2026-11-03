@@ -13,11 +13,19 @@ class CountedTree:
     def __init__(self, points):
         self.tree = cKDTree(points)
         self.calls = []
+        self.counted_rows = 0
+        self.count_queries = []
 
     def query_ball_point(self, *args, **kwargs):
         counting = kwargs.get('return_length', False)
+        points = np.atleast_2d(args[0])
+        rows = len(points)
+        if counting:
+            self.counted_rows += rows
+            self.count_queries.append(rows)
         if not counting:
-            assert self.calls and self.calls[-1] is True
+            assert self.counted_rows >= rows
+            self.counted_rows -= rows
         self.calls.append(counting)
         return self.tree.query_ball_point(*args, **kwargs)
 
@@ -205,7 +213,7 @@ def test_dense_count_rejects_before_materialization(kind, limit):
         b.limits[kind + '_budget'] = 4
     else:
         # Allow mapping/carry storage, but not the counted neighbor list.
-        b.memory_bytes = 4096 + 5 * 8 + rm.WP_NEIGHBOR_BUDGET * 16
+        b.memory_bytes = 4096 + 5 * 8 + 3 * rm.WP_NEIGHBOR_BUDGET * 16 + 128
     name = 'memory_budget' if limit == 'memory' else kind + ('_batch_budget' if limit == 'batch' else '_budget')
     with pytest.raises(rm._Exhausted, match=name):
         list(rm._candidates(p, [0], tree, np.arange(5), 1., b, kind=kind))
@@ -296,9 +304,9 @@ def test_leaf_retained_storage_rejected_before_selection(monkeypatch):
     assert b.live == 0
 
 
-def test_leaf_final_concat_rejects_overlapping_copy(monkeypatch):
+def test_leaf_tight_memory_rejects_before_final_arrays(monkeypatch):
     b = small_budget()
-    b.memory_bytes = 221_000
+    b.memory_bytes = 215_000
     ctx = leaf_context(monkeypatch, b)
     monkeypatch.setattr(rm, 'WP_LEAF_BATCH', 1)
     monkeypatch.setattr(rm.np, 'concatenate', lambda *a, **kw: pytest.fail('allocated final copy'))
@@ -312,7 +320,7 @@ def test_named_exhaustion_fails_all_checks_deterministically(monkeypatch, stage)
     for earlier in ['_build_leaves', '_fidelity', '_coverage', '_thickness']:
         if earlier == stage:
             break
-        monkeypatch.setattr(rm, earlier, lambda *a: {})
+        monkeypatch.setattr(rm, earlier, lambda *a: {'state': 'pass'})
     def exhausted(*args, **kwargs):
         raise rg.BudgetExceeded('test_work_budget exhausted')
     monkeypatch.setattr(rm, stage, exhausted)
@@ -341,7 +349,7 @@ def test_report_rejects_incomplete_checks(monkeypatch, stage, error, budget_name
     for earlier in ['_build_leaves', '_fidelity', '_coverage', '_thickness']:
         if earlier == stage:
             break
-        monkeypatch.setattr(rm, earlier, lambda *a: {})
+        monkeypatch.setattr(rm, earlier, lambda *a: {'state': 'pass'})
     def exhausted(*a, **kw):
         raise error('injected_work_budget exhausted')
     monkeypatch.setattr(rm, stage, exhausted)
@@ -495,5 +503,183 @@ def test_neighbor_work_is_cumulative_across_rows(kind):
     b = small_budget(**{kind + '_budget': 7})
     with pytest.raises(rm._Exhausted, match=kind + '_budget'):
         list(rm._candidates(p, [0, 1], tree, np.arange(4), 1., b, kind=kind))
-    assert tree.calls == [True, False, True]
+    assert tree.count_queries == [2]
+    assert tree.calls == [True, False]
     assert b.used[kind + '_budget'] == 4
+
+
+def test_reference_classification_skips_mandatory_split_parents(monkeypatch):
+    verts = np.array([[5., 0, 4.], [5., .4, 4.], [5., 0, 4.4]])
+    faces = np.array([[0, 1, 2]])
+    ctx = rm._Ctx(tiny_spec())
+    radii = []
+    classify = rm._classify
+
+    def track(context, points, patch_radii):
+        radii.extend(patch_radii.tolist())
+        return classify(context, points, patch_radii)
+
+    monkeypatch.setattr(rm, '_classify', track)
+    leaves = rm._build_leaves(ctx, verts, faces)
+
+    assert rm._fidelity(ctx, leaves)['state'] == 'pass'
+    assert len(leaves['T']) == 4
+    assert len(radii) == len(leaves['T'])
+    assert max(radii) <= ctx.rho_target
+
+
+def test_channel_queries_reuse_reference_nodes(monkeypatch):
+    g = rg.RegenGeometry(tiny_spec())
+    p = g._nodes(np.asarray(0), np.asarray(g.steps // 2))[None, :]
+    expected = g.coolant_sdf(p)
+    monkeypatch.setattr(g, '_nodes', lambda *a: pytest.fail('rebuilt fixed channel geometry'))
+    np.testing.assert_array_equal(g.coolant_sdf(p), expected)
+
+
+def test_channel_queries_fit_budget_using_nearby_capsules():
+    g = rg.RegenGeometry(tiny_spec())
+    p = g._nodes(np.asarray(0), np.asarray(g.steps // 2))[None, :]
+    g.budget.limits['reference_budget'] = g.budget.used.get('reference_budget', 0) + 3000
+    distances = g.coolant_sdf(np.repeat(p, 200, axis=0))
+    np.testing.assert_allclose(distances, -g.rc, rtol=0, atol=1e-12)
+
+
+def test_reference_queries_match_full_capsule_union_near_boundaries():
+    spec = tiny_spec()
+    rng = np.random.default_rng(94731)
+    points = rng.uniform([-14., -14., -3.], [14., 14., 43.], size=(120, 3))
+    g = rg.RegenGeometry(spec)
+    expected = {f: np.full(len(points), 2.) for f in ('channels', 'rings', 'ports')}
+    names = dict(channel='channels', ring='rings', port='ports')
+    for family, a, b, radius in g.iter_coolant_segments(batch=13):
+        distances = rg._seg_dist(points[:, None, :], a[None, :, :], b[None, :, :]).min(axis=1) - radius
+        expected[names[family]] = np.minimum(expected[names[family]], distances)
+    actual = rg.RegenGeometry(spec).coolant_sdf_parts(points, 2.)
+    for family in expected:
+        np.testing.assert_allclose(actual[family], expected[family], rtol=0, atol=1e-12)
+
+
+def test_leaf_finalization_fits_one_field_copy_budget(monkeypatch):
+    b = small_budget()
+    b.memory_bytes = 220_000
+    ctx = leaf_context(monkeypatch, b)
+    monkeypatch.setattr(rm, 'WP_LEAF_BATCH', 1)
+    verts, faces = triangle()
+    leaves = rm._build_leaves(ctx, verts, np.repeat(faces, 100, axis=0))
+    assert len(leaves['T']) == 100
+    assert b.live == 100 * 80 + 2048
+
+
+def test_coverage_reuses_contiguous_leaf_points_with_bounded_tree_storage(monkeypatch):
+    ctx = rm._Ctx(tiny_spec())
+    ctx.budget = small_budget(coverage_batch_budget=4)
+    ctx.budget.memory_bytes = 60_000
+    monkeypatch.setattr(ctx.g, 'centerline_samples', lambda *a: iter([
+        ('channel', np.array([[0., 0, 10.]]), ctx.g.rc)]))
+    leaves = dict(cen=np.zeros((300, 3)), nrm=np.tile([0., 0, 1.], (300, 1)),
+                  rho=np.full(300, .01))
+    result = rm._coverage(ctx, leaves)
+    assert result['samples'] == 1
+    assert ctx.budget.live == 0
+
+
+def test_thickness_keeps_only_one_target_tree_live(monkeypatch):
+    import weakref
+    ctx = rm._Ctx(tiny_spec())
+    real_tree = rm.cKDTree
+    inputs = []
+
+    def counted(points, *args, **kwargs):
+        inputs[:] = [ref for ref in inputs if ref() is not None]
+        # The port-rim tree may coexist with only the current target tree.
+        assert len(inputs) < 2
+        tree = real_tree(points, *args, **kwargs)
+        inputs.append(weakref.ref(tree.data))
+        return tree
+
+    monkeypatch.setattr(rm, 'cKDTree', counted)
+    monkeypatch.setattr(rm, '_candidates', lambda *a, **kw: iter(()))
+    leaves = pair_leaves(.1)
+    leaves['T'] = np.tile(leaves['T'], (4, 1, 1))
+    leaves['cen'] = leaves['T'].mean(axis=1).astype(np.float64)
+    leaves['nrm'] = np.tile(leaves['nrm'], (4, 1))
+    leaves['rho'] = np.full(8, .1)
+    leaves['label'] = np.array([rm.L_HOT, rm.L_COLD, rm.L_CAP0, rm.L_CAPL,
+                                rm.L_CH, rm.L_CH, rm.L_RING, rm.L_PORT], dtype=np.int8)
+    assert rm._thickness(ctx, leaves)['state'] == 'pass'
+
+
+def test_candidates_pack_sparse_rows_into_bounded_batches(monkeypatch):
+    points = np.column_stack([np.arange(40) * 2., np.zeros((40, 2))])
+    monkeypatch.setattr(rm, 'WP_BLOCK', 16)
+    batches = list(rm._candidates(points, range(40), cKDTree(points), np.arange(40), .1,
+                                  small_budget()))
+    assert [len(ii) for ii, jj in batches] == [16, 16, 8]
+    np.testing.assert_array_equal(np.concatenate([ii for ii, jj in batches]), np.arange(40))
+    np.testing.assert_array_equal(np.concatenate([jj for ii, jj in batches]), np.arange(40))
+
+
+def test_pair_refinement_reserves_scratch_for_children():
+    state = pair_state()
+    rm._run_pairs(pair_leaves(.01), np.zeros(2000, dtype=np.int64),
+                  np.ones(2000, dtype=np.int64), 1., .01, None, state, small_budget())
+    assert state['evaluated'] > 2000
+    assert state['violations'].count > 0
+
+
+@pytest.mark.parametrize('coolant_label', [rm.L_RING, rm.L_PORT])
+@pytest.mark.parametrize('at_opening', [False, True])
+def test_port_opening_collar_handles_ring_port_overlap(coolant_label, at_opening):
+    leaves = pair_leaves(.01)
+    leaves['label'] = np.array([coolant_label, rm.L_COLD], dtype=np.int8)
+    center = np.array([[0., 0, 0.]]) if at_opening else np.array([[10., 10, 10.]])
+    state = pair_state()
+    rm._run_pairs(leaves, np.array([0]), np.array([1]), 1., .1,
+                  (cKDTree(center), .1), state, small_budget())
+    assert (state['violations'].count == 0) == at_opening
+
+
+@pytest.mark.parametrize('certified', [False, True])
+def test_certified_fidelity_failure_stops_further_geometry_work(monkeypatch, certified):
+    finding = dict(state='fail', nonconforming_patches=1,
+                   uncertified_nonconforming_patches=0 if certified else 1,
+                   by_reason={'surface_not_on_specified_geometry': 1},
+                   locations=[{'at_mm': [0., 0., 0.]}], unsplit_over_radius_target=0)
+    monkeypatch.setattr(rm, '_build_leaves', lambda *a: {'stats': {}})
+    monkeypatch.setattr(rm, '_fidelity', lambda *a: finding)
+    called = []
+
+    def phase(name):
+        def run(*a):
+            if certified:
+                pytest.fail('ran expensive checks after a certified geometry rejection')
+            called.append(name)
+            return dict(state='pass', classes={})
+        return run
+
+    monkeypatch.setattr(rm, '_coverage', phase('coverage'))
+    monkeypatch.setattr(rm, '_thickness', phase('thickness'))
+    checks, failures, _ = rm.whole_part_checks(tiny_spec(), *triangle())
+    assert checks['circuit_fidelity']['state'] == 'fail'
+    assert failures and failures[0].startswith('circuit_fidelity:')
+    for name in ('circuit_coverage', 'wall_thickness'):
+        assert checks[name]['state'] == ('not_evaluated' if certified else 'pass')
+    assert called == ([] if certified else ['coverage', 'thickness'])
+
+
+def test_fidelity_reports_certified_examples_first():
+    leaves = dict(cen=np.array([[0., 0, 0.], [1., 0, 1.]]), rho=np.array([.01, .01]),
+                  conform=np.array([False, False]), cert=np.array([False, True]),
+                  reason=np.array([rm.R_OFF, rm.R_OFF]), stats={'unsplit_over_target': 0})
+    result = rm._fidelity(rm._Ctx(tiny_spec()), leaves)
+    assert result['certified_nonconforming_patches'] == 1
+    assert result['locations'][0]['certified_deviation'] is True
+
+
+def test_candidate_count_queries_are_batched_without_losing_rows():
+    points = np.column_stack([np.arange(40) * 2., np.zeros((40, 2))])
+    tree = CountedTree(points)
+    batches = list(rm._candidates(points, range(40), tree, np.arange(40), .1, small_budget()))
+    assert tree.count_queries == [40]
+    np.testing.assert_array_equal(np.concatenate([ii for ii, jj in batches]), np.arange(40))
+    np.testing.assert_array_equal(np.concatenate([jj for ii, jj in batches]), np.arange(40))
