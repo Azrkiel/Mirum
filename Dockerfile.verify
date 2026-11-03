@@ -21,6 +21,9 @@ RUN python -m pip install --no-cache-dir -c /tmp/requirements-linux.lock -c /tmp
     && python -m pip check
 RUN groupadd --gid 10001 caduser && useradd --uid 10001 --gid 10001 \
     --no-create-home --home-dir /tmp --shell /usr/sbin/nologin caduser
+# The canonical browser/Python geometry regressions execute model.js with Node.
+# Production backend images do not need this test-only runtime.
+COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 COPY backend/ /workspace/backend/
 COPY analysis/ /workspace/analysis/
 COPY frontend/ /workspace/frontend/

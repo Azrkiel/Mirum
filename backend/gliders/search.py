@@ -100,7 +100,8 @@ def search(spec: GliderRequest, output: Path, progress=lambda value: None, evalu
         records.append(finite_json(result))
         if result['valid']:
             feasible.append((result, gl))
-            feasible.sort(key=lambda pair: (-pair[0]['L_over_D'], pair[0]['id']))
+            metric = 'L_over_D' if spec.objective == 'distance' else 'time_aloft_s'
+            feasible.sort(key=lambda pair: (-pair[0][metric], pair[0]['id']))
         progress({'evaluated': i + 1, 'budget': spec.evaluations, 'feasible': len(feasible)})
     candidates = []
     output.mkdir(parents=True, exist_ok=True)
@@ -121,7 +122,8 @@ def search(spec: GliderRequest, output: Path, progress=lambda value: None, evalu
             for path in sorted(directory.iterdir()):
                 z.write(path, path.name)
         candidates.append(candidate)
-    report = {'status': 'completed', 'objective': 'maximum_trimmed_lift_to_drag',
+    report = {'status': 'completed', 'objective': ('maximum_trimmed_lift_to_drag' if spec.objective == 'distance'
+                                                else 'maximum_duration'),
               'request': spec.model_dump(), 'assumptions': ASSUMPTIONS,
               'solver': {'aerosandbox': __import__('aerosandbox').__version__,
                          'search': 'seeded exploration + elite local resampling'},

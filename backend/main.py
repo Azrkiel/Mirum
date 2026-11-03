@@ -111,6 +111,8 @@ async def _lifespan(application: FastAPI):
     finally:
         from gliders.api import jobs as glider_jobs
         await glider_jobs.close()
+        from cem.api import jobs as cem_jobs
+        await cem_jobs.close()
 
 
 limiter = Limiter(key_func=get_remote_address)
@@ -1111,6 +1113,8 @@ from engineering.api import attach_engineering_routes
 attach_engineering_routes(app, limiter)
 from gliders.api import attach_glider_routes
 attach_glider_routes(app, limiter)
+from cem.api import attach_cem_routes
+attach_cem_routes(app, limiter)
 
 
 @app.get("/stats")

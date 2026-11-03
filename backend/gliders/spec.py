@@ -21,6 +21,7 @@ class Materials(StrictModel):
 
 
 class GliderRequest(StrictModel):
+    objective: Literal['distance', 'duration'] = 'distance'
     launch_height_m: float = Field(10, gt=0, le=100)
     payload_mass_kg: float = Field(0.060, ge=0, le=0.3)
     payload_diameter_m: float = Field(0.045, gt=0, le=0.1)
@@ -67,7 +68,7 @@ class GliderRequest(StrictModel):
     def configuration(self):
         cfg = copy.deepcopy(CONFIG)
         cfg['seed'] = self.seed
-        cfg['mission'].update(objective='distance', launch_height_m=self.launch_height_m,
+        cfg['mission'].update(objective=self.objective, launch_height_m=self.launch_height_m,
                               payload_mass_kg=self.payload_mass_kg,
                               payload_diameter_m=self.payload_diameter_m,
                               payload_length_m=self.payload_length_m)

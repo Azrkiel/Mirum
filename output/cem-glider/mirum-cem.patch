@@ -1,0 +1,3427 @@
+diff --git a/Dockerfile.verify b/Dockerfile.verify
+index 166f166..41bb4d6 100644
+--- a/Dockerfile.verify
++++ b/Dockerfile.verify
+@@ -21,6 +21,9 @@ RUN python -m pip install --no-cache-dir -c /tmp/requirements-linux.lock -c /tmp
+     && python -m pip check
+ RUN groupadd --gid 10001 caduser && useradd --uid 10001 --gid 10001 \
+     --no-create-home --home-dir /tmp --shell /usr/sbin/nologin caduser
++# The canonical browser/Python geometry regressions execute model.js with Node.
++# Production backend images do not need this test-only runtime.
++COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+ COPY backend/ /workspace/backend/
+ COPY analysis/ /workspace/analysis/
+ COPY frontend/ /workspace/frontend/
+diff --git a/README.md b/README.md
+index a518741..06b38b2 100644
+--- a/README.md
++++ b/README.md
+@@ -183,6 +183,13 @@ must not be presented as verified.
+ 
+ The Streamlit workflow selector includes a passive-glider search for maximum trimmed L/D under designer constraints. See [inputs, API, setup and limitations](docs/glider-search.md). It uses the integrated parametric AeroSandbox screening model, adaptive exploration/refinement and STL/template downloads; no provider calls are needed for search.
+ 
++The new **[physics-based glider CEM workflow](docs/implementation/cem-glider.md)**
++adds mission feasibility/gap reports, launch energy, process comparisons,
++wind-aware distance or duration search, measured-mass closure and uncertainty.
++Its current layouts are conventional, T-tail and V-tail. Outputs are screening
++geometry and templates; novel-family discovery and the PicoGK manufacturing
++builder remain unqualified and unavailable.
++
+ ## Verification
+ 
+ Targeted hardening ports and their scope are described in
+diff --git a/backend/gliders/api.py b/backend/gliders/api.py
+index 573c663..c171717 100644
+--- a/backend/gliders/api.py
++++ b/backend/gliders/api.py
+@@ -12,6 +12,7 @@ import uuid
+ from fastapi import HTTPException, Request
+ from fastapi.responses import FileResponse
+ from process_runner import ProcessRunner
++from solver_slot import slot
+ from .spec import GliderRequest
+ from .design_spec import DesignSpec, from_candidate
+ from .preview import preview, metadata
+@@ -28,6 +29,7 @@ class Jobs:
+         kind = "evaluation" if isinstance(spec, DesignSpec) else "search"
+         if self.task and not self.task.done():
+             raise HTTPException(429, 'A glider search or evaluation is running; try again after it finishes.')
++        slot.check()
+         # Bounded retention. Downloads expire with jobs; do not touch other application files.
+         for key, job in list(self.jobs.items()):
+             if time.monotonic() - job['created'] > 3600 or len(self.jobs) >= 8:
+@@ -39,6 +41,7 @@ class Jobs:
+         self.jobs[key] = {'status': 'running', 'created': time.monotonic(), 'directory': directory, 'kind': kind,
+                           'input_revision': spec.digest() if kind == 'evaluation' else None}
+         self.task = asyncio.create_task(self.run(key, spec))
++        slot.claim(self)
+         return {'job_id': key, 'evaluation_id': key if kind == 'evaluation' else None,
+                 'input_revision': self.jobs[key]['input_revision'], 'status': 'running'}
+ 
+@@ -65,7 +68,10 @@ class Jobs:
+             logger.exception('Glider job failed')
+             job.update(status='failed', detail='Glider task could not complete; no results are accepted.')
+         finally:
+-            await runner.close()
++            try:
++                await runner.close()
++            finally:
++                slot.release(self)
+ 
+     def get(self, key, kind=None):
+         if key not in self.jobs:
+@@ -78,6 +84,7 @@ class Jobs:
+         if self.task and not self.task.done():
+             self.task.cancel()
+             await asyncio.gather(self.task, return_exceptions=True)
++        slot.release(self)
+ 
+ 
+ jobs = Jobs()
+diff --git a/backend/gliders/model/analysis.py b/backend/gliders/model/analysis.py
+index f59a245..bdc39a9 100644
+--- a/backend/gliders/model/analysis.py
++++ b/backend/gliders/model/analysis.py
+@@ -28,8 +28,20 @@ from .assembly import Glider
+ ALPHAS = np.arange(-2.0, 14.01, 0.5)
+ 
+ 
++def _op(airplane, V, alpha, beta=0.):
++    context = getattr(airplane, 'cem_context', None)
++    kw = {'atmosphere': asb.Atmosphere(altitude=context['altitude_m'],
++          temperature_deviation=context['temperature_deviation_k'], method='isa')} if context else {}
++    return asb.OperatingPoint(velocity=V, alpha=alpha, beta=beta, **kw)
++
++
+ def _aero(airplane, V, alpha):
+-    return asb.AeroBuildup(airplane, asb.OperatingPoint(velocity=V, alpha=alpha)).run()
++    result = asb.AeroBuildup(airplane, _op(airplane, V, alpha)).run()
++    context = getattr(airplane, 'cem_context', None)
++    if context:
++        drag = result['D_profile'] * context['cd0_factor'] + result['D_induced'] / context['oswald_factor']
++        result['CD'] = result['CD'] * drag / result['D']
++    return result
+ 
+ 
+ def _f(v) -> float:
+@@ -129,7 +141,7 @@ def local_aero(airplane, V: float, alpha: float, below_deg: float = 1.0) -> dict
+     cambered airfoils at low Reynolds number can lose lift slope at low alpha,
+     which would make the glider pitch-unstable in a shallow dive."""
+     offs = np.unique(np.concatenate([[-below_deg], np.arange(0.0, 3.01, 1.0)]))
+-    r = asb.AeroBuildup(airplane, asb.OperatingPoint(velocity=V, alpha=alpha + offs)).run()
++    r = _aero(airplane, V, alpha + offs)
+     CL, CD, Cm = (np.asarray(r[k], dtype=float) for k in ("CL", "CD", "Cm"))
+     i0 = int(np.argmin(np.abs(offs)))
+     return {"CL": CL[i0], "CD": CD[i0], "Cm": Cm[i0], "Cm_monotonic": bool(np.all(np.diff(Cm) < 0))}
+@@ -147,13 +159,15 @@ def stability_derivatives(airplane, V: float, alpha: float) -> dict:
+     Rates are non-dimensional (p b/2V, q c/2V, r b/2V)."""
+     kw = dict(xyz_ref=list(airplane.xyz_ref), s_ref=airplane.s_ref, c_ref=airplane.c_ref, b_ref=airplane.b_ref)
+     wings_only = asb.Airplane(wings=airplane.wings, **kw)
+-    d = asb.VortexLatticeMethod(wings_only, asb.OperatingPoint(velocity=V, alpha=alpha),
++    wings_only.cem_context = getattr(airplane, 'cem_context', None)
++    d = asb.VortexLatticeMethod(wings_only, _op(airplane, V, alpha),
+                                 spanwise_resolution=8, chordwise_resolution=6).run_with_stability_derivatives()
+     out = {k: _f(d[k]) for k in ["CLa", "Cma", "CYb", "Clb", "Cnb", "CYp", "Clp", "Cnp",
+                                  "CYr", "Clr", "Cnr", "Cmq"]}
+     body = asb.Airplane(fuselages=airplane.fuselages, **kw)
+-    r = asb.AeroBuildup(body, asb.OperatingPoint(velocity=V, alpha=np.array([alpha - 2, alpha + 2, alpha, alpha]),
+-                                                 beta=np.array([0.0, 0.0, 2.0, -2.0]))).run()
++    body.cem_context = getattr(airplane, 'cem_context', None)
++    r = asb.AeroBuildup(body, _op(airplane, V, np.array([alpha - 2, alpha + 2, alpha, alpha]),
++                                beta=np.array([0.0, 0.0, 2.0, -2.0]))).run()
+     g = {k: np.asarray(r[k], dtype=float) for k in ["CL", "Cm", "CY", "Cl", "Cn"]}
+     four = np.radians(4.0)
+     out["CLa"] += (g["CL"][1] - g["CL"][0]) / four
+@@ -213,11 +227,32 @@ def trim(gl: Glider, cg, V, W, rho, S, objective, stall_margin, below_deg=1.0):
+         r = _aero(gl.airplane(cg, delta), V, ALPHAS)
+         CL, CD = np.asarray(r["CL"]), np.asarray(r["CD"])
+         i_max = int(np.argmax(CL))
+-        CLmax = float(CL[i_max])
++        CLmax = float(CL[i_max]) * gl.cfg.get('cem_context', {}).get('cl_max_factor', 1.)
+         ok = (np.arange(len(ALPHAS)) <= i_max) & (CL <= stall_margin * CLmax) & (CL > 0.05)
++        if gl.cfg.get('cem_context'):
++            # Speed-to-fly is constrained by the same station Reynolds envelope
++            # as admission; a tailwind must not optimize into untrusted low Re.
++            min_chord = min(s.chord for surface in [gl.wing_surface(), *gl.tail_surfaces()]
++                            for s in surface.sections)
++            min_speed = 30000 * gl.cfg['mission']['dynamic_viscosity_pa_s'] / (rho * min_chord)
++            equilibrium_speeds = np.sqrt(2 * W / (rho * S * np.maximum(CL, .001)))
++            ok &= (equilibrium_speeds >= min_speed * 1.001) & (equilibrium_speeds <= gl.cfg['limits']['max_glide_speed_m_s'])
+         if not ok.any():
++            if gl.cfg.get('cem_context'):
++                raise ValueError('No trimmed polar samples satisfy stall and operating-envelope limits')
+             break
+         metric = CL / CD if objective == "distance" else np.clip(CL, 0, None) ** 1.5 / CD
++        mission = gl.cfg['mission']
++        if mission.get('wind_m_s', 0.) or mission.get('uplift_m_s', 0.):
++            speeds = np.sqrt(2 * W / (rho * S * np.maximum(CL, .001)))
++            gamma = np.arctan2(CD, np.maximum(CL, .001))
++            sinks = speeds * np.sin(gamma)
++            ground = speeds * np.cos(gamma) + mission.get('wind_m_s', 0.)
++            descent = sinks - mission.get('uplift_m_s', 0.)
++            # Sustained conditions are reported separately; never optimize infinity.
++            metric = (ground if objective == 'distance' else np.ones_like(ground)) / np.maximum(descent, .001)
++            if objective == 'distance':
++                ok &= ground > 0
+         alpha_star = float(ALPHAS[int(np.argmax(np.where(ok, metric, -np.inf)))])
+         for _ in range(4):           # Newton steps: Cm(alpha*, delta) = 0
+             c1 = _f(_aero(gl.airplane(cg, delta), V, alpha_star)["Cm"])
+@@ -239,7 +274,7 @@ def trim(gl: Glider, cg, V, W, rho, S, objective, stall_margin, below_deg=1.0):
+     if abs(next_V - V) / V > 1e-3:
+         raise ValueError('Coupled speed/trim calculation did not converge')
+     # Re-evaluate the stall reference at the final incidence and Reynolds condition.
+-    CLmax = float(np.max(_aero(ap, V, ALPHAS)['CL']))
++    CLmax = float(np.max(_aero(ap, V, ALPHAS)['CL'])) * gl.cfg.get('cem_context', {}).get('cl_max_factor', 1.)
+     d.update(stability_derivatives(ap, V, alpha_star))
+     return alpha_star, delta, CLmax, V, d
+ 
+@@ -301,7 +336,7 @@ def evaluate(gl: Glider) -> dict:
+         LD = CL / CD
+         gamma = math.atan(1 / LD) if LD > 0 else math.pi / 2
+         sink = V * math.sin(gamma)
+-        Re = rho * V * mac / 1.81e-5
++        Re = rho * V * mac / mis.get('dynamic_viscosity_pa_s', 1.81e-5)
+         lat = lateral_modes(der, V, rho, S, b, m, ms["Ixx"], ms["Izz"], gamma, g)
+         spiral_E = der["Clb"] * der["Cnr"] - der["Cnb"] * der["Clr"]
+ 
+diff --git a/backend/gliders/model/assembly.py b/backend/gliders/model/assembly.py
+index 27f7044..bf88a0b 100644
+--- a/backend/gliders/model/assembly.py
++++ b/backend/gliders/model/assembly.py
+@@ -62,12 +62,15 @@ class Glider:
+ 
+     def airplane(self, xyz_ref=None, tail_incidence_deg: float | None = None) -> asb.Airplane:
+         wings = [self.wing_surface().to_asb()] + [s.to_asb() for s in self.tail_surfaces(tail_incidence_deg)]
+-        return asb.Airplane(
++        airplane = asb.Airplane(
+             name=self.id,
+             xyz_ref=list(xyz_ref) if xyz_ref is not None else [0, 0, 0],
+             wings=wings,                       # wings[0] = main wing -> reference S, c, b
+             fuselages=[self.fuse.to_asb()],
+         )
++        # Trusted CEM configuration only. Legacy configurations have no context.
++        airplane.cem_context = self.cfg.get('cem_context')
++        return airplane
+ 
+     # ------------------------------------------------------------------ #
+     # Reference geometry
+diff --git a/backend/gliders/search.py b/backend/gliders/search.py
+index e2fc483..f618451 100644
+--- a/backend/gliders/search.py
++++ b/backend/gliders/search.py
+@@ -100,7 +100,8 @@ def search(spec: GliderRequest, output: Path, progress=lambda value: None, evalu
+         records.append(finite_json(result))
+         if result['valid']:
+             feasible.append((result, gl))
+-            feasible.sort(key=lambda pair: (-pair[0]['L_over_D'], pair[0]['id']))
++            metric = 'L_over_D' if spec.objective == 'distance' else 'time_aloft_s'
++            feasible.sort(key=lambda pair: (-pair[0][metric], pair[0]['id']))
+         progress({'evaluated': i + 1, 'budget': spec.evaluations, 'feasible': len(feasible)})
+     candidates = []
+     output.mkdir(parents=True, exist_ok=True)
+@@ -121,7 +122,8 @@ def search(spec: GliderRequest, output: Path, progress=lambda value: None, evalu
+             for path in sorted(directory.iterdir()):
+                 z.write(path, path.name)
+         candidates.append(candidate)
+-    report = {'status': 'completed', 'objective': 'maximum_trimmed_lift_to_drag',
++    report = {'status': 'completed', 'objective': ('maximum_trimmed_lift_to_drag' if spec.objective == 'distance'
++                                                else 'maximum_duration'),
+               'request': spec.model_dump(), 'assumptions': ASSUMPTIONS,
+               'solver': {'aerosandbox': __import__('aerosandbox').__version__,
+                          'search': 'seeded exploration + elite local resampling'},
+diff --git a/backend/gliders/spec.py b/backend/gliders/spec.py
+index 57d5d54..f1e1d53 100644
+--- a/backend/gliders/spec.py
++++ b/backend/gliders/spec.py
+@@ -21,6 +21,7 @@ class Materials(StrictModel):
+ 
+ 
+ class GliderRequest(StrictModel):
++    objective: Literal['distance', 'duration'] = 'distance'
+     launch_height_m: float = Field(10, gt=0, le=100)
+     payload_mass_kg: float = Field(0.060, ge=0, le=0.3)
+     payload_diameter_m: float = Field(0.045, gt=0, le=0.1)
+@@ -67,7 +68,7 @@ class GliderRequest(StrictModel):
+     def configuration(self):
+         cfg = copy.deepcopy(CONFIG)
+         cfg['seed'] = self.seed
+-        cfg['mission'].update(objective='distance', launch_height_m=self.launch_height_m,
++        cfg['mission'].update(objective=self.objective, launch_height_m=self.launch_height_m,
+                               payload_mass_kg=self.payload_mass_kg,
+                               payload_diameter_m=self.payload_diameter_m,
+                               payload_length_m=self.payload_length_m)
+diff --git a/backend/main.py b/backend/main.py
+index 51a1ae6..51a26d7 100644
+--- a/backend/main.py
++++ b/backend/main.py
+@@ -111,6 +111,8 @@ async def _lifespan(application: FastAPI):
+     finally:
+         from gliders.api import jobs as glider_jobs
+         await glider_jobs.close()
++        from cem.api import jobs as cem_jobs
++        await cem_jobs.close()
+ 
+ 
+ limiter = Limiter(key_func=get_remote_address)
+@@ -1111,6 +1113,8 @@ from engineering.api import attach_engineering_routes
+ attach_engineering_routes(app, limiter)
+ from gliders.api import attach_glider_routes
+ attach_glider_routes(app, limiter)
++from cem.api import attach_cem_routes
++attach_cem_routes(app, limiter)
+ 
+ 
+ @app.get("/stats")
+diff --git a/frontend/app.py b/frontend/app.py
+index 13cf659..30b43ed 100644
+--- a/frontend/app.py
++++ b/frontend/app.py
+@@ -794,7 +794,11 @@ if ACCESS_GATE and not st.session_state.get("access_token"):
+     st.stop()
+ 
+ # ── Page Layout ─────────────────────────────────────────────
+-workflow = st.radio('Design workflow', ['Text to CAD', 'Passive glider distance search'], horizontal=True)
++workflow = st.radio('Design workflow', ['Text to CAD', 'Passive glider distance search', 'Physics-based glider CEM'], horizontal=True)
++if workflow == 'Physics-based glider CEM':
++    from cem_ui import render_cem
++    render_cem(BACKEND_URL, _auth_headers)
++    st.stop()
+ if workflow == 'Passive glider distance search':
+     from glider_ui import render_glider
+     render_glider(BACKEND_URL, _auth_headers)
+diff --git a/requirements-glider.lock b/requirements-glider.lock
+index 5928146..0886c13 100644
+--- a/requirements-glider.lock
++++ b/requirements-glider.lock
+@@ -4,3 +4,5 @@ neuralfoil==0.3.3
+ dill==0.4.1
+ seaborn==0.13.2
+ sortedcontainers==2.4.0
++trimesh==4.4.3
++networkx==3.4.2
+diff --git a/backend/cem/__init__.py b/backend/cem/__init__.py
+new file mode 100644
+index 0000000..aff39e1
+--- /dev/null
++++ b/backend/cem/__init__.py
+@@ -0,0 +1,2 @@
++"""Computational engineering models. No provider calls in the physics pipeline."""
++VERSION = 'mirum-cem-glider-0.1.0'
+diff --git a/backend/cem/api.py b/backend/cem/api.py
+new file mode 100644
+index 0000000..9582842
+--- /dev/null
++++ b/backend/cem/api.py
+@@ -0,0 +1,252 @@
++"""Bounded CEM jobs and evidence endpoints, accessible without model calls."""
++import asyncio
++import json
++import logging
++import math
++import os
++from pathlib import Path
++import shutil
++import sys
++import time
++import uuid
++
++from fastapi import HTTPException, Request
++from fastapi.responses import FileResponse
++from pydantic import Field
++
++from process_runner import ProcessRunner
++from solver_slot import slot
++from cem.core import StrictModel, canonical_json
++from cem.glider.requirements import GliderMissionRequirements
++from cem.glider import calibration
++from cem.glider.feasibility import feasibility
++from cem.glider.service import identity
++
++logger = logging.getLogger('mirum.cem')
++
++
++class MissionRequest(StrictModel):
++    requirements: GliderMissionRequirements
++    calibration_version: str | None = Field(None, pattern=r'^[a-f0-9]{64}$', max_length=64)
++
++
++class DesignRequest(StrictModel):
++    discovery_job_id: str = Field(pattern=r'^[a-f0-9]{32}$', max_length=32)
++    elite_id: str = Field(pattern=r'^[a-f0-9]{16}$', max_length=16)
++
++
++class FlightMeasurement(StrictModel):
++    launch_height_m: float = Field(ge=.01, le=100)
++    launch_method: str = Field(pattern=r'^(drop|hand_toss|discus|catapult|hi_start)$', max_length=16)
++    duration_s: float = Field(ge=.1, le=100000)
++    distance_m: float | None = Field(None, ge=.1, le=100000)
++
++
++class FlightTestRequest(StrictModel):
++    design_job_id: str = Field(pattern=r'^[a-f0-9]{32}$', max_length=32)
++    output_id: str = Field(pattern=r'^[a-f0-9]{12}$', max_length=12)
++    measured: FlightMeasurement
++
++
++class Jobs:
++    def __init__(self):
++        self.jobs = {}
++        self.task = None
++
++    def get(self, key, kind=None):
++        value = self.jobs.get(key)
++        if value is None or (kind and value['kind'] != kind):
++            raise HTTPException(404, 'CEM job not found or expired')
++        return value
++
++    def completed(self, key, kind):
++        job = self.get(key, kind)
++        if job['status'] != 'completed':
++            raise HTTPException(409, 'CEM job has not completed')
++        return job
++
++    def start(self, payload):
++        if self.task and not self.task.done():
++            raise HTTPException(429, 'A CEM task is running; retry after it completes')
++        slot.check()
++        for key, job in list(self.jobs.items()):
++            if time.monotonic() - job['created'] > 3600 or len(self.jobs) >= 8:
++                shutil.rmtree(job['directory'], ignore_errors=True)
++                del self.jobs[key]
++        key = uuid.uuid4().hex
++        directory = Path(os.environ.get('MIRUM_WORK_DIR', '/tmp/mirum/work')) / 'cem/jobs' / key
++        directory.mkdir(parents=True)
++        req = GliderMissionRequirements.model_validate(payload['requirements'])
++        self.jobs[key] = dict(status='running', directory=directory, created=time.monotonic(),
++                              kind=payload['kind'], identity=identity(req, payload['calibration']))
++        self.task = asyncio.create_task(self.run(key, payload))
++        slot.claim(self)
++        return dict(job_id=key, status='running', **self.jobs[key]['identity'])
++
++    async def run(self, key, payload):
++        job = self.jobs[key]
++        runner = ProcessRunner(max_processes=1, timeout=1800, memory_mb=3072, output_limit=65536)
++        env = dict(PATH=os.environ.get('PATH', ''), LANG='C.UTF-8',
++                   OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1',
++                   MPLCONFIGDIR=str(job['directory'] / 'matplotlib'))
++        try:
++            result = await runner.run([sys.executable, str(Path(__file__).with_name('worker.py')), str(job['directory'])],
++                                      input=canonical_json(payload).encode(), env=env)
++            if result['code'] or result['returncode'] != 0:
++                logger.error('CEM worker failed: %s %s', result['code'], result['stderr'][-2000:])
++                raise ValueError('Worker failed')
++            path = job['directory'] / 'result.json'
++            if path.stat().st_size > 8 * 1024 * 1024:
++                raise ValueError('Report budget exceeded')
++            report = json.loads(path.read_text(), parse_constant=lambda x: (_ for _ in ()).throw(ValueError('nonfinite')))
++            from cem.evidence import validate
++            validate(report, payload, job['identity'], job['directory'])
++            job.update(status='completed', result=report)
++        except asyncio.CancelledError:
++            job.update(status='failed', detail='CEM task cancelled; no outputs accepted')
++            raise
++        except Exception:
++            logger.exception('CEM evidence unavailable')
++            job.update(status='failed', detail='CEM task failed or exceeded its evidence/resource budget; no outputs accepted')
++        finally:
++            try:
++                await runner.close()
++            finally:
++                slot.release(self)
++
++    async def close(self):
++        if self.task and not self.task.done():
++            self.task.cancel()
++            await asyncio.gather(self.task, return_exceptions=True)
++        slot.release(self)
++
++
++jobs = Jobs()
++
++
++def attach_cem_routes(app, limiter):
++    @app.get('/cem/glider/metadata')
++    @limiter.limit('30/minute')
++    async def glider_metadata(request: Request):
++        from cem.provenance import provenance
++        from cem.glider.model import SUPPORTED_FAMILIES
++        from cem.glider.processes import PROCESSES
++        return dict(cem_version=provenance()['cem_version'], calibration_version=calibration.version(calibration.initial()),
++                    supported_families=list(SUPPORTED_FAMILIES), processes=list(PROCESSES),
++                    requirements_schema=GliderMissionRequirements.model_json_schema(),
++                    capabilities=dict(novel_shape_discovery=False, picogk_builder=False,
++                                      physical_manufacturing_closure=False, thermal_ridge=False))
++
++    from cem.extraction import TextRequest
++
++    @app.post('/cem/glider/requirements')
++    @limiter.limit('10/minute')
++    async def glider_requirements(body: TextRequest, request: Request):
++        from cem.extraction import extract
++        try:
++            return await extract(body.prompt)
++        except Exception:
++            logger.exception('CEM requirements translation failed')
++            raise HTTPException(503, 'Requirements translation unavailable; use the typed mission form') from None
++
++    @app.post('/cem/glider/feasibility')
++    @limiter.limit('30/minute')
++    async def glider_feasibility(body: MissionRequest, request: Request):
++        try:
++            cal = calibration.load(body.calibration_version)
++            return dict(**identity(body.requirements, cal), **feasibility(body.requirements, cal))
++        except (OSError, ValueError, KeyError):
++            raise HTTPException(422, 'Required calibration or bound evidence is unavailable') from None
++
++    @app.post('/cem/glider/discover', status_code=202)
++    @limiter.limit('3/minute')
++    async def glider_discover(body: MissionRequest, request: Request):
++        if body.requirements.environment.kind in ('thermal', 'ridge'):
++            raise HTTPException(422, 'Thermal and ridge models are not qualified in this CEM version')
++        try:
++            cal = calibration.load(body.calibration_version)
++            from cem.glider.model import configuration
++            configuration(body.requirements, cal, 'balsa' if body.requirements.process == 'auto' else body.requirements.process)
++        except (ValueError, OSError, KeyError):
++            raise HTTPException(422, 'Selected calibration, family or process is unavailable') from None
++        return jobs.start(dict(kind='discovery', requirements=body.requirements.model_dump(mode='json'), calibration=cal))
++
++    @app.post('/cem/glider/design', status_code=202)
++    @limiter.limit('3/minute')
++    async def glider_design(body: DesignRequest, request: Request):
++        source = jobs.completed(body.discovery_job_id, 'discovery')['result']
++        elite = next((e for e in source['candidates'] if e['elite_id'] == body.elite_id), None)
++        if elite is None:
++            # All occupied archive cells, including those outside the top-k list,
++            # are selectable, but arbitrary client supplied designs are not.
++            elite = next((e for p in source['per_process'].values() for e in p['archive'] if e['elite_id'] == body.elite_id), None)
++        if elite is None:
++            raise HTTPException(404, 'Elite does not belong to this archive')
++        return jobs.start(dict(kind='design', requirements=source['requirements'], calibration=source['calibration'], elite=elite))
++
++    @app.get('/cem/glider/jobs/{job_id}')
++    @limiter.limit('120/minute')
++    async def glider_job(job_id: str, request: Request):
++        job = jobs.get(job_id)
++        response = dict(job_id=job_id, status=job['status'], **job['identity'])
++        if job['status'] == 'completed':
++            response['result'] = job['result']
++        elif job['status'] == 'failed':
++            response['detail'] = job['detail']
++        else:
++            path = job['directory'] / 'progress.json'
++            if path.exists() and path.stat().st_size < 4096:
++                response['progress'] = json.loads(path.read_text())
++        return response
++
++    @app.get('/cem/glider/jobs/{job_id}/bundle')
++    @limiter.limit('30/minute')
++    async def glider_bundle(job_id: str, request: Request):
++        job = jobs.completed(job_id, 'design')
++        if job['result']['status'] != 'screened':
++            raise HTTPException(409, 'Closure failed; no geometry bundle is deliverable')
++        from cem.evidence import file_digest
++        try:
++            if file_digest(job['directory'] / 'bundle.zip') != job['result']['bundle_sha256']:
++                raise ValueError('Revision mismatch')
++        except (ValueError, OSError, KeyError):
++            raise HTTPException(409, 'Bound artifact evidence is unavailable or changed') from None
++        return FileResponse(job['directory'] / 'bundle.zip', media_type='application/zip',
++                            filename=f"mirum-cem-{job['result']['output_id']}.zip")
++
++    @app.post('/cem/glider/flight-test')
++    @limiter.limit('10/minute')
++    async def glider_flight_test(body: FlightTestRequest, request: Request):
++        report = jobs.completed(body.design_job_id, 'design')['result']
++        if report['output_id'] != body.output_id or report['status'] != 'screened':
++            raise HTTPException(409, 'Flight test must identify a completed screened design')
++        if body.measured.launch_method != 'drop' or report['requirements']['launch']['method'] != 'drop':
++            raise HTTPException(422, 'Profile drag is not identifiable from a powered release without independent launch energy evidence')
++        if report['requirements']['environment']['kind'] != 'still_air':
++            raise HTTPException(422, 'Calibration requires a still-air flight log in this version')
++        aero = report['closure']['reanalysis']
++        observed = body.measured
++        if observed.distance_m is None:
++            raise HTTPException(422, 'Distance is needed to identify drag independently of duration and launch efficiency')
++        ld = observed.distance_m / observed.launch_height_m
++        cd = aero['CL_trim'] / ld
++        profile = aero['cd_profile']
++        ratio = (cd - (aero['CD_trim'] - profile)) / profile
++        # Observed range/time must be compatible with the pinned trim model.
++        measured_speed = math.hypot(observed.distance_m, observed.launch_height_m) / observed.duration_s
++        if abs(measured_speed / aero['glide_speed_m_s'] - 1) > .20:
++            raise HTTPException(422, 'Observed flight speed is outside the fixed-trim calibration envelope')
++        try:
++            base = report['calibration']
++            absolute_factor = base['cd0_factor']['median'] * ratio
++            updated = calibration.update_drag(base, [absolute_factor])
++            updated['flight_test'] = dict(output_id=body.output_id, measured=observed.model_dump(),
++                                         elite_id=report['elite_id'], design_revision_sha256=report['design_revision_sha256'],
++                                         cem_version=report['cem_version'],
++                                         assumptions='Still air, fixed trim speed, unchanged mass/CL/e; profile drag alone updated')
++            identifier = calibration.save(updated)
++        except (ValueError, OSError, KeyError):
++            raise HTTPException(422, 'Flight evidence cannot support a bounded calibration update') from None
++        return dict(calibration_version=identifier, parent_calibration_version=report['calibration_version'],
++                    coefficients_updated=['cd0_factor'], other_coefficients='not_identifiable; unchanged',
++                    archive_rescore='Run discovery with the new calibration_version; old outputs retain their pinned version')
+diff --git a/backend/cem/app.py b/backend/cem/app.py
+new file mode 100644
+index 0000000..2115a3d
+--- /dev/null
++++ b/backend/cem/app.py
+@@ -0,0 +1,25 @@
++"""Provider-free CEM/glider host: uvicorn cem.app:app --app-dir backend."""
++from contextlib import asynccontextmanager
++from fastapi import FastAPI
++from slowapi import Limiter, _rate_limit_exceeded_handler
++from slowapi.errors import RateLimitExceeded
++from slowapi.util import get_remote_address
++from cem.api import attach_cem_routes, jobs
++from gliders.api import attach_glider_routes, jobs as glider_jobs
++
++
++@asynccontextmanager
++async def lifespan(app):
++    try:
++        yield
++    finally:
++        await jobs.close()
++        await glider_jobs.close()
++
++
++app = FastAPI(title='Mirum physics-based glider CEM', lifespan=lifespan)
++limiter = Limiter(key_func=get_remote_address)
++app.state.limiter = limiter
++app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
++attach_cem_routes(app, limiter)
++attach_glider_routes(app, limiter)
+diff --git a/backend/cem/calibration/glider.json b/backend/cem/calibration/glider.json
+new file mode 100644
+index 0000000..9156c16
+--- /dev/null
++++ b/backend/cem/calibration/glider.json
+@@ -0,0 +1,21 @@
++{
++  "version": "uncalibrated-1",
++  "state": "engineering_priors_not_flight_validated",
++  "cd0_factor": {"median": 1.0, "log_sigma": 0.18},
++  "cl_max_factor": {"median": 1.0, "log_sigma": 0.10},
++  "oswald_factor": {"median": 1.0, "log_sigma": 0.08},
++  "eta_launch": {
++    "drop": {"median": 0.0, "log_sigma": 0.0},
++    "hand_toss": {"median": 0.6, "log_sigma": 0.20},
++    "discus": {"median": 0.6, "log_sigma": 0.20},
++    "catapult": {"median": 0.6, "log_sigma": 0.20},
++    "hi_start": {"median": 0.6, "log_sigma": 0.20}
++  },
++  "mass_factor": {
++    "sheet_foam": {"median": 1.0, "log_sigma": 0.08},
++    "balsa": {"median": 1.0, "log_sigma": 0.10},
++    "fdm_lwpla": {"median": 1.0, "log_sigma": 0.15},
++    "fdm_pla": {"median": 1.0, "log_sigma": 0.08},
++    "hybrid": {"median": 1.0, "log_sigma": 0.12}
++  }
++}
+diff --git a/backend/cem/core.py b/backend/cem/core.py
+new file mode 100644
+index 0000000..c8ef29d
+--- /dev/null
++++ b/backend/cem/core.py
+@@ -0,0 +1,40 @@
++"""Domain-independent identity and stage contracts."""
++from __future__ import annotations
++
++import hashlib
++import json
++from typing import Protocol
++
++from pydantic import BaseModel, ConfigDict
++
++
++class StrictModel(BaseModel):
++    model_config = ConfigDict(extra='forbid', strict=True, frozen=True, allow_inf_nan=False)
++
++
++def canonical_json(value) -> str:
++    if isinstance(value, BaseModel):
++        value = value.model_dump(mode='json')
++    return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True, allow_nan=False)
++
++
++def digest(value) -> str:
++    return hashlib.sha256(canonical_json(value).encode()).hexdigest()
++
++
++def output_id(requirements, cem_version: str, calibration_version: str) -> str:
++    # A structured envelope prevents ambiguous string concatenation.
++    return digest(dict(requirements=requirements.model_dump(mode='json'),
++                       cem_version=cem_version, calibration_version=calibration_version))[:12]
++
++
++class CEM(Protocol):
++    name: str
++    version: str
++    Requirements: type[BaseModel]
++
++    def feasibility(self, req) -> dict: ...
++    def size(self, req, budget: int): ...
++    def build(self, design) -> dict: ...
++    def verify(self, design, bundle) -> dict: ...
++    def report(self, *args, **kwargs) -> dict: ...
+diff --git a/backend/cem/data/airfoil_bounds.json b/backend/cem/data/airfoil_bounds.json
+new file mode 100644
+index 0000000..b9da4b0
+--- /dev/null
++++ b/backend/cem/data/airfoil_bounds.json
+@@ -0,0 +1,214 @@
++{
++  "rows": [
++    {
++      "cl_1_5_over_cd_upper": 17.504998611997795,
++      "ld_upper": 18.712570835345613,
++      "reynolds": 30000,
++      "samples": [
++        {
++          "airfoil": "sd7037",
++          "cl_1_5_over_cd": 10.077577248426408,
++          "ld": 12.182986108943204
++        },
++        {
++          "airfoil": "ag24",
++          "cl_1_5_over_cd": 16.204928043296192,
++          "ld": 16.467359947843196
++        },
++        {
++          "airfoil": "ag25",
++          "cl_1_5_over_cd": 16.964989767233014,
++          "ld": 17.41272236127402
++        },
++        {
++          "airfoil": "s1223",
++          "cl_1_5_over_cd": 6.825193284061321,
++          "ld": 6.585646981340397
++        },
++        {
++          "airfoil": "naca2408",
++          "cl_1_5_over_cd": 17.504998611997795,
++          "ld": 18.712570835345613
++        },
++        {
++          "airfoil": "naca2412",
++          "cl_1_5_over_cd": 7.557552136914101,
++          "ld": 9.375034090651132
++        }
++      ]
++    },
++    {
++      "cl_1_5_over_cd_upper": 21.93514671936148,
++      "ld_upper": 24.283042137548474,
++      "reynolds": 50000,
++      "samples": [
++        {
++          "airfoil": "sd7037",
++          "cl_1_5_over_cd": 21.83091196880296,
++          "ld": 21.970220661482617
++        },
++        {
++          "airfoil": "ag24",
++          "cl_1_5_over_cd": 21.666552151988657,
++          "ld": 23.297160042729377
++        },
++        {
++          "airfoil": "ag25",
++          "cl_1_5_over_cd": 21.93514671936148,
++          "ld": 23.937270428251132
++        },
++        {
++          "airfoil": "s1223",
++          "cl_1_5_over_cd": 20.6354308284569,
++          "ld": 19.01673497804136
++        },
++        {
++          "airfoil": "naca2408",
++          "cl_1_5_over_cd": 21.66745495853567,
++          "ld": 24.283042137548474
++        },
++        {
++          "airfoil": "naca2412",
++          "cl_1_5_over_cd": 20.879354171139997,
++          "ld": 21.204819898708003
++        }
++      ]
++    },
++    {
++      "cl_1_5_over_cd_upper": 26.907859810908644,
++      "ld_upper": 31.819292230503724,
++      "reynolds": 100000,
++      "samples": [
++        {
++          "airfoil": "sd7037",
++          "cl_1_5_over_cd": 26.907859810908644,
++          "ld": 29.958956457606842
++        },
++        {
++          "airfoil": "ag24",
++          "cl_1_5_over_cd": 26.631756679976444,
++          "ld": 31.26073784928834
++        },
++        {
++          "airfoil": "ag25",
++          "cl_1_5_over_cd": 26.839874776306107,
++          "ld": 31.819292230503724
++        },
++        {
++          "airfoil": "s1223",
++          "cl_1_5_over_cd": 26.030323222418886,
++          "ld": 24.04627161108155
++        },
++        {
++          "airfoil": "naca2408",
++          "cl_1_5_over_cd": 26.70554778308794,
++          "ld": 31.13298996064836
++        },
++        {
++          "airfoil": "naca2412",
++          "cl_1_5_over_cd": 25.911017579439573,
++          "ld": 28.781388443357724
++        }
++      ]
++    },
++    {
++      "cl_1_5_over_cd_upper": 30.80928558859971,
++      "ld_upper": 40.42493275946372,
++      "reynolds": 200000,
++      "samples": [
++        {
++          "airfoil": "sd7037",
++          "cl_1_5_over_cd": 30.80928558859971,
++          "ld": 38.79036525960285
++        },
++        {
++          "airfoil": "ag24",
++          "cl_1_5_over_cd": 30.45974161457642,
++          "ld": 39.80747388230918
++        },
++        {
++          "airfoil": "ag25",
++          "cl_1_5_over_cd": 30.690996820942612,
++          "ld": 40.42493275946372
++        },
++        {
++          "airfoil": "s1223",
++          "cl_1_5_over_cd": 27.984624564373732,
++          "ld": 26.980745783958884
++        },
++        {
++          "airfoil": "naca2408",
++          "cl_1_5_over_cd": 30.40691031657651,
++          "ld": 39.315609137414526
++        },
++        {
++          "airfoil": "naca2412",
++          "cl_1_5_over_cd": 29.412746313693653,
++          "ld": 36.17300689641585
++        }
++      ]
++    },
++    {
++      "cl_1_5_over_cd_upper": 34.76593006497145,
++      "ld_upper": 49.60498572969427,
++      "reynolds": 500000,
++      "samples": [
++        {
++          "airfoil": "sd7037",
++          "cl_1_5_over_cd": 34.76593006497145,
++          "ld": 48.279179633472296
++        },
++        {
++          "airfoil": "ag24",
++          "cl_1_5_over_cd": 34.25242717924646,
++          "ld": 48.61530322180713
++        },
++        {
++          "airfoil": "ag25",
++          "cl_1_5_over_cd": 34.5273898437883,
++          "ld": 49.60498572969427
++        },
++        {
++          "airfoil": "s1223",
++          "cl_1_5_over_cd": 30.030598330279748,
++          "ld": 29.774139294382397
++        },
++        {
++          "airfoil": "naca2408",
++          "cl_1_5_over_cd": 34.10343364273289,
++          "ld": 48.75394378992365
++        },
++        {
++          "airfoil": "naca2412",
++          "cl_1_5_over_cd": 32.99549163551404,
++          "ld": 43.89860848640811
++        }
++      ]
++    }
++  ],
++  "scope": "Optimistic sampled-model envelope, not a universal physical impossibility proof",
++  "source": {
++    "aerosandbox": "4.2.10",
++    "airfoils": [
++      "sd7037",
++      "ag24",
++      "ag25",
++      "s1223",
++      "naca2408",
++      "naca2412"
++    ],
++    "alpha_deg": [
++      -2,
++      14,
++      65
++    ],
++    "confidence_floor": 0.8,
++    "max_aspect_ratio": 14.0,
++    "model_size": "large",
++    "neuralfoil": "0.3.3",
++    "oswald_upper": 1.0,
++    "profile_drag_divisor": 1.25,
++    "xfoil": "not_cross_validated"
++  },
++  "version": "neuralfoil-envelope-1"
++}
+diff --git a/backend/cem/evidence.py b/backend/cem/evidence.py
+new file mode 100644
+index 0000000..a437dd0
+--- /dev/null
++++ b/backend/cem/evidence.py
+@@ -0,0 +1,156 @@
++"""Parent-side bounded report and artifact validation. Missing evidence is a failure."""
++import hashlib
++import json
++import math
++from pathlib import Path
++import re
++import zipfile
++
++from cem.core import digest
++from cem.core import canonical_json
++
++
++def file_digest(path, maximum=64*1024*1024):
++    if path.is_symlink() or not path.is_file() or path.stat().st_size > maximum:
++        raise ValueError('Artifact outside evidence budget')
++    h = hashlib.sha256()
++    with path.open('rb') as f:
++        for chunk in iter(lambda: f.read(65536), b''):
++            h.update(chunk)
++    return h.hexdigest()
++
++
++def number(value, minimum=None, maximum=None):
++    if type(value) not in (int, float) or not math.isfinite(value):
++        raise ValueError('Missing finite numerical evidence')
++    if minimum is not None and value < minimum or maximum is not None and value > maximum:
++        raise ValueError('Evidence outside required bounds')
++    return value
++
++
++def validate(report, payload, expected, directory):
++    def finite_tree(value):
++        if isinstance(value, float) and not math.isfinite(value):
++            raise ValueError('Nonfinite report evidence')
++        if isinstance(value, dict):
++            for child in value.values(): finite_tree(child)
++        elif isinstance(value, list):
++            for child in value: finite_tree(child)
++    finite_tree(report)
++    if not isinstance(report, dict) or any(report.get(k) != v for k, v in expected.items()):
++        raise ValueError('Stale CEM evidence')
++    if report.get('requirements') != payload['requirements'] or report.get('calibration') != payload['calibration']:
++        raise ValueError('Report input binding missing')
++    if report.get('engineering_certified') is not False:
++        raise ValueError('Unsupported certification claim')
++    if payload['kind'] == 'discovery':
++        if report.get('status') != 'completed' or not isinstance(report.get('candidates'), list) or not isinstance(report.get('per_process'), dict):
++            raise ValueError('Missing archive evidence')
++        archive = [e for p in report['per_process'].values() for e in p['archive']]
++        by_id = {e['elite_id']: e for e in archive}
++        identifiers = set()
++        for elite in archive:
++            if not re.fullmatch(r'[a-f0-9]{16}', elite['elite_id']) or elite['elite_id'] in identifiers:
++                raise ValueError('Invalid elite identity')
++            identifiers.add(elite['elite_id'])
++            revision = digest(dict(process=elite['process'], parameters=elite['parameters'], placement=elite['placement']))[:16]
++            if revision != elite['elite_id']:
++                raise ValueError('Elite parameters do not match its revision')
++            result = elite['result']
++            if result.get('valid') is not True or result.get('fail_reasons'):
++                raise ValueError('Archive contains failed evidence')
++            for key in ('mass_kg', 'CL_trim', 'CD_trim', 'CLmax_est', 'glide_speed_m_s', 'objective_value'):
++                number(result.get(key), 0.)
++            number(result['validity_envelope']['min_confidence'], .8, 1.)
++            number(result['validity_envelope']['min_station_reynolds'], 30000.)
++            if result['manufacturability']['state'] != 'passed':
++                raise ValueError('Missing process admission')
++            if elite.get('novelty_state') != 'not_claimed' or elite.get('verification_state') != 'screened_existing_layout':
++                raise ValueError('Unqualified novelty')
++        for elite in report['candidates']:
++            if elite['elite_id'] not in identifiers or canonical_json(elite) != canonical_json(by_id[elite['elite_id']]):
++                raise ValueError('Candidate differs from archive evidence')
++        for process, data in report['per_process'].items():
++            if any(e['process'] != process for e in data['archive']):
++                raise ValueError('Process archive mismatch')
++            best = data.get('best')
++            if data['archive']:
++                if best is None or best['elite_id'] not in identifiers or canonical_json(best) != canonical_json(by_id[best['elite_id']]):
++                    raise ValueError('Best candidate differs from archive evidence')
++                if best['result']['objective_value'] < max(e['result']['objective_value'] for e in data['archive']):
++                    raise ValueError('Best candidate does not match archive ranking')
++            elif best is not None:
++                raise ValueError('Best candidate lacks archive evidence')
++        return
++    if (report.get('accepted_for_manufacture') is not False or report.get('status') not in ('screened', 'rejected')
++            or report.get('elite_id') != payload['elite']['elite_id'] or report.get('process') != payload['elite']['process']):
++        raise ValueError('Invalid design claims')
++    closure = report.get('closure')
++    if not isinstance(closure, dict) or closure.get('state') not in ('passed', 'failed') or not isinstance(closure.get('failures'), list):
++        raise ValueError('Missing closure evidence')
++    if report['status'] == 'rejected':
++        if closure['state'] != 'failed' and report.get('minimum_performance_passed') is not False:
++            raise ValueError('Inconsistent rejected report')
++        return
++    if closure['state'] != 'passed' or closure['failures'] or report.get('minimum_performance_passed') is not True:
++        raise ValueError('Screened design failed closure')
++    number(closure.get('mass_relative_error'), 0., .05)
++    number(closure.get('measured_mass_kg'), 0.000001, payload['requirements']['constraints']['max_mass_kg'])
++    aero = closure['reanalysis']
++    if aero.get('valid') is not True or aero.get('fail_reasons'):
++        raise ValueError('Measured-mass analysis did not pass')
++    number(closure.get('measured_spar_stress_pa'), 0., aero['spar']['allowable_with_sf_pa'] * (1+1e-5))
++    number(closure.get('measured_spar_root_inertia_m4'), 1e-16)
++    for key in ('CL_trim', 'CD_trim', 'CLmax_est', 'glide_speed_m_s', 'objective_value', 'static_margin'):
++        number(aero.get(key), 0.)
++    number(aero['validity_envelope']['min_confidence'], .8, 1.)
++    number(aero['validity_envelope']['min_station_reynolds'], 30000.)
++    bands = report['uncertainty']
++    if bands.get('samples') != 200 or bands.get('sustained_samples') != 0:
++        raise ValueError('Missing unconditional uncertainty evidence')
++    for key in ('duration_s', 'distance_m'):
++        band = bands['bands'][key]
++        if not (0 <= number(band['p10']) <= number(band['p50']) <= number(band['p90'])):
++            raise ValueError('Invalid performance band')
++    hard = payload['requirements'].get('minimum_performance')
++    if hard is not None and bands['bands'][payload['requirements']['objective']]['p10'] < hard:
++        raise ValueError('Hard minimum not met at P10')
++    manifest = report['bundle']['parts']
++    if not isinstance(manifest, list) or not 3 <= len(manifest) <= 16 or len(closure['parts']) != len(manifest):
++        raise ValueError('Incomplete mesh accounting')
++    seen = set()
++    for part in manifest:
++        name = part['file']
++        if (not re.fullmatch(r'[a-f0-9]{12}_[A-Za-z0-9_-]+\.stl', name)
++                or not name.startswith(expected['output_id'] + '_') or name in seen):
++            raise ValueError('Unsafe or duplicate artifact name')
++        seen.add(name)
++        if file_digest(directory / name) != part['sha256']:
++            raise ValueError('Artifact revision mismatch')
++        measurement = next((m for m in closure['parts'] if m['name'] == part['name']), None)
++        if not measurement or measurement['sha256'] != part['sha256']:
++            raise ValueError('Missing artifact measurement binding')
++        number(measurement['mass_kg'], .000000001)
++        number(measurement['volume_m3'], .000000000001)
++    bundle = directory / 'bundle.zip'
++    if file_digest(bundle) != report.get('bundle_sha256'):
++        raise ValueError('Bundle revision mismatch')
++    with zipfile.ZipFile(bundle) as z:
++        names = z.namelist()
++        if len(names) != len(set(names)) or len(names) > 64 or sum(i.file_size for i in z.infolist()) > 64*1024*1024:
++            raise ValueError('Invalid archive budget')
++        if any(Path(name).name != name or '\\' in name or ':' in name for name in names) or not (seen | {'design.json', 'performance_report.json'}).issubset(names):
++            raise ValueError('Invalid archive accounting')
++        inner = json.loads(z.read('performance_report.json'))
++        if canonical_json(inner) != canonical_json({k:v for k,v in report.items() if k != 'bundle_sha256'}):
++            raise ValueError('Archive report differs from validated evidence')
++        design = json.loads(z.read('design.json'))
++        if design.get('requirements') != payload['requirements'] or design.get('calibration') != payload['calibration']:
++            raise ValueError('Bundle input mismatch')
++        revision = digest(dict(identity=expected, parameters=payload['elite']['parameters'],
++                               placement=design['final_placement'], process=payload['elite']['process']))
++        if report.get('design_revision_sha256') != revision or design.get('design_revision_sha256') != revision:
++            raise ValueError('Final design revision mismatch')
++        for part in manifest:
++            if hashlib.sha256(z.read(part['file'])).hexdigest() != part['sha256']:
++                raise ValueError('Archive geometry differs from measured artifact')
+diff --git a/backend/cem/extraction.py b/backend/cem/extraction.py
+new file mode 100644
+index 0000000..95416ab
+--- /dev/null
++++ b/backend/cem/extraction.py
+@@ -0,0 +1,61 @@
++"""Thin optional LLM translator. Explicit ambiguity and human review precede physics."""
++import asyncio
++import json
++import re
++
++from pydantic import Field
++from cem.core import StrictModel
++from cem.glider.requirements import GliderMissionRequirements
++
++
++class TextRequest(StrictModel):
++    prompt: str = Field(min_length=1, max_length=5000)
++
++
++def clarifications(prompt):
++    text = prompt.lower()
++    questions = []
++    if (re.search(r'\b\d+(?:\.\d+)?\s*(?:m|metres?|meters?)\s+(?:of\s+)?(?:flight\s+)?(?:duration|seconds?|time)', text)
++            or re.search(r'\b(?:duration|time)\b.{0,20}\b\d+(?:\.\d+)?\s*(?:m|metres?|meters?)\b', text)):
++        questions.append('Does the flight objective mean distance in metres or duration in seconds?')
++    if not re.search(r'\b(drop|dropped|hand[ -]toss|discus|catapult|hi[ -]start)\b', text):
++        questions.append('Which launch method: drop, hand toss, discus, catapult or hi-start?')
++    if not re.search(r'\b(maximi[sz]e|maximum|as far|as long|stretch goal|reference target)\b', text):
++        questions.append('Should Mirum maximize performance, and is the stated value a reference goal or a hard minimum?')
++    return questions
++
++
++async def extract(prompt):
++    questions = clarifications(prompt)
++    if questions:
++        return dict(status='needs_clarification', questions=questions)
++    import google.generativeai as genai
++    from config import GEMINI_MODEL_PRO
++    # A deliberately flat SDK schema: no anyOf/exclusiveMinimum/$ref conversion.
++    schema = dict(type='object', properties={
++        'requirements_json': dict(type='string'),
++        'questions': dict(type='array', items=dict(type='string'))},
++        required=['requirements_json', 'questions'])
++    model = genai.GenerativeModel(GEMINI_MODEL_PRO, system_instruction=(
++        'Translate the user request into the attached typed engineering requirements schema. '
++        'Never calculate physics, performance, sizing or geometry. Never output executable code. '
++        'Return requirements_json as a JSON string and questions as an array. '
++        'If units, launch or objective are ambiguous, return questions and an empty requirements_json. '
++        'Use mode=maximize; reference_target is advisory. Put an explicitly requested hard minimum '
++        'in minimum_performance. All environmental effects other than still air require explicit user choice. '
++        'Use only documented defaults and make the result reviewable. Schema: ' +
++        json.dumps(GliderMissionRequirements.model_json_schema())))
++    response = await asyncio.wait_for(model.generate_content_async(prompt, generation_config={
++        'temperature': 0, 'max_output_tokens': 4096, 'response_mime_type': 'application/json',
++        'response_schema': schema}), timeout=30)
++    if len(response.text) > 32768:
++        raise ValueError('Extraction exceeded response budget')
++    value = json.loads(response.text)
++    questions = value.get('questions')
++    if not isinstance(questions, list) or len(questions) > 8 or any(not isinstance(q, str) or len(q) > 500 for q in questions):
++        raise ValueError('Malformed clarification evidence')
++    if questions:
++        return dict(status='needs_clarification', questions=questions)
++    req = GliderMissionRequirements.model_validate_json(value['requirements_json'])
++    return dict(status='review_requirements', requirements=req.model_dump(mode='json'),
++                detail='Review defaults, units and hard minimum before submitting a physics job.')
+diff --git a/backend/cem/glider/__init__.py b/backend/cem/glider/__init__.py
+new file mode 100644
+index 0000000..93d40cb
+--- /dev/null
++++ b/backend/cem/glider/__init__.py
+@@ -0,0 +1 @@
++"""Glider computational engineering stages."""
+diff --git a/backend/cem/glider/calibration.py b/backend/cem/glider/calibration.py
+new file mode 100644
+index 0000000..9e12c79
+--- /dev/null
++++ b/backend/cem/glider/calibration.py
+@@ -0,0 +1,77 @@
++"""Immutable content-addressed calibration snapshots and identifiable updates."""
++import copy
++import json
++import math
++import os
++from pathlib import Path
++import re
++
++from cem.core import canonical_json, digest
++
++DEFAULT = Path(__file__).parents[1] / 'calibration/glider.json'
++
++
++def initial():
++    return json.loads(DEFAULT.read_text())
++
++
++def version(calibration):
++    return digest(calibration)
++
++
++def root():
++    return Path(os.environ.get('MIRUM_WORK_DIR', '/tmp/mirum/work')) / 'cem/calibration'
++
++
++def load(identifier=None):
++    base = initial()
++    if identifier in (None, version(base)):
++        return base
++    if not re.fullmatch(r'[0-9a-f]{64}', identifier):
++        raise ValueError('Invalid calibration version')
++    path = root() / f'{identifier}.json'
++    if path.stat().st_size > 65536:
++        raise ValueError('Calibration evidence exceeds budget')
++    value = json.loads(path.read_text())
++    if version(value) != identifier:
++        raise ValueError('Calibration content does not match its version')
++    return value
++
++
++def update_drag(calibration, observed_ratios):
++    """Log-normal update of identifiable *profile* drag observations only.
++
++    Each ratio comes from a fully specified flight condition with known measured
++    launch height. Launch efficiency, mass, CLmax and e are NOT simultaneously
++    fitted from duration/range: those coefficients are not identifiable there.
++    """
++    if not observed_ratios or len(observed_ratios) > 200:
++        raise ValueError('A bounded set of observations is required')
++    if any(not math.isfinite(x) or not .25 <= x <= 4 for x in observed_ratios):
++        raise ValueError('Observation outside supported calibration envelope')
++    updated = copy.deepcopy(calibration)
++    p = calibration['cd0_factor']
++    prior_precision = 1 / p['log_sigma'] ** 2
++    noise_sigma = .10
++    precision = prior_precision + len(observed_ratios) / noise_sigma**2
++    mean = (math.log(p['median']) * prior_precision +
++            sum(math.log(x) for x in observed_ratios) / noise_sigma**2) / precision
++    updated['cd0_factor'] = dict(median=math.exp(mean), log_sigma=math.sqrt(1 / precision))
++    updated.update(version='flight-posterior-1', parent=version(calibration),
++                   state='flight_updated_screening_model', observation_count=len(observed_ratios))
++    return updated
++
++
++def save(calibration):
++    identifier = version(calibration)
++    root().mkdir(parents=True, exist_ok=True)
++    path = root() / f'{identifier}.json'
++    # Content-addressed immutable writes; concurrent updates produce distinct
++    # versions and cannot silently overwrite each other's "latest" calibration.
++    try:
++        with path.open('x') as f:
++            f.write(canonical_json(calibration))
++    except FileExistsError:
++        if load(identifier) != calibration:
++            raise ValueError('Calibration collision')
++    return identifier
+diff --git a/backend/cem/glider/closure.py b/backend/cem/glider/closure.py
+new file mode 100644
+index 0000000..001a2b7
+--- /dev/null
++++ b/backend/cem/glider/closure.py
+@@ -0,0 +1,98 @@
++"""Independent mesh import, mass/inertia re-prediction and immutable-placement trim."""
++import copy
++import math
++from pathlib import Path
++
++import numpy as np
++
++from gliders.model.assembly import Glider
++from .geometry import measure_part
++from .model import SizedGlider, evaluate_candidate
++
++
++class MeasuredGlider(SizedGlider):
++    def balance(self, x_cg_target):
++        # Geometry, payload and ballast are fixed for the closure solve. The
++        # solver must not rebalance an unbuilt candidate and call it measured.
++        pass
++
++    def mass_summary(self, include_ballast=True, include_payload=True):
++        parts = self.measured_parts
++        masses = [p['mass_kg'] for p in parts]
++        centers = [np.asarray(p['cg_m']) for p in parts]
++        inertias = [np.asarray(p['inertia_kg_m2']) for p in parts]
++        by_part = {p['name']: p['mass_kg'] for p in parts}
++        base = Glider.mass_items(self, include_ballast, include_payload)
++        for item in base:
++            if item.name in ('payload', 'ballast', 'hardware'):
++                masses.append(item.mass)
++                centers.append(np.array([item.x, item.y, item.z]))
++                inertias.append(np.zeros((3, 3)))
++                by_part[item.name] = by_part.get(item.name, 0.) + item.mass
++        mass = sum(masses)
++        cg = sum(m * c for m, c in zip(masses, centers)) / mass
++        inertia = np.zeros((3, 3))
++        for m, c, moment in zip(masses, centers, inertias):
++            displacement = c - cg
++            inertia += moment + m * (np.dot(displacement, displacement) * np.eye(3) - np.outer(displacement, displacement))
++        return dict(mass=mass, cg=cg, Ixx=inertia[0, 0], Iyy=inertia[1, 1], Izz=inertia[2, 2], by_part=by_part)
++
++
++def verify(gl, sized_result, bundle, directory, request, mission, calibration, process):
++    failures, parts = [], []
++    try:
++        for item in bundle['parts']:
++            # All paths originate from the trusted builder, still enforce local
++            # containment and exact revision binding before reading any bytes.
++            path = (directory / item['file']).resolve()
++            if not path.is_relative_to(directory.resolve()):
++                raise ValueError('Artifact path outside bundle')
++            measured = measure_part(path, item['material'])
++            if measured['sha256'] != item['sha256']:
++                raise ValueError('Mesh changed after construction')
++            parts.append(dict(name=item['name'], **measured))
++        lower = np.min([p['bounds_m'][0] for p in parts], axis=0)
++        upper = np.max([p['bounds_m'][1] for p in parts], axis=0)
++        if upper[0] - lower[0] > mission.constraints.max_length_m + 1e-6 or upper[1] - lower[1] > mission.constraints.max_span_m + 1e-6:
++            failures.append('delivered mesh exceeds the approved dimensional envelope')
++        measured = MeasuredGlider(gl.wing, gl.fuse, gl.tail, copy.deepcopy(gl.cfg),
++            ballast_kg=gl.ballast_kg, tail_incidence_deg=gl.tail_incidence_deg,
++            payload_x=gl.payload_x, wing_x=gl.wing_x)
++        measured.measured_parts = parts
++        nose, end = measured.fuse.pod_range()
++        fraction = (measured.wing_position()[0] - nose) / (end - nose)
++        measured.cfg['ranges']['fuselage']['wing_station_in_pod'] = (fraction, fraction)
++        mass = measured.mass_summary()['mass']
++        delta = abs(mass / sized_result['mass_kg'] - 1)
++        if delta > .05:
++            failures.append('measured skin-equivalent mass differs from sizing by more than 5 percent')
++        result = evaluate_candidate(measured, request, mission, calibration, process)
++        if not result['valid']:
++            failures.append('measured-mass aerodynamic admission failed: ' + result['fail_reasons'])
++        if abs(measured.tail_incidence_deg - gl.tail_incidence_deg) > .05:
++            failures.append('measured-mass trim requires a geometry revision')
++        spar_part = next(p for p in parts if p['name'] == 'spar')
++        bounds = np.array(spar_part['bounds_m'])
++        # Recover the uniform Y-axis rod's actual polygon section moment from
++        # its measured solid inertia. Do not substitute an ideal circular formula
++        # for the delivered tessellation's cross-section.
++        moment = np.array(spar_part['inertia_kg_m2'])
++        density = spar_part['material_law']['density_kg_m3']
++        length = bounds[1, 1] - bounds[0, 1]
++        section_ixx = (moment[1, 1] + moment[0, 0] - moment[2, 2]) / (2 * density * length)
++        if not math.isfinite(section_ixx) or section_ixx <= 0:
++            raise ValueError('Missing measured root section inertia')
++        extreme_z = max(abs(bounds[:, 2] - spar_part['cg_m'][2]))
++        stress = gl.spar()['root_moment_nm'] * extreme_z / section_ixx
++        if stress > gl.spar()['allowable_with_sf_pa'] * (1 + 1e-5):
++            failures.append('measured spar fails launch bending')
++        return dict(state='failed' if failures else 'passed', failures=failures,
++                    mass_relative_error=float(delta), measured_mass_kg=float(mass),
++                    measured_spar_stress_pa=float(stress), parts=parts, reanalysis=result,
++                    measured_spar_root_inertia_m4=float(section_ixx),
++                    delivered_bounds_m=[lower.tolist(), upper.tolist()],
++                    scope='Mesh-measured OML skin-equivalent mass and solid rod; not manufactured-part closure',
++                    manufacturing_ready=False)
++    except (ValueError, KeyError, OSError, StopIteration, TypeError):
++        return dict(state='failed', failures=['Required bounded mesh or closure evidence is unavailable'],
++                    manufacturing_ready=False)
+diff --git a/backend/cem/glider/discovery.py b/backend/cem/glider/discovery.py
+new file mode 100644
+index 0000000..b5d84df
+--- /dev/null
++++ b/backend/cem/glider/discovery.py
+@@ -0,0 +1,83 @@
++"""Bounded MAP-Elites over the existing qualified layouts and parameter search.
++
++Unsupported families are explicit capabilities, never ordinary conventional
++aircraft relabelled as novel. Independent solver rechecks are not implied.
++"""
++from collections import Counter
++from dataclasses import asdict
++import random
++
++from gliders.search import sample, finite_json
++from gliders.design_spec import preset, placement
++from .model import configuration, as_sized, evaluate_candidate, SUPPORTED_FAMILIES
++from .processes import PROCESSES
++
++ALL_FAMILIES = ['conventional', 't_tail', 'v_tail', 'tailless_swept', 'flying_plank',
++                'canard', 'tandem', 'box', 'blended_body']
++
++
++def cell(result):
++    return (result['tail_kind'], int(result['aspect_ratio'] // 2),
++            int(result['wing_loading_g_dm2'] // 2), int(result.get('sweep_qc_deg', 0) // 3))
++
++
++def discover(req, calibration, progress=lambda value: None):
++    processes = list(PROCESSES) if req.process == 'auto' else [req.process]
++    per_process, candidates, records = {}, [], []
++    for process in processes:
++        request, cfg = configuration(req, calibration, process)
++        rng = random.Random(req.discovery.seed)
++        archive, rejected, baseline = {}, Counter(), None
++        for i in range(req.discovery.budget_evals):
++            # A reproducible conventional comparator is always evaluated within
++            # budget. Random/local resampling remains the existing Mirum search.
++            if i == 0:
++                gl = preset(request).build()
++                gl.cfg = cfg
++                # A buildable, larger-chord comparator reduces low-Re artefacts
++                # without relaxing any admission threshold. These remain ordinary
++                # search candidates, never presumed feasible or a bound on optimum.
++                gl.wing.root_chord, gl.wing.taper = .18, .75
++                gl.wing.span = min(1.25, req.constraints.max_span_m)
++                if gl.tail.kind != 'V':
++                    gl.tail.h_root_chord, gl.tail.h_span = .10, .30
++                    gl.tail.v_root_chord, gl.tail.v_height, gl.tail.v_taper = .11, .12, .9
++            else:
++                parent = rng.choice([v[1] for _, v in sorted(archive.items())]) if archive and i % 4 else None
++                gl = sample(rng, cfg, i + 1, parent, radius=max(.05, .25*(1-i/req.discovery.budget_evals)))
++            gl = as_sized(gl)
++            result = evaluate_candidate(gl, request, req, calibration, process)
++            result['sweep_qc_deg'] = gl.wing.sweep_qc_deg
++            if i == 0:
++                baseline = result
++            records.append(dict(process=process, evaluation=i, result=finite_json(result)))
++            if result['valid']:
++                key = cell(result)
++                if key not in archive or result['objective_value'] > archive[key][0]['objective_value']:
++                    archive[key] = (result, gl)
++            else:
++                rejected.update(filter(None, result['fail_reasons'].split('; ')))
++            progress(dict(process=process, evaluated=i+1, budget=req.discovery.budget_evals,
++                          occupied_cells=len(archive)))
++        elites = []
++        for key, (result, gl) in sorted(archive.items()):
++            from cem.core import digest
++            parameters = dict(wing=asdict(gl.wing), fuselage=asdict(gl.fuse), tail=asdict(gl.tail))
++            revision = digest(dict(process=process, parameters=parameters, placement=placement(gl)))[:16]
++            value = finite_json(dict(elite_id=revision, process=process, cell=list(key), result=result,
++                parameters=parameters, placement=placement(gl),
++                verification_state='screened_existing_layout', novelty_state='not_claimed',
++                independent_recheck=dict(state='not_evaluated', missing=['XFOIL station polars', 'AVL trim and modes'])))
++            elites.append(value)
++        elites.sort(key=lambda x: (-x['result']['objective_value'], x['elite_id']))
++        per_process[process] = dict(best=elites[0] if elites else None, archive=elites,
++            rejections=dict(sorted(rejected.items())), baseline=finite_json(baseline),
++            reason_if_no_elite=None if elites else 'No design met the declared physics/model/process envelope')
++        candidates.extend(elites[:req.discovery.top_k])
++    selected = ALL_FAMILIES if req.discovery.families == 'all' else req.discovery.families
++    return dict(status='completed', per_process=per_process, candidates=candidates, evaluations=records,
++        search='seeded MAP-Elites over qualified conventional/T/V layouts; local resampling, no Opti refinement',
++        capabilities=dict(supported_families=list(SUPPORTED_FAMILIES),
++            unavailable_families=[f for f in selected if f not in SUPPORTED_FAMILIES],
++            novel_shape_discovery=False, picogk_builder=False,
++            advanced_environments=False, physical_calibration=calibration['state']))
+diff --git a/backend/cem/glider/feasibility.py b/backend/cem/glider/feasibility.py
+new file mode 100644
+index 0000000..bad6af7
+--- /dev/null
++++ b/backend/cem/glider/feasibility.py
+@@ -0,0 +1,69 @@
++"""Sub-second optimistic mission screen. A reference failure never stops search."""
++import json
++import math
++from pathlib import Path
++
++from .physics import atmosphere, launch_state, trajectory, G
++from .processes import PROCESSES
++
++
++def feasibility(req, calibration):
++    table = json.loads((Path(__file__).parents[1] / 'data/airfoil_bounds.json').read_text())
++    launch, air = launch_state(req.launch, calibration), atmosphere(req.environment)
++    processes = list(PROCESSES) if req.process == 'auto' else [req.process]
++    # Use the largest table bounds, not a guessed operating Re; no false rejection
++    # caused by selecting a pessimistic Reynolds bin before sizing.
++    ld = max(r['ld_upper'] for r in table['rows'])
++    efficiency = max(r['cl_1_5_over_cd_upper'] for r in table['rows'])
++    payload = req.constraints.payload.mass_kg if req.constraints.payload else 0.
++    # Maximum possible area within the existing chord/span envelope. Omitting
++    # spar, tail and pod is intentional for an optimistic loading lower bound.
++    max_area = req.constraints.max_span_m * .22
++    areal_min = min(PROCESSES[p]['wing_areal_density_kg_m2'] for p in processes)
++    loading = G * (areal_min + (payload + .010) / max_area)
++    sink = math.sqrt(2 * loading / air['density_kg_m3']) / efficiency
++    height = launch['effective_height_m']
++    env = req.environment
++    target = req.reference_target
++    required_ld = target / height if target and height > 0 and req.objective == 'distance_m' else None
++    required_sink = height / target if target and req.objective == 'duration_s' else None
++    bound = height * ld if req.objective == 'distance_m' else height / sink
++    qualified = env.kind == 'still_air'
++    calibration_matches = (all(calibration[k]['median'] == 1. for k in ('cd0_factor', 'cl_max_factor', 'oswald_factor'))
++                           and all(calibration['mass_factor'][p]['median'] == 1. for p in processes))
++    qualified = qualified and calibration_matches
++    if not qualified:
++        # Environment-dependent speed/lift coverage belongs to sizing. A finite
++        # still-air bound must never reject sustained lift or wind missions.
++        bound = None
++    verdict = 'marginal'
++    if target and qualified:
++        verdict = 'infeasible' if target > bound else 'marginal' if target > .8 * bound else 'feasible'
++    needed_height = (target / ld if req.objective == 'distance_m' else target * sink) if target else None
++    if not calibration_matches:
++        needed_height = None
++    levers = [dict(change='relax_reference_target', value=bound, unit=req.objective),
++              dict(change='effective_launch_height', value=needed_height, unit='m')]
++    if target and calibration_matches:
++        # Distance uplift bound assumes V_horizontal = optimistic L/D * sink.
++        desired_time = target / (ld * sink) if req.objective == 'distance_m' else target
++        levers.append(dict(change='mean_uplift', value=max(0., sink - height / desired_time), unit='m/s'))
++        levers.append(dict(change='wing_loading_for_duration', value=(height / desired_time * efficiency)**2 *
++                          air['density_kg_m3'] / 2, unit='N/m2'))
++    return dict(verdict=verdict, verdict_scope='sampled_model_envelope', continue_search=True,
++                objective=req.objective, reference_target=target, optimistic_bound=bound,
++                reference_gap=max(0., target - bound) if target and bound is not None else None,
++                required_lift_to_drag=required_ld, required_sink_m_s=required_sink,
++                optimistic_lift_to_drag=ld if calibration_matches else None,
++                optimistic_cl_1_5_over_cd=efficiency if calibration_matches else None,
++                optimistic_sink_m_s=sink if calibration_matches else None,
++                wing_loading_lower_bound_n_m2=loading if calibration_matches else None,
++                bound_state='sampled_initial_model' if calibration_matches else 'rebuild_required_for_calibration',
++                binding_constraint='aerodynamic efficiency / launch energy' if verdict == 'infeasible' else
++                                   'requires physics sizing; feasibility is not design acceptance',
++                launch=launch, atmosphere=air, levers=levers,
++                bounds_version=table['version'], bounds_source=table['source'],
++                assumptions=launch['assumptions'] + ['Optimistic maximum area; tail, spar and pod mass omitted.',
++                    'Finite-wing envelope assumes AR=14, e=1, profile drag divided by 1.25; body/tail drag omitted.',
++                    'Infeasible means outside this sampled-model envelope, not a universal physical proof.',
++                    'NeuralFoil envelope lacks independent XFOIL cross-validation and physical calibration.'])
+diff --git a/backend/cem/glider/geometry.py b/backend/cem/glider/geometry.py
+new file mode 100644
+index 0000000..cace29f
+--- /dev/null
++++ b/backend/cem/glider/geometry.py
+@@ -0,0 +1,154 @@
++"""Bounded closed OML meshes, with measured skin-equivalent mass properties.
++
++These are analysis/template bundles. They are not hollow FDM parts and must not
++be advertised as print-ready. Skin-equivalent mass is explicitly an areal law,
++not material density times the volume of a solid outer mould line.
++"""
++from pathlib import Path
++import hashlib
++import math
++import struct
++
++import numpy as np
++
++MAX_FACETS = 100000
++MAX_BYTES = 84 + 50 * MAX_FACETS
++
++
++def closed_mesh(rings):
++    import trimesh
++    vertices = np.vstack(rings)
++    n = len(rings[0])
++    faces = []
++    for j in range(len(rings) - 1):
++        for i in range(n):
++            a, b, c, d = j*n+i, j*n+(i+1)%n, (j+1)*n+i, (j+1)*n+(i+1)%n
++            faces.extend([(a, b, c), (b, d, c)])
++    # NACA sections and fuselage ellipse rings are star-shaped about their
++    # centroids. Explicit end caps belong to construction, never verifier repair.
++    for j, flip in [(0, True), (len(rings)-1, False)]:
++        center = len(vertices)
++        vertices = np.vstack([vertices, np.mean(rings[j], axis=0)])
++        for i in range(n):
++            face = (center, j*n+i, j*n+(i+1)%n)
++            faces.append(face[::-1] if flip else face)
++    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=True)
++    mesh.update_faces(mesh.nondegenerate_faces())
++    mesh.remove_unreferenced_vertices()
++    trimesh.repair.fix_normals(mesh, multibody=True)
++    return mesh
++
++
++def surface_meshes(surface):
++    from gliders.model.components import naca
++    # No duplicated closure point; finite NACA trailing edge is closed by a facet.
++    af = naca(surface.airfoil).repanel(n_points_per_side=33).coordinates
++    if np.linalg.norm(af[0] - af[-1]) < 1e-10:
++        af = af[:-1]
++    sections = surface.sections
++    rings = []
++    for j, s in enumerate(sections):
++        neighbor = sections[min(j+1, len(sections)-1)] if j < len(sections)-1 else sections[j-1]
++        direction = np.array([0., neighbor.y - s.y, neighbor.z - s.z])
++        if j == len(sections)-1:
++            direction *= -1
++        direction /= np.linalg.norm(direction)
++        normal = np.cross(np.array([1., 0., 0.]), direction)
++        t = math.radians(s.twist)
++        chord_axis = np.array([math.cos(t), 0., -math.sin(t)])
++        thickness_axis = normal * math.cos(t) + np.array([math.sin(t), 0., 0.])
++        rings.append(np.array([s.x, s.y, s.z]) + s.chord *
++                     (af[:, :1] * chord_axis + af[:, 1:] * thickness_axis))
++    meshes = [closed_mesh(rings)]
++    if surface.symmetric:
++        mirrored = meshes[0].copy()
++        mirrored.apply_scale([1., -1., 1.])
++        meshes.append(mirrored)
++    return meshes
++
++
++def build_meshes(gl):
++    import trimesh
++    parts = []
++    for surface in [gl.wing_surface(), *gl.tail_surfaces()]:
++        for side, mesh in enumerate(surface_meshes(surface)):
++            density = (gl.cfg['materials']['wing_areal_density_kg_m2'] if surface.role == 'wing'
++                       else gl.cfg['materials']['tail_areal_density_kg_m2']) / 2
++            parts.append((f'{surface.name}_{side}', mesh, dict(law='skin_equivalent', areal_density_kg_m2=density)))
++    # Match the existing fuselage cross-section model rather than replacing it
++    # with a visually similar ellipse.
++    ap = gl.fuse.to_asb()
++    rings = []
++    for xs in ap.xsecs:
++        # AeroSandbox's superellipse mesh uses its own cross-section definition.
++        y, z = xs.get_3D_coordinates(theta=np.linspace(0, 2*np.pi, 48, endpoint=False))[1:]
++        rings.append(np.column_stack([np.full(48, float(xs.xyz_c[0])), y, z]))
++    mesh = closed_mesh(rings)
++    parts.append(('fuselage', mesh, dict(law='skin_equivalent',
++                 areal_density_kg_m2=gl.cfg['materials']['fuselage_shell_areal_density_kg_m2'])))
++    spar = gl.spar()
++    transform = trimesh.geometry.align_vectors([0, 0, 1], [0, 1, 0])
++    transform[:3, 3] = [gl.wing_position()[0] + .3*gl.wing.root_chord, 0, gl.wing_position()[1]]
++    rod = trimesh.creation.cylinder(radius=spar['diameter_m']/2, height=spar['span_m'], sections=48, transform=transform)
++    parts.append(('spar', rod, dict(law='solid', density_kg_m3=1600.)))
++    return parts
++
++
++def export_bundle(gl, directory, output_id):
++    from gliders.model import export
++    import trimesh
++    directory.mkdir(parents=True, exist_ok=True)
++    manifest = []
++    for name, mesh, material in build_meshes(gl):
++        if len(mesh.faces) > MAX_FACETS or not mesh.is_watertight or not mesh.is_winding_consistent or mesh.volume <= 0:
++            raise ValueError(f'Construction did not produce a closed oriented {name} mesh')
++        path = directory / f'{output_id}_{name}.stl'
++        export.write_stl(str(path), mesh.vertices, mesh.faces)
++        with path.open('r+b') as f:
++            f.write(f'Mirum CEM {output_id}; mm; analysis OML'.encode().ljust(80, b' '))
++        manifest.append(dict(name=name, file=path.name, material=material,
++                             sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
++    export.export_templates(gl, str(directory))
++    for path in list(directory.glob('*.svg')):
++        if path.name.startswith(output_id + '_'):
++            continue
++        path.write_text(path.read_text().replace('<svg', f'<!-- Mirum CEM {output_id}; screening template -->\n<svg', 1))
++        path.rename(directory / f'{output_id}_{path.name}')
++    return dict(output_id=output_id, parts=manifest, manufacturing_ready=False,
++                geometry_kind='closed outer mould lines + solid spar; skin-equivalent analysis',
++                missing_features=['spar channels', 'rib layout', 'ballast/payload cavities', 'FDM shell/infill/bed splitting'])
++
++
++def measure_part(path, material):
++    import trimesh
++    if path.stat().st_size < 84 or path.stat().st_size > MAX_BYTES:
++        raise ValueError('Mesh size outside evidence budget')
++    with path.open('rb') as f:
++        f.read(80)
++        count = struct.unpack('<I', f.read(4))[0]
++    if count > MAX_FACETS or path.stat().st_size != 84 + 50 * count:
++        raise ValueError('Malformed binary STL or facet budget exceeded')
++    mesh = trimesh.load_mesh(path, file_type='stl', process=True)
++    mesh.apply_scale(.001)  # manufacturing STL units are mm
++    if not np.isfinite(mesh.vertices).all() or not mesh.is_watertight or not mesh.is_winding_consistent or mesh.volume <= 0:
++        raise ValueError('Required closed oriented geometry evidence is missing')
++    if material['law'] == 'solid':
++        props = mesh.mass_properties
++        mass = float(props['volume'] * material['density_kg_m3'])
++        cg = np.asarray(props['center_mass'])
++        inertia = np.asarray(props['inertia']) * material['density_kg_m3']
++    else:
++        triangles = mesh.triangles
++        masses = mesh.area_faces * material['areal_density_kg_m2']
++        mass = float(masses.sum())
++        cg = np.sum(masses[:, None] * triangles.mean(axis=1), axis=0) / mass
++        centered = triangles - cg
++        total = centered.sum(axis=1)
++        moments = (np.einsum('nki,nkj->nij', centered, centered) + np.einsum('ni,nj->nij', total, total)) / 12
++        inertia = np.sum(masses[:, None, None] * (np.trace(moments, axis1=1, axis2=2)[:, None, None] * np.eye(3) - moments), axis=0)
++    if not math.isfinite(mass) or mass <= 0 or not np.isfinite(inertia).all() or np.min(np.linalg.eigvalsh(inertia)) <= 0:
++        raise ValueError('Nonphysical measured mass properties')
++    return dict(mass_kg=mass, cg_m=cg.tolist(), inertia_kg_m2=inertia.tolist(),
++                volume_m3=float(mesh.volume), area_m2=float(mesh.area),
++                bounds_m=mesh.bounds.tolist(), material_law=material,
++                sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+diff --git a/backend/cem/glider/model.py b/backend/cem/glider/model.py
+new file mode 100644
+index 0000000..7174125
+--- /dev/null
++++ b/backend/cem/glider/model.py
+@@ -0,0 +1,104 @@
++"""Reuse Mirum's existing sampling and aerodynamic admission, with physical loads."""
++import copy
++import math
++
++from gliders.spec import GliderRequest, Materials
++from gliders.model.assembly import Glider, MassItem
++from gliders.search import admissible
++from gliders.model.analysis import evaluate, _aero
++
++from .physics import atmosphere, launch_state, trajectory
++from .processes import materials, spar_size, manufacturing_checks
++
++SUPPORTED_FAMILIES = {'conventional': 'conventional', 't_tail': 'T', 'v_tail': 'V'}
++
++
++def configuration(req, calibration, process):
++    payload = req.constraints.payload
++    families = list(SUPPORTED_FAMILIES) if req.discovery.families == 'all' else [
++        f for f in req.discovery.families if f in SUPPORTED_FAMILIES]
++    if not families:
++        raise ValueError('Selected families lack qualified builders and admission checks')
++    ranges = {'tail': {'kind': [SUPPORTED_FAMILIES[f] for f in families]}}
++    if process in ('sheet_foam', 'hybrid'):
++        ranges['wing'] = {'style': ['polyhedral'], 'washout_deg': [0., 2.]}
++    request = GliderRequest(objective='distance' if req.objective == 'distance_m' else 'duration',
++        launch_height_m=max(.001, req.launch.height_m), payload_mass_kg=payload.mass_kg if payload else 0.,
++        payload_diameter_m=payload.diameter_m if payload else .045,
++        payload_length_m=payload.length_m if payload else .06,
++        max_wingspan_m=req.constraints.max_span_m, max_length_m=req.constraints.max_length_m,
++        max_total_mass_kg=req.constraints.max_mass_kg, max_flight_speed_m_s=req.constraints.max_speed_m_s,
++        evaluations=req.discovery.budget_evals, top_k=req.discovery.top_k, seed=req.discovery.seed,
++        ranges=ranges, materials=Materials(**materials(process, calibration)))
++    cfg = request.configuration()
++    env, air = req.environment, atmosphere(req.environment)
++    cfg['mission'].update(launch_height_m=launch_state(req.launch, calibration)['effective_height_m'],
++                          air_density_kg_m3=air['density_kg_m3'], dynamic_viscosity_pa_s=air['dynamic_viscosity_pa_s'],
++                          wind_m_s=env.wind_m_s, uplift_m_s=env.uplift_m_s)
++    cfg['cem_context'] = dict(altitude_m=env.altitude_m,
++        temperature_deviation_k=env.temperature_c - (15. - .0065 * env.altitude_m),
++        **{k: calibration[k]['median'] for k in ('cd0_factor', 'cl_max_factor', 'oswald_factor')})
++    cfg['cem_launch_method'] = req.launch.method
++    return request, cfg
++
++
++class SizedGlider(Glider):
++    """Full-span catalogue spar sized against the mass cap: conservative and stable."""
++    def spar(self):
++        return spar_size(self.cfg['limits']['max_total_mass_kg'], self.wing.span, self.cfg['cem_launch_method'])
++
++    def mass_items(self, include_ballast=True, include_payload=True):
++        items = super().mass_items(include_ballast, include_payload)
++        spar = self.spar()
++        x, z = self.wing_position()
++        # Distributed rod points preserve its spanwise inertia in the sizing model.
++        for i in range(32):
++            y = self.wing.span * ((i + .5) / 32 - .5)
++            items.append(MassItem('spar', spar['mass_kg'] / 32, x + .3 * self.wing.root_chord, y, z))
++        return items
++
++
++def as_sized(gl):
++    return SizedGlider(gl.wing, gl.fuse, gl.tail, gl.cfg, ballast_kg=gl.ballast_kg,
++                      tail_incidence_deg=gl.tail_incidence_deg, payload_x=gl.payload_x, wing_x=gl.wing_x)
++
++
++def evaluate_candidate(gl, request, mission, calibration, process):
++    result = admissible(gl, request, evaluate(gl))
++    spar = gl.spar()
++    manufacture = manufacturing_checks(gl, process, spar)
++    result.update(spar=spar, manufacturability=manufacture)
++    if manufacture['state'] != 'passed':
++        result.update(valid=False, fail_reasons='; '.join(filter(None, [result['fail_reasons'], *manufacture['failures']])))
++    if result['valid']:
++        # Query the actual operating polar at all stations. A scalar root Re or
++        # the optimizer's objective alone is not sufficient validity evidence.
++        import numpy as np
++        from gliders.model.components import naca
++        air = atmosphere(mission.environment)
++        confidence, reynolds = [], []
++        for surface in [gl.wing_surface(), *gl.tail_surfaces()]:
++            for section in surface.sections:
++                re = air['density_kg_m3'] * result['glide_speed_m_s'] * section.chord / air['dynamic_viscosity_pa_s']
++                polar = naca(surface.airfoil).get_aero_from_neuralfoil(
++                    alpha=result['alpha_trim_deg'] + section.twist, Re=re, model_size='large')
++                confidence.extend(np.asarray(polar['analysis_confidence']).reshape(-1).tolist())
++                reynolds.append(re)
++        result['validity_envelope'] = dict(min_confidence=min(confidence), min_station_reynolds=min(reynolds),
++                                         confidence_floor=.8, reynolds_floor=30000.)
++        if min(confidence) < .8 or min(reynolds) < 30000 or not all(math.isfinite(c) for c in confidence):
++            result.update(valid=False, fail_reasons='station polar outside confidence/Reynolds envelope')
++        aero = _aero(gl.airplane(gl.mass_summary()['cg']), result['glide_speed_m_s'], result['alpha_trim_deg'])
++        # Profile fraction of calibrated total drag is used in Monte Carlo and
++        # identifiable flight-test updates; no guessed profile/induced split.
++        dp = float(np.asarray(aero['D_profile']).reshape(-1)[0]) * calibration['cd0_factor']['median']
++        di = float(np.asarray(aero['D_induced']).reshape(-1)[0]) / calibration['oswald_factor']['median']
++        result['cd_profile'] = result['CD_trim'] * dp / (dp + di)
++        launch = launch_state(mission.launch, calibration)
++        env = mission.environment
++        result['trajectory'] = trajectory(launch['effective_height_m'], result['glide_speed_m_s'],
++                                          result['sink_rate_m_s'], env.wind_m_s, env.uplift_m_s)
++        result['objective_value'] = result['trajectory'][mission.objective]
++        if result['objective_value'] is None:
++            result.update(valid=False, fail_reasons='sustained lift has no bounded duration/distance objective')
++    return result
+diff --git a/backend/cem/glider/physics.py b/backend/cem/glider/physics.py
+new file mode 100644
+index 0000000..9650979
+--- /dev/null
++++ b/backend/cem/glider/physics.py
+@@ -0,0 +1,38 @@
++"""Analytic launch, atmosphere and trajectory functions; no geometry or LLM."""
++import math
++
++G = 9.81
++DEFAULT_SPEEDS = {'drop': 0., 'hand_toss': 8., 'discus': 25., 'catapult': 30.}
++
++
++def atmosphere(environment):
++    # Hydrostatic ISA pressure with explicitly supplied ambient temperature.
++    pressure = 101325 * (1 - 2.25577e-5 * environment.altitude_m) ** 5.25588
++    temperature_k = environment.temperature_c + 273.15
++    density = pressure / (287.05 * temperature_k)
++    viscosity = 1.716e-5 * (temperature_k / 273.15) ** 1.5 * (273.15 + 110.4) / (temperature_k + 110.4)
++    return dict(density_kg_m3=density, dynamic_viscosity_pa_s=viscosity)
++
++
++def launch_state(launch, calibration):
++    speed = launch.launch_speed_m_s
++    assumed = speed is None
++    if assumed:
++        speed = DEFAULT_SPEEDS[launch.method]
++    eta = calibration['eta_launch'][launch.method]['median']
++    height = launch.height_m + eta * speed ** 2 / (2 * G)
++    return dict(effective_height_m=height, speed_m_s=speed, eta=eta,
++                assumptions=([f'{launch.method} release speed assumed {speed:g} m/s'] if assumed else []) +
++                [f'Launch zoom efficiency {eta:g} is a calibration prior; release height includes tow climb.'])
++
++
++def trajectory(height, speed, sink, wind=0., uplift=0.):
++    if not all(math.isfinite(x) for x in (height, speed, sink, wind, uplift)) or min(height, speed, sink) < 0 or speed <= sink:
++        raise ValueError('Invalid trajectory evidence')
++    ground_speed = math.sqrt(speed * speed - sink * sink) + wind
++    if uplift >= sink:
++        return dict(state='sustained_lift_limited', duration_s=None, distance_m=None,
++                    distance_range_m=[0., None])
++    duration = height / (sink - uplift)
++    return dict(state='descending' if ground_speed > 0 else 'no_forward_progress',
++                duration_s=duration, distance_m=duration * max(0., ground_speed))
+diff --git a/backend/cem/glider/processes.py b/backend/cem/glider/processes.py
+new file mode 100644
+index 0000000..43cccca
+--- /dev/null
++++ b/backend/cem/glider/processes.py
+@@ -0,0 +1,66 @@
++"""Versioned manufacturing assumptions and bounded carbon-rod bending sizing."""
++import math
++
++PROCESSES = {
++    'sheet_foam': dict(wing_areal_density_kg_m2=.20, tail_areal_density_kg_m2=.12,
++                      fuselage_shell_areal_density_kg_m2=.35, wall_thickness_m=.003,
++                      max_washout_deg=2., max_sheet_thickness_m=.020),
++    'balsa': dict(wing_areal_density_kg_m2=.17, tail_areal_density_kg_m2=.10,
++                 fuselage_shell_areal_density_kg_m2=.30, wall_thickness_m=.0015,
++                 max_washout_deg=3.),
++    'fdm_lwpla': dict(wing_areal_density_kg_m2=.38, tail_areal_density_kg_m2=.28,
++                     fuselage_shell_areal_density_kg_m2=.38, wall_thickness_m=.0008,
++                     max_washout_deg=3.),
++    'fdm_pla': dict(wing_areal_density_kg_m2=.90, tail_areal_density_kg_m2=.70,
++                   fuselage_shell_areal_density_kg_m2=.90, wall_thickness_m=.0008,
++                   max_washout_deg=3.),
++    'hybrid': dict(wing_areal_density_kg_m2=.20, tail_areal_density_kg_m2=.12,
++                  fuselage_shell_areal_density_kg_m2=.38, wall_thickness_m=.0008,
++                  max_washout_deg=2., max_sheet_thickness_m=.020),
++}
++LAUNCH_LOAD_FACTORS = {'drop': 2., 'hand_toss': 3., 'discus': 8., 'catapult': 12., 'hi_start': 8.}
++CARBON = dict(density_kg_m3=1600., allowable_pa=400e6, safety_factor=2., youngs_modulus_pa=100e9)
++RODS_M = [.002, .003, .004, .005, .006, .008, .010, .012, .016, .020]
++
++
++def spar_size(mass_kg, span_m, method):
++    if not (math.isfinite(mass_kg) and math.isfinite(span_m) and mass_kg > 0 and span_m > 0):
++        raise ValueError('Invalid spar loads')
++    # Half-wing root moment under elliptical TOTAL lift n*W: n W b / (3 pi).
++    moment = LAUNCH_LOAD_FACTORS[method] * mass_kg * 9.81 * span_m / (3 * math.pi)
++    allowable = CARBON['allowable_pa'] / CARBON['safety_factor']
++    diameter = next((d for d in RODS_M if 32 * moment / (math.pi * d**3) <= allowable), None)
++    if diameter is None:
++        raise ValueError('No spar in the approved catalogue satisfies launch bending')
++    stress = 32 * moment / (math.pi * diameter ** 3)
++    return dict(diameter_m=diameter, span_m=span_m, root_moment_nm=moment,
++                stress_pa=stress, allowable_with_sf_pa=allowable,
++                mass_kg=math.pi * diameter**2 / 4 * span_m * CARBON['density_kg_m3'],
++                safety_factor=CARBON['safety_factor'], load_factor=LAUNCH_LOAD_FACTORS[method],
++                limitations=['Ideal elliptical lift; bending only. Joints, torsion, buckling, deflection and fatigue unevaluated.'])
++
++
++def materials(process, calibration):
++    p = PROCESSES[process]
++    factor = calibration['mass_factor'][process]['median']
++    return dict(wing_areal_density_kg_m2=p['wing_areal_density_kg_m2'] * factor,
++                tail_areal_density_kg_m2=p['tail_areal_density_kg_m2'] * factor,
++                fuselage_shell_areal_density_kg_m2=p['fuselage_shell_areal_density_kg_m2'] * factor,
++                fixed_hardware_mass_kg=.010, wall_thickness_m=p['wall_thickness_m'], wing_cg_chord_fraction=.42)
++
++
++def manufacturing_checks(gl, process, spar):
++    p, failures = PROCESSES[process], []
++    if gl.wing.washout_deg > p['max_washout_deg']:
++        failures.append('twist exceeds process envelope')
++    if process in ('sheet_foam', 'hybrid'):
++        if gl.wing.style != 'polyhedral' and gl.wing.dihedral_deg > 0:
++            failures.append('sheet surfaces need discrete dihedral joints')
++        if gl.wing.root_chord * int(gl.wing.naca[2:]) / 100 > p['max_sheet_thickness_m']:
++            failures.append('airfoil exceeds foam stock thickness')
++    # Rod must remain within the section across the span (constant full-span rod).
++    if spar['diameter_m'] * 1.1 > gl.wing.tip_chord() * int(gl.wing.naca[2:]) / 100:
++        failures.append('spar plus clearance does not fit tip airfoil thickness')
++    return dict(state='failed' if failures else 'passed', failures=failures,
++                manufacturing_ready=False,
++                limitations=['Process screening only; toolpaths, shell walls, joints and printer bed splits are not verified.'])
+diff --git a/backend/cem/glider/requirements.py b/backend/cem/glider/requirements.py
+new file mode 100644
+index 0000000..b6668f7
+--- /dev/null
++++ b/backend/cem/glider/requirements.py
+@@ -0,0 +1,97 @@
++"""Explicit maximization missions; SI dimensions and bounded computation."""
++from typing import Literal
++
++from pydantic import Field, model_validator
++from cem.core import StrictModel
++
++Process = Literal['sheet_foam', 'balsa', 'fdm_lwpla', 'fdm_pla', 'hybrid', 'auto']
++Family = Literal['conventional', 't_tail', 'v_tail', 'tailless_swept', 'flying_plank',
++                 'canard', 'tandem', 'box', 'blended_body']
++
++
++class Launch(StrictModel):
++    height_m: float = Field(10., ge=0, le=100)
++    method: Literal['drop', 'hand_toss', 'discus', 'catapult', 'hi_start']
++    launch_speed_m_s: float | None = Field(None, ge=0, le=60)
++
++    @model_validator(mode='after')
++    def supported(self):
++        if self.method == 'drop' and self.launch_speed_m_s not in (None, 0):
++            raise ValueError('A drop has no additional launch speed')
++        if self.method == 'hi_start' and self.launch_speed_m_s is None:
++            raise ValueError('hi_start requires an explicit release speed and release height')
++        return self
++
++
++class Thermal(StrictModel):
++    core_uplift_m_s: float = Field(ge=0.01, le=10)
++    radius_m: float = Field(ge=1, le=1000)
++    distance_m: float = Field(ge=0, le=10000)
++
++
++class Ridge(StrictModel):
++    slope_deg: float = Field(ge=1, le=60)
++    wind_m_s: float = Field(ge=0.1, le=20)
++
++
++class Environment(StrictModel):
++    kind: Literal['still_air', 'wind', 'uniform_uplift', 'thermal', 'ridge'] = 'still_air'
++    wind_m_s: float = Field(0., ge=-15, le=15)
++    uplift_m_s: float = Field(0., ge=0, le=5)
++    thermal: Thermal | None = None
++    ridge: Ridge | None = None
++    altitude_m: float = Field(0., ge=0, le=5000)
++    temperature_c: float = Field(15., ge=-30, le=45)
++
++    @model_validator(mode='after')
++    def explicit_toggles(self):
++        if self.kind != 'wind' and self.wind_m_s != 0:
++            raise ValueError('Enable wind explicitly before supplying wind')
++        if self.kind != 'uniform_uplift' and self.uplift_m_s != 0:
++            raise ValueError('Enable uniform uplift explicitly')
++        if (self.thermal is not None) != (self.kind == 'thermal'):
++            raise ValueError('Thermal inputs require the thermal environment')
++        if (self.ridge is not None) != (self.kind == 'ridge'):
++            raise ValueError('Ridge inputs require the ridge environment')
++        return self
++
++
++class Payload(StrictModel):
++    mass_kg: float = Field(ge=0, le=0.3)
++    diameter_m: float = Field(ge=0.001, le=0.1)
++    length_m: float = Field(ge=0.001, le=0.3)
++
++
++class Constraints(StrictModel):
++    # Existing solver's qualified range; broader dimensions require qualification.
++    max_span_m: float = Field(1.4, ge=0.6, le=1.4)
++    max_length_m: float = Field(0.95, ge=0.45, le=0.95)
++    max_mass_kg: float = Field(0.5, ge=0.001, le=0.5)
++    max_speed_m_s: float = Field(9., ge=1, le=15)
++    payload: Payload | None = None
++
++
++class Discovery(StrictModel):
++    families: list[Family] | Literal['all'] = 'all'
++    budget_evals: int = Field(40, ge=8, le=120)
++    seed: int = Field(42, ge=0, le=2147483647)
++    top_k: int = Field(3, ge=1, le=5)
++
++    @model_validator(mode='after')
++    def unique_families(self):
++        if isinstance(self.families, list) and (not self.families or len(set(self.families)) != len(self.families)):
++            raise ValueError('Select at least one unique family')
++        return self
++
++
++class GliderMissionRequirements(StrictModel):
++    objective: Literal['distance_m', 'duration_s'] = 'distance_m'
++    mode: Literal['maximize'] = 'maximize'
++    reference_target: float | None = Field(None, ge=0.001, le=1000000)
++    minimum_performance: float | None = Field(None, ge=0.001, le=1000000,
++        description='Optional hard acceptance requirement, evaluated at P10. Reference target is advisory.')
++    launch: Launch
++    environment: Environment = Field(default_factory=Environment)
++    constraints: Constraints = Field(default_factory=Constraints)
++    process: Process = 'auto'
++    discovery: Discovery = Field(default_factory=Discovery)
+diff --git a/backend/cem/glider/service.py b/backend/cem/glider/service.py
+new file mode 100644
+index 0000000..77d294a
+--- /dev/null
++++ b/backend/cem/glider/service.py
+@@ -0,0 +1,166 @@
++"""CEM stages and revision-bound reports; unqualified output is never accepted."""
++from dataclasses import dataclass
++import os
++from pathlib import Path
++import tempfile
++import zipfile
++
++from cem import VERSION
++from cem.core import canonical_json, digest, output_id
++from cem.provenance import provenance
++from gliders.model.components import WingParams, FuselageParams, TailParams
++from gliders.search import finite_json
++from .requirements import GliderMissionRequirements
++from .calibration import version
++from .feasibility import feasibility
++from .discovery import discover
++from .model import configuration, SizedGlider
++from .geometry import export_bundle
++from .closure import verify
++from .physics import launch_state
++from .uncertainty import uncertainty
++
++LIMITS = ['Screening prediction, not flight validation or engineering certification.',
++          'Low-Re airfoil uncertainty; VLM stability with Ixz neglected.',
++          'No gusts, landing loads, flexible aeroelasticity, spar joints or torsional qualification.',
++          'Engineering priors are not calibrated test confidence intervals.',
++          'Analysis OML/templates lack physical shell/rib/cavity/toolpath verification.']
++
++
++def identity(req, calibration):
++    revision = provenance()
++    return dict(output_id=output_id(req, revision['cem_version'], version(calibration)), cem_version=revision['cem_version'],
++                implementation_sha256=revision['implementation_sha256'],
++                calibration_version=version(calibration), requirements_sha256=digest(req.model_dump(mode='json')))
++
++
++def run_discovery(req, calibration, directory, progress=lambda value: None):
++    if req.environment.kind in ('thermal', 'ridge'):
++        raise ValueError('Thermal/ridge models are not qualified; select still air, wind or uniform uplift')
++    result = discover(req, calibration, progress)
++    result.update(**identity(req, calibration), requirements=req.model_dump(mode='json'),
++                  feasibility=feasibility(req, calibration), model_limits=LIMITS,
++                  calibration=calibration, provenance=provenance(), engineering_certified=False)
++    directory.mkdir(parents=True, exist_ok=True)
++    (directory / 'result.json').write_text(canonical_json(result))
++    return result
++
++
++def build_design(req, calibration, elite, directory):
++    process = elite['process']
++    request, cfg = configuration(req, calibration, process)
++    p = elite['parameters']
++    gl = SizedGlider(WingParams(**p['wing']), FuselageParams(**p['fuselage']), TailParams(**p['tail']),
++                    cfg, **elite['placement'])
++    ids = identity(req, calibration)
++    attempts = []
++    for attempt in range(3):
++        bundle = export_bundle(gl, directory, ids['output_id'])
++        closure = verify(gl, elite['result'], bundle, directory, request, req, calibration, process)
++        attempts.append(dict(attempt=attempt+1, tail_incidence_deg=gl.tail_incidence_deg,
++                             state=closure['state'], failures=closure['failures']))
++        if closure['failures'] != ['measured-mass trim requires a geometry revision']:
++            break
++        if attempt < 2:
++            # Correct the geometry, then rebuild and independently re-measure;
++            # never attach a new trim result to stale exported geometry.
++            gl.tail_incidence_deg = closure['reanalysis']['tail_incidence_deg']
++    return _package(req, calibration, elite, directory, gl, bundle, closure, attempts)
++
++
++def _package(req, calibration, elite, directory, gl, bundle, closure, attempts):
++    ids, p, process = identity(req, calibration), elite['parameters'], elite['process']
++    reanalysis = closure.get('reanalysis', {})
++    bands = uncertainty(req, reanalysis, calibration, process, launch_state(req.launch, calibration)) if reanalysis.get('valid') else None
++    p10 = bands['bands'][req.objective]['p10'] if bands and bands['bands'][req.objective] else None
++    hard_pass = req.minimum_performance is None or (p10 is not None and p10 >= req.minimum_performance)
++    reference = req.reference_target
++    predicted = reanalysis.get('objective_value')
++    report = finite_json(dict(**ids, elite_id=elite['elite_id'], requirements=req.model_dump(mode='json'),
++        status='screened' if closure['state'] == 'passed' and hard_pass else 'rejected',
++        accepted_for_manufacture=False, engineering_certified=False,
++        process=process, feasibility=feasibility(req, calibration), uncertainty=bands,
++        reference_gap=max(0., reference-predicted) if reference and predicted is not None else None,
++        minimum_performance_passed=hard_pass, closure=closure, closure_attempts=attempts, bundle=bundle,
++        assumptions=launch_state(req.launch, calibration)['assumptions'], model_limits=LIMITS,
++        calibration=calibration, provenance=provenance(), capabilities=dict(picogk_builder=False, manufactured_geometry_closure=False),
++        artifact_hashes={p.name: __import__('hashlib').sha256(p.read_bytes()).hexdigest()
++                         for p in sorted(directory.iterdir()) if p.is_file()}))
++    # Canonical JSON is deterministic. Archives use fixed timestamps too.
++    from gliders.design_spec import placement
++    final_placement = placement(gl)
++    design_revision = digest(dict(identity=ids, parameters=p, placement=final_placement, process=process))
++    report['design_revision_sha256'] = design_revision
++    design = dict(**ids, elite=elite, requirements=req.model_dump(mode='json'), calibration=calibration,
++                  final_placement=final_placement, design_revision_sha256=design_revision)
++    (directory / 'design.json').write_text(canonical_json(finite_json(design)))
++    (directory / 'performance_report.json').write_text(canonical_json(report))
++    with zipfile.ZipFile(directory / 'bundle.zip', 'w', zipfile.ZIP_DEFLATED) as z:
++        for path in sorted(directory.iterdir()):
++            if path.is_file() and path.name != 'bundle.zip':
++                entry = zipfile.ZipInfo(path.name, date_time=(1980, 1, 1, 0, 0, 0))
++                entry.compress_type = zipfile.ZIP_DEFLATED
++                z.writestr(entry, path.read_bytes())
++    from cem.evidence import file_digest
++    report['bundle_sha256'] = file_digest(directory / 'bundle.zip')
++    (directory / 'result.json').write_text(canonical_json(report))
++    return report
++
++
++@dataclass(frozen=True)
++class SizedDesign:
++    requirements: GliderMissionRequirements
++    elite: dict
++
++
++@dataclass(frozen=True)
++class GeometryBundle:
++    directory: Path
++    manifest: dict
++    glider: SizedGlider
++    request: object
++
++
++class GliderCEM:
++    name = 'glider'
++    version = VERSION
++    Requirements = GliderMissionRequirements
++
++    def __init__(self, calibration):
++        self.calibration = calibration
++        self.version = provenance()['cem_version']
++
++    def feasibility(self, req):
++        return feasibility(req, self.calibration)
++
++    def size(self, req, budget):
++        value = req.model_dump(mode='json')
++        value['discovery']['budget_evals'] = budget
++        req = GliderMissionRequirements.model_validate(value)
++        if req.environment.kind in ('thermal', 'ridge'):
++            raise ValueError('Advanced lift-region models are not qualified')
++        result = discover(req, self.calibration)
++        if not result['candidates']:
++            raise ValueError('No design meets the admitted model envelope')
++        elite = max(result['candidates'], key=lambda e: e['result']['objective_value'])
++        return SizedDesign(req, elite)
++
++    def build(self, design):
++        req, elite = design.requirements, design.elite
++        request, cfg = configuration(req, self.calibration, elite['process'])
++        p = elite['parameters']
++        gl = SizedGlider(WingParams(**p['wing']), FuselageParams(**p['fuselage']), TailParams(**p['tail']),
++                        cfg, **elite['placement'])
++        root = Path(os.environ.get('MIRUM_WORK_DIR', '/tmp/mirum/work')) / 'cem/stages'
++        root.mkdir(parents=True, exist_ok=True)
++        directory = Path(tempfile.mkdtemp(prefix='glider-', dir=root))
++        manifest = export_bundle(gl, directory, identity(req, self.calibration)['output_id'])
++        return GeometryBundle(directory, manifest, gl, request)
++
++    def verify(self, design, bundle):
++        return verify(bundle.glider, design.elite['result'], bundle.manifest, bundle.directory,
++                      bundle.request, design.requirements, self.calibration, design.elite['process'])
++
++    def report(self, design, bundle, verification):
++        return _package(design.requirements, self.calibration, design.elite, bundle.directory,
++                        bundle.glider, bundle.manifest, verification, [])
+diff --git a/backend/cem/glider/uncertainty.py b/backend/cem/glider/uncertainty.py
+new file mode 100644
+index 0000000..7f398fd
+--- /dev/null
++++ b/backend/cem/glider/uncertainty.py
+@@ -0,0 +1,46 @@
++"""Seeded 200-sample local polar uncertainty, explicitly not a re-trim ensemble."""
++import math
++import numpy as np
++from .physics import trajectory
++
++
++def uncertainty(req, result, calibration, process, launch, samples=200):
++    rng = np.random.default_rng(req.discovery.seed)
++    values = {'duration_s': [], 'distance_m': []}
++    sustained = invalid = 0
++    cl, cd = result['CL_trim'], result['CD_trim']
++    ar = result['aspect_ratio']
++    # Component drag evidence is retained by the CEM evaluator.
++    profile = result['cd_profile']
++    induced = cd - profile
++    for _ in range(samples):
++        draws = {k: math.exp(rng.normal(0., calibration[k]['log_sigma']))
++                 for k in ('cd0_factor', 'cl_max_factor', 'oswald_factor')}
++        mass = math.exp(rng.normal(0., calibration['mass_factor'][process]['log_sigma']))
++        eta = min(1., max(0., launch['eta'] * math.exp(rng.normal(0., calibration['eta_launch'][req.launch.method]['log_sigma']))))
++        speed = result['glide_speed_m_s'] * math.sqrt(mass)
++        drag = profile * draws['cd0_factor'] + induced / draws['oswald_factor']
++        sink = speed * math.sin(math.atan2(drag, cl))
++        if cl > result['CLmax_est'] * draws['cl_max_factor'] * .85:
++            # Failed samples count as zero performance, never silently dropped.
++            invalid += 1
++            values['duration_s'].append(0.)
++            values['distance_m'].append(0.)
++            continue
++        height = req.launch.height_m + eta * launch['speed_m_s']**2 / (2 * 9.81)
++        env = req.environment
++        t = trajectory(height, speed, sink, env.wind_m_s, env.uplift_m_s)
++        if t['state'] == 'sustained_lift_limited':
++            sustained += 1
++            continue
++        for key in values:
++            values[key].append(t[key])
++    bands = {}
++    for key, data in values.items():
++        # If sustained samples exist, a finite unconditional percentile is not
++        # established without a lift-region model; don't condition on descents.
++        bands[key] = None if sustained else dict(zip(('p10', 'p50', 'p90'), map(float, np.percentile(data, [10, 50, 90]))))
++    return dict(samples=samples, bands=bands, sustained_samples=sustained, invalid_samples=invalid,
++                method='seeded local polar propagation with fixed trim CL; not a full re-trim ensemble',
++                prior_state=calibration['state'], assumptions=['Independent log-normal engineering priors, not measured confidence intervals.',
++                    'Failed stall samples have zero performance; sustained lift requires a bounded region model.'])
+diff --git a/backend/cem/provenance.py b/backend/cem/provenance.py
+new file mode 100644
+index 0000000..d504b94
+--- /dev/null
++++ b/backend/cem/provenance.py
+@@ -0,0 +1,24 @@
++"""Source/runtime binding without reading credentials or mutable job data."""
++from functools import lru_cache
++import hashlib
++from importlib.metadata import version
++from pathlib import Path
++import platform
++
++from cem import VERSION
++from cem.core import digest
++
++
++@lru_cache(maxsize=1)
++def provenance():
++    root = Path(__file__).resolve().parents[1]
++    paths = list((root / 'cem').rglob('*.py'))
++    paths += list((root / 'cem/data').glob('*.json'))
++    paths += list((root / 'gliders/model').glob('*.py'))
++    paths += [root / 'gliders' / name for name in ('spec.py', 'search.py', 'design_spec.py')]
++    hashes = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(paths)}
++    runtime = {key: version(key) for key in ('aerosandbox', 'neuralfoil', 'numpy', 'scipy', 'trimesh', 'casadi')}
++    runtime['python'] = platform.python_version()
++    fingerprint = digest(dict(sources=hashes, runtime=runtime))
++    return dict(cem_version=VERSION + '+' + fingerprint[:12], implementation_sha256=fingerprint,
++                source_hashes=hashes, runtime=runtime)
+diff --git a/backend/cem/worker.py b/backend/cem/worker.py
+new file mode 100644
+index 0000000..1f7b5f5
+--- /dev/null
++++ b/backend/cem/worker.py
+@@ -0,0 +1,30 @@
++"""Private capped worker; JSON stdin, no inherited provider credentials."""
++import json
++from pathlib import Path
++import sys
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++from cem.glider.requirements import GliderMissionRequirements
++from cem.glider.service import run_discovery, build_design
++
++
++def main():
++    directory = Path(sys.argv[1])
++    payload = json.loads(sys.stdin.buffer.read(262145))
++    req = GliderMissionRequirements.model_validate(payload['requirements'])
++
++    def progress(value):
++        temporary = directory / 'progress.tmp'
++        temporary.write_text(json.dumps(value, allow_nan=False))
++        temporary.replace(directory / 'progress.json')
++
++    if payload['kind'] == 'discovery':
++        run_discovery(req, payload['calibration'], directory, progress)
++    elif payload['kind'] == 'design':
++        build_design(req, payload['calibration'], payload['elite'], directory)
++    else:
++        raise ValueError('Unknown CEM stage')
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/backend/solver_slot.py b/backend/solver_slot.py
+new file mode 100644
+index 0000000..3d7494b
+--- /dev/null
++++ b/backend/solver_slot.py
+@@ -0,0 +1,22 @@
++"""One expensive glider/CEM job per API process; synchronous event-loop claims."""
++from fastapi import HTTPException
++
++
++class SolverSlot:
++    def __init__(self):
++        self.owner = None
++
++    def check(self):
++        if self.owner is not None:
++            raise HTTPException(429, 'A glider or CEM task is running; retry after it completes')
++
++    def claim(self, owner):
++        self.check()
++        self.owner = owner
++
++    def release(self, owner):
++        if self.owner is owner:
++            self.owner = None
++
++
++slot = SolverSlot()
+diff --git a/backend/tests/test_cem_api.py b/backend/tests/test_cem_api.py
+new file mode 100644
+index 0000000..945317c
+--- /dev/null
++++ b/backend/tests/test_cem_api.py
+@@ -0,0 +1,120 @@
++import asyncio
++import copy
++import json
++from pathlib import Path
++
++import pytest
++from fastapi import FastAPI
++from fastapi.testclient import TestClient
++from slowapi import Limiter
++from slowapi.util import get_remote_address
++from cem import api
++from cem.glider.calibration import initial
++from cem.glider.requirements import GliderMissionRequirements
++from cem.glider.service import identity
++
++
++def app_for(manager,monkeypatch):
++    monkeypatch.setattr(api,'jobs',manager)
++    app=FastAPI()
++    api.attach_cem_routes(app,Limiter(key_func=get_remote_address,enabled=False))
++    return app
++
++
++def payload():
++    return dict(kind='discovery',requirements=GliderMissionRequirements(launch={'method':'drop'}).model_dump(),calibration=initial())
++
++
++def test_feasibility_and_clarification_do_not_call_provider(monkeypatch):
++    from cem import extraction
++    async def forbidden(*a,**kw): raise AssertionError('Provider must not run')
++    # The actual clarification gate returns before any provider import/call.
++    with TestClient(app_for(api.Jobs(),monkeypatch)) as c:
++        r=c.post('/cem/glider/requirements',json={'prompt':'1200 m of flight duration from 10 m'})
++        assert r.status_code==200 and r.json()['status']=='needs_clarification'
++        f=c.post('/cem/glider/feasibility',json={'requirements':{'launch':{'method':'drop'},'reference_target':1200.}})
++        assert f.status_code==200 and f.json()['continue_search']
++        assert c.post('/cem/glider/feasibility',json={'requirements':{'launch':{'method':'drop'},'oops':True}}).status_code==422
++        assert c.post('/cem/glider/discover',json={'requirements':{'launch':{'method':'drop'},'discovery':{'families':['box']}}}).status_code==422
++
++
++def test_busy_states_membership_and_no_rejected_bundle(monkeypatch,tmp_path):
++    manager=api.Jobs()
++    monkeypatch.setenv('MIRUM_WORK_DIR',str(tmp_path))
++    async def hold(*args): await asyncio.sleep(100)
++    monkeypatch.setattr(manager,'run',hold)
++    with TestClient(app_for(manager,monkeypatch)) as c:
++        response=c.post('/cem/glider/discover',json={'requirements':{'launch':{'method':'drop'}}})
++        assert response.status_code==202
++        key=response.json()['job_id']
++        assert c.post('/cem/glider/discover',json={'requirements':{'launch':{'method':'drop'}}}).status_code==429
++        assert c.get(f'/cem/glider/jobs/{key}').json()['status']=='running'
++        assert c.get(f'/cem/glider/jobs/{key}/bundle').status_code==404
++        assert c.post('/cem/glider/design',json={'discovery_job_id':key,'elite_id':'a'*16}).status_code==409
++        client_close=c.portal.call(manager.close)
++        manager.jobs[key].update(kind='design',status='completed',result={'status':'rejected'})
++        assert c.get(f'/cem/glider/jobs/{key}/bundle').status_code==409
++        assert c.post('/cem/glider/design',json={'discovery_job_id':'../escape','elite_id':'a'*16}).status_code==422
++
++
++@pytest.mark.asyncio
++async def test_worker_timeout_secrets_and_limits(monkeypatch,tmp_path):
++    manager=api.Jobs();p=payload()
++    req=GliderMissionRequirements.model_validate(p['requirements'])
++    manager.jobs['test']=dict(directory=tmp_path,status='running',identity=identity(req,p['calibration']))
++    monkeypatch.setenv('GEMINI_API_KEY_HEAVY','not-for-worker')
++    async def fail(self,command,**kw):
++        assert self.memory_mb==3072 and self.timeout==1800
++        assert 'GEMINI_API_KEY_HEAVY' not in kw['env']
++        assert 'HTTPS_PROXY' not in kw['env'] and 'FLY_API_TOKEN' not in kw['env']
++        return dict(code='TIMEOUT',returncode=-9,stderr='',stdout='')
++    monkeypatch.setattr(api.ProcessRunner,'run',fail)
++    await manager.run('test',p)
++    assert manager.jobs['test']['status']=='failed'
++    assert 'result' not in manager.jobs['test']
++
++
++@pytest.mark.asyncio
++async def test_stale_worker_evidence_is_rejected(monkeypatch,tmp_path):
++    manager=api.Jobs();p=payload()
++    req=GliderMissionRequirements.model_validate(p['requirements'])
++    manager.jobs['test']=dict(directory=tmp_path,status='running',identity=identity(req,p['calibration']))
++    (tmp_path/'result.json').write_text(json.dumps(dict(output_id='stale',candidates=[])))
++    async def success(*a,**kw): return dict(code=None,returncode=0,stderr='',stdout='')
++    monkeypatch.setattr(api.ProcessRunner,'run',success)
++    await manager.run('test',p)
++    assert manager.jobs['test']['status']=='failed'
++
++
++@pytest.mark.asyncio
++async def test_correct_identity_does_not_replace_missing_closure_evidence(monkeypatch,tmp_path):
++    manager=api.Jobs();p=payload();p['kind']='design';p['elite']={'elite_id':'a'*16,'process':'balsa'}
++    req=GliderMissionRequirements.model_validate(p['requirements']); ids=identity(req,p['calibration'])
++    manager.jobs['test']=dict(directory=tmp_path,status='running',identity=ids)
++    report=dict(**ids, requirements=p['requirements'], calibration=p['calibration'],
++        status='screened',accepted_for_manufacture=False,engineering_certified=False,elite_id='a'*16,process='balsa')
++    (tmp_path/'result.json').write_text(json.dumps(report))
++    async def success(*a,**kw): return dict(code=None,returncode=0,stderr='',stdout='')
++    monkeypatch.setattr(api.ProcessRunner,'run',success)
++    await manager.run('test',p)
++    assert manager.jobs['test']['status']=='failed' and 'result' not in manager.jobs['test']
++
++
++@pytest.mark.asyncio
++async def test_cem_and_legacy_jobs_share_one_solver_slot(monkeypatch,tmp_path):
++    from gliders.api import Jobs as LegacyJobs
++    from gliders.spec import GliderRequest
++    from fastapi import HTTPException
++    monkeypatch.setenv('MIRUM_WORK_DIR',str(tmp_path))
++    cem,legacy=api.Jobs(),LegacyJobs()
++    async def hold(*a): await asyncio.sleep(100)
++    monkeypatch.setattr(cem,'run',hold);monkeypatch.setattr(legacy,'run',hold)
++    cem.start(payload())
++    try:
++        with pytest.raises(HTTPException) as error: legacy.start(GliderRequest())
++        assert error.value.status_code==429
++    finally: await cem.close()
++    legacy.start(GliderRequest())
++    try:
++        with pytest.raises(HTTPException): cem.start(payload())
++    finally: await legacy.close()
+diff --git a/backend/tests/test_cem_pipeline.py b/backend/tests/test_cem_pipeline.py
+new file mode 100644
+index 0000000..ec54cec
+--- /dev/null
++++ b/backend/tests/test_cem_pipeline.py
+@@ -0,0 +1,131 @@
++import copy
++from dataclasses import asdict
++import hashlib
++import json
++from pathlib import Path
++import random
++
++import numpy as np
++import pytest
++
++pytest.importorskip('trimesh')
++pytest.importorskip('aerosandbox')
++
++from cem.core import canonical_json
++from cem.glider.requirements import GliderMissionRequirements as Mission
++from cem.glider.calibration import initial
++from cem.glider.model import configuration, as_sized, evaluate_candidate
++from cem.glider.geometry import export_bundle, measure_part
++from cem.glider.closure import verify
++from cem.glider.uncertainty import uncertainty
++from cem.glider.physics import launch_state
++from cem.glider.service import build_design
++from gliders.design_spec import preset, placement
++
++
++def example():
++    req = Mission.model_validate(dict(launch={'method':'drop'}, process='sheet_foam', reference_target=1200.,
++        constraints={'payload':{'mass_kg':.06,'diameter_m':.045,'length_m':.06}}, discovery={'budget_evals':8}))
++    request,cfg = configuration(req, initial(),'sheet_foam')
++    gl = preset(request).build(); gl.cfg=cfg
++    gl.wing.root_chord, gl.wing.taper, gl.wing.span = .18, .75, 1.25
++    gl.tail.h_root_chord, gl.tail.h_span = .10, .30
++    gl.tail.v_root_chord, gl.tail.v_height, gl.tail.v_taper = .11,.12,.9
++    return req,request,as_sized(gl)
++
++
++@pytest.fixture(scope='module')
++def evaluated():
++    req,request,gl = example()
++    result = evaluate_candidate(gl,request,req,initial(),'sheet_foam')
++    assert result['valid'],result['fail_reasons']
++    return req,request,gl,result
++
++
++def test_closed_export_has_positive_mass_and_artifact_identity(tmp_path,evaluated):
++    req,request,gl,result=evaluated
++    bundle=export_bundle(gl,tmp_path,'0123456789ab')
++    for item in bundle['parts']:
++        path=tmp_path/item['file']
++        measured=measure_part(path,item['material'])
++        assert measured['mass_kg']>0 and measured['volume_m3']>0
++        assert np.linalg.eigvalsh(measured['inertia_kg_m2']).min()>0
++        assert measured['sha256']==item['sha256']
++        assert b'0123456789ab' in path.read_bytes()[:80]
++    assert bundle['manufacturing_ready'] is False
++
++
++def test_twenty_percent_mass_error_fails_closure(tmp_path,evaluated):
++    req,request,gl,result=evaluated
++    bundle=export_bundle(gl,tmp_path,'0123456789ab')
++    wrong=copy.deepcopy(result);wrong['mass_kg']*=1.20
++    report=verify(gl,wrong,bundle,tmp_path,request,req,initial(),'sheet_foam')
++    assert report['state']=='failed'
++    assert any('mass' in failure for failure in report['failures'])
++
++
++def test_mutated_mesh_cannot_reuse_previous_report(tmp_path,evaluated):
++    req,request,gl,result=evaluated
++    bundle=export_bundle(gl,tmp_path,'0123456789ab')
++    path=tmp_path/bundle['parts'][0]['file']
++    data=bytearray(path.read_bytes());data[2]=65;path.write_bytes(data)
++    report=verify(gl,result,bundle,tmp_path,request,req,initial(),'sheet_foam')
++    assert report['state']=='failed'
++
++
++def test_seeded_bands_include_launch_and_build_uncertainty(evaluated):
++    req,request,gl,result=evaluated
++    args=(req,result,initial(),'sheet_foam',launch_state(req.launch,initial()))
++    a,b=uncertainty(*args),uncertainty(*args)
++    assert canonical_json(a)==canonical_json(b)
++    for band in a['bands'].values():
++        assert 0<=band['p10']<=band['p50']<=band['p90']
++        assert band['p10']<band['p90']
++
++
++def test_design_json_and_stl_are_repeatable_and_never_claim_manufacturing_acceptance(tmp_path,evaluated):
++    req,request,gl,result=evaluated
++    elite=dict(elite_id='1234567890abcdef',process='sheet_foam',result=result,placement=placement(gl),
++        parameters={'wing':asdict(gl.wing),'fuselage':asdict(gl.fuse),'tail':asdict(gl.tail)})
++    a=build_design(req,initial(),elite,tmp_path/'a')
++    b=build_design(req,initial(),elite,tmp_path/'b')
++    assert (tmp_path/'a/design.json').read_bytes()==(tmp_path/'b/design.json').read_bytes()
++    for path in (tmp_path/'a').glob('*.stl'):
++        assert path.read_bytes()==(tmp_path/'b'/path.name).read_bytes()
++    assert a['accepted_for_manufacture'] is False and a['engineering_certified'] is False
++    assert a['closure']['manufacturing_ready'] is False
++    assert (tmp_path/'a/performance_report.json').exists()
++    from cem.evidence import validate
++    from cem.glider.service import identity
++    from gliders.search import finite_json
++    payload=dict(kind='design', requirements=req.model_dump(mode='json'), calibration=initial(), elite=finite_json(elite))
++    # Parent validation receives decoded JSON, not NumPy scalars from in-process FEA.
++    validate(json.loads(canonical_json(a)),payload,identity(req,initial()),tmp_path/'a')
++    bad=copy.deepcopy(a);bad['uncertainty']=None
++    with pytest.raises((ValueError,TypeError,KeyError)):
++        validate(bad,payload,identity(req,initial()),tmp_path/'a')
++
++
++def test_tailwind_speed_to_fly_uses_ground_objective(evaluated):
++    req,request,gl,result=evaluated
++    # Same mass/layout, new environment, independently re-trimmed by actual solver.
++    wind_req=Mission.model_validate(dict(req.model_dump(),environment={'kind':'wind','wind_m_s':3.}))
++    _,cfg=configuration(wind_req,initial(),'sheet_foam')
++    windy=copy.deepcopy(gl);windy.cfg=cfg
++    wind=evaluate_candidate(windy,request,wind_req,initial(),'sheet_foam')
++    assert wind['valid'],wind['fail_reasons']
++    assert wind['trajectory']['distance_m']>result['trajectory']['distance_m']
++    assert wind['glide_speed_m_s']<=result['glide_speed_m_s']
++
++
++def test_duration_objective_remains_valid_in_a_strong_headwind(evaluated):
++    req,request,gl,result=evaluated
++    values=[]
++    for env in ({'kind':'still_air'},{'kind':'wind','wind_m_s':-10.}):
++        mission=Mission.model_validate(dict(req.model_dump(),objective='duration_s',environment=env))
++        limits,cfg=configuration(mission,initial(),'sheet_foam')
++        current=copy.deepcopy(gl);current.cfg=cfg
++        value=evaluate_candidate(current,limits,mission,initial(),'sheet_foam')
++        assert value['valid'],value['fail_reasons']
++        values.append(value['trajectory']['duration_s'])
++    assert values[0] == pytest.approx(values[1],rel=1e-6)
+diff --git a/backend/tests/test_cem_requirements.py b/backend/tests/test_cem_requirements.py
+new file mode 100644
+index 0000000..3556b7f
+--- /dev/null
++++ b/backend/tests/test_cem_requirements.py
+@@ -0,0 +1,134 @@
++import json
++import math
++import time
++import pytest
++from pydantic import ValidationError
++
++from cem import VERSION
++from cem.core import canonical_json, output_id
++from cem.glider.requirements import GliderMissionRequirements as Mission
++from cem.glider.calibration import initial, version, update_drag, save, load
++from cem.glider.feasibility import feasibility
++from cem.glider.physics import launch_state, trajectory
++from cem.glider.processes import spar_size, PROCESSES
++from cem.extraction import clarifications
++
++
++def mission(**changes):
++    return Mission.model_validate(dict({'launch': {'method': 'drop'}, 'reference_target':1200.}, **changes))
++
++
++@pytest.mark.parametrize('changes', [
++    {'objective':'speed'}, {'mode':'meet'}, {'reference_target':float('nan')},
++    {'launch':{'method':'drop','launch_speed_m_s':5.}},
++    {'launch':{'method':'hi_start'}},
++    {'environment':{'wind_m_s':2.}}, {'environment':{'kind':'wind','uplift_m_s':.2}},
++    {'environment':{'kind':'thermal'}}, {'environment':{'kind':'ridge'}},
++    {'constraints':{'max_span_m':10.}}, {'constraints':{'max_mass_kg':'0.5'}},
++    {'discovery':{'seed':True}}, {'discovery':{'budget_evals':100000}},
++    {'discovery':{'families':[]}}, {'discovery':{'families':['conventional','conventional']}},
++    {'unknown':1},
++])
++def test_invalid_requirements_fail_before_physics(changes):
++    with pytest.raises(ValidationError):
++        Mission.model_validate(dict({'launch': {'method':'drop'}}, **changes))
++
++
++def test_identity_pins_every_requirement_and_versions():
++    req = mission()
++    identifier = output_id(req, VERSION, version(initial()))
++    assert identifier == output_id(Mission.model_validate_json(req.model_dump_json()), VERSION, version(initial()))
++    for changes in [{'reference_target':1201.}, {'process':'balsa'}, {'discovery':{'seed':43}}]:
++        changed = Mission.model_validate(dict(req.model_dump(), **changes))
++        assert output_id(changed, VERSION, version(initial())) != identifier
++    assert output_id(req, VERSION+'x', version(initial())) != identifier
++    assert output_id(req, VERSION, 'another-calibration') != identifier
++    assert canonical_json({'b':1,'a':2}) == canonical_json({'a':2,'b':1})
++    with pytest.raises(ValueError): canonical_json({'bad':float('nan')})
++
++
++def test_reference_1200_m_from_10_m_is_gap_not_a_search_stop():
++    start = time.perf_counter()
++    report = feasibility(mission(), initial())
++    assert time.perf_counter() - start < 1
++    assert report['verdict'] == 'infeasible'
++    assert report['continue_search'] is True
++    assert report['required_lift_to_drag'] == pytest.approx(120)
++    assert 100 < report['optimistic_bound'] < 1200
++    assert report['reference_gap'] == pytest.approx(1200 - report['optimistic_bound'])
++    assert report['bounds_source']['xfoil'] == 'not_cross_validated'
++    assert report['verdict_scope'] == 'sampled_model_envelope'
++
++
++def test_1200_seconds_reality_check():
++    report = feasibility(mission(objective='duration_s'), initial())
++    assert report['verdict'] == 'infeasible' and report['continue_search']
++    assert report['required_sink_m_s'] == pytest.approx(10/1200)
++    assert report['optimistic_sink_m_s'] > report['required_sink_m_s']
++
++
++def test_zoom_and_wind_and_sustained_lift_have_finite_semantics():
++    req = mission(launch={'method':'discus'})
++    launch = launch_state(req.launch, initial())
++    assert launch['effective_height_m'] == pytest.approx(10+.6*25**2/(2*9.81))
++    assert launch['assumptions']
++    still = trajectory(10, 5, .4)
++    wind = trajectory(10, 5, .4, wind=2)
++    assert wind['distance_m'] > still['distance_m'] and wind['duration_s'] == still['duration_s']
++    sustained = trajectory(10, 5, .4, uplift=.4)
++    assert sustained['state'] == 'sustained_lift_limited' and sustained['distance_m'] is None
++    with pytest.raises(ValueError): trajectory(10, float('nan'), .4)
++    # A finite still-air bound cannot declare windy/uplift missions infeasible.
++    assert feasibility(mission(environment={'kind':'uniform_uplift','uplift_m_s':1.}), initial())['optimistic_bound'] is None
++
++
++def test_headwind_does_not_remove_airborne_duration():
++    report = trajectory(10., 5., .4, wind=-10.)
++    assert report['state'] == 'no_forward_progress'
++    assert report['distance_m'] == 0. and report['duration_s'] == pytest.approx(25.)
++
++
++def test_spar_stress_is_within_allowable_and_scales_with_launch_load():
++    low, high = spar_size(.4,1.2,'drop'), spar_size(.4,1.2,'catapult')
++    assert low['stress_pa'] <= low['allowable_with_sf_pa']
++    assert high['stress_pa'] <= high['allowable_with_sf_pa']
++    assert high['mass_kg'] > low['mass_kg']
++    assert low['root_moment_nm'] == pytest.approx(2*.4*9.81*1.2/(3*math.pi))
++    for process in PROCESSES:
++        report = feasibility(mission(process=process), initial())
++        assert report['wing_loading_lower_bound_n_m2'] > 0
++
++
++def test_synthetic_drag_recovery_and_immutable_old_version(monkeypatch,tmp_path):
++    monkeypatch.setenv('MIRUM_WORK_DIR', str(tmp_path))
++    prior = initial()
++    before = canonical_json(prior)
++    fitted = update_drag(prior, [1.35]*30)
++    assert fitted['cd0_factor']['median'] == pytest.approx(1.35,rel=.05)
++    assert canonical_json(prior) == before
++    old, new = save(prior), save(fitted)
++    assert old != new and load(old) == prior and load(new) == fitted
++    assert version(load(old)) == old
++    with pytest.raises(ValueError): load('../unsafe')
++
++
++def test_changed_calibration_cannot_reuse_an_uncalibrated_infeasibility_bound():
++    calibrated = update_drag(initial(), [.7] * 20)
++    report = feasibility(mission(), calibrated)
++    assert report['verdict'] == 'marginal'
++    assert report['optimistic_bound'] is None and report['reference_gap'] is None
++    assert report['bound_state'] == 'rebuild_required_for_calibration'
++
++
++def test_protocol_sizing_cannot_bypass_the_compute_budget():
++    from cem.glider.service import GliderCEM
++    with pytest.raises(ValidationError):
++        GliderCEM(initial()).size(mission(), 1000000)
++
++
++def test_ambiguous_units_missing_launch_and_mode_require_clarification():
++    assert clarifications('1200 m of flight duration from 10 m')
++    assert clarifications('maximize distance, launched from 10 m')
++    assert not clarifications('Maximize distance from a 10 m drop; 1200 m reference target')
++    schema = json.dumps(Mission.model_json_schema())
++    assert 'exclusiveMinimum' not in schema and 'exclusiveMaximum' not in schema
+diff --git a/docs/implementation/cem-glider.md b/docs/implementation/cem-glider.md
+new file mode 100644
+index 0000000..dc2da02
+--- /dev/null
++++ b/docs/implementation/cem-glider.md
+@@ -0,0 +1,152 @@
++# Glider CEM implementation and qualification status
++
++This change introduces a working, provider-free physics workflow on top of the
++existing glider solver. It implements a **bounded first slice of the CEM
++roadmap**, not all G0–G8 acceptance criteria. Its public design status is
++`screened` or `rejected`; `accepted_for_manufacture` and
++`engineering_certified` remain false.
++
++## Working path
++
++Typed mission → analytic feasibility and reference-gap report → process-aware
++seeded MAP-Elites search → selected outer mould line and spar meshes →
++independent bounded STL measurements → measured-mass trim/stability reanalysis
++→ up to three geometry/trim correction passes → uncertainty and revision-bound
++screening bundle.
++
++The reference goal never stops maximization. An optional
++`minimum_performance` is a separate hard acceptance threshold at P10.
++
++## Scope against the supplied roadmap
++
++| Phase | Implemented | Remaining qualification/work |
++| --- | --- | --- |
++| G0 | CEM protocol, strict mission models, concrete stage adapter, canonical JSON, content identities, source/runtime provenance | More domains |
++| G1 | Launch energy, atmosphere, versioned offline Re-indexed NeuralFoil envelope, gap/levers, sub-second analytic screen | XFOIL cross-validation; universal infeasibility is not established by sampled polars |
++| G2 | Distance and duration objectives, process mass assumptions, catalogue carbon-rod launch bending, process admission, auto comparison, wind speed-to-fly and uniform uplift semantics | Qualified material data; local spar taper, joints/torsion, detailed FDM wall/bed/overhang checks |
++| G3 | Closed OML meshes, independent volume/area/CG/inertia measurements, measured-mass re-trim, 5% mass gate, measured spar bending, bounded rebuild loop, seeded 200-sample bands | Physical shell/rib/cavity geometry; independent reconstruction of aerodynamic shape from meshes; full Monte Carlo re-trim ensemble |
++| G4 | MAP-Elites over conventional, T-tail and V-tail layouts; existing random/local sampler; station Re/confidence guards | Tailless/canard/tandem/box/blended families; B-splines/CST; Opti/CMA-ES; independent XFOIL+AVL recheck; validated novelty claims |
++| G5 | Explicit unavailable capability; no print-ready claim | PicoGK glider builder, shells/infill/channels/cavities, bed splitting and physical-part closure |
++| G6 | Typed API, bounded jobs, optional Gemini translation with ambiguity/review gates, Streamlit form, process table, archive chart, elite selection and bundle downloads | Live-provider extraction validation; explorer cell-click integration; novel-family UI |
++| G7 | Immutable calibration versions, identifiable profile-drag log-normal update, synthetic recovery test, old identity preservation | Jointly identifiable flight experiments, more coefficient updates, automatic archive re-scoring |
++| G8 | Inputs modelled and API rejects unqualified environments | Thermal-column and ridge-region models |
++
++Rocket R1 remains a later domain as specified in the roadmap.
++
++`families="all"` means evaluate every currently qualified family and explicitly
++report the unavailable ones. It does not relabel a conventional aircraft as a
++tailless or novel design. `process="auto"` attempts every process and gives
++each a best admitted design **or an explicit no-design result**.
++
++## Run
++
++Install the existing pinned native/runtime environment plus
++`requirements-glider.lock`. The new trimesh/networkx pins match the existing
++verification lock.
++
++The normal backend attaches the new routes. A provider-free host is also
++available, without loading the text-to-CAD orchestrator:
++
++```sh
++PYTHONPATH=backend python -m uvicorn cem.app:app --host 127.0.0.1 --port 8000
++BACKEND_URL=http://127.0.0.1:8000 streamlit run frontend/app.py
++```
++
++Select **Physics-based glider CEM** in the workflow selector. Numeric typed
++missions and physics never call a model provider. The optional words-to-mission
++route uses the existing Gemini configuration; ambiguity returns
++`needs_clarification`, and a successful translation returns
++`review_requirements` before any search starts. Provider responses are not
++accepted as physics evidence.
++
++Example:
++
++```sh
++curl -s http://127.0.0.1:8000/cem/glider/feasibility \
++  -H 'Content-Type: application/json' --data-binary @examples/cem/glider-distance.json
++curl -s http://127.0.0.1:8000/cem/glider/discover \
++  -H 'Content-Type: application/json' --data-binary @examples/cem/glider-distance.json
++```
++
++Poll `/cem/glider/jobs/{job_id}` every 2–3 seconds. Select an elite and POST
++`{"discovery_job_id":"…","elite_id":"…"}` to `/cem/glider/design`.
++Poll its returned job ID, then download
++`/cem/glider/jobs/{design_job_id}/bundle` after successful screening. Rejected
++builds have evidence but no downloadable bundle.
++
++## Identity, evidence and resources
++
++The mission output ID is the first 12 hex characters of SHA-256 over a canonical
++envelope of requirements, CEM version and calibration content hash. The seed is
++part of requirements. The CEM version incorporates implementation-source and
++runtime fingerprints. Each archive elite also has its own parameter/placement
++revision, and the final corrected design has a full SHA-256 revision.
++
++Artifacts include the mission ID. `design.json` and STL bytes are deterministic
++in one pinned runtime; ZIP entry timestamps are fixed. Reports bind exact STL
++hashes, source/runtime versions and the original calibration snapshot. The
++parent validates archive membership, final revision, measured-part accounting,
++physics/uncertainty evidence and ZIP contents/hash. Download rechecks the ZIP.
++
++One solver slot is shared with the existing glider workflow. A CEM worker has
++a 3 GiB address-space cap, 30-minute deadline, 64 KiB stdout/stderr budget and
++an environment allowlist without provider/deployment credentials. The parser
++caps JSON reports, and binary STL verification bounds bytes/facets. Failed,
++cancelled, malformed, stale or incomplete evidence cannot produce a screened
++download. Up to eight jobs are retained; jobs expire after an hour or restart.
++
++Use persistent storage for `MIRUM_WORK_DIR/cem/calibration` if flight-test
++versions must survive container replacement. Old bundles embed their complete
++calibration snapshot. New flights do not overwrite the initial coefficients.
++
++## What the masses and bands mean
++
++Wing/tail/pod meshes are closed **outer mould lines**. They are not fabricated
++hollow shells. Their mass law is explicitly a skin-equivalent areal density;
++triangle area moments provide their mass, CG and full inertia tensor. The spar
++is a solid rod with volume-derived mass. Hardware, payload and ballast are
++point masses. The verifier reimports the exact binary STLs and re-runs the
++existing aero/stability model with measured mass properties, fixed placement,
++payload and ballast. A trim change triggers a geometry rebuild and remeasurement.
++
++The band is local uncertainty propagation over drag, lift limit, efficiency,
++build mass and launch efficiency, with fixed trim CL. It is **not 200 full
++stability/trim solves**. Failed stall samples count as zero performance.
++Sustained uplift has no finite range/duration without a bounded lift region;
++such candidates are not ranked using infinity.
++
++The finite feasibility envelope is only valid for the initial performance/mass
++calibration. A changed calibration returns `marginal` with no numerical upper
++bound until the envelope is regenerated. This prevents a stale pessimistic
++bound from becoming a false infeasible verdict.
++
++## Flight-test update
++
++`POST /cem/glider/flight-test` takes a completed design job ID, its output ID and
++`measured={launch_height_m, launch_method, duration_s, distance_m}`. This version
++supports **still-air drop flights with measured range and speed-compatible
++duration**, holding mass, CL, Oswald efficiency and trim fixed. It updates only
++the identifiable profile-drag multiplier. Non-drop or missing-range records
++are rejected instead of jointly guessing launch energy and drag.
++
++The response returns a new immutable calibration hash. Pass it as
++`calibration_version` on the next mission to re-score/re-discover and assimilate
++subsequent flight evidence against that prior. No active calibration is silently
++changed. The test suite recovers a known synthetic drag factor within 5%; no
++physical flight calibration is claimed.
++
++## Verification
++
++```sh
++OPENBLAS_NUM_THREADS=1 python -m pytest \
++  backend/tests/test_cem_requirements.py backend/tests/test_cem_api.py \
++  backend/tests/test_cem_pipeline.py backend/tests/test_glider_model.py \
++  backend/tests/test_glider_search.py backend/tests/test_glider_explorer.py \
++  backend/tests/test_glider_flight_conditions.py -q
++```
++
++The tests exercise real AeroSandbox/NeuralFoil calculations and real mesh export
++and import. Native CAD and the full offline API regression gate should also run
++in the existing verification environment. Provider authentication/generation
++quality, XFOIL/AVL agreement, physical flight performance and fabricated parts
++require their own evidence.
+diff --git a/docs/implementation/cem-roadmap.md b/docs/implementation/cem-roadmap.md
+new file mode 100644
+index 0000000..c60ab80
+--- /dev/null
++++ b/docs/implementation/cem-roadmap.md
+@@ -0,0 +1,334 @@
++# Mirum CEM plan: from performance requirements to verified geometry (Noyron-style)
++
++Date: 2026-11-03. Author: planning session (Claude). Audience: the builder agent. Read the whole file before starting.
++
++## 1. Goal
++
++A user states **performance requirements**, for example: "motorless glider, launched from 10 m, 1200 s in the air". Mirum should then return one of two things:
++
++- (a) a design that physics predicts will meet the requirements, with geometry, manufacturing files, a predicted-performance report with uncertainty, and a list of assumptions; or
++- (b) a quantified **infeasible** verdict that names the binding physics and the cheapest changes that would make the requirements feasible.
++
++This is the LEAP 71 Noyron pattern. Public descriptions (leap71.com/noyron, Metal-AM interview with Lin Kayser) say three things about it:
++
++- It is an **algorithm, not a neural net**. Engineering logic and physics are encoded as deterministic code, and the LLM only helps around the edges.
++- **Physics is evaluated while each feature is built.** For example, regen channel cross-section and wall thickness come from local heat flux and pressure, and are not drawn first and then checked.
++- **The output is geometry, manufacturing files, and a predicted-performance summary.** Each part carries the model version and an input hash, and the model is **calibrated against physical tests** (they hot-fire roughly every 4 weeks). There is no public evidence of CFD or FEA running in their loop.
++
++**User decisions (2026-11-03), which override defaults elsewhere in this file:**
++
++- The example means **metres of distance**.
++- The mode is **maximize**, not "meet a target". 1200 m is a reference stretch goal: always report the gap between it and the best design found.
++- The user wants to **push what's possible by discovering new shapes**, not just tune one fixed layout. This is section 5.7.
++- **Both manufacturing processes**: foam/balsa sheet and FDM printing, plus a hybrid of the two (section 5.4).
++- **Still air is the default.** Other environments are user toggles (section 5.1).
++
++Mirum already follows half of this: "LLM fills a typed spec, then a no-LLM builder renders it, then a fail-closed verifier checks it". It is missing the front half (requirements, feasibility, sizing) and the closing half (measuring the built geometry, re-predicting performance, calibrating).
++
++## 2. Physics reality check for the example (must become a test)
++
++**Still air from launch height h:**
++
++- time aloft is `t = h / v_sink`
++- range is `R = h * (L/D)`
++- minimum sink is `v_sink = sqrt(2 (W/S) / rho) / (CL^1.5 / CD)`
++
++**The two readings of the example:**
++
++- **1200 s from 10 m** needs a mean sink of **0.0083 m/s**.
++  - At an ultralight wing loading of 3 g/dm² (W/S of about 2.9 N/m²), that requires CL^1.5/CD of about **260**. Real low-Re wings reach about 10 to 20.
++  - The best sample design in the repo (`glider-designer` results: L/D 13.3, sink 0.34 m/s) gives about **29 s**.
++- **1200 m of range from 10 m** needs **L/D of about 120**. Open-class full-size sailplanes reach about 70, and small models reach about 10 to 25.
++
++So the system must say **infeasible**, then give levers with numbers:
++
++| Lever | Requirement |
++|---|---|
++| Launch energy | `h_eff = h0 + eta * V0^2 / (2g)`. A discus or catapult launch at 25 m/s adds about 20 to 30 m, which is still only about 100 to 150 s. |
++| Rising air | A mean uplift of `w >= v_sink - h/t`, so thermal or ridge lift of about 0.15 to 0.35 m/s. |
++| Stored energy | Rubber or electric power, which breaks "motorless". |
++| Relaxed target | The maximum still-air duration achievable from 10 m, with the spec given. |
++
++The input wording "1200 m of flight duration" mixes units. The front end must ask whether the user means seconds or metres. It must not guess. (For this example the user confirmed metres.)
++
++**What maximize-distance means here.** Ground distance is `R = h_eff * (L/D)` in still air. So, for a fixed 10 m launch, maximizing distance means:
++
++- maximizing trimmed L/D;
++- plus any launch energy the chosen launch method adds;
++- plus wind, if the user toggles it on.
++
++L/D at this scale is limited mainly by:
++
++- **Reynolds number:** small chord and low speed give poor airfoil performance;
++- **aspect ratio versus structural mass:** longer, thinner wings need a heavier spar;
++- **the span limit.**
++
++These three trade-offs are where shape discovery can find real gains. Realistic still-air results from 10 m are about 100 to 250 m, against 1200 m needed. The report must state this honestly. With a tailwind `u`, ground distance becomes `R = t * (V cos(gamma) + u)` and the best trim speed shifts (speed-to-fly), so the trim speed must be optimized for the chosen environment, not fixed at the L/D-max speed.
++
++## 3. What already exists (verified from git, 2026-11-03)
++
++| Piece | Where | State |
++|---|---|---|
++| Glider sizing and search | `origin/main` `backend/gliders/` (PR #9 merged) | AeroSandbox AeroBuildup with NeuralFoil, VLM stability, trim, ballast, lateral modes. Admission fails closed. Seeded random-plus-local search. **The objective is hard-coded to distance** (`backend/gliders/spec.py:67-70`). There is no launch-energy model, and mass comes from fixed areal densities (`model/config.py:34-37`). |
++| Duration objective | `origin/glider-designer` `glider_designer/config.py` | `objective: "duration"` maximizes CL^1.5/CD. It exists only in that standalone folder and is not in the backend. |
++| Glider outputs | `backend/gliders/model/export.py` | STL (mm), 1:1 SVG templates, three-view PNG, `design.json`, assumptions. No STEP and no PicoGK. |
++| Explorer UI and API | `backend/gliders/api.py`, `frontend/components/glider_explorer/` | Jobs pattern, one solver slot, rate limits. Use it as the template for long jobs. |
++| PicoGK pattern | `engineering/regen-chamber` and `origin/xvant/regen-generator-3` (c6e9416) | `RegenChamberSpec` (frozen, strict, envelope-checked), C# builder in `picogk-builder/`, `regen_cli.py` gate with exit codes, bounded mesh verifier. **Geometry only, no sizing.** The xvant branch is the newer verifier generation. |
++| Engineering gate | `origin/main` `backend/engineering/service.py`, `verify.py` | Cantilever: a fixed box template plus a beam FEA check, with the user supplying the dimensions. Good model for a fail-closed report shape. |
++| 3-D wing aero | `origin/main` `backend/wing_aero.py` | Lifting line, **unwired** (`wing_aero_report` is always None). |
++
++Known model limits to carry forward as stated uncertainty:
++
++- NeuralFoil and XFOIL are weak below Re of about 30k, especially with laminar bubbles.
++- Stability comes from a VLM screen, with Ixz neglected.
++- There is no structural model.
++
++## 4. Target architecture: one CEM interface, many domains
++
++Add `backend/cem/` with a domain-agnostic pipeline. Each domain (glider first, rocket chamber later) implements six stages:
++
++```
++Requirements (typed)  ->  Feasibility (analytic bounds)  ->  Sizing (optimizer over physics)
++      ^                                                            |
++      |                                                            v
++ Calibration  <-  Report (perf + uncertainty + ID)  <-  Verify (as-built closure)  <-  Geometry (feature-by-feature)
++```
++
++```python
++class CEM(Protocol):
++    name: str; version: str                      # version goes into every output ID
++    Requirements: type[BaseModel]                # strict, extra=forbid, SI units in field names
++    def feasibility(self, req) -> FeasibilityReport   # pure analytic, < 1 s, no geometry
++    def size(self, req, budget) -> SizedDesign        # deterministic given (req, seed, version)
++    def build(self, design) -> GeometryBundle         # Python and/or PicoGK builder
++    def verify(self, design, bundle) -> VerificationReport  # re-predict from MEASURED geometry
++    def report(self, ...) -> PerformanceReport
++```
++
++**Rules (non-negotiable, consistent with existing Mirum invariants):**
++
++1. **The LLM never computes physics or writes C#.** It only turns text into `Requirements` and explains reports.
++2. **Every stage fails closed.** If evidence is missing or non-finite, the result is a rejection, never a pass.
++3. **Determinism.** The same `(requirements, seed, cem_version, calibration_version)` gives byte-identical `design.json`. Output ID = `sha256(canonical_json(req) + cem_version + calibration_version)[:12]`, written into every artifact. This is the analogue of Noyron's embossed ID, and can be embossed on printed parts later.
++4. **Predicted performance always comes with an uncertainty band and an assumptions list**, never as a single bare number.
++
++## 5. Glider CEM: stage details
++
++### 5.1 Requirements: `GliderMissionRequirements`
++
++```
++objective: Literal["distance_m", "duration_s"] = "distance_m"   # always maximized
++reference_target: float | None                       # e.g. 1200 (m); used only to report the gap, never to stop the search
++launch: { height_m (0-100), method: "drop"|"hand_toss"|"discus"|"catapult"|"hi_start",
++          launch_speed_m_s: float | None }           # None means a per-method default with a stated assumption
++environment: {                                       # default kind = "still_air"; every other kind is an explicit user toggle
++  kind: "still_air" | "wind" | "uniform_uplift" | "thermal" | "ridge",
++  wind_m_s: float = 0,            # +tailwind / -headwind along the flight path (kind="wind")
++  uplift_m_s: float = 0,          # kind="uniform_uplift"
++  thermal: {core_uplift_m_s, radius_m, distance_m} | None,   # simple column model, phase G8
++  ridge: {slope_deg, wind_m_s} | None,                        # phase G8
++  altitude_m, temperature_c }
++constraints: { max_span_m, max_length_m, max_mass_kg, payload: {mass_kg, diameter_m, length_m} | None }
++process: "sheet_foam" | "balsa" | "fdm_lwpla" | "fdm_pla" | "hybrid" | "auto"   # "auto" = search all of them and report the best per process
++discovery: { families: list[Family] | "all", budget_evals: int, seed: int }    # section 5.7
++```
++
++Reuse the bounds style of `backend/gliders/spec.py` (`StrictModel`).
++
++### 5.2 Feasibility (new, pure analytic): the most important piece
++
++- Compute `h_eff`.
++  - Launch zoom efficiency `eta` per method is a calibratable coefficient, defaulting to 0.6 with "assumption" marked.
++  - Hand toss defaults to about 8 m/s, discus about 25 m/s, catapult about 30 m/s. Every default is labelled as an assumption.
++- Compute the **lower bound of wing loading** for the process. This is minimum structural areal density times minimum area, plus payload and hardware. This is where a 60 g payload makes long duration hard.
++- Take the **upper bound of CL^1.5/CD and L/D** from a Re-indexed table built offline from NeuralFoil and XFOIL over a fixed airfoil set (UIUC low-Re: SD7037, AG-series, S1223, flat or cambered plate). Cache the table as a versioned JSON with its source recorded.
++- Output:
++  - a verdict: `feasible | marginal | infeasible`
++  - the best achievable value
++  - the binding constraint
++  - **levers**, each with the quantified requirement: needed `h_eff`, needed uplift `w`, needed wing loading, or the relaxed target
++- Bounds are optimistic on purpose. Feasibility may only say "infeasible" when even the optimistic bound fails. Otherwise it passes to sizing.
++- **In maximize mode, an infeasible `reference_target` never stops the run.** The report says "1200 m needs L/D ≈ 120 from 10 m; the optimistic bound at this span/process is X; the best design found is Y". It then lists the levers, and the search continues.
++
++### 5.3 Sizing (extend the existing search, don't rewrite it)
++
++- Distance is already the backend objective. Add an `objective` field anyway (duration as the secondary option, ported from `glider_designer/config.py`) and thread it through `configuration()`.
++- Add the launch-energy model.
++- Add the environment toggles:
++  - **Wind:** trim speed becomes a design variable optimized for ground distance (speed-to-fly).
++  - **Uplift:** `t = h_eff / max(v_sink - w, eps)`. If `w >= v_sink`, report "sustained (lift-limited)" instead of infinity. Distance then depends on the size of the lift region, so for uplift and thermal the distance is reported as a range, not a single number.
++  - **Still air** stays the default.
++- **Replace the fixed areal densities with a process mass model:**
++  - The spar is sized for bending at launch load factor `n_launch`. Root moment comes from elliptic lift. A spar tube or strip is chosen from a material table (carbon rod, spruce, balsa) to give stress at most `sigma_allow / SF`. Mass follows from that.
++  - Skin and ribs come from per-process areal density.
++  - This makes wing loading respond to span and launch method, which is what makes the duration optimum real.
++- The search objective is to maximize the duration or distance margin over the target, subject to the existing `admissible()` constraints. Keep the seeded random-plus-local search. Optionally add AeroSandbox `Opti` gradient refinement around the best candidate (Phase G4, optional).
++
++### 5.4 Geometry: feature-by-feature, physics evaluated at the feature
++
++**Both processes are built, user decision 2026-11-03.**
++
++- `process="auto"` runs discovery once per process and reports the best design for each, side by side.
++- `hybrid` means a printed fuselage pod and joints with foam or balsa flying surfaces. It is often the best real-world option.
++
++**Each process limits the shape space through manufacturability checks inside `admissible()`, not after it:**
++
++| Process | Shape limits |
++|---|---|
++| Sheet foam | Cambered-plate or simple sectioned airfoils only. Limited twist. Dihedral only at discrete joints. Thickness from stock sheet sizes. |
++| Balsa built-up | Real airfoils. Rib spacing limits. |
++| FDM | Any airfoil and smooth twist or dihedral. Minimum wall, bed size, overhang. Mass penalty from the printed shell. |
++
++Two builders, picked by `process`:
++
++- **`sheet_foam` / `balsa`:** the existing STL and SVG export, plus new physics-driven features:
++  - spar slot sized by the 5.3 spar section at each span station;
++  - rib spacing set by the skin's buckling and sag allowance;
++  - ballast pocket volume sized from the computed ballast mass and density;
++  - payload bay sized from the payload dimensions plus clearance.
++- **`fdm_*`:** a **new PicoGK builder**, following the `RegenChamberSpec` pattern exactly:
++  - Python emits a strict `GliderPartsGeometrySpec` JSON, made of airfoil section polylines per station, planform, spar path and diameter per station, wall thickness per process, ballast and payload cavities, and voxel size. It has an envelope check like `supported_envelope` in `regen_spec.py`.
++  - The C# builder (`picogk-builder/` sibling project, or the same project with a second command) does the following:
++    - lofts the outer mould line from the sections (mesh, then voxels);
++    - shells it at the process min wall;
++    - subtracts the spar channel;
++    - adds internal ribs or a LatticeLibrary infill whose density is graded by the local bending moment, which is the Noyron-style "physics at the feature" step;
++    - adds the ballast pocket and payload bay;
++    - splits the result into printable segments no larger than the printer bed (a process parameter).
++  - The C# side validates nothing beyond what it needs to avoid crashing. **The Python gate is authoritative**, the same rule as `regen_cli.py`.
++  - Reuse the bounded verifier approach from `xvant/regen-generator-3`: weld, manifold, components, volume, budget accounting, and runs under a memory cap.
++- Do not try to get STEP out of PicoGK. It has no B-rep export. STL or 3MF plus SVG is the manufacturing output.
++
++### 5.5 Verify: as-built closure (new; Mirum's equivalent of a hot-fire)
++
++1. Measure the built geometry from the actual meshes: volume times material density, then mass, CG and inertia tensor (divergence theorem on the closed mesh). Add hardware, ballast and payload point masses.
++2. **Re-run trim, stability and performance** with the measured mass properties, not the sizing estimates.
++3. Pass only if every one of these holds:
++   - the measured mass is within tolerance of the sized mass (start at 5%);
++   - the re-predicted performance still meets the target, at the P10 of the uncertainty band if the target was a hard requirement;
++   - static margin and modes stay within the `admissible()` limits;
++   - the structural check at `n_launch` passes on the as-built spar section;
++   - the manufacturability checks pass (min wall, bed size, overhang if FDM).
++4. **Uncertainty:** run a seeded Monte Carlo (N of about 200) over `CD0` multiplier, `CLmax` multiplier, mass build variance and launch `eta`. Each takes its prior from the calibration file. Report P10, P50 and P90 for duration and distance.
++
++### 5.6 Report and calibration
++
++- `performance_report.json`: requirements, verdict, predicted P10/P50/P90, binding constraints, margins, assumptions, model limits (low-Re caveat, no gusts), output ID, CEM version and calibration version.
++- `calibration/glider.json` holds versioned coefficients: `cd0_factor`, `cl_max_factor`, `oswald_factor`, `eta_launch[method]`, `mass_factor[process]`, each with its prior.
++- `POST /cem/glider/flight-test` takes `{output_id, measured: launch_height, launch_method, duration_s, distance_m?}`. It refits the coefficients by least squares, or Bayesian update of a log-normal multiplier, and writes a **new calibration version**. Old outputs stay reproducible because their ID pins the version.
++
++### 5.7 Shape discovery: pushing past one fixed layout (user priority)
++
++**Honest framing.**
++
++- Noyron's publicly described novelty comes from **encoded design logic plus fast generation**. It can build many variants in minutes, and its geometry follows physics, so unusual forms such as aerospikes and conformal channels come out naturally.
++- LEAP 71 has not publicly described using blind ML search.
++- Mirum should get novelty the same way, with a **wide, physics-checked design space and a search that explores it**:
++  - every candidate is still sized by physics and passed through `admissible()`;
++  - nothing is accepted on the optimizer's word alone.
++
++**Design representation.** Today the space is one conventional layout with a few parameters. Widen it in three layers.
++
++1. **Configuration families**, each a small builder plus family-aware admission:
++   - conventional, T-tail and V-tail;
++   - tailless swept wing with washout (Horten-style bell lift distribution);
++   - tailless plank with a reflex airfoil;
++   - canard;
++   - tandem wing;
++   - box or joined wing;
++   - blended body;
++   - optionally, nonplanar tips such as winglets or C-wing.
++2. **Continuous spanwise shape**, with the same knobs in every family:
++   - B-spline distributions of chord, twist, dihedral and sweep, with 5 to 8 control points each;
++   - per-station airfoils from **CST (Kulfan) coefficients**, constrained for thickness so they stay buildable;
++   - tail or second-surface sizes and positions;
++   - trim speed.
++3. **Process**: from 5.4, which also constrains layers 1 and 2.
++
++**Analysis coverage per family:**
++
++- The VLM in AeroSandbox handles nonplanar, canard, tandem and box layouts.
++- Each family's admission must check its own failure modes, for example:
++  - tailless needs Cm0 > 0 and an adequate static margin from reflex or washout;
++  - tandem and canard need the forward surface to stall first;
++  - box wing needs the joint load path.
++- A family whose analysis cannot be trusted must not be offered.
++
++**Search: two levels, both seeded and deterministic.**
++
++- **Outer: quality-diversity (MAP-Elites)** across all families. It keeps an archive grid indexed by behaviour descriptors, for example family × aspect ratio × wing loading × sweep, or tail volume. Each cell keeps its best-distance design.
++  - The archive holds many different good shapes, not one optimum. This is the "discover new shapes" engine.
++  - It also shows the user which regions of design space are worth having.
++- **Inner: gradient refinement** of each elite with AeroSandbox `Opti`. CasADi gives automatic differentiation, and NeuralFoil is differentiable. Use CMA-ES where gradients fail, for example on discrete family switches.
++- The budget is set by `budget_evals`, run as a job (the jobs pattern in `backend/gliders/api.py`). Expect hours, not seconds, for a full archive. Run it under a memory cap.
++
++**Guards against exploitation: the main risk of open search.** An optimizer will find shapes that look great only because the model is wrong there.
++
++1. **Validity envelope.** Reject or penalize evaluations outside the model's trusted range:
++   - NeuralFoil `analysis_confidence` below a threshold;
++   - Re below the calibrated floor;
++   - CL near CLmax;
++   - sweep or nonplanarity beyond VLM assumptions.
++2. **Independent re-check of the top designs.** Before reporting, re-run each top-K elite on higher-fidelity paths:
++   - XFOIL polars at its actual Re for each station;
++   - AVL for trim, stability and modes;
++   - optionally OpenVSP VSPAERO panel.
++   If L/D or stability disagrees beyond a set tolerance, the design is flagged `unverified_novelty` and not ranked as a win.
++3. **Report novelty explicitly.** Report each design's distance in descriptor space from the conventional baseline and its predicted gain, with the uncertainty band. A "new shape" that is only 2% better and inside model error is labelled as such.
++4. **Flight test closes the loop (G7).** Novel elites are the first ones to build and fly. Their results recalibrate the model, which then reshapes the archive. This is Noyron's hot-fire loop applied to gliders.
++
++**UI.**
++
++- An archive map: a grid coloured by best distance, with family filters.
++- Clicking a cell opens that elite in the existing explorer.
++- A "build this one" action runs G3 closure and the builder for the chosen process.
++
++## 6. LLM front end (thin)
++
++- Add a Gemini structured-output call that maps text to `GliderMissionRequirements`. It must avoid `exclusiveMinimum`-style schema features (the PR #8 bug: `gt=` breaks the Gemini schema, so use `ge=` or validate after parsing).
++- **Ambiguity is a hard stop, not a guess.** Examples: a unit mismatch like "1200 m of duration", a missing launch method, or no answer on whether the target is a hard requirement or something to maximize. In these cases the API returns `needs_clarification` with the specific questions.
++- The LLM explains the feasibility and performance reports in plain language, quoting the report's numbers. It never makes up its own numbers.
++
++## 7. Phases for the builder (each one is a PR-sized slice with acceptance tests)
++
++Branch from `origin/main` (2e6a4ee). Do not touch the `deploy/*` branches. Each phase is fail-closed, deterministic and tested.
++
++| Phase | Scope | Acceptance |
++|---|---|---|
++| **G0 CEM skeleton** | `backend/cem/` protocol, report types, output-ID hashing, canonical JSON | Identical inputs give identical ID; any field change changes the ID; tests pass. |
++| **G1 Feasibility** | `GliderMissionRequirements`, launch-energy model, offline Re-indexed airfoil bound table (script plus versioned JSON), feasibility function | Golden tests: **10 m / maximize distance with `reference_target` 1200 m** gives a gap report: 1200 m flagged infeasible (needs L/D ≈ 120), the optimistic bound is reported, and `continue_search=true`. 10 m / 1200 s gives `infeasible` (sink). Runs in under 1 s. |
++| **G2 Processes + environments** | Process mass models for sheet_foam, balsa, fdm_*, hybrid, with spar sizing at `n_launch`. Per-process manufacturability in `admissible()`. `process="auto"`. Environment toggles: still air (default), wind with speed-to-fly trim, uniform uplift. Launch energy in performance. | The existing glider and search tests stay green. `auto` returns one best design per process. A tailwind raises distance and lowers the optimal trim speed versus still air on the same design. Spar stress at most allowable. |
++| **G3 As-built closure (non-PicoGK)** | Mass properties from the existing STL export, re-trim, Monte Carlo band, `performance_report.json` | An injected 20% mass error must fail closure. Bands are reproducible with the seed. |
++| **G4 Shape discovery** | Configuration families (start with conventional, V-tail, tailless swept, flying plank, tandem; then canard, box), spanwise B-spline + CST parameterization, family-aware admission, MAP-Elites archive, `Opti` refinement, validity envelope, XFOIL+AVL re-check, `unverified_novelty` flag | The archive fills at least 3 families with admissible elites. Determinism: same seed gives the same archive. Exploitation guard test: an injected model bug (e.g. a CD hole at low Re) is caught by the re-check, not ranked. The best elite's distance is at least the current conventional baseline, or the report explains why not. |
++| **G5 PicoGK glider builder** | `GliderPartsGeometrySpec` (any family), C# builder (loft, shell, spar channel, graded infill, cavities, bed split), Python gate, bounded verifier, Docker image. Plus the sheet/balsa SVG builder extended for the new families. | Byte-identical STL across runs on one image (pin digests per image). Manifold, one component per part. Measured mass within 5% of sized. Runs under the 3 GiB cap. |
++| **G6 API + LLM front end + archive UI** | `POST /cem/glider/{feasibility,discover,design}`, jobs pattern, Gemini spec extraction, `needs_clarification`, archive map in the explorer | Text input → archive → chosen elite → build bundle, end to end. Ambiguous units return `needs_clarification`. |
++| **G7 Calibration** | Flight-test endpoint, calibration versioning, refit, archive re-score | A synthetic test log with known `cd0_factor` is recovered within 5%. Old IDs still reproduce. |
++| **G8 Advanced environments** | Thermal column and ridge lift models (opt-in toggles) | Distance is reported as a range, with the assumptions listed. |
++| **R1 (later) Rocket CEM front half** | `ChamberRequirements {thrust_N, Pc_bar, propellants, mixture_ratio, Pe_or_eps, burn_time_s}`, then NASA CEA (or `rocketcea`; verify licence and Windows/Linux install) for `c*, Isp, gamma, Tc`, then `mdot = F/(Isp*g0)`, `At = F/(Pc*Cf)`, `eps` from `Pe`, chamber volume from `L*`, Bartz heat flux, then channel count, size and wall from coolant dT and hoop stress, then emit the existing **`RegenChamberSpec`** | Hand-checked against a published small engine; feeds the existing builder and verifier unchanged. This is the literal "thrust/Isp in, engine out" path. |
++
++Suggested order: G0 → G1 → G2 → G3 → G4 → G5 → G6 → G7 → G8.
++
++- G1 alone answers the user's example honestly.
++- G4 (discovery) needs G2 and G3 first, so that every elite is sized and closure-checked by physics the user can trust.
++- G5 is the biggest geometry job.
++
++## 8. User decisions (confirmed 2026-11-03)
++
++1. **Units:** metres (distance). The clarification gate stays for future ambiguous inputs.
++2. **Mode:** maximize, with 1200 m as the reference stretch goal for the gap report. Push what's possible through shape discovery (5.7).
++3. **Process:** both. Sheet/balsa and FDM, plus hybrid, with `auto` comparing them.
++4. **Environment:** still air by default. Wind, uplift, thermal and ridge are user toggles.
++
++Open, for the builder to raise with the user if it matters:
++
++- the compute budget for a full discovery run (hours on the laptop versus a bigger remote machine);
++- whether nonplanar/box families are worth their analysis risk before the flight-test loop exists.
++
++## 9. Pitfalls already known in this repo
++
++- The Gemini schema rejects `exclusiveMinimum`. Use `ge` or post-validate (PR #8).
++- On Windows, new worktrees check lockfiles out CRLF, which makes the Docker pip layer miss its cache, and Avast then breaks TLS. Overlay onto an existing verify image (see the Mirum memory and README).
++- Run every expensive mesh step under a memory cap (`xl-evidence/mirum-regen-sweep/capped.py`). An uncapped verifier froze the laptop on 2026-11-02.
++- PicoGK hashes differ between Windows and Linux (about 1.3% of facets, under 6e-5 mm). Pin digests per build image.
++- PicoGK memory timer crash: stop `Library.m_oTimerMemCheck` via reflection, as `picogk-builder/Program.cs` does.
++- Do not loosen any existing check to make a new phase pass.
+diff --git a/examples/cem/glider-distance.json b/examples/cem/glider-distance.json
+new file mode 100644
+index 0000000..72f3d71
+--- /dev/null
++++ b/examples/cem/glider-distance.json
+@@ -0,0 +1,17 @@
++{
++  "requirements": {
++    "objective": "distance_m",
++    "mode": "maximize",
++    "reference_target": 1200.0,
++    "launch": {"height_m": 10.0, "method": "drop"},
++    "environment": {"kind": "still_air"},
++    "constraints": {
++      "max_span_m": 1.4,
++      "max_length_m": 0.95,
++      "max_mass_kg": 0.5,
++      "payload": {"mass_kg": 0.06, "diameter_m": 0.045, "length_m": 0.06}
++    },
++    "process": "auto",
++    "discovery": {"families": "all", "budget_evals": 8, "seed": 42, "top_k": 3}
++  }
++}
+diff --git a/frontend/cem_ui.py b/frontend/cem_ui.py
+new file mode 100644
+index 0000000..b9b7bfb
+--- /dev/null
++++ b/frontend/cem_ui.py
+@@ -0,0 +1,161 @@
++"""Mission, feasibility, process archive and explicitly screened build bundles."""
++import json
++import requests
++import streamlit as st
++
++
++def render_cem(backend, headers):
++    st.title('Physics-based glider engineering')
++    st.write('Maximize distance or duration, compare manufacturing processes, and inspect the physics behind each design.')
++    st.caption('Screening models with engineering uncertainty priors. Current layouts: conventional, T-tail and V-tail. '
++               'Bundles contain analysis geometry and templates; manufactured parts and novel layouts are pending qualification.')
++    with st.expander('Describe the mission in words'):
++        text = st.text_area('Mission', placeholder='Maximize distance from a 10 m drop; 1200 m reference target; compare all processes.')
++        if st.button('Translate to requirements') and text.strip():
++            try:
++                r = requests.post(f'{backend}/cem/glider/requirements', json={'prompt': text}, headers=headers(), timeout=40)
++                r.raise_for_status()
++                value = r.json()
++                if value['status'] == 'needs_clarification':
++                    for question in value['questions']:
++                        st.warning(question)
++                else:
++                    st.session_state.cem_extracted = json.dumps(value['requirements'], indent=2)
++            except (requests.RequestException, ValueError):
++                st.error('Text translation is unavailable. The mission form below works without a model provider.')
++        if 'cem_extracted' in st.session_state:
++            st.code(st.session_state.cem_extracted, language='json')
++            st.caption('Review these translated requirements. Paste into the advanced mission input below to use them.')
++    with st.form('cem_mission'):
++        left, middle, right = st.columns(3)
++        objective = left.selectbox('Maximize', ['distance_m', 'duration_s'],
++                                   format_func=lambda v: 'Distance (m)' if v == 'distance_m' else 'Duration (s)')
++        reference = left.number_input('Reference stretch goal (m or s)', 0., 1000000., 1200.)
++        height = left.number_input('Release height (m)', 0., 100., 10.)
++        method = left.selectbox('Launch method', ['drop', 'hand_toss', 'discus', 'catapult', 'hi_start'],
++                               format_func=lambda v: v.replace('_', ' ').capitalize())
++        explicit_speed = left.checkbox('Specify release speed')
++        speed = left.number_input('Release speed (m/s)', 0., 60., 8.)
++        process = middle.selectbox('Process', ['auto', 'sheet_foam', 'balsa', 'fdm_lwpla', 'fdm_pla', 'hybrid'],
++            format_func=lambda v: {'auto':'Compare all', 'sheet_foam':'Sheet foam', 'balsa':'Balsa',
++                                  'fdm_lwpla':'FDM LW-PLA', 'fdm_pla':'FDM PLA', 'hybrid':'Hybrid'}[v])
++        span = middle.number_input('Maximum span (m)', .6, 1.4, 1.4)
++        length = middle.number_input('Maximum length (m)', .45, .95, .95)
++        mass = middle.number_input('Maximum mass (g)', 1., 500., 500.)
++        payload = middle.number_input('Payload mass (g)', 0., 300., 60.)
++        diameter = middle.number_input('Payload diameter (mm)', 1., 100., 45.)
++        payload_length = middle.number_input('Payload length (mm)', 1., 300., 60.)
++        environment = right.selectbox('Environment', ['still_air', 'wind', 'uniform_uplift'],
++                                      format_func=lambda v: v.replace('_', ' ').capitalize())
++        wind = right.number_input('Along-path wind (m/s; positive = tailwind)', -15., 15., 0.)
++        uplift = right.number_input('Mean uplift (m/s)', 0., 5., 0.)
++        altitude = right.number_input('Altitude above sea level (m)', 0., 5000., 0.)
++        temperature = right.number_input('Ambient temperature (°C)', -30., 45., 15.)
++        budget = right.number_input('Evaluations per process', 8, 120, 40)
++        seed = right.number_input('Seed', 0, 2147483647, 42)
++        families = st.multiselect('Layout families', ['conventional', 't_tail', 'v_tail'], default=['conventional', 't_tail', 'v_tail'],
++                                  format_func=lambda v: {'conventional':'Conventional', 't_tail':'T-tail', 'v_tail':'V-tail'}[v])
++        hard = st.checkbox('Also enforce a hard minimum at P10',
++                           help='The lower 10th percentile of the model uncertainty band must meet this value.')
++        minimum = st.number_input('Hard minimum (m or s)', .001, 1000000., 100.)
++        with st.expander('Advanced typed mission JSON and pinned calibration'):
++            advanced = st.text_area('Mission JSON (overrides the form when filled)', height=160)
++            cal_version = st.text_input('Calibration content hash (empty = initial engineering priors)')
++        screen = st.form_submit_button('Check feasibility')
++        search = st.form_submit_button('Discover best designs', disabled=st.session_state.get('cem_status') == 'running')
++    if screen or search:
++        try:
++            req = json.loads(advanced) if advanced.strip() else dict(objective=objective, mode='maximize',
++                reference_target=reference or None, minimum_performance=minimum if hard else None,
++                launch=dict(height_m=height, method=method, launch_speed_m_s=speed if explicit_speed else None),
++                environment=dict(kind=environment, wind_m_s=wind if environment == 'wind' else 0.,
++                    uplift_m_s=uplift if environment == 'uniform_uplift' else 0., altitude_m=altitude, temperature_c=temperature),
++                constraints=dict(max_span_m=span, max_length_m=length, max_mass_kg=mass/1000,
++                    payload=dict(mass_kg=payload/1000, diameter_m=diameter/1000, length_m=payload_length/1000) if payload else None),
++                process=process, discovery=dict(families=families, budget_evals=budget, seed=seed, top_k=3))
++            body = dict(requirements=req, calibration_version=cal_version or None)
++            r = requests.post(f'{backend}/cem/glider/feasibility', json=body, headers=headers(), timeout=15)
++            r.raise_for_status()
++            st.session_state.cem_feasibility = r.json()
++            if search:
++                r = requests.post(f'{backend}/cem/glider/discover', json=body, headers=headers(), timeout=15)
++                r.raise_for_status()
++                st.session_state.update(cem_job=r.json()['job_id'], cem_status='running', cem_kind='discovery')
++                st.rerun()
++        except (requests.RequestException, ValueError) as exc:
++            st.error(f'Could not submit mission: {exc}')
++    if 'cem_feasibility' in st.session_state:
++        f = st.session_state.cem_feasibility
++        st.write(f"Reference goal: **{f['verdict']} within the sampled model envelope**. Search continues to maximize performance.")
++        if f['required_lift_to_drag'] is not None and f['optimistic_lift_to_drag'] is not None:
++            st.write(f"Required L/D: {f['required_lift_to_drag']:.1f}; optimistic envelope: {f['optimistic_lift_to_drag']:.1f}.")
++        if f.get('bound_state') == 'rebuild_required_for_calibration':
++            st.info('This calibration needs a regenerated feasibility envelope. Continue with physics sizing; no infeasibility claim is made.')
++        st.dataframe(f['levers'], hide_index=True)
++        with st.expander('Feasibility evidence and assumptions'):
++            st.json(f)
++    _results(backend, headers)
++
++
++@st.fragment(run_every=3)
++def _results(backend, headers):
++    key = st.session_state.get('cem_job')
++    if not key:
++        return
++    try:
++        response = requests.get(f'{backend}/cem/glider/jobs/{key}', headers=headers(), timeout=10)
++        response.raise_for_status()
++        job = response.json()
++        st.session_state.cem_status = job['status']
++        if job['status'] == 'running':
++            st.info(f"Running bounded CEM {st.session_state.get('cem_kind', 'job')}")
++            st.json(job.get('progress', {}))
++            return
++        if job['status'] == 'failed':
++            st.error(job['detail'])
++            return
++        result = job['result']
++        if 'per_process' not in result:
++            st.write(f"Closure result: **{result['status']}**. Manufacturing acceptance: **not qualified**.")
++            if result['status'] == 'screened':
++                r = requests.get(f'{backend}/cem/glider/jobs/{key}/bundle', headers=headers(), timeout=20)
++                r.raise_for_status()
++                st.download_button('Download screening geometry, templates and evidence', r.content,
++                    file_name=f"mirum-cem-{result['output_id']}.zip", mime='application/zip')
++            st.json(result)
++            return
++        rows = []
++        elites = []
++        for process, data in result['per_process'].items():
++            best = data['best']
++            rows.append(dict(process=process, best=best['result']['objective_value'] if best else None,
++                             occupied_cells=len(data['archive']), state='screened' if best else 'no admitted design'))
++            elites.extend(data['archive'])
++        st.dataframe(rows, hide_index=True)
++        # Categorical family/AR/wing-loading cells form a compact archive map.
++        if elites:
++            import pandas as pd
++            cells = [dict(family=e['result']['tail_kind'], aspect_ratio=e['result']['aspect_ratio'],
++                          wing_loading=e['result']['wing_loading_g_dm2'], performance=e['result']['objective_value'],
++                          process=e['process'], elite_id=e['elite_id']) for e in elites]
++            import altair as alt
++            chart = alt.Chart(pd.DataFrame(cells)).mark_circle(size=120).encode(
++                x='aspect_ratio:Q', y='wing_loading:Q', color='performance:Q', shape='family:N',
++                tooltip=['family', 'process', 'elite_id', 'performance']).interactive()
++            st.altair_chart(chart, use_container_width=True)
++            chosen = st.selectbox('Inspect an archive elite', elites,
++                format_func=lambda e: f"{e['process']} / {e['result']['tail_kind']} / {e['result']['objective_value']:.1f} / {e['elite_id']}")
++            with st.expander('Elite physics and constraints'):
++                st.json(chosen)
++            if st.button('Build analysis geometry and check mass closure'):
++                r = requests.post(f'{backend}/cem/glider/design', json=dict(discovery_job_id=key, elite_id=chosen['elite_id']),
++                                  headers=headers(), timeout=15)
++                r.raise_for_status()
++                st.session_state.update(cem_job=r.json()['job_id'], cem_status='running', cem_kind='design')
++                st.rerun()
++        else:
++            st.warning('No elite met the declared physics/model/process constraints. Review the rejection evidence.')
++        with st.expander('Archive evidence and model limits'):
++            st.json(result)
++    except (requests.RequestException, ValueError, KeyError) as exc:
++        st.error(f'CEM result unavailable: {exc}')
+diff --git a/scripts/cem/build_airfoil_bounds.py b/scripts/cem/build_airfoil_bounds.py
+new file mode 100644
+index 0000000..c153244
+--- /dev/null
++++ b/scripts/cem/build_airfoil_bounds.py
+@@ -0,0 +1,45 @@
++"""Rebuild the screening envelope offline. No provider calls, no fabricated XFOIL evidence.
++
++Run with the pinned glider environment. XFOIL cross-validation is an explicit
++remaining qualification step; the resulting table cannot prove global limits.
++"""
++import json
++from pathlib import Path
++import aerosandbox as asb
++import neuralfoil
++import numpy as np
++
++AIRFOILS = ['sd7037', 'ag24', 'ag25', 's1223', 'naca2408', 'naca2412']
++
++
++def build():
++    rows = []
++    for reynolds in [30000, 50000, 100000, 200000, 500000]:
++        ld, sink_metric, evidence = 0., 0., []
++        for name in AIRFOILS:
++            af = asb.Airfoil(name).to_kulfan_airfoil()
++            polar = af.get_aero_from_neuralfoil(alpha=np.linspace(-2, 14, 65), Re=reynolds, model_size='large')
++            cl, cd = np.asarray(polar['CL']), np.asarray(polar['CD'])
++            confidence = np.asarray(polar['analysis_confidence'])
++            ok = (cl > .1) & (cd > 0) & (confidence >= .8) & np.isfinite(cl) & np.isfinite(cd)
++            if not ok.any():
++                continue
++            # Optimistic e=1 and largest supported AR=14, no fuselage/tail drag.
++            total_cd = cd / 1.25 + cl**2 / (np.pi * 14.)
++            l, s = float(np.max(cl[ok] / total_cd[ok])), float(np.max(cl[ok] ** 1.5 / total_cd[ok]))
++            ld, sink_metric = max(ld, l), max(sink_metric, s)
++            evidence.append(dict(airfoil=name, ld=l, cl_1_5_over_cd=s))
++        if not evidence:
++            raise RuntimeError('No supported polar samples')
++        rows.append(dict(reynolds=reynolds, ld_upper=ld,
++                         cl_1_5_over_cd_upper=sink_metric, samples=evidence))
++    return dict(version='neuralfoil-envelope-1', source=dict(aerosandbox=asb.__version__,
++                neuralfoil=neuralfoil.__version__, model_size='large', alpha_deg=[-2, 14, 65],
++                confidence_floor=.8, airfoils=AIRFOILS, xfoil='not_cross_validated',
++                max_aspect_ratio=14., oswald_upper=1., profile_drag_divisor=1.25),
++                scope='Optimistic sampled-model envelope, not a universal physical impossibility proof', rows=rows)
++
++
++if __name__ == '__main__':
++    path = Path(__file__).resolve().parents[2] / 'backend/cem/data/airfoil_bounds.json'
++    path.write_text(json.dumps(build(), sort_keys=True, indent=2, allow_nan=False) + '\n')
