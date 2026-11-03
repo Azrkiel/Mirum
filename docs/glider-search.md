@@ -290,5 +290,8 @@ The same host evaluated and exported the default design in approximately 4.6 s;
 it was feasible and predicted 115.4 m from a 10 m launch height. These are screening
 predictions, not flight measurements. HTTP integration used the actual glider route
 attachment in a minimal FastAPI host; it did not exercise the unrelated CAD/LLM
-pipeline or provider credentials. Container image builds and deployment were not
-performed as part of this change.
+pipeline or provider credentials. Both frontend and backend container images were subsequently built and the
+glider workflow was verified in a local container deployment. The local glider-only
+API host avoids the unrelated CAD orchestrator's mandatory Gemini key. No Fly.io
+rollout was performed. Dockerfiles normalize application read permissions so their
+non-root users can run checkouts restored with restrictive file permissions.

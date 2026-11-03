@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 RUN useradd --uid 10001 --home-dir /tmp --shell /usr/sbin/nologin webuser
 COPY frontend/ /app/
 COPY --from=explorer-build /build/dist /app/components/glider_explorer/dist
+RUN chmod -R a+rX /app
 WORKDIR /app
 ENV HOME=/tmp
 USER 10001
