@@ -22,7 +22,10 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      - ./frontend:/app:ro
+      - ./frontend/app.py:/app/app.py:ro
+      - ./frontend/glider_ui.py:/app/glider_ui.py:ro
+      - ./frontend/glider_explorer.py:/app/glider_explorer.py:ro
+      - ./frontend/vn_diagram.py:/app/vn_diagram.py:ro
     depends_on:
       - backend
     restart: unless-stopped
