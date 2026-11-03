@@ -1,6 +1,5 @@
 """Fast coarse meshes. No evaluator, optimizer or export imports on this path."""
 from dataclasses import asdict
-import numpy as np
 from .design_spec import VERSION, FlightConditions, controls, digest, placement, preset
 
 
@@ -19,6 +18,7 @@ def metadata(spec=None):
 
 
 def geometry(gl):
+    import numpy as np
     airplane = gl.airplane()
     parts = []
     for part in [*airplane.wings, *airplane.fuselages]:
