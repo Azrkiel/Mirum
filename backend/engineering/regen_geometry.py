@@ -121,21 +121,24 @@ def _seg_dist(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
 def _plan_chunks(cost: np.ndarray, budget=None) -> Iterator[np.ndarray]:
     """Count before broadcasting; even a single oversized item rejects."""
     budget = budget or Budget()
-    budget.memory(len(cost) * 64)
-    if len(cost):
-        budget.check('reference_batch_budget', int(cost.max()))
-    order = np.argsort(cost, kind='stable')
-    n = len(order)
-    s = 0
-    while s < n:
-        e = s + 1
-        while e < n and (e + 1 - s) * int(cost[order[e]]) <= min(_ELEMENT_BUDGET, budget.limits['reference_batch_budget']):
-            e += 1
-        elements = (e - s) * int(cost[order[e - 1]])
-        budget.spend('reference_budget', elements)
-        budget.memory(elements * 512 + len(cost) * 64)
-        yield order[s:e]
-        s = e
+    with budget.hold(len(cost) * 64):
+        limit = min(_ELEMENT_BUDGET, budget.limits['reference_batch_budget'])
+        largest = int(cost.max()) if len(cost) else 0
+        if largest > limit:
+            raise BudgetExceeded(f'reference_batch_budget exhausted ({largest} > {limit})')
+        order = np.argsort(cost, kind='stable')
+        n = len(order)
+        s = 0
+        while s < n:
+            e = s + 1
+            while e < n and (e + 1 - s) * int(cost[order[e]]) <= limit:
+                e += 1
+            elements = (e - s) * int(cost[order[e - 1]])
+            budget.spend('reference_budget', elements)
+            # The caller builds broadcast arrays while this generator is paused.
+            with budget.hold(elements * 512):
+                yield order[s:e]
+            s = e
 
 
 class RegenGeometry:
@@ -201,25 +204,30 @@ class RegenGeometry:
         """Yield (family, A(n,3), B(n,3), radius) for every capsule of the union, in deterministic order."""
         if batch < 1:
             raise ValueError('batch must be positive')
+        self.budget.check('reference_batch_budget', 1)
         batch = min(batch, self.budget.limits['reference_batch_budget'])
         for c in range(self.n_ch):
             for s in range(0, self.steps, batch):
                 e = min(s + batch, self.steps)
                 self.budget.spend('reference_budget', e - s)
-                self.budget.memory((e - s + 1) * 512)
-                nd = self._nodes(np.asarray(c), np.arange(s, e + 1))
-                yield 'channel', nd[:-1], nd[1:], self.rc
+                with self.budget.hold((e - s + 1) * 512):
+                    nd = self._nodes(np.asarray(c), np.arange(s, e + 1))
+                    yield 'channel', nd[:-1], nd[1:], self.rc
+                    del nd
         for j, mz in enumerate(self.ring_z):
             r, segs = self.ring_r[j], self.ring_segs[j]
             for s in range(0, segs, batch):
                 e = min(s + batch, segs)
                 self.budget.spend('reference_budget', e - s)
-                self.budget.memory((e - s + 1) * 512)
-                t = np.arange(s, e + 1) * (2 * np.pi / segs)
-                nd = np.stack([r * np.cos(t), r * np.sin(t), np.full(t.shape, mz)], axis=-1)
-                yield 'ring', nd[:-1], nd[1:], self.rm
+                with self.budget.hold((e - s + 1) * 512):
+                    t = np.arange(s, e + 1) * (2 * np.pi / segs)
+                    nd = np.stack([r * np.cos(t), r * np.sin(t), np.full(t.shape, mz)], axis=-1)
+                    yield 'ring', nd[:-1], nd[1:], self.rm
+                    del nd, t
         for j, mz in enumerate(self.ring_z):
-            yield ('port', np.array([[self.ring_r[j], 0.0, mz]]), np.array([[self.port_ends[j], 0.0, mz]]), self.rm)
+            self.budget.spend('reference_budget', 1)
+            with self.budget.hold(4096):
+                yield ('port', np.array([[self.ring_r[j], 0.0, mz]]), np.array([[self.port_ends[j], 0.0, mz]]), self.rm)
 
     # ------------------------------------------------------------------ shell
     def shell_sdf_lower(self, points) -> np.ndarray:
@@ -289,6 +297,7 @@ class RegenGeometry:
             valid = (ks[:, :-1] >= 0) & (ks[:, :-1] < self.steps)
             dist = np.where(valid[:, None, :], dist, np.inf)
             d[idx] = np.minimum(d[idx], dist.reshape(len(idx), -1).min(axis=1))
+            del idx, pc, cs, klo, ks, nodes, dist, valid
 
     def _ring_dist(self, p, reach, d):
         rho = np.hypot(p[:, 0], p[:, 1])
@@ -316,6 +325,7 @@ class RegenGeometry:
                 nodes = np.stack([r * np.cos(t), r * np.sin(t), np.full(t.shape, mz)], axis=-1)
                 dist = _seg_dist(pc[:, None, :], nodes[:, :-1], nodes[:, 1:]).min(axis=1)
                 d[idx] = np.minimum(d[idx], dist)
+                del idx, pc, ks, t, nodes, dist
 
     def _port_dist(self, p, reach, d):
         for j, mz in enumerate(self.ring_z):
@@ -357,15 +367,17 @@ class RegenGeometry:
             raise ValueError('max_gap_mm must be > 0')
         # Per-segment grids do not change with segment batch size.
         for fam, a, b, rad in self.iter_coolant_segments(batch):
-            self.budget.memory(len(a) * 512)
-            ln = np.linalg.norm(b - a, axis=1)
-            for i in range(len(a)):
-                m = max(1, int(np.ceil(float(ln[i]) / gap)))
-                self.budget.check('sample_batch_budget', m + 1)
-                self.budget.spend('sample_budget', m + 1)
-                self.budget.memory(len(a) * 512 + (m + 1) * 192)
-                t = (np.arange(m + 1) / m)[:, None]
-                yield fam, a[i] * (1 - t) + b[i] * t, rad
+            with self.budget.hold(len(a) * 512):
+                ln = np.linalg.norm(b - a, axis=1)
+                for i in range(len(a)):
+                    m = max(1, int(np.ceil(float(ln[i]) / gap)))
+                    self.budget.check('sample_batch_budget', m + 1)
+                    self.budget.spend('sample_budget', m + 1)
+                    with self.budget.hold((m + 1) * 192):
+                        t = (np.arange(m + 1) / m)[:, None]
+                        yield fam, a[i] * (1 - t) + b[i] * t, rad
+                        del t
+                del a, b, ln
 
     def coverage_error_bound_mm(self, max_gap_mm: float | None = None) -> float:
         """Max distance from any centerline point to its nearest sample, for the gap used."""
