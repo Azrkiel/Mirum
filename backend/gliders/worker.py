@@ -10,7 +10,14 @@ from gliders.search import search
 
 def main():
     output = pathlib.Path(sys.argv[1])
-    spec = GliderRequest.model_validate_json(sys.stdin.read())
+    mode = sys.argv[2] if len(sys.argv) > 2 else 'search'
+    payload = sys.stdin.read()
+    if mode == 'evaluation':
+        from gliders.design_spec import DesignSpec
+        from gliders.evaluation import run_evaluation
+        run_evaluation(DesignSpec.model_validate_json(payload), output)
+        return
+    spec = GliderRequest.model_validate_json(payload)
 
     def progress(value):
         temporary = output / 'progress.tmp'

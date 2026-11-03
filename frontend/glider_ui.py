@@ -6,31 +6,12 @@ import zipfile
 import requests
 import streamlit as st
 
-# Supported small-glider dimensions; backend independently validates every bound.
-NUMERIC_RANGES = {'wing': {'span_m': (0.6, 1.4),
-          'root_chord_m': (0.1, 0.22),
-          'taper': (0.35, 1.0),
-          'sweep_qc_deg': (0.0, 8.0),
-          'dihedral_deg': (3.0, 12.0),
-          'washout_deg': (0.0, 3.0),
-          'incidence_deg': (1.0, 3.0)},
- 'fuselage': {'length_m': (0.45, 0.95),
-              'max_diameter_m': (0.055, 0.085),
-              'nose_frac': (0.06, 0.12),
-              'pod_frac': (0.28, 0.45),
-              'boom_radius_m': (0.005, 0.009),
-              'wing_station_in_pod': (0.3, 0.7)},
- 'tail': {'h_span_m': (0.15, 0.4),
-          'h_root_chord_m': (0.04, 0.1),
-          'h_taper': (0.6, 1.0),
-          'v_height_m': (0.05, 0.15),
-          'v_root_chord_m': (0.05, 0.11),
-          'v_taper': (0.5, 0.9),
-          'v_sweep_le_deg': (10.0, 40.0),
-          'vt_panel_span_m': (0.1, 0.25),
-          'vt_root_chord_m': (0.05, 0.1),
-          'vt_taper': (0.6, 1.0),
-          'vt_dihedral_deg': (30.0, 50.0)}}
+# Same metadata source as server validation; no duplicated range constants.
+def numeric_ranges(backend, headers):
+    r = requests.get(f'{backend}/gliders/metadata', headers=headers(), timeout=15)
+    r.raise_for_status()
+    return {family: {m['key']: tuple(m['range']) for m in fields.values() if m['numeric']}
+            for family, fields in r.json()['controls'].items()}
 
 
 def render_glider(backend, headers):
@@ -39,6 +20,18 @@ def render_glider(backend, headers):
     st.caption('Predicted distance = launch height × L/D, assuming still air and steady trimmed glide '
                'at standard sea-level conditions. Screening estimates; strength, gusts, wing flex '
                'and launch/landing transients are not evaluated.')
+    if st.session_state.pop('explorer_switch', False):
+        st.session_state.glider_mode = 'Explore one design'
+    mode = st.radio('Glider workflow', ['Search designs', 'Explore one design'], key='glider_mode', horizontal=True)
+    if mode == 'Explore one design':
+        from glider_explorer import render_explorer
+        render_explorer(backend, headers)
+        return
+    try:
+        supported_ranges = numeric_ranges(backend, headers)
+    except (requests.RequestException, ValueError, KeyError):
+        st.error('Could not load supported design ranges from the backend. Retry when the API is available.')
+        return
     with st.form('glider_requirements'):
         a, b, c = st.columns(3)
         height = a.number_input('Launch height (m)', 0.1, 100.0, 10.0)
@@ -71,7 +64,7 @@ def render_glider(backend, headers):
         with st.expander('Allowed dimensions and angles'):
             st.caption('Set the allowed interval for each parameter. Equal endpoints lock it. '
                        'Lengths are metres and angles are degrees. Maximum size limits above also apply.')
-            for family, fields in NUMERIC_RANGES.items():
+            for family, fields in supported_ranges.items():
                 st.markdown(f'**{family.title()}**')
                 ranges[family] = {}
                 for name, (lo, hi) in fields.items():
@@ -168,6 +161,18 @@ def _results(backend, headers):
             st.write(f"Static margin: {candidate['static_margin']:.1%} MAC · "
                      f"Stall margin: {1 - candidate['CL_trim'] / candidate['CLmax_est']:.1%} · "
                      f"Tail incidence: {candidate['tail_incidence_deg']:.2f}°")
+            if st.button('Explore this candidate', key=f'explore-{cid}'):
+                try:
+                    r = requests.get(f'{backend}/gliders/search/{key}/design/{cid}', headers=headers(), timeout=15)
+                    r.raise_for_status()
+                    st.session_state.explorer_bootstrap = r.json()
+                    st.session_state.pop('explorer_epoch', None)
+                    st.session_state.pop('explorer_reply', None)
+                    st.session_state.pop('explorer_evaluation', None)
+                    st.session_state.explorer_switch = True
+                    st.rerun()
+                except (requests.RequestException, ValueError):
+                    st.error('Could not load candidate. Please retry.')
             if st.button('Load geometry and drawing', key=f'load-{cid}'):
                 try:
                     r = requests.get(f'{backend}/gliders/search/{key}/geometry/{cid}', headers=headers(), timeout=30)

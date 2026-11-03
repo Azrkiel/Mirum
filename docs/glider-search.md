@@ -196,3 +196,99 @@ Numeric pairs are inclusive intervals; lists are permitted discrete choices. A m
   }
 }
 ```
+
+## Interactive single-design explorer
+
+Choose **Explore one design** in the glider workflow, or **Explore this candidate**
+under a completed search result. The search form and its job/results remain in the
+session when switching modes. The preset is deterministic; candidate loading
+preserves its request, evaluated wing/payload placement, ballast and tail incidence.
+
+The browser renders while a slider is held down, without a Streamlit round trip.
+It requests the canonical Python preview after 200 ms without an edit and on
+release. The camera persists across edits; top/front/side and reset-camera controls
+are available. The front-view angle guide distinguishes effective tip-height
+angle from the steeper outer panels of a polyhedral wing. Washout is tip twist;
+incidence tilts the whole wing. All controls use metres/degrees and stay within the
+loaded request's permitted ranges. Search ranges are not modified by explorer edits.
+
+An edit clears performance and nominalizes placement. Recalculate explicitly, or
+enable recalculation after a 900 ms pause. The existing solver may slide the wing,
+move payload, add ballast and retrim within allowed bounds. Its effective mesh
+replaces the nominal preview **together with** its metrics, adjustment evidence and
+geometry digest. Infeasible shapes remain visible with rejection reasons.
+Downloads contain STL meshes in millimetres, SVG templates and `design.json` for
+the exact evaluated assembly. Compare overlays the original in translucent color;
+reset restores its inputs and requires recalculation.
+
+New endpoints (same application access-token middleware as search):
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/gliders/metadata` | Supported controls, bounded NACA profiles, preset |
+| POST | `/gliders/preview` | Typed nominal input → named coarse meshes, revision and geometry digests |
+| POST | `/gliders/evaluations` | HTTP 202: one bounded evaluation, no optimization sweep |
+| GET | `/gliders/evaluations/{id}` | State, revision-bound metrics, effective placement and geometry |
+| GET | `/gliders/evaluations/{id}/export` | Completed evaluation's ZIP |
+| GET | `/gliders/search/{job}/design/{candidate}` | Candidate-specific explorer bootstrap |
+
+`DesignSpec` accepts typed `parameters`, `request`, `placement` and the fixed
+`rebalance_and_retrim` policy. It rejects unknown fields, unsupported airfoils,
+nonfinite numbers, out-of-range values, contradictory tail dimensions and
+out-of-bay placement. Canonical physical-input digests exclude search seed/budget
+settings. Geometry has a separate digest; evidence identifies solver and explorer
+implementation versions. Preview, evaluation and export never share a mutable
+assembly across requests. Preview imports no evaluator or Matplotlib exporter.
+
+Search and evaluation share one execution slot per API process. While busy they
+return 429; editing and preview remain available. There is no pending solver queue:
+auto mode does not enqueue every drag. Jobs retain the existing 900-second/3-GB
+child-process limits, credential exclusion, bounded retention and shutdown cleanup.
+Continue deploying **one API process**: metadata is in memory, expires, and is lost
+on restart. A shared job store and multi-worker scheduling remain future work.
+The iframe has no API token; Streamlit's Python bridge forwards authenticated
+requests, coalesces browser edits, and ignores replies for older edit sequences.
+
+### Build and validate
+
+From the repository root:
+
+```bash
+python -m pip install -r requirements-linux.lock -r requirements-glider.lock
+python -m pip install -r frontend/requirements.txt -r requirements-dev.txt
+npm --prefix frontend/components/glider_explorer ci
+npm --prefix frontend/components/glider_explorer run build
+OPENBLAS_NUM_THREADS=1 python -m pytest backend/tests/test_glider_explorer.py \
+  backend/tests/test_glider_model.py backend/tests/test_glider_search.py \
+  frontend/test_glider_ui.py -q
+```
+
+Both frontend Dockerfiles build and copy the bundled assets. Compose mounts only
+frontend Python files, so a source bind mount does not hide the built component.
+For local development, build before running Streamlit. No viewer CDN is needed.
+Generated `dist/` and `node_modules/` remain ignored. Existing isolated checkouts
+are sufficient; do not create another worktree for setup.
+
+Optional real-browser smoke check (running API/UI, Python Playwright installed and
+Chromium at `/usr/bin/chromium`):
+
+```bash
+python frontend/components/glider_explorer/tests/browser_smoke.py
+```
+
+This exercises a real held-mouse drag, canonical settlement, front view,
+recalculation, evaluated ZIP, stale-result rejection, comparison and reset. Set
+`MIRUM_UI_URL` to select a different running UI. The backend must be idle when this
+check begins. Geometry fixtures execute Node against the browser formulas for all
+27 wing/body/tail family combinations and compare vertices and triangles against
+Python meshes, including nonzero sweep, washout and tail incidence.
+
+Recorded local validation: 20 sequential warmed HTTP previews of the default
+small-glider preset, Python 3.12/AeroSandbox 4.2.10 on the onboarding host: median
+25.3 ms, maximum 70.4 ms (not an end-to-end browser or universal latency guarantee).
+The same host evaluated and exported the default design in approximately 4.6 s;
+it was feasible and predicted 115.4 m from a 10 m launch height. These are screening
+predictions, not flight measurements. HTTP integration used the actual glider route
+attachment in a minimal FastAPI host; it did not exercise the unrelated CAD/LLM
+pipeline or provider credentials. Container image builds and deployment were not
+performed as part of this change.

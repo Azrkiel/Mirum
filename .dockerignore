@@ -15,3 +15,5 @@ output/*
 artifacts
 *.zip
 deploy/fly/*.toml
+**/node_modules
+**/dist
