@@ -1,6 +1,8 @@
 # RegenChamberSpec vertical slice (PicoGK)
 
-Status: implemented on branch `engineering/regen-chamber`, uncommitted. Not wired into anything.
+Status: geometry slice with bounded whole-part verification implemented; small-suite validation only for the current milestone. Not wired into the application pipeline.
+
+**Safety notice:** Geometry checks only. No gas dynamics, thermal, structural, or manufacturing analysis was done. Do not manufacture or fire hardware based on this output.
 
 ## What it is
 
@@ -9,7 +11,8 @@ shape: a revolved wall with helical coolant channels, two manifold rings and two
 
 - `backend/engineering/regen_spec.py`: strict frozen pydantic `RegenChamberSpec`, `inner_radius`, `canonical_spec`, `specification_digest`. Pure Python, no cadquery or compiler import.
 - `picogk-builder/`: fixed C# builder (`builder <spec.json> <out.stl>`) that renders a validated spec with PicoGK 2.3.0. No spec string is ever turned into code.
-- `backend/engineering/regen_mesh.py`: numpy/scipy verifier (clean, manifold, volume, bbox, plane slices).
+- `backend/engineering/regen_mesh.py`: numpy/scipy verifier (clean, manifold, volume, bbox, plane slices and bounded whole-part checks).
+- `backend/engineering/regen_geometry.py`: spec-derived reference geometry and shared allocation/work accounting.
 - `backend/engineering/regen_cli.py`: `regen_cli <spec.json> <outdir>`.
 
 ## What it is not
@@ -33,7 +36,7 @@ Interpretations to confirm with the owner:
 - The "manifold in the blends near the throat" rule is implemented as the two ring conditions above.
 - Rib uses arc length `2*pi*r/N` as specified; the true chord is slightly shorter (about 0.2 percent at N=32).
 
-Valid example (tests and E2E): chamber R 35, length 40; convergent 50; throat R 20; divergent 80; exit R 45; wall 7; N 32; rc 1.0; twist 0.012 rad/mm; manifold r 1.5; end margin 8; voxel 0.4.
+Valid example (tests and historical E2E with the earlier verifier): chamber R 35, length 40; convergent 50; throat R 20; divergent 80; exit R 45; wall 7; N 32; rc 1.0; twist 0.012 rad/mm; manifold r 1.5; end margin 8; voxel 0.4.
 The spike parameters (N=48, rc=1.1, throat 15, wall 5) are rejected (tests): their throat rib is about 0.04-0.09 mm by hand against a 1.6 mm minimum (0.09 without the helix factor).
 
 ## Build and run
@@ -46,8 +49,7 @@ docker run --rm --name picogk-regen-x --network none -v <dir with spec.json>:/in
 
 Exit 0 accepted (writes `cleaned.stl`, `report.json`, `spec.canonical.json`); 2 rejected (invalid spec, or mesh checks failed; writes only `rejected_report.json` for mesh failures); 1 unavailable (builder crash, 600 s timeout, malformed output, missing runtime `.so`; writes nothing); 3 a `--prebuilt-stl` mesh passed the checks but is not accepted because the builder did not make it (writes only `prebuilt_report.json`). `report.json` is written last. `LD_LIBRARY_PATH` is set only in the builder subprocess environment, never globally. `--prebuilt-stl PATH` verifies an existing STL (test hook).
 
-Host tests (no PicoGK):
-`uv run --system-certs --python 3.11 --with pydantic --with numpy --with scipy --with pytest python -m pytest backend/tests/test_regen_spec.py backend/tests/test_regen_mesh.py backend/tests/test_regen_cli.py`
+The Dockerfile COPY list now includes `regen_geometry.py` alongside the existing regen modules. No Docker build or run was performed in the bounded-verifier milestone; integration of this COPY change remains unvalidated. Use the registered small-suite command below for this milestone's host tests.
 
 ## Checks
 
@@ -66,7 +68,49 @@ Failure messages and per-check diagnostics (counts, tolerances, error bounds, lo
 
 **Limits of the new checks.** Surface placement is accepted within one voxel of the reference; thickness within half a voxel of the threshold. Facing is judged against surface normals with a 0.2 cosine margin, so a knife-edge wedge more oblique than about 78 degrees is not a thickness pair. Rib pairing uses the nearest nominal helix, so a channel displaced by more than half the pitch is caught by `circuit_fidelity`, not by the rib class. Junction overlaps inside the union are measured with the union's lower-bound distance. Very large meshes may exhaust the leaf or pair budgets; that rejects with a diagnostic rather than passing.
 
-## Measured E2E results (Docker `--network none`, image `picogk-regen:slice`, 16-core host, 2026-11-01)
+### Bounded allocation and work milestone
+
+The verifier working-memory budget target is **1 GiB**, under the **1.5 GiB controller-plus-worker cap**. This is conservative allocation accounting, not a measured process-RSS ceiling or evidence of validated large-mesh performance. It includes a 16 MiB bookkeeping/diagnostic allowance. STL loading, legacy cleaning/slicing and report serialization are outside the whole-part accounting boundary; the controller cap still applies to the entire process tree.
+
+The shared budget checks prospective allocations while charging retained input vertices/faces, leaf arrays, KD-tree storage, pending work and temporary copies that remain live together. Generator reservations remain charged while consumers process yielded batches. Parent scratch and pending siblings remain charged during child creation; retained blocks and final concatenated copies are counted together. Phase-local reservations are released after the phase; cumulative work counters never reset between phases.
+
+Default limits in `regen_mesh.py` and `regen_geometry.py` are:
+
+| Budget name | Limit and meaning |
+|---|---|
+| `memory_budget` | 1 GiB of conservatively accounted live storage |
+| `candidate_budget`, `coverage_budget`, `refinement_budget` | 60,000,000 work items each; candidates/coverage count all radius-query neighbors, refinement counts input and generated child pairs |
+| `candidate_batch_budget`, `coverage_batch_budget` | 20,000 neighbors per radius-query row |
+| `queue_budget` | 100,000 pending leaf patches or triangle pairs |
+| `scratch_budget` | 32 MiB for pair-refinement scratch; parent and child estimates are checked together |
+| `leaf_budget`, `leaf_batch_budget` | 40,000,000 visited patches including internal nodes; at most 2,048 patches per leaf batch |
+| `reference_budget`, `reference_batch_budget` | 60,000,000 cumulative reference work items; at most 150,000 candidate elements per reference batch |
+| `sample_budget`, `sample_batch_budget` | 4,000,000 centerline samples cumulatively; at most 20,000 samples per segment grid |
+
+These are resource limits, not geometric acceptance thresholds. The memory guard can reject before a work limit is reached. `regen_spec.py` is unchanged; spec-derived geometric thresholds, numerical allowances and the **2 percent volume tolerance** remain unchanged.
+
+- **Count before materialization.** `_candidates` calls `query_ball_point(..., return_length=True)` before requesting a sorted neighbor list. It checks the complete row's work, batch and memory requirements, then yields bounded owned batches in fixed query/neighbor order. An oversized dense row rejects before the list is allocated. There is no fixed-k truncation or silently skipped pair.
+- **Complete coverage connectivity.** The former all-at-once `query_pairs` allocation is replaced by the same counted radius queries and streaming union-find. The search radius is twice the largest certified ball radius; every unordered candidate edge is considered once after removing self/duplicate pairs, and actual variable-radius overlap decides union. All eligible edges are processed or verification fails.
+- **Bounded refinement.** Pair refinement uses bounded depth-first batches, not a queue of all input pairs. Queue size, cumulative work, scratch and overlapping live memory are checked before indexing or four-way child allocation. The 16-split pair depth limit produces `refinement_depth_budget` failure on unresolved work; marginal bounds also fail. Leaf construction checks selections, retained arrays and complete child expansions before allocation, using six regular split levels and up to three additional levels for nonconforming patches. Unresolved or oversized terminal patches cannot pass fidelity.
+- **Bounded reference and diagnostics.** Reference queries count broadcast elements before building arrays, including rejection of a single oversized item. Capsule nodes and per-segment centerline grids have work, batch and memory preflights; sample positions do not change with batch size. Diagnostics retain at most eight deterministically ordered locations per findings collection while keeping exact failure counts and minima, rather than retaining all offending arrays. Coverage sample/clearance arrays and selected copies are still retained where needed, with explicit guards and overlap charges.
+
+At the `whole_part_checks` boundary, any `BudgetExceeded` returns normal failed entries for all three whole-part checks, with the exhausted name in `detail` and `failures` (for example, `unresolved: coverage_batch_budget exhausted (...)`). A final `MemoryError` safeguard at that boundary returns `unresolved: memory_budget exhausted`. It also catches failures during context construction. Earlier partial passes do not survive an incomplete whole-part run: `passed` is false and `design_intent.state` is `geometry_rejected`. Reports retain `engineering_certified=false`, `physics.state=not_evaluated` and `standards.state=not_evaluated`; CLI reports retain the safety notice above.
+
+### Registered small-suite validation
+
+Run from the repository root in the pinned workspace-write sandbox. The registered launcher sets numeric threads to two and supplies a unique writable pytest temp directory. Use this exact command; no project virtualenv installation or runtime discovery is required:
+
+```powershell
+C:\Users\jiang\AppData\Local\hermes\bin\uv.exe run --offline --cache-dir C:\Users\jiang\AppData\Local\Temp\mirum-xvant-uv-cache --system-certs --python C:\Users\jiang\AppData\Roaming\uv\python\cpython-3.11.15-windows-x86_64-none\python.exe --with pydantic --with numpy --with scipy --with pytest python C:\Users\jiang\AppData\Local\Temp\mirum-xvant-runtime\check.py backend/tests/test_regen_spec.py backend/tests/test_regen_mesh.py backend/tests/test_regen_cli.py backend/tests/test_regen_budget.py -q -k "not adv" -p no:cacheprovider --tb=short
+```
+
+After restoring `backend/tests/test_regen_mesh.py` to LF without changing its normalized content, the complete command returned **131 passed, 43 deselected, 1 warning in 6.62 s**, exit 0. The warning was `PytestConfigWarning: Unknown config option: asyncio_default_fixture_loop_scope`. It ran as one foreground test process with a 115-second timeout; no detached processes were used. Small synthetic arrays and tiny meshes cover dense-neighbor preflights, complete pair processing beyond 64 neighbors, leaf/reference and refinement guards, live-memory overlap, capped diagnostics, named-budget failures, `MemoryError` conversion and deterministic results across batch sizes. The budget tests import helpers via `tests.test_regen_spec`, consistent with the existing suite.
+
+The operator's earlier preflight of the original tests reported 61 passed, 43 deselected and a 0.20 GiB peak job. That measurement excludes the new budget module and is not a current-suite or large-mesh memory measurement. This milestone did not measure large-mesh performance or a current peak-RSS figure. Tests originating at `d7a99ff` and all saved `adv` tests remain intact; the 43 names matching `adv` are explicitly excluded by the registered command and deferred to a separate milestone. No full adversarial fixtures, whole-part verification of large meshes, real STL validation, Docker integration or stress loops were run here. Those validations remain deferred.
+
+## Historical E2E results (earlier builder/verifier, 2026-11-01)
+
+The table below records the original builder and earlier verifier only (Docker `--network none`, image `picogk-regen:slice`, 16-core host), before the current whole-part checks and allocation bounds. Its exit codes, geometry passes, timings, hashes and memory figures are historical evidence for that implementation, not validation of the current bounded whole-part verifier. In particular, the 2.47 GB builder measurement is outside this milestone's controller cap and is not a current memory-budget result. These runs were not repeated in this milestone.
 
 | Case | Result |
 |---|---|
@@ -77,7 +121,7 @@ Failure messages and per-check diagnostics (counts, tolerances, error bounds, lo
 | (d2) real builder output with spike parameters, validation bypassed (`model_construct`) | spike (convergent 40): rejected; throat stations show 2 channel loops instead of 48 (channels merged), throat rib 0.625 mm, 76 specks removed, 40 degenerates. Spike with convergent 60: rejected; 4 unexpected components, 20 loops instead of 48 at z=101.7, rib 0.10 mm. The valid spec produced 0 specks. This is consistent with the thin-rib explanation of the spike's specks but is not proof (one valid sample, different contour) |
 | (e) valid spec, 0.2 mm | exit 0 (one run only, determinism not tested at 0.2). raw `72a82be8fb5e9e16d3c435162fae7c95475431f55ebefd025defe8c458e41ff9`, cleaned `e600cb0f6e6fcd301d0f019399603508a7266e13fec853a5b7567ce6167b1774`; 8,729,192 tris, 1600 degenerates, builder 47.6 s, peak 2.47 GB; volume error +0.25 percent; whole container run 84 s |
 
-Host tests: 72 passed (`test_regen_spec`, `test_regen_mesh`, `test_regen_cli`, plus the existing `test_engineering_spec` unchanged).
+Historical host tests for that earlier implementation: 72 passed (`test_regen_spec`, `test_regen_mesh`, `test_regen_cli`, plus the existing `test_engineering_spec` unchanged). This count predates the current whole-part and budget validation.
 
 ## Limitations
 
@@ -87,4 +131,4 @@ Host tests: 72 passed (`test_regen_spec`, `test_regen_mesh`, `test_regen_cli`, p
 - The builder reflects on the private field `Library.m_oTimerMemCheck` of NuGet PicoGK 2.3.0 to stop the memory timer (PicoGKRuntime #31). It fails loudly if the field is missing, but a PicoGK upgrade may break it.
 - Soak (crash rate) was not re-run for this builder; the timer is always stopped as in the spike's 400-run clean arm.
 - The seven-station wall checks are in-plane, not surface-normal; the whole-part `wall_thickness` check is 3D. The analytic volume neglects overlaps (about 0.5 percent observed error).
-- Only the stated envelope was exercised (one valid spec at two voxel sizes).
+- The historical builder/earlier verifier exercised only the stated envelope (one valid spec at two voxel sizes). The current whole-part verifier has only the small-suite validation above; large meshes, real STL validation, Docker integration, full `adv` fixtures and stress testing remain unvalidated or deferred.

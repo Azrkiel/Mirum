@@ -25,7 +25,7 @@ COPY --from=picogk-runtime:26.2 /src/GLFW/LICENSE.md /licenses/GLFW-LICENSE.md
 COPY --from=picogk-runtime:26.2 /src/imgui/LICENSE.txt /licenses/imgui-LICENSE.txt
 COPY picogk-builder/THIRD_PARTY_NOTICES.md /licenses/THIRD_PARTY_NOTICES.md
 # Only the regen files. backend/engineering/__init__.py is a docstring, so no side effects.
-COPY backend/engineering/__init__.py backend/engineering/regen_spec.py backend/engineering/regen_mesh.py backend/engineering/regen_cli.py /py/engineering/
+COPY backend/engineering/__init__.py backend/engineering/regen_spec.py backend/engineering/regen_geometry.py backend/engineering/regen_mesh.py backend/engineering/regen_cli.py /py/engineering/
 # LD_LIBRARY_PATH is NOT set globally (it could break scipy); regen_cli sets it for the builder subprocess only.
 ENV REGEN_BUILDER=/app/builder REGEN_GCC_LIB=/usr/local/lib/picogk-gcc PYTHONPATH=/py PYTHONDONTWRITEBYTECODE=1
 LABEL org.opencontainers.image.source="https://github.com/Azrkiel/Mirum" \
