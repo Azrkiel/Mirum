@@ -160,6 +160,7 @@ def unconverted_metre_builders(code: str) -> str | None:
 # Fields that Gemini's structured output schema does NOT support.
 _UNSUPPORTED_SCHEMA_KEYS = {
     "title", "default", "minItems", "maxItems", "minimum", "maximum",
+    "exclusiveMinimum", "exclusiveMaximum",
     "minLength", "maxLength", "$defs",
 }
 
