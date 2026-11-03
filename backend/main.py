@@ -106,7 +106,11 @@ def _safe_error(detail: str | Exception) -> str:
 async def _lifespan(application: FastAPI):
     cleanup_tmp_parts()
     logger.info("Startup: cleared stale tmp_parts")
-    yield
+    try:
+        yield
+    finally:
+        from gliders.api import jobs as glider_jobs
+        await glider_jobs.close()
 
 
 limiter = Limiter(key_func=get_remote_address)
@@ -1105,6 +1109,8 @@ async def auth_check():
 # Explicit typed, no-LLM engineering path; existing routes retain their scope.
 from engineering.api import attach_engineering_routes
 attach_engineering_routes(app, limiter)
+from gliders.api import attach_glider_routes
+attach_glider_routes(app, limiter)
 
 
 @app.get("/stats")

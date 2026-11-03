@@ -29,7 +29,9 @@ def test_missing_or_wrong_token_is_rejected_before_any_route(client, monkeypatch
     monkeypatch.setenv('MIRUM_ACCESS_TOKEN', 'fixture-token')
     headers = {} if header is None else {'X-Mirum-Access-Token': header}
     for method, path in [('get', '/auth/check'), ('post', '/run'), ('post', '/generate'),
-                         ('get', '/stats'), ('get', '/openapi.json')]:
+                         ('get', '/stats'), ('get', '/openapi.json'), ('post', '/gliders/search'),
+                         ('get', '/gliders/search/missing'),
+                         ('get', '/gliders/search/missing/geometry/missing')]:
         kwargs = {'json': {}} if method == 'post' else {}
         response = getattr(client, method)(path, headers=headers, **kwargs)
         assert response.status_code == 401, (path, response.text)
