@@ -295,3 +295,53 @@ glider workflow was verified in a local container deployment. The local glider-o
 API host avoids the unrelated CAD orchestrator's mandatory Gemini key. No Fly.io
 rollout was performed. Dockerfiles normalize application read permissions so their
 non-root users can run checkouts restored with restrictive file permissions.
+
+### Specified flight conditions
+
+The explorer's **Flight conditions → Analysis mode** offers:
+
+- **Automatic trim (sea level)**: the existing balance/trim search, with selected
+  speed/angle and steady-glide performance. Manual operating-point fields are inactive.
+- **Specified conditions**: true airspeed (1–15 m/s), body-reference angle of attack
+  (−10–15°), sideslip (−10–10°), and ISA altitude above sea level (0–5000 m).
+  Altitude controls atmospheric density and viscosity; it is independent of the
+  launch height used for distance estimates.
+
+Specified mode runs AeroSandbox AeroBuildup/NeuralFoil at those exact conditions,
+referenced to the current mass-model CG. It preserves wing/payload placement,
+ballast and tail incidence; it does **not** rebalance or retrim. It returns lift,
+drag, side force, body-axis roll/pitch/yaw moments, coefficients, mass, dynamic
+pressure, Reynolds number, density, viscosity and lift/weight ratio. Positive
+lift is upward; moments use AeroSandbox body axes (x forward, y right, z down),
+not the viewer's geometry axes. Angle of attack is relative to the body reference;
+wing incidence and washout still contribute to local surface angles.
+
+These are operating-point estimates, not CFD or proof of equilibrium, stability
+or stall clearance. No trimmed distance, static margin or stall margin is claimed
+in this mode. Geometry screening reasons remain visible as warnings but do not
+prevent this force estimate when the geometry can be analyzed; numerical failures
+still fail the evaluation. A speed exceeding the designer's maximum is reported
+as a warning. No wind, gust, transition or atmospheric-temperature controls are
+implemented; speed is air-relative, not ground speed.
+
+The optional `flight_conditions` object in `DesignSpec` defaults to automatic
+trim for existing clients and loaded candidates:
+
+```json
+{"flight_conditions": {"mode": "specified", "airspeed_m_s": 7,
+                       "alpha_deg": 6, "beta_deg": 3, "altitude_m": 1500}}
+```
+
+Conditions participate in the input-revision digest and are saved in evaluated
+ZIPs alongside the effective operating point, applied balancing policy and solver
+evidence. Editing conditions invalidates displayed results and stale replies;
+it does not change geometry, placement, search bounds or the original candidate.
+Reset restores the original conditions as well as geometry.
+
+Validation: `backend/tests/test_glider_flight_conditions.py` checks bounds,
+condition-dependent forces, atmosphere effects, revision binding, preservation
+of placement and exported evidence. The optional browser check is:
+
+```bash
+python frontend/components/glider_explorer/tests/flight_conditions_smoke.py
+```
