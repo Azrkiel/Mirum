@@ -5,6 +5,9 @@
 # Exit 0 = accepted, 2 = rejected (see docs/testing/regen-chamber-testers.md).
 set -euo pipefail
 PREFIX="${REGEN_PREFIX:-/opt/regen}"
+if [ -z "${REGEN_PREFIX:-}" ] && [ ! -f "$PREFIX/env.sh" ] && [ -f /workspace/regen-runtime/env.sh ]; then
+  PREFIX=/workspace/regen-runtime
+fi
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
 source "$PREFIX/env.sh"
