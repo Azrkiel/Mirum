@@ -16,6 +16,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/workspace:/workspace/backend \
     MIRUM_WORK_DIR=/tmp/mirum/work MIRUM_TELEMETRY_DIR=/tmp/mirum/telemetry \
     MIRUM_XFOIL_BIN=/workspace/analysis/tests/mock_xfoil \
     OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 PYOPENGL_PLATFORM=osmesa
+COPY requirements-glider.lock /tmp/requirements-glider.lock
+RUN python -m pip install --no-cache-dir -c /tmp/requirements-linux.lock -c /tmp/mirum-verification.lock -r /tmp/requirements-glider.lock \
+    && python -m pip check
 RUN groupadd --gid 10001 caduser && useradd --uid 10001 --gid 10001 \
     --no-create-home --home-dir /tmp --shell /usr/sbin/nologin caduser
 COPY backend/ /workspace/backend/

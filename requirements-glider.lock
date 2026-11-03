@@ -1,0 +1,6 @@
+# Additive solver dependencies, compatible with both existing Linux locks.
+aerosandbox==4.2.10
+neuralfoil==0.3.3
+dill==0.4.1
+seaborn==0.13.2
+sortedcontainers==2.4.0
