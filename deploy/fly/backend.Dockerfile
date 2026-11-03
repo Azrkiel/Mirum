@@ -9,11 +9,15 @@ RUN python -m pip install --no-cache-dir -r /tmp/requirements-linux.lock
 COPY requirements-mirum-verification.lock /tmp/mirum-verification.lock
 RUN python -m pip install --no-cache-dir -r /tmp/mirum-verification.lock \
     && python -m pip check
+COPY requirements-glider.lock /tmp/requirements-glider.lock
+RUN python -m pip install --no-cache-dir -c /tmp/requirements-linux.lock -c /tmp/mirum-verification.lock -r /tmp/requirements-glider.lock \
+    && python -m pip check
 RUN groupadd --gid 10001 caduser && useradd --uid 10001 --gid 10001 \
     --no-create-home --home-dir /tmp --shell /usr/sbin/nologin caduser
 COPY backend/ /app/backend/
 COPY analysis/ /app/analysis/
 COPY output/wing_assembly_oml_reference.json /app/output/wing_assembly_oml_reference.json
+RUN chmod -R a+rX /app
 WORKDIR /tmp
 # Code is root-owned and read-only to caduser; scratch lives under /tmp/mirum.
 ENV HOME=/tmp PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app:/app/backend \

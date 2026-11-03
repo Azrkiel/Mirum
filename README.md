@@ -179,6 +179,10 @@ must not be presented as verified.
   wing-box. Neither has been validated against test data here.
 - **No tagged releases.** Everything ships from `main`.
 
+## Passive glider design search
+
+The Streamlit workflow selector includes a passive-glider search for maximum trimmed L/D under designer constraints. See [inputs, API, setup and limitations](docs/glider-search.md). It uses the integrated parametric AeroSandbox screening model, adaptive exploration/refinement and STL/template downloads; no provider calls are needed for search.
+
 ## Verification
 
 Targeted hardening ports and their scope are described in
