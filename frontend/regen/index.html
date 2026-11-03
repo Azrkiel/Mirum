@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mirum · PicoGK studio</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script defer src="/app.js"></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/"
+        >M<span>IRUM</span><small> / PICOGK STUDIO</small></a
+      ><span class="badge">PARAMETRIC GEOMETRY</span>
+    </header>
+    <main>
+      <section class="intro">
+        <p class="eyebrow">FROM PARAMETERS TO PART</p>
+        <h1>Shape it. Generate it.<br /><em>Inspect every detail.</em></h1>
+        <p>
+          Build a regeneratively cooled chamber with PicoGK, then inspect the
+          mesh and its geometry report.
+        </p>
+      </section>
+      <div class="workspace">
+        <section class="panel controls" aria-labelledby="parameters-title">
+          <div class="panel-heading">
+            <h2 id="parameters-title">01 <span>Parameters</span></h2>
+            <select id="preset" aria-label="Example specification">
+              <option value="small">Small chamber</option>
+              <option value="reference">Reference chamber</option>
+            </select>
+          </div>
+          <form id="spec-form">
+            <div id="fields"></div>
+            <button id="generate" type="submit" disabled>
+              Generate mesh <span>↗</span>
+            </button>
+          </form>
+          <p class="muted">
+            Dimensions in millimetres. Coarser voxels generate faster.
+          </p>
+        </section>
+        <section class="panel preview" aria-labelledby="preview-title">
+          <div class="panel-heading">
+            <h2 id="preview-title">02 <span>Geometry</span></h2>
+            <span id="state" class="state">READY</span>
+          </div>
+          <div class="viewport">
+            <canvas
+              id="viewer"
+              aria-label="Interactive 3D chamber preview"
+              tabindex="0"
+            ></canvas>
+            <div id="empty">
+              <span class="wire-symbol">◇</span>
+              <h3>Your next geometry starts here.</h3>
+              <p>Set the dimensions and generate a mesh.</p>
+            </div>
+            <div class="viewer-tools">
+              <button id="reset-view" type="button">Reset view</button
+              ><span>Drag to rotate · scroll to zoom</span>
+            </div>
+          </div>
+          <div class="status" role="status" aria-live="polite">
+            <span id="status-dot"></span>
+            <p id="message">Checking generator…</p>
+            <span id="elapsed"></span>
+          </div>
+          <p id="preview-note" class="muted"></p>
+          <div id="downloads" class="downloads" hidden></div>
+        </section>
+      </div>
+      <section id="result" class="panel result" hidden>
+        <div class="panel-heading">
+          <h2>03 <span>Geometry report</span></h2>
+          <button id="copy-spec" type="button">Copy parameters</button>
+        </div>
+        <p id="result-summary"></p>
+        <pre id="report"></pre>
+      </section>
+      <p class="notice" id="notice">
+        Geometry checks only. No gas dynamics, thermal, structural, or
+        manufacturing analysis was done. Do not manufacture or fire hardware
+        based on this output.
+      </p>
+    </main>
+    <footer>
+      <span>MIRUM / RESEARCH TOOLS</span
+      ><span>LOCAL GENERATION · NO MODEL API REQUIRED</span>
+    </footer>
+  </body>
+</html>

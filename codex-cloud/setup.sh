@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Codex cloud setup for the PicoGK regen chamber generator (no Docker needed).
 #
-# Codex cloud containers cannot run Docker, so this unpacks the prebuilt builder
+# This unpacks the prebuilt builder without requiring Docker
 # and PicoGK runtime from the public image ghcr.io/azrkiel/mirum-regen:slice-1
 # (pinned by digest) and runs the repo's current Python verifier natively.
 # The C# builder and PicoGK runtime are unchanged since slice-1; only the Python
 # verifier differs, and it comes from this checkout.
 #
-# Needs internet (setup scripts have it): ghcr.io, archive.ubuntu.com, pypi.org.
+# Needs setup-time registry, package mirror, and PyPI access.
 # Paste into the Codex environment's setup script field:   bash codex-cloud/setup.sh
 set -euo pipefail
 
@@ -16,19 +16,38 @@ IMAGE_REPO="azrkiel/mirum-regen"
 IMAGE_DIGEST="sha256:5492e66b0937a774235333c42a8e5efe9119405238569389c9fd69557ff01494"  # slice-1
 PY_VERSION="3.13"
 # Same versions as the Debian trixie packages inside the image.
-PY_PKGS=(numpy==2.2.4 scipy==1.15.3 pydantic==2.10.6 pytest)
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_LIBS=(libtbb libblosc libboost_iostreams libz libzstd liblz4 libsnappy libbz2 liblzma libxxhash)
 
 log() { printf '[regen-setup] %s\n' "$*"; }
-SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then
+  if command -v sudo >/dev/null 2>&1; then
+    SUDO="sudo"
+  else
+    # Managed non-root machines often already provide these system libraries.
+    command -v curl >/dev/null && command -v python3 >/dev/null || {
+      log 'curl and python3 are required; ask the host administrator to install them'; exit 1;
+    }
+    python3 - <<'PY'
+import ctypes
+for library in ('libGL.so.1', 'libX11.so.6'):
+    ctypes.CDLL(library)
+PY
+    PREFIX="${REGEN_PREFIX:-/workspace/regen-runtime}"
+  fi
+fi
 
 log "system libraries"
-$SUDO apt-get update -qq
-DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -qq --no-install-recommends \
-  libgl1 libx11-6 ca-certificates curl python3 >/dev/null
+if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
+  $SUDO apt-get update -qq
+  DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -qq --no-install-recommends \
+    libgl1 libx11-6 ca-certificates curl python3 >/dev/null
+fi
 
 log "pulling builder + PicoGK runtime from ghcr.io/${IMAGE_REPO}@${IMAGE_DIGEST}"
-$SUDO mkdir -p "$PREFIX"; $SUDO chown "$(id -u):$(id -g)" "$PREFIX"
+$SUDO mkdir -p "$PREFIX"
+if [ -n "$SUDO" ]; then $SUDO chown "$(id -u):$(id -g)" "$PREFIX"; fi
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 token="$(curl -fsSL "https://ghcr.io/token?scope=repository:${IMAGE_REPO}:pull" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
@@ -64,11 +83,11 @@ leak="$(grep '=>' <<<"$deps" | grep -vE "=> $PREFIX/lib/|lib(c|m)\.so\.6 " || tr
 
 log "python ${PY_VERSION} venv"
 if command -v uv >/dev/null 2>&1; then
-  uv venv -q --python "$PY_VERSION" "$PREFIX/venv"
-  VIRTUAL_ENV="$PREFIX/venv" uv pip install -q "${PY_PKGS[@]}"
+  if [ ! -x "$PREFIX/venv/bin/python" ]; then uv venv -q --python "$PY_VERSION" "$PREFIX/venv"; fi
+  uv pip install --python "$PREFIX/venv/bin/python" -q -r "$repo/codex-cloud/requirements.txt"
 else
   "python${PY_VERSION}" -m venv "$PREFIX/venv"
-  "$PREFIX/venv/bin/pip" install -q "${PY_PKGS[@]}"
+  "$PREFIX/venv/bin/pip" install -q -r "$repo/codex-cloud/requirements.txt"
 fi
 
 cat > "$PREFIX/env.sh" <<EOF
@@ -79,3 +98,4 @@ export PATH="$PREFIX/venv/bin:\$PATH"
 export PYTHONDONTWRITEBYTECODE=1
 EOF
 log "done: source $PREFIX/env.sh, then codex-cloud/regen.sh <spec.json> <outdir>"
+log "browser: REGEN_PREFIX=$PREFIX bash codex-cloud/web.sh"

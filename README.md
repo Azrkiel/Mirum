@@ -84,6 +84,11 @@ Results can also be returned as plots (`/analysis/plots`) or a PDF
 
 ## Running it
 
+For the deterministic **PicoGK regen chamber browser app**, see
+[the browser guide](docs/implementation/regen-browser.md). It provides parameter
+inputs, a 3D mesh preview, and STL/report downloads without an LLM key. After
+`bash codex-cloud/setup.sh`, start it with `bash codex-cloud/web.sh`.
+
 You need Docker, Docker Compose, and a Gemini API key.
 
 Create a `.env` file in the repository root:

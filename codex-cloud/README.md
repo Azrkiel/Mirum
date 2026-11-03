@@ -27,6 +27,19 @@ source /opt/regen/env.sh && cd backend && OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS
 
 `regen.sh` takes the same arguments as the Docker image, including `--prebuilt-stl`.
 
+## Browser interface
+
+After setup, run `bash codex-cloud/web.sh` and open `http://127.0.0.1:8080`
+on the server machine. The page provides parameter inputs, generation status,
+an interactive 3D preview, and accepted STL/report/parameter downloads. PicoGK
+runs on the server; no Gemini key or external browser assets are needed.
+
+On machines without root or sudo, setup uses existing GL/X11 libraries and falls
+back to `/workspace/regen-runtime`; both launchers find it automatically. Use
+`REGEN_PREFIX` consistently to choose another writable prefix.
+
+See [browser setup, hosting, limits, and tests](../docs/implementation/regen-browser.md).
+
 ## Fidelity check (2026-11-03, local stand-in)
 
 Stand-in: plain `ubuntu:24.04` + uv, `--cpus 2 --memory 3g`, no Docker inside,
