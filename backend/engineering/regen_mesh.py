@@ -17,7 +17,8 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 
-from .regen_geometry import RegenGeometry, _ri as _ref_ri, _seg_dist as _ref_seg_dist
+from .regen_geometry import (RegenGeometry, Budget, BudgetExceeded,
+                             _ri as _ref_ri, _seg_dist as _ref_seg_dist)
 from .regen_spec import RegenChamberSpec, inner_radius, specification_digest
 
 SPECK_VOLUME_MM3 = 1e-3          # components with |signed volume| below this are removed and recorded
@@ -359,6 +360,12 @@ WP_BLOCK = 300_000
 WP_FACING_MARGIN = 0.2       # |cos| of the angle between the pair direction and each surface normal
 WP_THICKNESS_ALLOWANCE_VOXELS = 0.5   # combined iso-surface placement allowance for a surface pair
 WP_REPORT_LOCATIONS = 8
+WP_MEMORY_BUDGET = 1 << 30
+WP_NEIGHBOR_BUDGET = 20_000
+WP_COVERAGE_BUDGET = 60_000_000
+WP_QUEUE_BUDGET = 100_000
+WP_SCRATCH_BUDGET = 32 << 20
+WP_LEAF_BATCH = 2048
 
 L_HOT, L_COLD, L_CAP0, L_CAPL, L_CH, L_RING, L_PORT = range(7)
 LABEL_NAMES = ('hot_wall', 'cold_wall', 'end_cap_forward', 'end_cap_aft', 'channel', 'manifold_ring', 'port')
@@ -367,8 +374,45 @@ REASON_NAMES = {R_OK: 'ok', R_OFF: 'surface_not_on_specified_geometry',
                 R_COVER: 'surface_covers_specified_opening', R_AIR: 'coolant_surface_outside_part'}
 
 
-class _Exhausted(Exception):
-    pass
+_Exhausted = BudgetExceeded
+
+
+class _Budget(Budget):
+    def __init__(self):
+        super().__init__({'candidate_budget': WP_PAIR_BUDGET,
+                          'candidate_batch_budget': WP_NEIGHBOR_BUDGET,
+                          'coverage_budget': WP_COVERAGE_BUDGET,
+                          'coverage_batch_budget': WP_NEIGHBOR_BUDGET,
+                          'refinement_budget': WP_PAIR_BUDGET,
+                          'queue_budget': WP_QUEUE_BUDGET,
+                          'scratch_budget': WP_SCRATCH_BUDGET,
+                          'leaf_budget': WP_LEAF_BUDGET,
+                          'leaf_batch_budget': WP_LEAF_BATCH}, WP_MEMORY_BUDGET)
+
+
+class _Findings:
+    """Exact count/minimum and bounded deterministic records, independent of batching.
+
+    Keys explicitly order rounded value (when present), z, x, y, and payload;
+    unrounded coordinates break remaining ties. No full diagnostic arrays survive.
+    """
+    def __init__(self):
+        self.count = 0
+        self.minimum = math.inf
+        self.rows = []
+
+    def add(self, point, payload, value=None, extra=()):
+        self.count += 1
+        if value is not None:
+            self.minimum = min(self.minimum, float(value))
+        p = _loc(point)
+        key = (*extra, p[2], p[0], p[1], repr(payload), *map(float, point))
+        self.rows.append((key, payload))
+        self.rows.sort(key=lambda x: x[0])
+        del self.rows[WP_REPORT_LOCATIONS:]
+
+    def records(self):
+        return [row[1] for row in self.rows]
 
 
 def _tri_stats(T):
@@ -392,8 +436,10 @@ def _split4(T):
 
 class _Ctx:
     def __init__(self, spec: RegenChamberSpec):
+        self.budget = _Budget()
+        self.budget.memory(4096)
         self.spec = spec
-        self.g = RegenGeometry(spec)
+        self.g = RegenGeometry(spec, self.budget)
         g = self.g
         self.tau = g.surface_tolerance_mm
         self.rho_target = WP_REFINE_FRACTION * self.tau
@@ -460,76 +506,96 @@ def _classify(ctx, P, rho):
 
 
 def _build_leaves(ctx, verts, faces):
-    """Adaptive leaf triangles: every mesh point lies within `rho` of a leaf centroid. Returns arrays + stats."""
-    store = {k: [] for k in ('T', 'cen', 'rho', 'nrm', 'label', 'conform', 'reason', 'cert')}
-    stats = {'input_triangles': int(len(faces)), 'unsplit_over_target': 0, 'adaptive_leaves': 0,
-             'adaptive_capped': 0}
+    """Depth-first bounded batches; preflight selections, splits and final copies.
+
+    Leaf work counts every visited patch (including internal nodes). Storage is
+    charged while blocks and their final concatenated copies overlap.
+    """
+    b = ctx.budget
+    keys = ('T', 'cen', 'rho', 'nrm', 'label', 'conform', 'reason', 'cert')
+    store = {k: [] for k in keys}
+    stats = {'input_triangles': int(len(faces)), 'unsplit_over_target': 0,
+             'adaptive_leaves': 0, 'adaptive_capped': 0}
     total = 0
+    stored_bytes = 0
 
-    def record(T, nrm, c, r, res, sel=None):
-        nonlocal total
-        if sel is not None:
-            T, nrm, c, r = T[sel], nrm[sel], c[sel], r[sel]
-            res = {k: v[sel] for k, v in res.items()}
-        total += len(T)
-        if total > WP_LEAF_BUDGET:
-            raise _Exhausted(f'leaf budget {WP_LEAF_BUDGET} exceeded')
-        store['T'].append(T.astype(np.float32))
-        store['cen'].append(c)
-        store['rho'].append(r.astype(np.float32))
-        store['nrm'].append(nrm.astype(np.float32))
-        for k in ('label', 'conform', 'reason', 'cert'):
-            store[k].append(res[k])
+    def record(T, N, c, r, res, sel):
+        nonlocal total, stored_bytes
+        count = int(np.count_nonzero(sel))
+        if not count:
+            return
+        b.check('leaf_budget', total + count)
+        # Selection arrays, casts, result arrays and Python block/container overhead.
+        cost = count * 80 + 2048
+        b.memory(cost + count * 256)
+        b.retain(cost)
+        stored_bytes += cost
+        total += count
+        store['T'].append(T[sel].astype(np.float32))
+        store['cen'].append(c[sel].copy())
+        store['rho'].append(r[sel].astype(np.float32))
+        store['nrm'].append(N[sel].astype(np.float32))
+        for k in keys[4:]:
+            store[k].append(res[k][sel].copy())
 
-    for s in range(0, len(faces), WP_CHUNK):
-        T0 = verts[faces[s:s + WP_CHUNK]].astype(np.float64)
-        N0 = _tri_normals(T0)
-        parts_T, parts_N = [], []
-        cur, curn = T0, N0
-        for depth in range(WP_MAX_SPLIT_DEPTH + 1):
-            c, r = _tri_stats(cur)
-            big = r > ctx.rho_target
-            if depth == WP_MAX_SPLIT_DEPTH:
-                stats['unsplit_over_target'] += int(big.sum())
-                big = np.zeros_like(big)
-            parts_T.append(cur[~big])
-            parts_N.append(curn[~big])
-            if not big.any():
-                break
-            cur, curn = _split4(cur[big]), np.repeat(curn[big], 4, axis=0)
-        T = np.concatenate(parts_T)
-        N = np.concatenate(parts_N)
-        c, r = _tri_stats(T)
-        res = _classify(ctx, c, r)
-        good = res['conform']
-        record(T, N, c, r, res, good)
-        bad = ~good
-        cur, curn = T[bad], N[bad]
-        cres = {k: v[bad] for k, v in res.items()}
-        if len(cur) > WP_MAX_ADAPT_LEAVES:
-            stats['adaptive_capped'] += int(len(cur))
-            cc, cr = _tri_stats(cur)
-            record(cur, curn, cc, cr, cres)
-            continue
-        for _ in range(WP_FAIL_SPLIT_DEPTH):
-            if not len(cur):
-                break
-            kids, kn = _split4(cur), np.repeat(curn, 4, axis=0)
-            kc, kr = _tri_stats(kids)
-            kres = _classify(ctx, kc, kr)
-            stats['adaptive_leaves'] += int(len(kids))
-            record(kids, kn, kc, kr, kres, kres['conform'])
-            bad = ~kres['conform']
-            cur, curn, cres = kids[bad], kn[bad], {k: v[bad] for k, v in kres.items()}
-        if len(cur):
-            cc, cr = _tri_stats(cur)
-            record(cur, curn, cc, cr, cres)
-    if not store['T']:
-        raise _Exhausted('no leaves')
+    size = min(WP_CHUNK, WP_LEAF_BATCH)
+    b.check('leaf_batch_budget', max(1, size))
+    for s in range(0, len(faces), size):
+        count = min(size, len(faces) - s)
+        b.spend('leaf_budget', count)
+        b.memory(count * 4096)  # face indexing + float64 copy + normals + classification
+        T = verts[faces[s:s + count]].astype(np.float64)
+        queue = [(T, _tri_normals(T), 0, 0)]
+        while queue:
+            pending = sum(len(item[0]) for item in queue)
+            b.check('queue_budget', pending)
+            T, N, depth, adapt = queue.pop()
+            # Pending siblings, popped block, selection copies, stats and reference scratch.
+            with b.hold(pending * 128 + len(T) * 4096):
+                c, r = _tri_stats(T)
+                big = r > ctx.rho_target
+                if depth < WP_MAX_SPLIT_DEPTH:
+                    split = big
+                    terminal = ~big
+                else:
+                    stats['unsplit_over_target'] += int(big.sum()) if adapt == 0 else 0
+                    split = np.zeros(len(T), dtype=bool)
+                    terminal = ~split
+                res = _classify(ctx, c, r)
+                good = terminal & res['conform']
+                record(T, N, c, r, res, good)
+                bad = terminal & ~res['conform']
+                adaptive = bad if adapt < WP_FAIL_SPLIT_DEPTH else np.zeros(len(T), dtype=bool)
+                if adapt >= WP_FAIL_SPLIT_DEPTH:
+                    record(T, N, c, r, res, bad)
+                # Split only bounded input groups. Queue holds owned arrays, never
+                # slices of a large child allocation. Check the complete expansion first.
+                ns = int(split.sum() + adaptive.sum())
+                if not ns:
+                    continue
+                b.check('queue_budget', pending - len(T) + 4 * ns)
+                b.spend('leaf_budget', 4 * ns)
+                b.memory(4 * ns * 512 + ns * 128)
+                width = max(1, min(size // 4, WP_LEAF_BATCH // 4))
+                for mask, nd, na in ((split, depth + 1, adapt),
+                                     (adaptive, WP_MAX_SPLIT_DEPTH, adapt + 1)):
+                    indices = np.flatnonzero(mask)
+                    for start in range(0, len(indices), width):
+                        sel = indices[start:start + width]
+                        nk = 4 * len(sel)
+                        b.check('leaf_batch_budget', nk)
+                        kids = _split4(T[sel])
+                        kn = np.repeat(N[sel], 4, axis=0)
+                        stats['adaptive_leaves'] += nk if na else 0
+                        queue.append((kids, kn, nd, na))
+    if not total:
+        raise _Exhausted('leaf_budget exhausted (no leaves)')
+    b.memory(total * 80 + 2048)
     out = {k: np.concatenate(v) for k, v in store.items()}
+    b.live -= stored_bytes
+    b.retain(total * 80 + 2048)
     out['stats'] = stats
     return out
-
 
 def _loc(p):
     return [round(float(x), 4) for x in p]
@@ -545,85 +611,148 @@ def _order_rows(cen, extra=None):
 
 # ----- circuit fidelity (mesh -> reference)
 def _fidelity(ctx, L):
-    bad = np.nonzero(~L['conform'])[0]
-    by_reason = {}
-    for rc_ in (R_OFF, R_COVER, R_AIR):
-        m = L['reason'][bad] == rc_
-        by_reason[REASON_NAMES[rc_]] = int(m.sum())
-    ordr = bad[_order_rows(L['cen'][bad], L['reason'][bad])][:WP_REPORT_LOCATIONS]
-    locs = [{'at_mm': _loc(L['cen'][i]), 'reason': REASON_NAMES[int(L['reason'][i])],
-             'certified_deviation': bool(L['cert'][i]), 'patch_radius_mm': round(float(L['rho'][i]), 4)}
-            for i in ordr]
-    unresolved = int((~L['cert'][bad]).sum())
+    findings = _Findings()
+    by_reason = {REASON_NAMES[r]: 0 for r in (R_OFF, R_COVER, R_AIR)}
+    unresolved = 0
+    for s in range(0, len(L['cen']), WP_LEAF_BATCH):
+        e = min(s + WP_LEAF_BATCH, len(L['cen']))
+        ctx.budget.memory((e - s) * 128)
+        for i in range(s, e):
+            if L['conform'][i]:
+                continue
+            reason = REASON_NAMES[int(L['reason'][i])]
+            by_reason[reason] += 1
+            unresolved += int(not L['cert'][i])
+            findings.add(L['cen'][i], {'at_mm': _loc(L['cen'][i]), 'reason': reason,
+                         'certified_deviation': bool(L['cert'][i]),
+                         'patch_radius_mm': round(float(L['rho'][i]), 4)},
+                         extra=(int(L['reason'][i]),))
     st = L['stats']
-    ok = len(bad) == 0 and st['unsplit_over_target'] == 0
+    ok = findings.count == 0 and st['unsplit_over_target'] == 0
     return {'state': 'pass' if ok else 'fail', 'surface_tolerance_mm': ctx.tau,
             'sample_radius_target_mm': ctx.rho_target, 'sample_radius_max_mm': float(L['rho'].max()),
-            'leaf_patches': int(len(L['rho'])), 'nonconforming_patches': int(len(bad)),
+            'leaf_patches': int(len(L['rho'])), 'nonconforming_patches': findings.count,
             'uncertified_nonconforming_patches': unresolved, 'unsplit_over_radius_target': st['unsplit_over_target'],
-            'by_reason': by_reason, 'locations': locs,
+            'by_reason': by_reason, 'locations': findings.records(),
             'void_cover_depth_mm': ctx.void_depth,
             'error_bound': 'every point of every mesh triangle lies within sample_radius_max_mm of a checked centroid; '
                            'each checked centroid lies within surface_tolerance_mm - patch radius of a specified surface'}
 
 
+def _connectivity(Q, rb, budget):
+    """Exact variable-radius ball graph, streamed unordered edges + union-find.
+
+    Each radius query is counted before Python lists exist. j > i removes self
+    pairs and duplicates without a retained pair array or sparse graph.
+    """
+    n = len(Q)
+    if not n:
+        return 0
+    with budget.hold(n * 320 + 4096):  # KD-tree, parent/rank, tree build scratch
+        parent = np.arange(n, dtype=np.int64)
+        rank = np.zeros(n, dtype=np.int8)
+        tree = cKDTree(Q)
+        comps = n
+
+        def root(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = int(parent[i])
+            return i
+
+        radius = 2 * float(rb.max())
+        for ii, jj in _candidates(Q, range(n), tree, np.arange(n), radius,
+                                  budget, kind='coverage'):
+            # Small bounded scratch, including indexed coordinate copies.
+            with budget.hold(len(ii) * 256):
+                keep = jj > ii
+                a, b = ii[keep], jj[keep]
+                dd = np.linalg.norm(Q[a] - Q[b], axis=1)
+                overlap = dd <= rb[a] + rb[b]
+                for x, y in zip(a[overlap], b[overlap]):
+                    x, y = root(int(x)), root(int(y))
+                    if x == y:
+                        continue
+                    if rank[x] < rank[y]:
+                        x, y = y, x
+                    parent[y] = x
+                    if rank[x] == rank[y]:
+                        rank[x] += 1
+                    comps -= 1
+        return comps
+
+
 # ----- circuit coverage (reference -> mesh)
 def _coverage(ctx, L):
-    g = ctx.g
+    with ctx.budget.scope():
+        return _coverage_impl(ctx, L)
+
+
+def _coverage_impl(ctx, L):
+    g, budget = ctx.g, ctx.budget
     cen, nrm = L['cen'], L['nrm']
     rho_max = float(L['rho'].max())
+    budget.retain(len(cen) * 256 + 4096)  # cKDTree storage + build overlap
     tree = cKDTree(cen)
     r_of = {'channel': g.rc, 'ring': g.rm, 'port': g.rm}
     tau_f = {k: min(ctx.tau, 0.5 * r) for k, r in r_of.items()}
     need_f = {k: r_of[k] - tau_f[k] for k in r_of}
     gap = min(g.v, min(need_f.values()))
     fams, pts = [], []
+    total = 0
     for fam, P, _r in g.centerline_samples(gap):
+        # Charge blocks and list headers before retaining or allocating family ids.
+        budget.retain(len(P) * 32 + 1024)
         pts.append(P)
         fams.append(np.full(len(P), {'channel': 0, 'ring': 1, 'port': 2}[fam], dtype=np.int8))
-    Q = np.concatenate(pts)
-    F = np.concatenate(fams)
+        total += len(P)
+    # Old blocks, concatenated points/families and all persistent clearance data overlap.
+    budget.retain(total * 128 + 4096)
+    Q, F = np.concatenate(pts), np.concatenate(fams)
+    del pts, fams
     names = ('channel', 'ring', 'port')
     need = np.array([need_f[n] for n in names])[F]
     rad = np.array([r_of[n] for n in names])[F]
-    d, ix = tree.query(Q)
-    side = np.einsum('ij,ij->i', Q - cen[ix], nrm[ix].astype(np.float64))
-    outside = side > 0
-    rcert = d - rho_max
-    ok = outside & (rcert >= need)
-    bad = np.nonzero(~ok)[0]
-    ordr = bad[_order_rows(Q[bad], F[bad])][:WP_REPORT_LOCATIONS]
-    locs = [{'at_mm': _loc(Q[i]), 'family': names[int(F[i])],
-             'reason': 'inside_material' if not outside[i] else 'void_narrower_than_specified',
-             'certified_clearance_mm': round(float(rcert[i]), 4), 'required_mm': round(float(need[i]), 4)}
-            for i in ordr]
-    # connectivity: certified empty balls around consecutive samples must chain into one void
-    good = np.nonzero(outside & (rcert > 0))[0]
-    comps = 0
-    if len(good):
-        rb = np.minimum(rcert[good], rad[good])
-        t2 = cKDTree(Q[good])
-        pr = t2.query_pairs(2 * float(rb.max()), output_type='ndarray')
-        if len(pr):
-            dd = np.linalg.norm(Q[good][pr[:, 0]] - Q[good][pr[:, 1]], axis=1)
-            pr = pr[dd <= rb[pr[:, 0]] + rb[pr[:, 1]]]
-        nn = len(good)
-        if len(pr):
-            gm = coo_matrix((np.ones(len(pr), dtype=np.int8), (pr[:, 0], pr[:, 1])), shape=(nn, nn))
-        else:
-            gm = coo_matrix((nn, nn), dtype=np.int8)
-        comps, _lab = connected_components(gm, directed=False)
-    connected = comps == 1 and len(good) == len(Q)
-    per = {n: {'samples': int((F == i).sum()), 'failed': int(((F == i) & ~ok).sum())} for i, n in enumerate(names)}
-    state = 'pass' if (len(bad) == 0 and connected) else 'fail'
-    return {'state': state, 'samples': int(len(Q)), 'per_family': per, 'failed_samples': int(len(bad)),
-            'locations': locs, 'void_components': int(comps), 'connected_single_circuit': bool(connected),
-            'centerline_sample_gap_mm': gap, 'centerline_error_bound_mm': g.coverage_error_bound_mm(gap),
+    rcert = np.empty(total)
+    outside = np.empty(total, dtype=bool)
+    good = np.empty(total, dtype=bool)
+    findings = _Findings()
+    per = {n: {'samples': 0, 'failed': 0} for n in names}
+    minimum = math.inf
+    for s in range(0, total, WP_LEAF_BATCH):
+        e = min(s + WP_LEAF_BATCH, total)
+        with budget.hold((e - s) * 1024):
+            d, ix = tree.query(Q[s:e])
+            side = np.einsum('ij,ij->i', Q[s:e] - cen[ix], nrm[ix].astype(np.float64))
+            outside[s:e] = side > 0
+            rcert[s:e] = d - rho_max
+            good[s:e] = outside[s:e] & (rcert[s:e] > 0)
+            ok = outside[s:e] & (rcert[s:e] >= need[s:e])
+            for j, passed in enumerate(ok):
+                i = s + j
+                name = names[int(F[i])]
+                per[name]['samples'] += 1
+                if outside[i]:
+                    minimum = min(minimum, float(rcert[i]))
+                if passed:
+                    continue
+                per[name]['failed'] += 1
+                findings.add(Q[i], {'at_mm': _loc(Q[i]), 'family': name,
+                    'reason': 'inside_material' if not outside[i] else 'void_narrower_than_specified',
+                    'certified_clearance_mm': round(float(rcert[i]), 4),
+                    'required_mm': round(float(need[i]), 4)}, extra=(int(F[i]),))
+    # Selected Q/radius copies coexist with full sample arrays and connectivity storage.
+    budget.retain(int(good.sum()) * 64)
+    comps = _connectivity(Q[good], np.minimum(rcert[good], rad[good]), budget)
+    connected = comps == 1 and int(good.sum()) == total
+    return {'state': 'pass' if findings.count == 0 and connected else 'fail',
+            'samples': total, 'per_family': per, 'failed_samples': findings.count,
+            'locations': findings.records(), 'void_components': int(comps),
+            'connected_single_circuit': bool(connected), 'centerline_sample_gap_mm': gap,
+            'centerline_error_bound_mm': g.coverage_error_bound_mm(gap),
             'required_void_radius_mm': {n: need_f[n] for n in names},
-            'clearance_error_bound_mm': rho_max,
-            'surface_tolerance_mm': ctx.tau,
-            'min_certified_clearance_mm': (float(rcert[outside].min()) if outside.any() else None)}
-
+            'clearance_error_bound_mm': rho_max, 'surface_tolerance_mm': ctx.tau,
+            'min_certified_clearance_mm': minimum if math.isfinite(minimum) else None}
 
 # ----- continuous 3D thickness
 def _local_lip(g, z0, z1):
@@ -634,6 +763,11 @@ def _local_lip(g, z0, z1):
 
 
 def _nominal_rib(g):
+    with g.budget.hold((g.steps + 1) * 1024):
+        return _nominal_rib_impl(g)
+
+
+def _nominal_rib_impl(g):
     a, b = g.channel_nodes(0), g.channel_nodes(1 % g.n_ch)
     best = math.inf
     for off in range(-3, 4):
@@ -664,6 +798,9 @@ def _thresholds(ctx):
 
 def _rim_points(g, spacing):
     n = max(64, int(math.ceil(2 * math.pi * g.rm / spacing)))
+    g.budget.check('reference_batch_budget', n)
+    g.budget.spend('reference_budget', 2 * n)
+    g.budget.memory(n * 1024)
     phi = np.arange(n) * (2 * math.pi / n)
     pts = []
     for mz in g.ring_z:
@@ -674,7 +811,11 @@ def _rim_points(g, spacing):
     return np.concatenate(pts), 2 * math.pi * g.rm / n / 2
 
 
-def _split_rows(B, sel, side):
+def _split_rows(B, sel, side, budget):
+    count = 4 * len(sel)
+    budget.check('queue_budget', count)
+    budget.check('scratch_budget', count * 4096)
+    budget.memory(count * 4096)
     out = {}
     for k, v in B.items():
         if k == ('VA' if side == 'A' else 'VB'):
@@ -684,8 +825,23 @@ def _split_rows(B, sel, side):
     return out
 
 
-def _run_pairs(L, ii, jj, thr, leaf_tol, rim, state):
+def _run_pairs(L, ii, jj, thr, leaf_tol, rim, state, budget=None):
     """Branch and bound over leaf-triangle pairs. Records violations/unresolved in state."""
+    budget = budget or _Budget()
+    width = min(WP_BLOCK, budget.limits['queue_budget'], budget.limits['scratch_budget'] // 4096)
+    if width < 1:
+        raise _Exhausted('scratch_budget exhausted')
+    for s in range(0, len(ii), width):
+        # No queue of all input batches, and no view retaining oversized input arrays.
+        n = min(width, len(ii) - s)
+        budget.check('queue_budget', n)
+        budget.spend('refinement_budget', n)
+        with budget.hold(n * 8192):
+            _run_pair_batch(L, ii[s:s + n].copy(), jj[s:s + n].copy(),
+                            thr, leaf_tol, rim, state, budget)
+
+
+def _run_pair_batch(L, ii, jj, thr, leaf_tol, rim, state, budget):
     T, nrm, lab = L['T'], L['nrm'], L['label']
     blocks = []
     for s in range(0, len(ii), WP_BLOCK):
@@ -694,11 +850,13 @@ def _run_pairs(L, ii, jj, thr, leaf_tol, rim, state):
                        'NA': nrm[a].astype(np.float64), 'NB': nrm[b].astype(np.float64),
                        'la': lab[a], 'lb': lab[b], 'ia': a, 'ib': b, 'k': np.zeros(len(a), dtype=np.int16)})
     while blocks:
+        pending = sum(len(x['ia']) for x in blocks)
+        budget.check('queue_budget', pending)
         B = blocks.pop()
+        queue_bytes = sum(sum(v.nbytes for v in x.values()) + 2048 for x in blocks)
+        budget.check('scratch_budget', len(B['ia']) * 4096)
+        budget.memory(queue_bytes + len(B['ia']) * 4096)
         state['evaluated'] += len(B['ia'])
-        if state['evaluated'] > WP_PAIR_BUDGET:
-            state['exhausted'] = True
-            return
         ca, ra = _tri_stats(B['VA'])
         cb, rb = _tri_stats(B['VB'])
         lb_ = np.linalg.norm(ca - cb, axis=1) - ra - rb
@@ -744,39 +902,59 @@ def _run_pairs(L, ii, jj, thr, leaf_tol, rim, state):
         viol = at_leaf & (ub < thr)
         gray = at_leaf & (ub >= thr)
         if viol.any():
-            state['violations'].append((ub[viol], (pa[viol] + pb[viol]) / 2, B['la'][viol], B['lb'][viol]))
+            for i in np.flatnonzero(viol):
+                mid = (pa[i] + pb[i]) / 2
+                state['violations'].add(mid, {'at_mm': _loc(mid), 'distance_mm': round(float(ub[i]), 4),
+                    'surfaces': [LABEL_NAMES[int(B['la'][i])], LABEL_NAMES[int(B['lb'][i])]]},
+                    value=ub[i], extra=(round(float(ub[i]), 4),))
         if gray.any():
-            state['marginal'].append(((pa[gray] + pb[gray]) / 2, ub[gray], B['la'][gray], B['lb'][gray]))
+            for i in np.flatnonzero(gray):
+                mid = (pa[i] + pb[i]) / 2
+                state['marginal'].add(mid, _loc(mid))
         rest = ~leaf
         too_deep = rest & (B['k'] >= WP_PAIR_MAX_SPLITS)
         if too_deep.any():
-            state['too_deep'].append((ca[too_deep], B['la'][too_deep], B['lb'][too_deep]))
+            state['too_deep'] += int(too_deep.sum())
         rest &= ~too_deep
+        children = 4 * int(rest.sum())
+        # Check the complete expansion before indexing triangles or creating children.
+        budget.check('queue_budget', sum(len(x['ia']) for x in blocks) + children)
+        budget.spend('refinement_budget', children)
+        budget.check('scratch_budget', children * 4096)
+        budget.memory(queue_bytes + len(B['ia']) * 4096 + children * 4096)
         for side, pick in (('A', rest & (ra >= rb)), ('B', rest & (ra < rb))):
             sel = np.nonzero(pick)[0]
             if not len(sel):
                 continue
-            ch = _split_rows(B, sel, side)
-            ch['k'] = ch['k'] + 1
-            for s in range(0, len(ch['ia']), WP_BLOCK):
-                blocks.append({k: v[s:s + WP_BLOCK] for k, v in ch.items()})
+            width = max(1, min(WP_BLOCK // 4, budget.limits['scratch_budget'] // (4096 * 4)))
+            for s in range(0, len(sel), width):
+                ch = _split_rows(B, sel[s:s + width], side, budget)
+                ch['k'] += 1
+                blocks.append(ch)
 
 
-def _candidates(cen, qidx, tree, tidx, r):
-    empty = np.zeros(0, dtype=np.int64)
-    if not len(qidx) or tree is None:
-        return empty, empty
-    d, _ = tree.query(cen[qidx], k=1, distance_upper_bound=r)
-    q = qidx[np.isfinite(d)]
-    if not len(q):
-        return empty, empty
-    lists = tree.query_ball_point(cen[q], r)
-    counts = np.fromiter((len(x) for x in lists), dtype=np.int64, count=len(lists))
-    if counts.sum() > WP_PAIR_BUDGET:
-        raise _Exhausted(f'{int(counts.sum())} candidate pairs exceed the pair budget')
-    jj = tidx[np.concatenate([np.asarray(x, dtype=np.int64) for x in lists])]
-    return np.repeat(q, counts), jj
+def _candidates(cen, qidx, tree, tidx, r, budget=None, *, kind='candidate'):
+    """Exact radius rows; count before list materialization and stream owned batches.
 
+    A dense row that cannot fit the neighbor allocation budget rejects, rather
+    than truncating it. Sorted rows + fixed input order give deterministic pairs.
+    The list, Python ints, selected indices and overlapping output batches are
+    charged while the consumer refines a yielded batch.
+    """
+    budget = budget or _Budget()
+    if tree is None:
+        return
+    for i in qidx:
+        count = int(tree.query_ball_point(cen[i], r, return_length=True))
+        budget.check(kind + '_batch_budget', count)
+        budget.spend(kind + '_budget', count)
+        with budget.hold(count * 128 + 4096):
+            neighbors = tree.query_ball_point(cen[i], r, return_sorted=True)
+            if len(neighbors) != count:
+                raise _Exhausted(kind + '_budget exhausted (neighbor count changed)')
+            for s in range(0, count, WP_BLOCK):
+                row = np.asarray(neighbors[s:s + WP_BLOCK], dtype=np.int64)
+                yield np.full(len(row), i, dtype=np.int64), np.asarray(tidx)[row].copy()
 
 def _channel_index(g, cen, nrm, sel):
     ax = cen[sel] + nrm[sel].astype(np.float64) * g.rc
@@ -786,7 +964,15 @@ def _channel_index(g, cen, nrm, sel):
 
 
 def _thickness(ctx, L):
+    with ctx.budget.scope():
+        return _thickness_impl(ctx, L)
+
+
+def _thickness_impl(ctx, L):
     g = ctx.g
+    # Selections, channel ids/group copies, KD-trees (including build overlap),
+    # nominal threshold scratch and all concurrently retained arrays.
+    ctx.budget.retain(len(L['cen']) * 1024 + (2 << 20))
     thr = _thresholds(ctx)
     cen, lab, rho = L['cen'], L['label'], L['rho']
     leaf_tol = WP_THICKNESS_ALLOWANCE_VOXELS * g.v / 4
@@ -798,24 +984,22 @@ def _thickness(ctx, L):
     allc = np.nonzero(lab >= L_CH)[0]
     trees = {'hc': cKDTree(cen[hc]) if len(hc) else None, 'caps': cKDTree(cen[caps]) if len(caps) else None}
     rim_pts, rim_sp = _rim_points(g, 0.05 * thr['manifold']['effective_threshold_mm'])
+    ctx.budget.retain(len(rim_pts) * 256 + 4096)
     rim_tree = cKDTree(rim_pts)
     rim_zone = thr['manifold']['effective_threshold_mm'] + ctx.tau + rim_sp
     classes = {}
 
-    def run(name, ii, jj, key, rim=None):
+    def run(name, batches, key, rim=None):
         t = thr[key]['effective_threshold_mm']
-        st = {'evaluated': 0, 'exhausted': False, 'violations': [], 'marginal': [], 'too_deep': []}
-        _run_pairs(L, ii, jj, t, leaf_tol, rim, st)
-        c = classes.setdefault(name, {'candidate_pairs': 0, 'pairs_evaluated': 0, 'violations': [],
-                                      'marginal': [], 'too_deep': 0, 'exhausted': False,
-                                      'threshold_mm': t, 'required_mm': thr[key]['required_mm']})
-        c['candidate_pairs'] += int(len(ii))
-        c['pairs_evaluated'] += st['evaluated']
-        c['exhausted'] |= st['exhausted']
-        c['violations'] += st['violations']
-        c['marginal'] += st['marginal']
-        c['too_deep'] += sum(len(x[0]) for x in st['too_deep'])
-
+        c = classes.setdefault(name, {'candidate_pairs': 0, 'pairs_evaluated': 0,
+            'violations': _Findings(), 'marginal': _Findings(), 'too_deep': 0, 'exhausted': False,
+            'threshold_mm': t, 'required_mm': thr[key]['required_mm']})
+        for ii, jj in batches:
+            st = {'evaluated': 0, 'violations': c['violations'], 'marginal': c['marginal'], 'too_deep': 0}
+            _run_pairs(L, ii, jj, t, leaf_tol, rim, st, ctx.budget)
+            c['candidate_pairs'] += len(ii)
+            c['pairs_evaluated'] += st['evaluated']
+            c['too_deep'] += st['too_deep']
     def reach(key):
         return thr[key]['effective_threshold_mm'] + 2 * rmax
 
@@ -823,41 +1007,25 @@ def _thickness(ctx, L):
             ('hot_cold_wall_vs_channels', chn, trees['hc'], hc, 'wall', None),
             ('hot_cold_wall_vs_manifold_and_ports', mp, trees['hc'], hc, 'manifold', (rim_tree, rim_zone)),
             ('end_regions', allc, trees['caps'], caps, 'end', None)):
-        ii, jj = _candidates(cen, qi, tr, tidx, reach(key))
-        run(name, ii, jj, key, rim)
+        run(name, _candidates(cen, qi, tr, tidx, reach(key), ctx.budget), key, rim)
     if len(chn):
         cidx = _channel_index(g, cen, L['nrm'], chn)
         groups = [chn[cidx == c] for c in range(g.n_ch)]
         gtrees = [cKDTree(cen[x]) if len(x) else None for x in groups]
         for c in range(g.n_ch):
             nb = (c + 1) % g.n_ch
-            ii, jj = _candidates(cen, groups[c], gtrees[nb], groups[nb], reach('rib'))
-            run('ribs_between_channels', ii, jj, 'rib')
+            run('ribs_between_channels', _candidates(cen, groups[c], gtrees[nb], groups[nb],
+                                                    reach('rib'), ctx.budget), 'rib')
     out_cls, nviol = {}, 0
     for name, c in classes.items():
         v = c.pop('violations')
         mg = c.pop('marginal')
-        if v:
-            dist = np.concatenate([x[0] for x in v])
-            mid = np.concatenate([x[1] for x in v])
-            la = np.concatenate([x[2] for x in v])
-            lb = np.concatenate([x[3] for x in v])
-            o = _order_rows(mid, np.round(dist, 4))[:WP_REPORT_LOCATIONS]
-            c['violation_count'] = int(len(dist))
-            c['violations'] = [{'at_mm': _loc(mid[i]), 'distance_mm': round(float(dist[i]), 4),
-                                'surfaces': [LABEL_NAMES[int(la[i])], LABEL_NAMES[int(lb[i])]]} for i in o]
-            c['min_distance_found_mm'] = round(float(dist.min()), 4)
-        else:
-            c['violation_count'] = 0
-            c['violations'] = []
-        if mg:
-            mid = np.concatenate([x[0] for x in mg])
-            c['marginal_count'] = int(len(mid))
-            o = _order_rows(mid)[:WP_REPORT_LOCATIONS]
-            c['marginal_locations'] = [_loc(mid[i]) for i in o]
-        else:
-            c['marginal_count'] = 0
-            c['marginal_locations'] = []
+        c['violation_count'] = v.count
+        c['violations'] = v.records()
+        if v.count:
+            c['min_distance_found_mm'] = round(v.minimum, 4)
+        c['marginal_count'] = mg.count
+        c['marginal_locations'] = mg.records()
         c['state'] = ('fail' if (c['violation_count'] or c['marginal_count'] or c['too_deep'] or c['exhausted'])
                       else 'pass')
         nviol += c['violation_count']
@@ -881,8 +1049,9 @@ def whole_part_checks(spec: RegenChamberSpec, verts: np.ndarray, faces: np.ndarr
         fid = _fidelity(ctx, L)
         cov = _coverage(ctx, L)
         thk = _thickness(ctx, L)
-    except _Exhausted as e:
-        msg = f'unresolved: refinement limit exhausted ({e})'
+    except (BudgetExceeded, MemoryError) as e:
+        msg = ('unresolved: memory_budget exhausted' if isinstance(e, MemoryError)
+               else f'unresolved: {e}')
         return ({n: {'state': 'fail', 'detail': msg} for n in names}, [f'{n}: {msg}' for n in names], {})
     checks = {'circuit_fidelity': fid, 'circuit_coverage': cov, 'wall_thickness': thk}
     failures = []
