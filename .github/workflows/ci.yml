@@ -67,9 +67,10 @@ jobs:
 
       - name: Install dependencies
         # test_aero_integration imports backend/main.py (for _run_aero_stage),
-        # which needs google-generativeai + slowapi at import time. cadquery /
-        # numpy / pyrender are lazy-imported and not required to import main.
-        run: pip install pydantic fastapi google-generativeai slowapi
+        # which needs google-generativeai + slowapi at import time. It also
+        # attaches the glider/CEM routes, which import numpy and the glider
+        # solver stack eagerly. cadquery / pyrender stay lazy-imported.
+        run: pip install pydantic fastapi google-generativeai slowapi numpy -r requirements-glider.lock
 
       - name: Run Phase 3 integration tests
         run: python backend/tests/test_aero_integration.py
