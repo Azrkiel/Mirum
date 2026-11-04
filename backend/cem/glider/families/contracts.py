@@ -92,6 +92,8 @@ class FamilyAdapter:
 
 
 def load_failures(geometry, loads):
+    geometry = InstalledGeometry.model_validate_json(geometry.model_dump_json())
+    loads = LiftingSurfaceLoads.model_validate_json(loads.model_dump_json())
     if loads.binding != geometry.binding:
         raise ValueError('Family load/installed context mismatch')
     expected = {s.name for s in geometry.surfaces}
@@ -112,3 +114,45 @@ def structural_case(geometry, loads, *, name, load_factor):
         raise ValueError('Family lifting loads fail screening closure')
     return StructuralLoadCase(name=name, binding=geometry.binding,
         aerodynamic_loads_sha256=digest(loads), load_factor=load_factor, loads=loads)
+
+
+def family_reactions(geometry, case, *, root_axes_m):
+    """Sequential C/B handoff: every installed member, all six resultants.
+
+    Roots are explicit installed load-transfer references, not qualified joints.
+    B retains all point loads, section couples and omitted-surface diagnostics.
+    """
+    import numpy as np
+    from cem.glider.structural_adapter import consume_lifting_surface
+    geometry = InstalledGeometry.model_validate_json(geometry.model_dump_json())
+    case = StructuralLoadCase.model_validate_json(case.model_dump_json())
+    if load_failures(geometry, case.loads):
+        raise ValueError('Family lifting loads fail screening closure')
+    if set(root_axes_m) != {s.name for s in geometry.surfaces}:
+        raise ValueError('Explicit root required for every installed lifting surface')
+    members = {name: consume_lifting_surface(geometry, case, expected_binding=geometry.binding,
+                   root_axis_m=root, surface=name) for name,root in root_axes_m.items()}
+    force, moment = np.zeros(3), np.zeros(3)
+    for name, member in members.items():
+        for side in member['sides'].values():
+            f = np.array(side['force_n'])
+            force += f
+            moment += np.array(side['moment_root_nm'])+np.cross(
+                np.array(root_axes_m[name])-geometry.reference.cg_m, f)
+    if (not np.allclose(force,np.array(case.loads.force_n)*case.load_factor,rtol=0,atol=1e-8)
+            or not np.allclose(moment,np.array(case.loads.moment_cg_nm)*case.load_factor,rtol=0,atol=1e-8)):
+        raise ValueError('Family member resultant conservation failed')
+    return dict(state='incomplete', scope='rigid-steady-family-member-resultants-only',
+        binding=geometry.binding.model_dump(mode='json'), load_case_sha256=digest(case),
+        members=members, force_n=force.tolist(), moment_cg_nm=moment.tolist(),
+        physical_construction=False, manufacturing_ready=False,
+        missing=['aerodynamic/material correspondence', 'family attachments and complete body path',
+                 'multi-axis strength and sizing', 'inertia, launch, gust and landing cases'])
+
+
+def validate_family_reactions(report, geometry, case, *, root_axes_m):
+    from cem.core import canonical_json
+    expected = family_reactions(geometry, case, root_axes_m=root_axes_m)
+    if canonical_json(report) != canonical_json(expected):
+        raise ValueError('Family reaction evidence differs from reconstructed load handoff')
+    return False  # Valid resultants are not physical construction admission.

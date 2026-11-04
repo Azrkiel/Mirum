@@ -1,7 +1,5 @@
 """C/A contract and C/B load handoff fixtures; never native qualification."""
-from dataclasses import replace
-import math
-
+import numpy as np
 import pytest
 
 from cem.core import canonical_json, digest
@@ -11,7 +9,8 @@ from cem.aero.fixtures import structural_fixture
 from cem.aero.lifting import solve
 from cem.aero.fixtures import analytic_bank
 from cem.glider.families import build
-from cem.glider.families.contracts import FamilyAdapter, Hardware, structural_case
+from cem.glider.families.contracts import (FamilyAdapter, Hardware, structural_case,
+    family_reactions, validate_family_reactions)
 
 
 def installed(family='canard', **context):
@@ -119,3 +118,43 @@ def test_stale_missing_or_mislabeled_shared_loads_cannot_cross_handoff():
                     loads.model_copy(update={'strips':tuple(s for s in loads.strips if s.surface!='foreplane')})):
         with pytest.raises(ValueError):
             structural_case(g,corrupt,name='bad',load_factor=1.)
+
+
+@pytest.mark.parametrize('family',['canard','tandem'])
+def test_b_handoff_uses_actual_member_roles_spans_and_preserves_total_vectors(family):
+    from cem.glider.structural_adapter import section_resultant
+    _,_,g = installed(family)
+    loads = loads_for(g)
+    # Exercise drag/lateral force and all section-couple axes, not only lift.
+    strips = []
+    for s in loads.strips:
+        force = np.array([.01,.002,s.force_n[2]])
+        moment = np.cross(np.array(s.center_m)-g.reference.cg_m, force)+[.003,.004,.005]
+        strips.append(s.model_copy(update={'force_n':tuple(force),'moment_cg_nm':tuple(moment)}))
+    loads = LiftingSurfaceLoads.model_validate_json(canonical_json(loads.model_copy(update={
+        'strips':tuple(strips),'force_n':tuple(np.sum([s.force_n for s in strips],axis=0)),
+        'moment_cg_nm':tuple(np.sum([s.moment_cg_nm for s in strips],axis=0))})))
+    case = structural_case(g,loads,name='fixture-vectors',load_factor=3.)
+    roots = {s.name:(s.sections[0].leading_edge_m[0],0.,s.sections[0].leading_edge_m[2]) for s in g.surfaces}
+    result = family_reactions(g,case,root_axes_m=roots)
+    assert validate_family_reactions(result,g,case,root_axes_m=roots) is False
+    changed = dict(result, state='passed', physical_construction=True)
+    with pytest.raises(ValueError,match='reconstructed'):
+        validate_family_reactions(changed,g,case,root_axes_m=roots)
+    assert result['state']=='incomplete' and result['physical_construction'] is False
+    assert result['force_n']==pytest.approx(np.array(loads.force_n)*3.)
+    assert result['moment_cg_nm']==pytest.approx(np.array(loads.moment_cg_nm)*3.)
+    for s in g.surfaces:
+        member = result['members'][s.name]
+        assert member['half_span_m']==max(sec.leading_edge_m[1] for sec in s.sections)
+        assert member['omitted_surfaces']==sorted(v.name for v in g.surfaces if v.name!=s.name)
+        for side in member['sides'].values():
+            for row in side['strips']:
+                assert row['couple_nm']==pytest.approx([.009,.012,.015])
+        assert section_resultant(member,'right',member['half_span_m'])['force_n']==[0.,0.,0.]
+    with pytest.raises(ValueError,match='root'):
+        family_reactions(g,case,root_axes_m={})
+    bad = dict(roots)
+    bad[next(iter(roots))]=(0.,.01,0.)
+    with pytest.raises(ValueError,match='reference'):
+        family_reactions(g,case,root_axes_m=bad)

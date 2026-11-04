@@ -45,21 +45,21 @@ selecting only unqualified families remain HTTP 422.
 
 ## Dependencies and remaining acceptance work
 
-Inspected related branch heads during implementation:
+Historical branch heads inspected during the initial prototype implementation:
 
 - A: `cb521103a748ac8a59c4bc4bb57c0796d5b3a13a`.
 - B: `bee72785666c1e89e0a07fc1be378770fcd49586`.
 
-Both contain task briefs, not implemented shared contracts or qualification
-services. Per the task instructions, A owns the shared-contract merge. The
-isolated Task C models intentionally do not replace that contract or enable
-native admission from caller-supplied labels.
+At that point both contained task briefs. The subsequent A/B integration is
+recorded below. A owns the shared contract; Task C does not enable native
+admission from caller-supplied labels.
 
 Requirements for the A handoff:
 
 - Installed geometry including actual reflex coordinates, incidence/washout,
   surface roles, control hinge/span definitions, CG and inertia. The prototype
-  currently has lumped/distributed mass and CG, not a qualified inertia model.
+  has lumped/distributed mass and CG. The shared adapter now supplies diagonal
+  point-mass inertia approximations, not measured full-aircraft inertia.
 - Revision binding of geometry, controls, hardware, mission, calibration,
   process, atmosphere, operating solution, adapters and solver/raw artifacts.
 - Effective local angle, local velocity and Reynolds coverage, station polars
@@ -83,7 +83,7 @@ Requirements for the B handoff:
 - Delivered parts, material law, mass/CG/inertia closure, hardware and control
   accounting, reconstruction and artifact checks for each family separately.
 
-After those services exist, integrate each qualified family sequentially into
+As those services become qualified, integrate each qualified family sequentially into
 production registration, search, archive evidence validation, exact design
 reconstruction, comparison, worker, API/UI and delivered bundles. Native
 end-to-end qualification, deployment, publication and fresh-task restoration
@@ -169,6 +169,81 @@ performance, control authority, nonlinear interference/stall, dynamic modes or
 construction. `diagnostic_equilibrium` is therefore not a qualified family, and
 the report is rejected by the admission evidence schema. All production,
 performance, physical and verified-gain capabilities remain false.
+
+## A/B shared-contract integration
+
+A implementation/handoff `2191583cb05188b50fb19924e25a3e929fd1f7fa` was merged
+first, with C's contract adapters in merge `2db4b70`. The complete A/C regression
+run passed **362 tests**, with **8 native solver skips**. B was then obtained
+from the user-supplied commit `5f5fc120163e18d37daf765e5956635a63bb1911` and merged
+sequentially. Its remote task branch still pointed at its original brief; the
+supplied commit contains the actual implementation and qualification handoff.
+
+`families/contracts.py` implements A's `FamilyBuilder` interface for faithful
+`mirum-aero-1` geometry, with these explicit limits:
+
+- Canard and tandem retain their actual `canard`, `forewing` and `aftwing` roles;
+  no member is renamed to a conventional horizontal tail.
+- Reference area/chord/span, CG, inventory mass and diagonal point-mass inertia
+  come from the C builder. These remain screening approximations, not measured
+  B construction properties or full coupled inertia.
+- Callers must supply the installed body stations and the explicit neutral
+  state of every control. Body extent must match C's body-length parameter.
+  No body is invented from the supplied mass.
+- All six A binding identities cover geometry, hardware/controls/inventory,
+  mission, process, calibration and implementation. Archive/geometry/model
+  revalidation rejects missing, stale, altered or mismatched contexts.
+- The v1 contract has NACA codes, not custom foil coordinates or deflected
+  controls. Default swept-family reflex and any nonzero control deflection are
+  rejected at the export boundary rather than approximated away. Zero-reflex
+  variants can be represented, but are not admitted by that fact.
+- `admit` preserves explicit missing family qualification, control authority,
+  dynamics, interaction/stall and construction gates. A's production lifting
+  solver likewise continues rejecting unqualified family identities.
+
+`structural_case` transfers revision-bound rigid steady loads into A/B's actual
+`StructuralLoadCase`. `family_reactions` dispatches every installed lifting
+member through B's vector/couple consumer. The new
+`structural_adapter.consume_lifting_surface` preserves the real role, actual
+member span, both physical half-wing loads and explicit root references. B's
+existing `consume_loads` retains its conventional-wing checks and behavior.
+
+Each member retains diagnostics for omitted surfaces; the family wrapper
+accounts for all members and translates their moments back to the common CG to
+check total force/moment conservation. Section couples, drag and lateral forces
+remain intact. Load factors are applied once. Roots are load-transfer reference
+points, not claimed measured attachments. Parent-style replay reconstructs
+reaction reports and rejects promoted states or changed evidence. A valid replay
+still returns false for physical admission.
+
+The first focused C/A test run passed **20 tests**, with one native skip. The
+focused C/B adapter and material/support replay suite passed **28 tests** before
+the additional parent-style family replay assertion. All of these integration
+fixtures are analytical and explicitly distinct from native family qualification.
+
+B's actual construction identity is
+`bonded_shaped_wing_riveted_keel_prototype_v2`. It is a narrow flat, unswept,
+untwisted five-station NACA 0012 prototype with a 20 mm root cutback, not a
+construction that can be copied onto swept, canard or tandem aircraft. None of
+its material/support exports establish correspondence to C's aerodynamic
+geometry. Family attachment paths, body/inertial/launch/gust/landing cases,
+multi-axis strength/sizing, measured full-aircraft properties and fixed-revision
+delivered trim remain required.
+
+Read the imported `cem-task-a-handoff.md` and
+`cem-task-b-qualification-handoff.md` before attempting qualification. This
+instance has no selected native XFOIL/AVL binaries and lacks Fortran/CMake/X11
+build prerequisites. No fresh independent native A/B qualification is claimed.
+The earlier AeroSandbox C diagnostics remain available with their stated scope.
+
+Final integrated validation: **450 passed, 8 skipped** in 233.45 seconds using
+the combined CEM/glider/UI/AVL/XFOIL command above, with one existing Altair UI
+deprecation warning. The eight skips require native XFOIL/AVL binaries.
+Dependency compatibility, staged/unstaged diff checks, restarted HTTP metadata,
+HTTP 422 unqualified-family gates and UI health passed. Geometry export and
+reaction replay tests ran against the actual merged implementations; native
+family qualification, physical construction admission, publication and
+fresh-task restoration remain unperformed. Commits remain local and unpushed.
 
 Reproduce the reference reports outside the checkout:
 

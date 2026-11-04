@@ -16,8 +16,9 @@ def capabilities():
         shared_geometry_contract='mirum-aero-1',
         shared_geometry_state=('unsupported_custom_reflex' if name == 'tailless_swept'
                                else 'neutral_control_screening_adapter'),
+        shared_load_handoff='incomplete_rigid_member_resultants',
         independent_numerical_performance=False, physical_construction=False,
-        missing=['A: family-scoped aerodynamic contracts and native qualification',
+        missing=['A: family-scoped native qualification and reflex/control support',
                  'B: family-scoped construction and load-path qualification'])
         for name, module in BUILDERS.items()}
 
