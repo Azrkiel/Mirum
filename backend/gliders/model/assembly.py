@@ -62,12 +62,15 @@ class Glider:
 
     def airplane(self, xyz_ref=None, tail_incidence_deg: float | None = None) -> asb.Airplane:
         wings = [self.wing_surface().to_asb()] + [s.to_asb() for s in self.tail_surfaces(tail_incidence_deg)]
-        return asb.Airplane(
+        airplane = asb.Airplane(
             name=self.id,
             xyz_ref=list(xyz_ref) if xyz_ref is not None else [0, 0, 0],
             wings=wings,                       # wings[0] = main wing -> reference S, c, b
             fuselages=[self.fuse.to_asb()],
         )
+        # Trusted CEM configuration only. Legacy configurations have no context.
+        airplane.cem_context = self.cfg.get('cem_context')
+        return airplane
 
     # ------------------------------------------------------------------ #
     # Reference geometry

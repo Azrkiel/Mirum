@@ -28,8 +28,20 @@ from .assembly import Glider
 ALPHAS = np.arange(-2.0, 14.01, 0.5)
 
 
+def _op(airplane, V, alpha, beta=0.):
+    context = getattr(airplane, 'cem_context', None)
+    kw = {'atmosphere': asb.Atmosphere(altitude=context['altitude_m'],
+          temperature_deviation=context['temperature_deviation_k'], method='isa')} if context else {}
+    return asb.OperatingPoint(velocity=V, alpha=alpha, beta=beta, **kw)
+
+
 def _aero(airplane, V, alpha):
-    return asb.AeroBuildup(airplane, asb.OperatingPoint(velocity=V, alpha=alpha)).run()
+    result = asb.AeroBuildup(airplane, _op(airplane, V, alpha)).run()
+    context = getattr(airplane, 'cem_context', None)
+    if context:
+        drag = result['D_profile'] * context['cd0_factor'] + result['D_induced'] / context['oswald_factor']
+        result['CD'] = result['CD'] * drag / result['D']
+    return result
 
 
 def _f(v) -> float:
@@ -129,7 +141,7 @@ def local_aero(airplane, V: float, alpha: float, below_deg: float = 1.0) -> dict
     cambered airfoils at low Reynolds number can lose lift slope at low alpha,
     which would make the glider pitch-unstable in a shallow dive."""
     offs = np.unique(np.concatenate([[-below_deg], np.arange(0.0, 3.01, 1.0)]))
-    r = asb.AeroBuildup(airplane, asb.OperatingPoint(velocity=V, alpha=alpha + offs)).run()
+    r = _aero(airplane, V, alpha + offs)
     CL, CD, Cm = (np.asarray(r[k], dtype=float) for k in ("CL", "CD", "Cm"))
     i0 = int(np.argmin(np.abs(offs)))
     return {"CL": CL[i0], "CD": CD[i0], "Cm": Cm[i0], "Cm_monotonic": bool(np.all(np.diff(Cm) < 0))}
@@ -147,13 +159,15 @@ def stability_derivatives(airplane, V: float, alpha: float) -> dict:
     Rates are non-dimensional (p b/2V, q c/2V, r b/2V)."""
     kw = dict(xyz_ref=list(airplane.xyz_ref), s_ref=airplane.s_ref, c_ref=airplane.c_ref, b_ref=airplane.b_ref)
     wings_only = asb.Airplane(wings=airplane.wings, **kw)
-    d = asb.VortexLatticeMethod(wings_only, asb.OperatingPoint(velocity=V, alpha=alpha),
+    wings_only.cem_context = getattr(airplane, 'cem_context', None)
+    d = asb.VortexLatticeMethod(wings_only, _op(airplane, V, alpha),
                                 spanwise_resolution=8, chordwise_resolution=6).run_with_stability_derivatives()
     out = {k: _f(d[k]) for k in ["CLa", "Cma", "CYb", "Clb", "Cnb", "CYp", "Clp", "Cnp",
                                  "CYr", "Clr", "Cnr", "Cmq"]}
     body = asb.Airplane(fuselages=airplane.fuselages, **kw)
-    r = asb.AeroBuildup(body, asb.OperatingPoint(velocity=V, alpha=np.array([alpha - 2, alpha + 2, alpha, alpha]),
-                                                 beta=np.array([0.0, 0.0, 2.0, -2.0]))).run()
+    body.cem_context = getattr(airplane, 'cem_context', None)
+    r = asb.AeroBuildup(body, _op(airplane, V, np.array([alpha - 2, alpha + 2, alpha, alpha]),
+                                beta=np.array([0.0, 0.0, 2.0, -2.0]))).run()
     g = {k: np.asarray(r[k], dtype=float) for k in ["CL", "Cm", "CY", "Cl", "Cn"]}
     four = np.radians(4.0)
     out["CLa"] += (g["CL"][1] - g["CL"][0]) / four
@@ -213,11 +227,32 @@ def trim(gl: Glider, cg, V, W, rho, S, objective, stall_margin, below_deg=1.0):
         r = _aero(gl.airplane(cg, delta), V, ALPHAS)
         CL, CD = np.asarray(r["CL"]), np.asarray(r["CD"])
         i_max = int(np.argmax(CL))
-        CLmax = float(CL[i_max])
+        CLmax = float(CL[i_max]) * gl.cfg.get('cem_context', {}).get('cl_max_factor', 1.)
         ok = (np.arange(len(ALPHAS)) <= i_max) & (CL <= stall_margin * CLmax) & (CL > 0.05)
+        if gl.cfg.get('cem_context'):
+            # Speed-to-fly is constrained by the same station Reynolds envelope
+            # as admission; a tailwind must not optimize into untrusted low Re.
+            min_chord = min(s.chord for surface in [gl.wing_surface(), *gl.tail_surfaces()]
+                            for s in surface.sections)
+            min_speed = 30000 * gl.cfg['mission']['dynamic_viscosity_pa_s'] / (rho * min_chord)
+            equilibrium_speeds = np.sqrt(2 * W / (rho * S * np.maximum(CL, .001)))
+            ok &= (equilibrium_speeds >= min_speed * 1.001) & (equilibrium_speeds <= gl.cfg['limits']['max_glide_speed_m_s'])
         if not ok.any():
+            if gl.cfg.get('cem_context'):
+                raise ValueError('No trimmed polar samples satisfy stall and operating-envelope limits')
             break
         metric = CL / CD if objective == "distance" else np.clip(CL, 0, None) ** 1.5 / CD
+        mission = gl.cfg['mission']
+        if mission.get('wind_m_s', 0.) or mission.get('uplift_m_s', 0.):
+            speeds = np.sqrt(2 * W / (rho * S * np.maximum(CL, .001)))
+            gamma = np.arctan2(CD, np.maximum(CL, .001))
+            sinks = speeds * np.sin(gamma)
+            ground = speeds * np.cos(gamma) + mission.get('wind_m_s', 0.)
+            descent = sinks - mission.get('uplift_m_s', 0.)
+            # Sustained conditions are reported separately; never optimize infinity.
+            metric = (ground if objective == 'distance' else np.ones_like(ground)) / np.maximum(descent, .001)
+            if objective == 'distance':
+                ok &= ground > 0
         alpha_star = float(ALPHAS[int(np.argmax(np.where(ok, metric, -np.inf)))])
         for _ in range(4):           # Newton steps: Cm(alpha*, delta) = 0
             c1 = _f(_aero(gl.airplane(cg, delta), V, alpha_star)["Cm"])
@@ -239,7 +274,7 @@ def trim(gl: Glider, cg, V, W, rho, S, objective, stall_margin, below_deg=1.0):
     if abs(next_V - V) / V > 1e-3:
         raise ValueError('Coupled speed/trim calculation did not converge')
     # Re-evaluate the stall reference at the final incidence and Reynolds condition.
-    CLmax = float(np.max(_aero(ap, V, ALPHAS)['CL']))
+    CLmax = float(np.max(_aero(ap, V, ALPHAS)['CL'])) * gl.cfg.get('cem_context', {}).get('cl_max_factor', 1.)
     d.update(stability_derivatives(ap, V, alpha_star))
     return alpha_star, delta, CLmax, V, d
 
@@ -247,7 +282,31 @@ def trim(gl: Glider, cg, V, W, rho, S, objective, stall_margin, below_deg=1.0):
 # ---------------------------------------------------------------------- #
 # Main evaluation
 # ---------------------------------------------------------------------- #
-def evaluate(gl: Glider) -> dict:
+def fixed_geometry_trim(gl, cg, V, W, rho, S, below_deg=1.0):
+    """Find equilibrium speed/alpha without changing any aircraft controls.
+
+    This is a screening equilibrium (L = W, as in the existing trim model),
+    not a speed-to-fly optimization or permission to adjust tail incidence.
+    """
+    from scipy.optimize import least_squares
+    ap = gl.airplane(cg)
+    def residual(x):
+        alpha, speed = x
+        aero = _aero(ap, speed, alpha)
+        return [_f(aero['CL'])*.5*rho*speed**2*S/W-1., _f(aero['Cm'])]
+    fit = least_squares(residual, [4., min(max(V, .51), 29.9)],
+                        bounds=([ALPHAS[0], .5], [ALPHAS[-1], 30.]),
+                        xtol=1e-9, ftol=1e-9, gtol=1e-9, max_nfev=80)
+    if not fit.success or np.max(np.abs(residual(fit.x))) > 1e-4:
+        raise ValueError('Fixed-geometry equilibrium did not converge')
+    alpha, speed = map(float, fit.x)
+    d = local_aero(ap, speed, alpha, below_deg)
+    d.update(stability_derivatives(ap, speed, alpha))
+    clmax = float(np.max(_aero(ap, speed, ALPHAS)['CL'])) * gl.cfg.get('cem_context', {}).get('cl_max_factor', 1.)
+    return alpha, gl.tail_incidence_deg, clmax, speed, d
+
+
+def evaluate(gl: Glider, *, fixed_geometry=False) -> dict:
     cfg = gl.cfg
     lim, mis = cfg["limits"], cfg["mission"]
     rho, g = mis["air_density_kg_m3"], mis["gravity_m_s2"]
@@ -269,15 +328,20 @@ def evaluate(gl: Glider) -> dict:
 
         # ---- 1+2. balance: slide wing, slide payload, then nose ballast ----
         V = math.sqrt(2 * m0 * g / (rho * S * 0.6))
-        x_np = balance_with_wing_slide(gl, V, lim["static_margin_target"])
+        if not fixed_geometry:
+            balance_with_wing_slide(gl, V, lim["static_margin_target"])
         fails, info = geometry_checks(gl, lim, mis)       # re-check: the wing may have moved
         res.update(info)
         S, b, mac = info["wing_area_m2"], info["wing_span_m"], info["wing_mac_m"]
 
         # ---- 3+4. trim, then re-balance once with the neutral point at the trim condition ----
-        for attempt in range(2):
+        for attempt in range(1 if fixed_geometry else 2):
             ms = gl.mass_summary()
             m, cg = ms["mass"], ms["cg"]
+            if fixed_geometry:
+                alpha_star, delta, CLmax, V, d = fixed_geometry_trim(
+                    gl, cg, V, m * g, rho, S, lim['pitch_stable_below_trim_deg'])
+                break
             alpha_star, delta, CLmax, V, d = trim(gl, cg, V, m * g, rho, S, mis["objective"],
                                                   lim["stall_margin"], lim["pitch_stable_below_trim_deg"])
             SM = (_f(d["x_np"]) - cg[0]) / mac
@@ -301,7 +365,7 @@ def evaluate(gl: Glider) -> dict:
         LD = CL / CD
         gamma = math.atan(1 / LD) if LD > 0 else math.pi / 2
         sink = V * math.sin(gamma)
-        Re = rho * V * mac / 1.81e-5
+        Re = rho * V * mac / mis.get('dynamic_viscosity_pa_s', 1.81e-5)
         lat = lateral_modes(der, V, rho, S, b, m, ms["Ixx"], ms["Izz"], gamma, g)
         spiral_E = der["Clb"] * der["Cnr"] - der["Cnb"] * der["Clr"]
 
@@ -359,6 +423,8 @@ def evaluate(gl: Glider) -> dict:
             fails.append("glide/landing speed too high")
 
         res["valid"] = not fails
+        if fixed_geometry:
+            res['fixed_geometry'] = True
         res["fail_reasons"] = "; ".join(fails)
         res["score"] = (LD if mis["objective"] == "distance" else res["time_aloft_s"]) if not fails else float("nan")
     except Exception as e:  # never let one bad design kill the batch

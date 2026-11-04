@@ -2,3 +2,6 @@
 analysis/tests/mock_avl text eol=lf
 analysis/tests/mock_xfoil text eol=lf
 *.sh text eol=lf
+
+# Unified diff context lines intentionally retain their leading space.
+output/cem-glider/*.patch -whitespace
