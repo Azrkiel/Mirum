@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="146.2mm" height="185.4mm" viewBox="0 0 146.2 185.4">
+<rect width="100%" height="100%" fill="white"/>
+<polyline points="15.00,35.00 121.23,40.31 121.23,114.46 15.00,130.40 15.00,35.00" fill="none" stroke="black" stroke-width="0.4"/>
+<text x="15.0" y="15.0" font-size="6" font-family="sans-serif">Stabiliser half (cut 2) (root at left, 1:1 scale)</text>
+<polyline points="15.00,173.40 115.00,173.40" fill="none" stroke="black" stroke-width="0.8"/>
+<text x="15.0" y="180.39593595656083" font-size="4.5" font-family="sans-serif">100 mm - measure this after printing</text>
+</svg>
