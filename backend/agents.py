@@ -33,7 +33,7 @@ logger = logging.getLogger("mirum.agents")
 
 from classifier import classify_part
 from compiler import _WORK_DIR, execute_cad_script
-from failure_analysis import build_retry_context, classify_failure
+from failure_analysis import build_retry_context, classify_failure, user_facing_failure
 from propulsion.rea_schema import (
     mentions_propulsion,
     propulsion_rea_schema_extension,
@@ -91,9 +91,12 @@ def cleanup_tmp_parts() -> None:
 class ScriptError(RuntimeError):
     """RuntimeError subclass that carries the last attempted CadQuery script."""
 
-    def __init__(self, message: str, script: str = ""):
+    def __init__(self, message: str, script: str = "", user_message: str = ""):
         super().__init__(message)
         self.script = script
+        # Plain-language sentence for the END USER (no traceback, no generated
+        # code, no prompt text). str(exc) stays operator-grade.
+        self.user_message = user_message
 
 # Strong references for fire-and-forget tasks: the event loop only keeps weak
 # refs, so an un-referenced background task can be garbage-collected mid-flight.
@@ -1144,7 +1147,12 @@ async def run_critic_loop(
                             data={"failure_op": "export"},
                         ))
                         if final_attempt:
-                            raise
+                            raise ScriptError(
+                                str(exc), script=code,
+                                user_message=user_facing_failure(
+                                    "export", part_def.part_id, max_retries,
+                                ),
+                            ) from exc
                 if step_path:
                     try:
                         from verification.geometry import certify_geometry
@@ -1258,6 +1266,9 @@ async def run_critic_loop(
                     f"Part '{part_def.part_id}' failed after {max_retries} attempts. "
                     f"Last error:\n{error_context}",
                     script=code,
+                    user_message=user_facing_failure(
+                        failure_op or "unknown", part_def.part_id, max_retries,
+                    ),
                 )
 
         raise ScriptError(f"Part '{part_def.part_id}' failed unexpectedly.")

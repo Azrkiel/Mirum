@@ -119,7 +119,17 @@ curl -X POST http://localhost:8000/generate \
 ```
 
 The response is an event stream. The final `complete` event contains the
-GLB (base64), the CadQuery script, and the geometry certificate.
+GLB (base64), the CadQuery script, and the geometry certificate. It also carries
+`run_id` and `downloads` (which of `step` / `glb` are available), a `bom` for
+multi-part assemblies (identical parts collapsed into quantities, per-part mass,
+CSV text), and a `verification` object that lists any part that compiled but
+failed a check, such as a bounding box that does not match the requested
+dimensions. Delivery stays fail-closed: a failed geometry certificate is an
+error, not a warning.
+
+Download the files with `GET /download/{run_id}/{fmt}` (`fmt` is `step` or
+`glb`). The STEP is the exact revision the structural acceptance gate validated
+and rendered, not a second execution of the script. Files are kept for 6 hours.
 
 ### Endpoints
 
@@ -130,6 +140,7 @@ GLB (base64), the CadQuery script, and the geometry certificate.
 | `/plan` | POST | Planner only, returns the manifest |
 | `/requirements` | POST | Requirements extraction only |
 | `/clarify` | POST | Returns clarifying questions for a vague prompt |
+| `/download/{run_id}/{fmt}` | GET | Downloads the accepted `step` or `glb` of a `/generate` run (6 h retention) |
 | `/run` | POST | Runs a CadQuery script you supply and returns a GLB |
 | `/refine` | POST | Edits an existing result through follow-up prompts |
 | `/pmi/extract`, `/pmi/annotate` | POST | Read or add tolerance annotations on a STEP file |

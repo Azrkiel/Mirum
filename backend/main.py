@@ -45,6 +45,7 @@ from agents import (
     run_single_part_export,
     validate_dof_ranges,
 )
+import artifacts
 from compiler import execute_cad_script
 from debug import log_error as debug_log_error
 from debug import log_event as debug_log_event
@@ -131,6 +132,12 @@ def _sanitize_report_payload(payload: dict | None) -> dict | None:
         for c in payload.get("checks", [])
     ]
     return out
+
+
+def _user_error(exc: BaseException) -> str:
+    """Client-facing failure text: the plain-language user_message when the
+    error carries one (ScriptError), else the sanitised exception text."""
+    return _safe_error(getattr(exc, "user_message", "") or exc)
 
 
 def _client_cert(cert: dict | None) -> dict | None:
@@ -720,11 +727,12 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 e,
                 {"part_id": part.part_id, "script_excerpt": (e.script or "")[:1500]},
             )
-            yield _event(label, "error", _safe_error(e))
+            yield _event(label, "error", _user_error(e))
             error_complete = {
                 "step": "complete",
                 "status": "error",
-                "message": _safe_error(e),
+                "message": _user_error(e),
+                "detail": _safe_error(e),   # operator-grade, redacted
                 "script": e.script,
             }
             yield f"data: {json.dumps(error_complete)}\n\n"
@@ -853,11 +861,12 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                         {"script_excerpt": (e.script or "")[:1500]},
                     )
                     await _drain_part_tasks()
-                    yield _event("machinist", "error", _safe_error(e))
+                    yield _event("machinist", "error", _user_error(e))
                     error_complete = {
                         "step": "complete",
                         "status": "error",
-                        "message": _safe_error(e),
+                        "message": _user_error(e),
+                        "detail": _safe_error(e),   # operator-grade, redacted
                         "script": e.script,
                     }
                     yield f"data: {json.dumps(error_complete)}\n\n"
@@ -1342,6 +1351,28 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         yield f"data: {json.dumps({'step': 'complete', 'status': 'error', 'message': message, 'script': final_script})}\n\n"
         return
 
+    # Bill of materials (assemblies): identical parts collapse into quantities;
+    # per-part mass comes from each part's certified volume and the resolved
+    # material. Advisory only - a BOM failure never costs the user the model.
+    bom_payload: dict | None = None
+    if not single:
+        try:
+            from verification.bom import build_bom
+            from verification.material import resolve_material, mass_properties as _bom_mass
+            _bom_mat_class = getattr(requirements, "material_class", None) if requirements else None
+            _bom_mat, _bom_density = resolve_material(_bom_mat_class)
+            _bom_certs: dict[str, dict | None] = {}
+            for _pid, _c in _part_certs.items():
+                if isinstance(_c, dict) and _c.get("volume_mm3"):
+                    _bom_certs[_pid] = {
+                        **_c, "mass_g": _bom_mass(_c["volume_mm3"], _bom_density)["mass_g"],
+                    }
+                else:
+                    _bom_certs[_pid] = _c
+            bom_payload = build_bom(manifest, _bom_certs, _bom_mat)
+        except Exception as _bom_exc:
+            logger.debug("BOM generation skipped: %s", _bom_exc)
+
     # Fastener helpers produce simplified geometry; label it so a delivered
     # bolt/nut is never read as manufacturing-thread or fit evidence.
     from verification.fasteners import fastener_evidence
@@ -1352,9 +1383,20 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     # Bind evidence to the portable source returned to the editor, not the
     # server-owned transient GLB pathname used during capture.
     final_script = final_script.replace(output_filename, "output.glb")
+
+    # CAD-file delivery: persist the exact bytes the acceptance gate validated
+    # (the same revision the viewer shows) - never a re-execution of the script.
+    try:
+        run_id, downloads = artifacts.publish(result["acceptance"])
+    except Exception as _art_exc:  # downloads are an extra; never cost the model
+        logger.warning("artifact publish failed: %s", _art_exc)
+        run_id, downloads = "", {}
     complete_payload = {
         "step": "complete",
         "status": "done",
+        "run_id": run_id,
+        "downloads": downloads,
+        "bom": bom_payload,             # parts list + CSV (multi-part only)
         "glb": glb_b64,
         "manifest": manifest.model_dump(mode="json"),
         "scripts": {manifest.parts[0].part_id: code} if single else part_scripts,
@@ -1512,6 +1554,40 @@ async def generate(body: GenerateRequest, request: Request):
     return StreamingResponse(
         _pipeline(body.prompt, run_aero=body.run_aero, run_struct=body.run_struct),
         media_type="text/event-stream",
+    )
+
+
+@app.get("/download/{run_id}/{fmt}")
+@limiter.limit("60/minute")
+async def download_artifact(run_id: str, fmt: str, request: Request):
+    """Serve a generated CAD file (the accepted STEP, or the GLB mesh).
+
+    STEP is the format SolidWorks, NX, Onshape and Fusion import as real B-rep
+    geometry. ``run_id`` is a server-generated uuid4 hex, validated with
+    fullmatch and re-checked for containment before any filesystem access
+    (see artifacts.run_dir / artifact_path). Authentication is enforced by the
+    global MIRUM_ACCESS_TOKEN middleware.
+    """
+    from fastapi import HTTPException  # noqa: PLC0415
+    from fastapi.responses import FileResponse  # noqa: PLC0415
+
+    if fmt not in artifacts.FORMATS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown format. Available: {', '.join(artifacts.FORMATS)}",
+        )
+    path = artifacts.artifact_path(run_id, fmt)
+    if path is None or not path.is_file():
+        # Malformed id and missing file are indistinguishable; the id is never
+        # echoed back.
+        raise HTTPException(status_code=404, detail="Artifact not found or expired.")
+
+    filename, media_type = artifacts.FORMATS[fmt]
+    return FileResponse(
+        str(path),
+        media_type=media_type,
+        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
