@@ -34,6 +34,7 @@ from agents import (
     apply_manifest_diff,
     cleanup_tmp_parts,
     extract_kinematic_metadata,
+    group_parts_by_description,
     is_single_part,
     run_assembly_critic_loop,
     run_clarifier,
@@ -794,13 +795,18 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         for i, part in enumerate(parts, 1):
             yield _event(labels[part.part_id], "running", f"Manufacturing part {i}/{len(parts)}")
 
+        # Identical parts (leg_1..leg_4) are built once and fanned out to
+        # every part_id sharing the description. The STEP path is shared on
+        # purpose: the assembler imports it once per part_id.
+        groups = group_parts_by_description(parts)
+
         # Run concurrently with semaphore-based rate limiting
-        async def _build_part(part):
+        async def _build_part(part, part_ids):
             code, step_path, cert = await run_critic_loop(
                 part, requirements=requirements, dims_part_scoped=True)
-            return part.part_id, code, step_path, cert
+            return part_ids, code, step_path, cert
 
-        tasks = [asyncio.create_task(_build_part(part)) for part in parts]
+        tasks = [asyncio.create_task(_build_part(rep, pids)) for rep, pids in groups]
         part_scripts: dict[str, str] = {}
         _part_certs: dict[str, dict | None] = {}
 
@@ -824,19 +830,21 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         try:
             for coro in asyncio.as_completed(tasks):
                 try:
-                    part_id, code, step_path, cert = await coro
-                    part_scripts[part_id] = code
-                    step_files[part_id] = step_path
-                    _part_certs[part_id] = cert
+                    part_ids, code, step_path, cert = await coro
                     _warn = _verification_warning(cert)
-                    if _warn:
-                        _part_verification[part_id] = _sanitize_report_payload(cert.get("verification"))
-                        yield _event(
-                            labels[part_id], "done",
-                            f"Part '{part_id}' delivered with warnings: {_warn}",
-                        )
-                    else:
-                        yield _event(labels[part_id], "done", f"Part '{part_id}' validated")
+                    for part_id in part_ids:
+                        part_scripts[part_id] = code
+                        step_files[part_id] = step_path
+                        _part_certs[part_id] = cert
+                        if _warn:
+                            _part_verification[part_id] = _sanitize_report_payload(
+                                cert.get("verification"))
+                            yield _event(
+                                labels[part_id], "done",
+                                f"Part '{part_id}' delivered with warnings: {_warn}",
+                            )
+                        else:
+                            yield _event(labels[part_id], "done", f"Part '{part_id}' validated")
                 except ScriptError as e:
                     logger.exception("Machinist failed (multi-part)")
                     debug_log_error(
