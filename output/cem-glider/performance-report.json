@@ -1,0 +1,818 @@
+{
+  "accepted_for_manufacture": false,
+  "artifact_hashes": {
+    "62aa4aaf9641_fuselage.stl": "8ea607708a1e7c8f42d091c9c82de1c381552bdd03ed6c17e670adc9d71766f4",
+    "62aa4aaf9641_htail_0.stl": "5ba806e93f1e9c90d5fcca14b21e18e5ce6747a82e16d8b1068748ede14a386a",
+    "62aa4aaf9641_htail_1.stl": "ffe176700829fecf170978b29fb83f522ef0d40d89736b19ef611a41d9523514",
+    "62aa4aaf9641_spar.stl": "31a03739e0b54cbd16f3d51b2fae7192392b5c4760e957a68d20ed3a701183bb",
+    "62aa4aaf9641_template_htail.svg": "23d2ed7be89ccc1267ca9d66663fe20ba74ef2b2eb8cd7f541629606406e903a",
+    "62aa4aaf9641_template_vtail.svg": "1843363396f9eb5f5fddce354cfb41cf6c655c19962f5d406172b4fd37d47579",
+    "62aa4aaf9641_template_wing_half.svg": "c1bb739df0c53a6959af3c07ceaea4ddb65ad54ada4588b118e5a788b83f2fa9",
+    "62aa4aaf9641_template_wing_root_airfoil.svg": "09c638218ef77dd9fd067a46c8b46b80c51915a49197cd97ba77b8c974ada74f",
+    "62aa4aaf9641_vtail_0.stl": "c29a7b4cc329b604fa0b17cd2b15b6b98c80ea7b4e378181d05e8df1fd06bc69",
+    "62aa4aaf9641_wing_0.stl": "59de1ff6fd0a0e90571596093cea94b8d39a0cddefcbae4fd661488742b04cdf",
+    "62aa4aaf9641_wing_1.stl": "c665c622fe8f189f2153819664afe0bbd01e6066b47fedcbe2555af43bf0d7b8"
+  },
+  "assumptions": [
+    "drop release speed assumed 0 m/s",
+    "Launch zoom efficiency 0 is a calibration prior; release height includes tow climb."
+  ],
+  "bundle": {
+    "geometry_kind": "closed outer mould lines + solid spar; skin-equivalent analysis",
+    "manufacturing_ready": false,
+    "missing_features": [
+      "spar channels",
+      "rib layout",
+      "ballast/payload cavities",
+      "FDM shell/infill/bed splitting"
+    ],
+    "output_id": "62aa4aaf9641",
+    "parts": [
+      {
+        "file": "62aa4aaf9641_wing_0.stl",
+        "material": {
+          "areal_density_kg_m2": 0.1,
+          "law": "skin_equivalent"
+        },
+        "name": "wing_0",
+        "sha256": "59de1ff6fd0a0e90571596093cea94b8d39a0cddefcbae4fd661488742b04cdf"
+      },
+      {
+        "file": "62aa4aaf9641_wing_1.stl",
+        "material": {
+          "areal_density_kg_m2": 0.1,
+          "law": "skin_equivalent"
+        },
+        "name": "wing_1",
+        "sha256": "c665c622fe8f189f2153819664afe0bbd01e6066b47fedcbe2555af43bf0d7b8"
+      },
+      {
+        "file": "62aa4aaf9641_htail_0.stl",
+        "material": {
+          "areal_density_kg_m2": 0.06,
+          "law": "skin_equivalent"
+        },
+        "name": "htail_0",
+        "sha256": "5ba806e93f1e9c90d5fcca14b21e18e5ce6747a82e16d8b1068748ede14a386a"
+      },
+      {
+        "file": "62aa4aaf9641_htail_1.stl",
+        "material": {
+          "areal_density_kg_m2": 0.06,
+          "law": "skin_equivalent"
+        },
+        "name": "htail_1",
+        "sha256": "ffe176700829fecf170978b29fb83f522ef0d40d89736b19ef611a41d9523514"
+      },
+      {
+        "file": "62aa4aaf9641_vtail_0.stl",
+        "material": {
+          "areal_density_kg_m2": 0.06,
+          "law": "skin_equivalent"
+        },
+        "name": "vtail_0",
+        "sha256": "c29a7b4cc329b604fa0b17cd2b15b6b98c80ea7b4e378181d05e8df1fd06bc69"
+      },
+      {
+        "file": "62aa4aaf9641_fuselage.stl",
+        "material": {
+          "areal_density_kg_m2": 0.35,
+          "law": "skin_equivalent"
+        },
+        "name": "fuselage",
+        "sha256": "8ea607708a1e7c8f42d091c9c82de1c381552bdd03ed6c17e670adc9d71766f4"
+      },
+      {
+        "file": "62aa4aaf9641_spar.stl",
+        "material": {
+          "density_kg_m3": 1600.0,
+          "law": "solid"
+        },
+        "name": "spar",
+        "sha256": "31a03739e0b54cbd16f3d51b2fae7192392b5c4760e957a68d20ed3a701183bb"
+      }
+    ]
+  },
+  "bundle_sha256": "26e1e45076c3426daa140f93d144ee3730d799644912a71de034cda204eb7d38",
+  "calibration": {
+    "cd0_factor": {
+      "log_sigma": 0.18,
+      "median": 1.0
+    },
+    "cl_max_factor": {
+      "log_sigma": 0.1,
+      "median": 1.0
+    },
+    "eta_launch": {
+      "catapult": {
+        "log_sigma": 0.2,
+        "median": 0.6
+      },
+      "discus": {
+        "log_sigma": 0.2,
+        "median": 0.6
+      },
+      "drop": {
+        "log_sigma": 0.0,
+        "median": 0.0
+      },
+      "hand_toss": {
+        "log_sigma": 0.2,
+        "median": 0.6
+      },
+      "hi_start": {
+        "log_sigma": 0.2,
+        "median": 0.6
+      }
+    },
+    "mass_factor": {
+      "balsa": {
+        "log_sigma": 0.1,
+        "median": 1.0
+      },
+      "fdm_lwpla": {
+        "log_sigma": 0.15,
+        "median": 1.0
+      },
+      "fdm_pla": {
+        "log_sigma": 0.08,
+        "median": 1.0
+      },
+      "hybrid": {
+        "log_sigma": 0.12,
+        "median": 1.0
+      },
+      "sheet_foam": {
+        "log_sigma": 0.08,
+        "median": 1.0
+      }
+    },
+    "oswald_factor": {
+      "log_sigma": 0.08,
+      "median": 1.0
+    },
+    "state": "engineering_priors_not_flight_validated",
+    "version": "uncalibrated-1"
+  },
+  "calibration_version": "b1fa2cf84e57e195ef6ec77a66612aefb6d2a60dc7e1f2dc1de6b73576fa87b7",
+  "capabilities": {
+    "manufactured_geometry_closure": false,
+    "picogk_builder": false
+  },
+  "cem_version": "mirum-cem-glider-0.1.0+2a60707013b2",
+  "closure": {
+    "delivered_bounds_m": [
+      [
+        0.0,
+        -0.6131597290039063,
+        -0.029943984985351564
+      ],
+      [
+        0.7613378295898438,
+        0.6131597290039063,
+        0.12896438598632812
+      ]
+    ],
+    "failures": [],
+    "manufacturing_ready": false,
+    "mass_relative_error": 0.0069670896879816535,
+    "measured_mass_kg": 0.18571646324594449,
+    "measured_spar_root_inertia_m4": 3.050483841901672e-11,
+    "measured_spar_stress_pa": 104515841.03466342,
+    "parts": [
+      {
+        "area_m2": 0.19865529913556626,
+        "bounds_m": [
+          [
+            0.16710926818847657,
+            0.0,
+            0.023587892532348633
+          ],
+          [
+            0.3463997802734375,
+            0.6131597290039063,
+            0.10954263305664062
+          ]
+        ],
+        "cg_m": [
+          0.25134527370830484,
+          0.29281946150098576,
+          0.04538549660838646
+        ],
+        "inertia_kg_m2": [
+          [
+            0.0006433607112905952,
+            1.0083839570460156e-05,
+            2.462393140693897e-06
+          ],
+          [
+            1.0083839570460156e-05,
+            5.278244383614824e-05,
+            -7.030841340102242e-05
+          ],
+          [
+            2.462393140693897e-06,
+            -7.030841340102242e-05,
+            0.000674491273606504
+          ]
+        ],
+        "mass_kg": 0.019865529913556633,
+        "material_law": {
+          "areal_density_kg_m2": 0.1,
+          "law": "skin_equivalent"
+        },
+        "name": "wing_0",
+        "sha256": "59de1ff6fd0a0e90571596093cea94b8d39a0cddefcbae4fd661488742b04cdf",
+        "volume_m3": 0.0007278221950696749
+      },
+      {
+        "area_m2": 0.19865529913556626,
+        "bounds_m": [
+          [
+            0.16710926818847657,
+            -0.6131597290039063,
+            0.023587892532348633
+          ],
+          [
+            0.3463997802734375,
+            0.0,
+            0.10954263305664062
+          ]
+        ],
+        "cg_m": [
+          0.25134527370830484,
+          -0.29281946150098576,
+          0.04538549660838646
+        ],
+        "inertia_kg_m2": [
+          [
+            0.0006433607112905952,
+            -1.0083839570460156e-05,
+            2.4623931406938966e-06
+          ],
+          [
+            -1.0083839570460156e-05,
+            5.278244383614823e-05,
+            7.030841340102243e-05
+          ],
+          [
+            2.4623931406938966e-06,
+            7.030841340102243e-05,
+            0.000674491273606504
+          ]
+        ],
+        "mass_kg": 0.019865529913556633,
+        "material_law": {
+          "areal_density_kg_m2": 0.1,
+          "law": "skin_equivalent"
+        },
+        "name": "wing_1",
+        "sha256": "c665c622fe8f189f2153819664afe0bbd01e6066b47fedcbe2555af43bf0d7b8",
+        "volume_m3": 0.0007278221950696749
+      },
+      {
+        "area_m2": 0.03063351669279884,
+        "bounds_m": [
+          [
+            0.6314513549804688,
+            0.0,
+            0.0019081546068191529
+          ],
+          [
+            0.7298312377929688,
+            0.14883016967773438,
+            0.010236127853393555
+          ]
+        ],
+        "cg_m": [
+          0.6800251433211636,
+          0.07437566253611935,
+          0.006734941353528977
+        ],
+        "inertia_kg_m2": [
+          [
+            3.644187886788102e-06,
+            1.4752508908831841e-09,
+            -5.4502316941400275e-08
+          ],
+          [
+            1.4752508908831841e-09,
+            1.5062209021391068e-06,
+            1.1458452491635828e-10
+          ],
+          [
+            -5.4502316941400275e-08,
+            1.1458452491635828e-10,
+            5.116035930435184e-06
+          ]
+        ],
+        "mass_kg": 0.0018380110015679305,
+        "material_law": {
+          "areal_density_kg_m2": 0.06,
+          "law": "skin_equivalent"
+        },
+        "name": "htail_0",
+        "sha256": "5ba806e93f1e9c90d5fcca14b21e18e5ce6747a82e16d8b1068748ede14a386a",
+        "volume_m3": 7.870642570354224e-05
+      },
+      {
+        "area_m2": 0.03063351669279884,
+        "bounds_m": [
+          [
+            0.6314513549804688,
+            -0.14883016967773438,
+            0.0019081546068191529
+          ],
+          [
+            0.7298312377929688,
+            0.0,
+            0.010236127853393555
+          ]
+        ],
+        "cg_m": [
+          0.6800251433211636,
+          -0.07437566253611935,
+          0.006734941353528977
+        ],
+        "inertia_kg_m2": [
+          [
+            3.644187886788102e-06,
+            -1.4752508908831841e-09,
+            -5.4502316941400275e-08
+          ],
+          [
+            -1.4752508908831841e-09,
+            1.5062209021391068e-06,
+            -1.1458452491635952e-10
+          ],
+          [
+            -5.4502316941400275e-08,
+            -1.1458452491635952e-10,
+            5.116035930435184e-06
+          ]
+        ],
+        "mass_kg": 0.0018380110015679305,
+        "material_law": {
+          "areal_density_kg_m2": 0.06,
+          "law": "skin_equivalent"
+        },
+        "name": "htail_1",
+        "sha256": "ffe176700829fecf170978b29fb83f522ef0d40d89736b19ef611a41d9523514",
+        "volume_m3": 7.870642570354227e-05
+      },
+      {
+        "area_m2": 0.026479550113198462,
+        "bounds_m": [
+          [
+            0.6224015502929687,
+            -0.004300827026367187,
+            0.004939952850341797
+          ],
+          [
+            0.7613378295898438,
+            0.004300827026367187,
+            0.12896438598632812
+          ]
+        ],
+        "cg_m": [
+          0.6939063847844,
+          2.5020940606029544e-12,
+          0.06535522448372517
+        ],
+        "inertia_kg_m2": [
+          [
+            2.2189095720662253e-06,
+            2.51179504775448e-16,
+            -6.797564765634066e-07
+          ],
+          [
+            2.51179504775448e-16,
+            3.7813574517009264e-06,
+            -7.491564392838924e-18
+          ],
+          [
+            -6.797564765634066e-07,
+            -7.491564392838924e-18,
+            1.5901275988398308e-06
+          ]
+        ],
+        "mass_kg": 0.0015887730067919077,
+        "material_law": {
+          "areal_density_kg_m2": 0.06,
+          "law": "skin_equivalent"
+        },
+        "name": "vtail_0",
+        "sha256": "c29a7b4cc329b604fa0b17cd2b15b6b98c80ea7b4e378181d05e8df1fd06bc69",
+        "volume_m3": 6.938343922622891e-05
+      },
+      {
+        "area_m2": 0.09239752698479661,
+        "bounds_m": [
+          [
+            0.0,
+            -0.03522821807861328,
+            -0.029943984985351564
+          ],
+          [
+            0.7298954467773437,
+            0.03522821807861328,
+            0.029943984985351564
+          ]
+        ],
+        "cg_m": [
+          0.2352291941519024,
+          -3.8370506943165805e-14,
+          1.0213954314721529e-13
+        ],
+        "inertia_kg_m2": [
+          [
+            3.080175078553229e-05,
+            -1.0559380561554453e-16,
+            2.5933024656131367e-16
+          ],
+          [
+            -1.0559380561554453e-16,
+            0.0009479498711710408,
+            -7.955705856824297e-16
+          ],
+          [
+            2.5933024656131367e-16,
+            -7.955705856824297e-16,
+            0.0009515988880233919
+          ]
+        ],
+        "mass_kg": 0.03233913444467881,
+        "material_law": {
+          "areal_density_kg_m2": 0.35,
+          "law": "skin_equivalent"
+        },
+        "name": "fuselage",
+        "sha256": "8ea607708a1e7c8f42d091c9c82de1c381552bdd03ed6c17e670adc9d71766f4",
+        "volume_m3": 0.0012374124659483166
+      },
+      {
+        "area_m2": 0.019271075380580163,
+        "bounds_m": [
+          [
+            0.21842738342285156,
+            -0.6126083374023438,
+            0.027443984985351562
+          ],
+          [
+            0.22342738342285157,
+            0.6126083374023438,
+            0.032443984985351566
+          ]
+        ],
+        "cg_m": [
+          0.22092738184272695,
+          0.0,
+          0.029943984710568534
+        ],
+        "inertia_kg_m2": [
+          [
+            0.004801441141768241,
+            -5.782411586589357e-18,
+            -3.3881317890172014e-18
+          ],
+          [
+            -5.782411586589357e-18,
+            1.196000215754518e-07,
+            -5.646886315028669e-21
+          ],
+          [
+            -3.3881317890172014e-18,
+            -5.646886315028669e-21,
+            0.004801441141672399
+          ]
+        ],
+        "mass_kg": 0.038381473964224644,
+        "material_law": {
+          "density_kg_m3": 1600.0,
+          "law": "solid"
+        },
+        "name": "spar",
+        "sha256": "31a03739e0b54cbd16f3d51b2fae7192392b5c4760e957a68d20ed3a701183bb",
+        "volume_m3": 2.3988421227640402e-05
+      }
+    ],
+    "reanalysis": {
+      "CD_trim": 0.055812975574226445,
+      "CL_trim": 0.6971938208551137,
+      "CLmax_est": 1.02202804672391,
+      "Clb": -0.14084810528059027,
+      "Cm_trim": -4.5208867257002634e-05,
+      "Cma": -0.4351296671496781,
+      "Cnb": 0.03201140403992695,
+      "Ixx": 0.009626114631578217,
+      "Iyy": 0.0024519587836041978,
+      "Izz": 0.011861741321334518,
+      "L_over_D": 12.4916081553098,
+      "Vh": 0.42381475254945844,
+      "Vv": 0.023650628300539347,
+      "alpha_trim_deg": 4.5,
+      "aspect_ratio": 7.961525647237242,
+      "ballast_kg": 0.0,
+      "cd_profile": 0.03143138947271278,
+      "cg_x_m": 0.22671663869285796,
+      "decalage_deg": 4.106371835454217,
+      "dutch_roll_real": -1.7939784634000415,
+      "dutch_roll_zeta": 0.3955804789596581,
+      "fail_reasons": "",
+      "fuselage": "F08",
+      "fuselage_style": "slab",
+      "glide_angle_deg": 4.57698096253671,
+      "glide_distance_m": 124.916081553098,
+      "glide_speed_m_s": 4.683090821895546,
+      "id": "W08-F08-T08",
+      "landing_energy_J": 2.036505416661699,
+      "manufacturability": {
+        "failures": [],
+        "limitations": [
+          "Process screening only; toolpaths, shell walls, joints and printer bed splits are not verified."
+        ],
+        "manufacturing_ready": false,
+        "state": "passed"
+      },
+      "mass_kg": 0.18571646324594449,
+      "mass_no_ballast_kg": 0.18571646324594449,
+      "np_x_m": 0.24047178106704012,
+      "objective_value": 124.91608155309798,
+      "overall_length_m": 0.7613378136830186,
+      "overall_span_m": 1.2263932764189347,
+      "payload_x_m": 0.17034416930968038,
+      "rawdon_B": 3.4632743662650807,
+      "reynolds_mac": 50475.66227882366,
+      "roll_real": -22.873836816193766,
+      "score": 12.4916081553098,
+      "sink_rate_m_s": 0.3737034074546516,
+      "spar": {
+        "allowable_with_sf_pa": 200000000.0,
+        "diameter_m": 0.005,
+        "limitations": [
+          "Ideal elliptical lift; bending only. Joints, torsion, buckling, deflection and fatigue unevaluated."
+        ],
+        "load_factor": 2.0,
+        "mass_kg": 0.038491318235960484,
+        "root_moment_nm": 1.2752953970242036,
+        "safety_factor": 2.0,
+        "span_m": 1.2252167126752649,
+        "stress_pa": 103920417.9654365
+      },
+      "spiral_E": 0.004053518811681433,
+      "spiral_real": -0.22142531127372667,
+      "spiral_time_to_double_s": null,
+      "static_margin": 0.08737224521885795,
+      "tail": "T08",
+      "tail_arm_m": 0.44354285141669025,
+      "tail_arm_over_mac": 2.817370676714257,
+      "tail_incidence_deg": -2.1177456864435262,
+      "tail_kind": "conventional",
+      "time_aloft_s": 26.759188705587295,
+      "trajectory": {
+        "distance_m": 124.91608155309798,
+        "duration_s": 26.759188705587295,
+        "state": "descending"
+      },
+      "valid": true,
+      "validity_envelope": {
+        "confidence_floor": 0.8,
+        "min_confidence": 0.9814723370017647,
+        "min_station_reynolds": 30330.40738830483,
+        "reynolds_floor": 30000.0
+      },
+      "wing": "W08",
+      "wing_area_m2": 0.19453165430210212,
+      "wing_le_x_m": 0.16711237316836008,
+      "wing_loading_g_dm2": 9.546850558188957,
+      "wing_mac_m": 0.15743148570495155,
+      "wing_span_m": 1.2444953816409585,
+      "wing_style": "polyhedral"
+    },
+    "scope": "Mesh-measured OML skin-equivalent mass and solid rod; not manufactured-part closure",
+    "state": "passed"
+  },
+  "closure_attempts": [
+    {
+      "attempt": 1,
+      "failures": [
+        "measured-mass trim requires a geometry revision"
+      ],
+      "state": "failed",
+      "tail_incidence_deg": -3.1649806086192567
+    },
+    {
+      "attempt": 2,
+      "failures": [],
+      "state": "passed",
+      "tail_incidence_deg": -2.1177870647522266
+    }
+  ],
+  "design_revision_sha256": "502be5fc987b85c3d6ee88e36e1bedbe038ef1acfce80e955e1d09ce10691631",
+  "elite_id": "7eec6c9fe0b74fed",
+  "engineering_certified": false,
+  "feasibility": {
+    "assumptions": [
+      "drop release speed assumed 0 m/s",
+      "Launch zoom efficiency 0 is a calibration prior; release height includes tow climb.",
+      "Optimistic maximum area; tail, spar and pod mass omitted.",
+      "Finite-wing envelope assumes AR=14, e=1, profile drag divided by 1.25; body/tail drag omitted.",
+      "Infeasible means outside this sampled-model envelope, not a universal physical proof.",
+      "NeuralFoil envelope lacks independent XFOIL cross-validation and physical calibration."
+    ],
+    "atmosphere": {
+      "density_kg_m3": 1.2250122659906946,
+      "dynamic_viscosity_pa_s": 1.7892976260350732e-05
+    },
+    "binding_constraint": "aerodynamic efficiency / launch energy",
+    "bound_state": "sampled_initial_model",
+    "bounds_source": {
+      "aerosandbox": "4.2.10",
+      "airfoils": [
+        "sd7037",
+        "ag24",
+        "ag25",
+        "s1223",
+        "naca2408",
+        "naca2412"
+      ],
+      "alpha_deg": [
+        -2,
+        14,
+        65
+      ],
+      "confidence_floor": 0.8,
+      "max_aspect_ratio": 14.0,
+      "model_size": "large",
+      "neuralfoil": "0.3.3",
+      "oswald_upper": 1.0,
+      "profile_drag_divisor": 1.25,
+      "xfoil": "not_cross_validated"
+    },
+    "bounds_version": "neuralfoil-envelope-1",
+    "continue_search": true,
+    "launch": {
+      "assumptions": [
+        "drop release speed assumed 0 m/s",
+        "Launch zoom efficiency 0 is a calibration prior; release height includes tow climb."
+      ],
+      "effective_height_m": 10.0,
+      "eta": 0.0,
+      "speed_m_s": 0.0
+    },
+    "levers": [
+      {
+        "change": "relax_reference_target",
+        "unit": "distance_m",
+        "value": 496.0498572969427
+      },
+      {
+        "change": "effective_launch_height",
+        "unit": "m",
+        "value": 24.191116726431442
+      },
+      {
+        "change": "mean_uplift",
+        "unit": "m/s",
+        "value": 0.04256282660633314
+      },
+      {
+        "change": "wing_loading_for_duration",
+        "unit": "N/m2",
+        "value": 0.6659565966027277
+      }
+    ],
+    "objective": "distance_m",
+    "optimistic_bound": 496.0498572969427,
+    "optimistic_cl_1_5_over_cd": 34.76593006497145,
+    "optimistic_lift_to_drag": 49.60498572969427,
+    "optimistic_sink_m_s": 0.07255541100038468,
+    "reference_gap": 703.9501427030573,
+    "reference_target": 1200.0,
+    "required_lift_to_drag": 120.0,
+    "required_sink_m_s": null,
+    "verdict": "infeasible",
+    "verdict_scope": "sampled_model_envelope",
+    "wing_loading_lower_bound_n_m2": 3.897245454545455
+  },
+  "implementation_sha256": "2a60707013b220b9ebf6ef0ba081298d0f546fdea2ce4030083ba3fc159576e5",
+  "minimum_performance_passed": true,
+  "model_limits": [
+    "Screening prediction, not flight validation or engineering certification.",
+    "Low-Re airfoil uncertainty; VLM stability with Ixz neglected.",
+    "No gusts, landing loads, flexible aeroelasticity, spar joints or torsional qualification.",
+    "Engineering priors are not calibrated test confidence intervals.",
+    "Analysis OML/templates lack physical shell/rib/cavity/toolpath verification."
+  ],
+  "output_id": "62aa4aaf9641",
+  "process": "sheet_foam",
+  "provenance": {
+    "cem_version": "mirum-cem-glider-0.1.0+2a60707013b2",
+    "implementation_sha256": "2a60707013b220b9ebf6ef0ba081298d0f546fdea2ce4030083ba3fc159576e5",
+    "runtime": {
+      "aerosandbox": "4.2.10",
+      "casadi": "3.8.2",
+      "neuralfoil": "0.3.3",
+      "numpy": "2.5.4",
+      "python": "3.12.14",
+      "scipy": "1.18.1",
+      "trimesh": "4.4.3"
+    },
+    "source_hashes": {
+      "cem/__init__.py": "29589387c017c5c02144299ee1e935536299311e12449a879a6083ea32fea1f5",
+      "cem/api.py": "33c916909eb5ee2161012f6afebae6a29289661a0e0a4f231a6ff908eccb6e6a",
+      "cem/app.py": "a2a46ac76fd912971ed9e4f50f46a58981ffe19a82ea1878baf583b5711f915a",
+      "cem/core.py": "853f4e7f9691e6e8082a2c5721b1ce2613ae4e5f6488b14f5cbd63d056502c6b",
+      "cem/data/airfoil_bounds.json": "6dbed6f9ac64a0178cfb22503d97a1622ba4208a17088b9ab13deef1146be0a1",
+      "cem/evidence.py": "585db5650fc80e888bcdd0d59158f471fe98854436ac7e98df93d09dd86261c9",
+      "cem/extraction.py": "d0645f6e48a8d9932647ad8546914f3e60df7f6828b48ab25d51bf59d3598078",
+      "cem/glider/__init__.py": "604aa15a125e8ff6332039b150b864e9b71eb1a898577480455ba819b2505b94",
+      "cem/glider/calibration.py": "a52c6b0c43b2e1bd324da5c2b9971fba30d900c9f9929b7edfc7561220905bd8",
+      "cem/glider/closure.py": "9977a4ef08a77aa488a9ba1e962b0b1f3f156a234c995ead31ff330e1583dbea",
+      "cem/glider/discovery.py": "99b86a79b279c7f895f7edfb42b54906058a6f3e2c279e6fbc94e2c9ca0973f4",
+      "cem/glider/feasibility.py": "459ed365652e4d5851f4f9e4d2b9677bf142b6c810f3b57c5184c98e18ccbd6c",
+      "cem/glider/geometry.py": "2d8e0ac359ee8b751b4d8245c0e9740f8728526f7a8b1de7564db14de61b6a50",
+      "cem/glider/model.py": "f58dff8c2a7e736574715fe9968b3bed0aa99d6ccc6fe8b2b8a6d9dd5419bea3",
+      "cem/glider/physics.py": "a85d3c23cc682bbc7fb5307f3553f2ee2e6cdbb376c08f14d81f09aaf8063491",
+      "cem/glider/processes.py": "8fe3414aa8814cac4033e0293410415ee96aa5f96ff704ff3045e028e0d7f734",
+      "cem/glider/requirements.py": "dc419d51fe065693afa060763550b45aaaabc0ce5c72f38a56996b9bd830f241",
+      "cem/glider/service.py": "a7800c159c725d5aed5cf0a913c00677b79813386b95e6f9d3dc72cddf996605",
+      "cem/glider/uncertainty.py": "a8f395b5e8cef0277fd43435efb4092853e3e9e4ad61e1b1f0bf3e3fadb887b8",
+      "cem/provenance.py": "f98c2f37c0314a3e30233a2017d60c6e48d21a7bbc47201958ebd6eea8343b41",
+      "cem/worker.py": "30b8de6d90e87a51b4be4e321ba8ab384606950f5021c32f5f5e9d720a85acfe",
+      "gliders/design_spec.py": "4570b6bbbcbec08e664f8fce3e3170d4c747102183cfa46323b73bedee618fb4",
+      "gliders/model/__init__.py": "b0f473db8d98470f72474d9da1afd35fe0238caa220153861f1f51200ffb6fef",
+      "gliders/model/analysis.py": "1fc08d8d42d4cbbc386905a33af4fa2b9deb2a960f9b8b134ad4776d7037a091",
+      "gliders/model/assembly.py": "01b9df655c5f8c3b9f687d6766fe2e0e24b32b6a2ce12e002e1174d91bd08884",
+      "gliders/model/components.py": "d2de96fe492911717c979cc134d5e2736591ca300bfeacfe718f0f2694187a38",
+      "gliders/model/config.py": "42b5bd0b51273fa48e936b91d5366f649a3433123358d5979df9e2491e218dbc",
+      "gliders/model/export.py": "c9330131a2a7ba2d2fa26dfd4d5928f87f538387d6ed643fc274fc8b9c03a3c5",
+      "gliders/search.py": "a77e6056585d64ba17f63700fc05137b6d5b7e8b0d3bbbd4ba590fdbad922e88",
+      "gliders/spec.py": "e27a9f22ec886a2de780bc51f45613070109cff94b22b39a7bb943c2d1432899"
+    }
+  },
+  "reference_gap": 1075.083918446902,
+  "requirements": {
+    "constraints": {
+      "max_length_m": 0.95,
+      "max_mass_kg": 0.5,
+      "max_span_m": 1.4,
+      "max_speed_m_s": 9.0,
+      "payload": {
+        "diameter_m": 0.045,
+        "length_m": 0.06,
+        "mass_kg": 0.06
+      }
+    },
+    "discovery": {
+      "budget_evals": 8,
+      "families": "all",
+      "seed": 42,
+      "top_k": 3
+    },
+    "environment": {
+      "altitude_m": 0.0,
+      "kind": "still_air",
+      "ridge": null,
+      "temperature_c": 15.0,
+      "thermal": null,
+      "uplift_m_s": 0.0,
+      "wind_m_s": 0.0
+    },
+    "launch": {
+      "height_m": 10.0,
+      "launch_speed_m_s": null,
+      "method": "drop"
+    },
+    "minimum_performance": null,
+    "mode": "maximize",
+    "objective": "distance_m",
+    "process": "auto",
+    "reference_target": 1200.0
+  },
+  "requirements_sha256": "cbebf3dfe8961209f3af99c280bbaca04144dbe27cd132d98abf1dc4f3740460",
+  "status": "screened",
+  "uncertainty": {
+    "assumptions": [
+      "Independent log-normal engineering priors, not measured confidence intervals.",
+      "Failed stall samples have zero performance; sustained lift requires a bounded region model."
+    ],
+    "bands": {
+      "distance_m": {
+        "p10": 107.29577471991723,
+        "p50": 124.01056705691892,
+        "p90": 144.25593401848144
+      },
+      "duration_s": {
+        "p10": 23.230043905536238,
+        "p50": 26.582834099011983,
+        "p90": 31.121041142978225
+      }
+    },
+    "invalid_samples": 2,
+    "method": "seeded local polar propagation with fixed trim CL; not a full re-trim ensemble",
+    "prior_state": "engineering_priors_not_flight_validated",
+    "samples": 200,
+    "sustained_samples": 0
+  }
+}

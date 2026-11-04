@@ -132,6 +132,34 @@ def log_assembly_event(
         _debug_log_error("telemetry", exc, context={"assembly_name": assembly_name})
 
 
+def log_design_closure(
+    overall: str,
+    iterations_used: int,
+    criteria: list,
+    geometry_changed: bool,
+) -> None:
+    """Log one design-closure run: final verdict + refinement outcome.
+
+    ``criteria`` is a list of {"name", "target", "actual", "passed"} dicts
+    (one per evaluated DesignTargets criterion). Local-only analytics —
+    tells us whether closure ever rescues a failing design in the wild;
+    never returned to clients.
+    """
+    try:
+        _ensure_handler()
+        record = {
+            "timestamp": time.time(),
+            "event": "design_closure",
+            "overall": overall,
+            "iterations_used": iterations_used,
+            "criteria": criteria,
+            "geometry_changed": geometry_changed,
+        }
+        _logger.info(json.dumps(record))
+    except Exception as exc:
+        _debug_log_error("telemetry", exc, context={"event": "design_closure"})
+
+
 def log_token_usage(
     agent: str,
     prompt_tokens: int,

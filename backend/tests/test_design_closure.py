@@ -1,0 +1,321 @@
+"""
+backend/tests/test_design_closure.py
+======================================
+
+Loop-behavior tests for ``closure.run_design_closure``: bounded aero
+refinement, zero-iteration pass, and the no-LLM analytic struct fix.
+
+Targets closure.py directly with stubbed callbacks — no ``import main``
+(FastAPI/limiter side effects), no LLM, no XFOIL.  Stdlib-runnable.
+
+Run directly:
+    cd T2CIII/backend
+    python tests/test_design_closure.py
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+from pathlib import Path
+
+# agents.py asserts GEMINI_API_KEY_HEAVY at import time.  Provide a dummy so
+# transitive imports succeed in CI / bare-stdlib runs.  No LLM call is made.
+os.environ.setdefault("GEMINI_API_KEY_HEAVY", "test-dummy-key-not-used")
+
+# Path setup: backend/ on sys.path; repo root on sys.path so `analysis.*` resolves.
+_BACKEND = Path(__file__).resolve().parent.parent
+_ROOT = _BACKEND.parent
+sys.path.insert(0, str(_BACKEND))
+sys.path.insert(0, str(_ROOT))
+
+from schemas import DesignRequirements, DesignTargets, WingBoxSpec  # noqa: E402
+
+
+def _req(**targets):
+    return DesignRequirements(primary_function="w", inferred_domain="D",
+                              design_targets=DesignTargets(**targets))
+
+
+def test_loop_stops_after_max_iterations():
+    from closure import run_design_closure
+    calls = {"refine": 0}
+    # Improving but still-failing polars: progress each iteration, so only
+    # the max_iters bound (not the no-progress cutoff) can stop the loop.
+    polars = [{"Cl_max": 1.2, "L_D": [9.0], "stall_alpha": 11.0,
+               "converged_count": 8},
+              {"Cl_max": 1.3, "L_D": [10.0], "stall_alpha": 11.5,
+               "converged_count": 8}]
+
+    async def fake_refine_aero(prompt):
+        calls["refine"] += 1
+        return polars[calls["refine"] - 1]
+
+    async def fake_rerun_struct(requirements):
+        raise AssertionError("no struct targets — must not be called")
+
+    polar = {"Cl_max": 1.1, "L_D": [8.0], "stall_alpha": 10.0,
+             "converged_count": 8}
+    verdict, changed, final_aero, final_struct = asyncio.run(run_design_closure(
+        _req(cl_max_min=1.5), polar, None,
+        refine_aero=fake_refine_aero, rerun_struct=fake_rerun_struct,
+        max_iters=2))
+    assert calls["refine"] == 2
+    assert verdict["overall"] == "fail" and verdict["iterations_used"] == 2
+    # FIX2: the loop's final report is returned, not discarded
+    assert final_aero == polars[-1]
+
+
+def test_loop_zero_iterations_when_pass():
+    from closure import run_design_closure
+
+    async def boom(_):
+        raise AssertionError("must not refine")
+
+    polar = {"Cl_max": 1.7, "L_D": [20.0], "stall_alpha": 14.0,
+             "converged_count": 12}
+    verdict, changed, final_aero, final_struct = asyncio.run(run_design_closure(
+        _req(cl_max_min=1.5), polar, None,
+        refine_aero=boom, rerun_struct=boom, max_iters=2))
+    assert verdict["overall"] == "pass"
+    assert verdict["iterations_used"] == 0 and changed is False
+    assert final_aero == polar
+
+
+def test_loop_breaks_on_no_progress():
+    # Identical failing polar every refinement -> further iterations are
+    # provably wasted; exactly one refine call, then break.
+    from closure import run_design_closure
+    calls = {"refine": 0}
+
+    async def same_polar(prompt):
+        calls["refine"] += 1
+        return {"Cl_max": 1.1, "L_D": [8.0], "stall_alpha": 10.0,
+                "converged_count": 8}
+
+    async def boom(_):
+        raise AssertionError("no struct targets")
+
+    polar = {"Cl_max": 1.1, "L_D": [8.0], "stall_alpha": 10.0,
+             "converged_count": 8}
+    verdict, changed, _, _ = asyncio.run(run_design_closure(
+        _req(cl_max_min=1.5), polar, None,
+        refine_aero=same_polar, rerun_struct=boom, max_iters=2))
+    assert calls["refine"] == 1
+    assert verdict["overall"] == "fail" and verdict["iterations_used"] == 1
+
+
+def test_loop_discards_regressing_refinement():
+    # Best-attempt, not last-attempt: a refinement that makes the failing
+    # criterion WORSE is discarded (reports revert, geometry not committed).
+    from closure import run_design_closure
+    commits = {"n": 0}
+
+    async def commit_geometry():
+        commits["n"] += 1
+
+    async def worse_polar(prompt):
+        return {"Cl_max": 1.0, "L_D": [7.0], "stall_alpha": 9.0,
+                "converged_count": 8}
+
+    async def boom(_):
+        raise AssertionError("no struct targets")
+
+    polar = {"Cl_max": 1.1, "L_D": [8.0], "stall_alpha": 10.0,
+             "converged_count": 8}
+    verdict, changed, final_aero, _ = asyncio.run(run_design_closure(
+        _req(cl_max_min=1.5), polar, None,
+        refine_aero=worse_polar, rerun_struct=boom,
+        commit_geometry=commit_geometry, max_iters=2))
+    assert final_aero == polar              # regressed report discarded
+    assert verdict["criteria"][0]["actual"] == 1.1
+    assert changed is False
+    assert commits["n"] == 0                # geometry never committed
+    assert verdict["iterations_used"] == 1  # the attempt is counted
+
+
+def test_loop_commits_geometry_only_on_improvement():
+    from closure import run_design_closure
+    commits = {"n": 0}
+    calls = {"refine": 0}
+
+    async def commit_geometry():
+        commits["n"] += 1
+
+    # improves, then passes
+    polars = [{"Cl_max": 1.3, "L_D": [9.0], "stall_alpha": 11.0,
+               "converged_count": 8},
+              {"Cl_max": 1.6, "L_D": [10.0], "stall_alpha": 12.0,
+               "converged_count": 8}]
+
+    async def improving(prompt):
+        calls["refine"] += 1
+        return polars[calls["refine"] - 1]
+
+    async def boom(_):
+        raise AssertionError("no struct targets")
+
+    polar = {"Cl_max": 1.1, "L_D": [8.0], "stall_alpha": 10.0,
+             "converged_count": 8}
+    verdict, changed, final_aero, _ = asyncio.run(run_design_closure(
+        _req(cl_max_min=1.5), polar, None,
+        refine_aero=improving, rerun_struct=boom,
+        commit_geometry=commit_geometry, max_iters=2))
+    assert verdict["overall"] == "pass"
+    assert commits["n"] == 2                # each improvement committed
+    assert final_aero == polars[-1]
+
+
+def test_loop_breaks_when_refine_raises():
+    from closure import run_design_closure
+
+    async def explode(prompt):
+        raise RuntimeError("LLM down")
+
+    async def boom(_):
+        raise AssertionError("no struct targets")
+
+    polar = {"Cl_max": 1.1, "L_D": [8.0], "stall_alpha": 10.0,
+             "converged_count": 8}
+    verdict, changed, final_aero, _ = asyncio.run(run_design_closure(
+        _req(cl_max_min=1.5), polar, None,
+        refine_aero=explode, rerun_struct=boom, max_iters=2))
+    assert verdict["overall"] == "fail"
+    assert verdict["iterations_used"] == 0 and changed is False
+    assert final_aero == polar
+
+
+def test_struct_fail_resolved_by_resize_without_llm():
+    from closure import run_design_closure
+
+    async def boom(_):
+        raise AssertionError("struct fix must not call LLM")
+
+    reruns = {"n": 0}
+
+    async def fake_rerun_struct(requirements):
+        reruns["n"] += 1
+        return {"bending_margin_of_safety": 0.52,
+                "shear_margin_of_safety": 1.0, "v_ne_ms": 120.0}
+
+    struct = {"bending_margin_of_safety": 0.2,
+              "shear_margin_of_safety": 1.0, "v_ne_ms": 120.0}
+    req = DesignRequirements(
+        primary_function="w", inferred_domain="D",
+        design_targets=DesignTargets(ms_min=0.5),
+        wing_box_spec=WingBoxSpec(
+            chord_root_m=1.1, thickness_to_chord=0.12,
+            cap_area_m2=0.0008, spar_web_thickness_m=0.002))
+    verdict, changed, final_aero, final_struct = asyncio.run(run_design_closure(
+        req, None, struct,
+        refine_aero=boom, rerun_struct=fake_rerun_struct, max_iters=2))
+    assert reruns["n"] == 1
+    assert verdict["overall"] == "pass" and changed is True
+    # FIX2: the re-analyzed struct report is returned for delivery
+    assert final_struct["bending_margin_of_safety"] == 0.52
+
+
+def test_struct_spec_restored_when_rerun_fails():
+    # Resize assigned, then rerun_struct raises -> the unverified resized
+    # spec must NOT persist on the shared DesignRequirements.
+    from closure import run_design_closure
+
+    async def boom(_):
+        raise AssertionError("no aero targets")
+
+    async def failing_rerun(requirements):
+        raise RuntimeError("analysis blew up")
+
+    struct = {"bending_margin_of_safety": 0.2,
+              "shear_margin_of_safety": 1.0, "v_ne_ms": 120.0}
+    req = DesignRequirements(
+        primary_function="w", inferred_domain="D",
+        design_targets=DesignTargets(ms_min=0.5),
+        wing_box_spec=WingBoxSpec(
+            chord_root_m=1.1, thickness_to_chord=0.12,
+            cap_area_m2=0.0008, spar_web_thickness_m=0.002))
+    verdict, changed, _, final_struct = asyncio.run(run_design_closure(
+        req, None, struct,
+        refine_aero=boom, rerun_struct=failing_rerun, max_iters=2))
+    assert req.wing_box_spec.cap_area_m2 == 0.0008   # rolled back
+    assert changed is False
+    assert verdict["overall"] == "fail"              # original margins stand
+    assert final_struct == struct
+
+
+def test_telemetry_log_design_closure_writes_parseable_jsonl():
+    """telemetry.log_design_closure appends one JSONL record per closure run.
+
+    Redirects the log dir via MIRUM_TELEMETRY_DIR (read at telemetry import
+    time) + module reload, and strips any handler a prior import attached so
+    the record lands in the tmp dir.
+    """
+    import importlib
+    import json
+    import tempfile
+
+    tmp = tempfile.mkdtemp(prefix="mirum_telemetry_test_")
+    os.environ["MIRUM_TELEMETRY_DIR"] = tmp
+    import telemetry
+    importlib.reload(telemetry)  # re-resolve _LOG_DIR from env
+    for h in list(telemetry._logger.handlers):
+        telemetry._logger.removeHandler(h)
+    telemetry._handler_initialized = False
+
+    telemetry.log_design_closure(
+        overall="fail",
+        iterations_used=2,
+        criteria=[{"name": "cl_max_min", "target": 1.5,
+                   "actual": 1.31, "passed": False}],
+        geometry_changed=True,
+    )
+
+    log_file = Path(tmp) / "critic_loop.jsonl"
+    assert log_file.exists(), "no JSONL file written"
+    lines = log_file.read_text(encoding="utf-8").strip().splitlines()
+    assert lines, "JSONL file is empty"
+    rec = json.loads(lines[-1])
+    assert rec["event"] == "design_closure"
+    assert rec["overall"] == "fail"
+    assert rec["iterations_used"] == 2
+    assert rec["geometry_changed"] is True
+    assert rec["criteria"] == [{"name": "cl_max_min", "target": 1.5,
+                                "actual": 1.31, "passed": False}]
+    assert "timestamp" in rec
+
+
+# ---------------------------------------------------------------------------
+# stdlib runner
+# ---------------------------------------------------------------------------
+
+def _run_all() -> int:
+    funcs = [
+        test_loop_stops_after_max_iterations,
+        test_loop_zero_iterations_when_pass,
+        test_loop_breaks_on_no_progress,
+        test_loop_discards_regressing_refinement,
+        test_loop_commits_geometry_only_on_improvement,
+        test_loop_breaks_when_refine_raises,
+        test_struct_fail_resolved_by_resize_without_llm,
+        test_struct_spec_restored_when_rerun_fails,
+        test_telemetry_log_design_closure_writes_parseable_jsonl,
+    ]
+    failures = 0
+    for fn in funcs:
+        try:
+            fn()
+        except AssertionError as e:
+            failures += 1
+            print(f"FAIL {fn.__name__}: {e}")
+        except Exception as e:
+            failures += 1
+            print(f"ERROR {fn.__name__}: {type(e).__name__}: {e}")
+        else:
+            print(f"PASS {fn.__name__}")
+    print(f"\n{len(funcs) - failures}/{len(funcs)} passed")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(_run_all())

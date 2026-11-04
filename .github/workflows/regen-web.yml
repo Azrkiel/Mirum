@@ -1,0 +1,41 @@
+name: PicoGK browser contracts
+
+on:
+  push:
+    branches: [main, "codex-cloud/**"]
+    paths:
+      [
+        "backend/engineering/regen*",
+        "backend/tests/test_regen*",
+        "frontend/regen/**",
+        "codex-cloud/**",
+        ".github/workflows/regen-web.yml",
+      ]
+  pull_request:
+    paths:
+      [
+        "backend/engineering/regen*",
+        "backend/tests/test_regen*",
+        "frontend/regen/**",
+        "codex-cloud/**",
+        ".github/workflows/regen-web.yml",
+      ]
+
+jobs:
+  verifier-and-browser-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -r codex-cloud/requirements.txt
+      - name: Focused verifier and fixture browser API tests (no native builder)
+        working-directory: backend
+        env:
+          OMP_NUM_THREADS: "2"
+          OPENBLAS_NUM_THREADS: "2"
+        run: python -m pytest tests/test_regen_spec.py tests/test_regen_mesh.py tests/test_regen_cli.py tests/test_regen_budget.py tests/test_regen_web.py -q -k 'not adv' -p no:cacheprovider
+      - name: Validate shell entry points
+        run: bash -n codex-cloud/setup.sh codex-cloud/regen.sh codex-cloud/web.sh

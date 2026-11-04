@@ -1,0 +1,4 @@
+avast-ca.pem
+*.stl
+bin/
+obj/

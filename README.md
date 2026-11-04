@@ -84,6 +84,11 @@ Results can also be returned as plots (`/analysis/plots`) or a PDF
 
 ## Running it
 
+For the deterministic **PicoGK regen chamber browser app**, see
+[the browser guide](docs/implementation/regen-browser.md). It provides parameter
+inputs, a 3D mesh preview, and STL/report downloads without an LLM key. After
+`bash codex-cloud/setup.sh`, start it with `bash codex-cloud/web.sh`.
+
 You need Docker, Docker Compose, and a Gemini API key.
 
 Create a `.env` file in the repository root:
@@ -183,6 +188,13 @@ must not be presented as verified.
 
 The Streamlit workflow selector includes a passive-glider search for maximum trimmed L/D under designer constraints. See [inputs, API, setup and limitations](docs/glider-search.md). It uses the integrated parametric AeroSandbox screening model, adaptive exploration/refinement and STL/template downloads; no provider calls are needed for search.
 
+The new **[physics-based glider CEM workflow](docs/implementation/cem-glider.md)**
+adds mission feasibility/gap reports, launch energy, process comparisons,
+wind-aware distance or duration search, measured-mass closure and uncertainty.
+Its current layouts are conventional, T-tail and V-tail. Outputs are screening
+geometry and templates; novel-family discovery and the PicoGK manufacturing
+builder remain unqualified and unavailable.
+
 ## Verification
 
 Targeted hardening ports and their scope are described in
@@ -192,7 +204,7 @@ Targeted hardening ports and their scope are described in
 docker build -f Dockerfile.verify -t mirum-integration-verify .
 docker run --rm --network none --read-only --init \
   --cap-drop ALL --security-opt no-new-privileges \
-  --memory 4g --cpus 2 --tmpfs /tmp:rw,size=1g,mode=1777 \
+  --memory 4g --cpus 2 --tmpfs /tmp:rw,exec,size=1g,mode=1777 \
   -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent \
   -e GEMINI_API_KEY= -e GOOGLE_API_KEY= mirum-integration-verify
 ```

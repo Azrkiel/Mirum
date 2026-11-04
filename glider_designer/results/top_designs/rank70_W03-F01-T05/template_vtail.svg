@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="130.1mm" height="199.3mm" viewBox="0 0 130.1 199.3">
+<rect width="100%" height="100%" fill="white"/>
+<polyline points="15.00,35.00 105.10,109.43 105.10,144.30 15.00,88.52 15.00,35.00" fill="none" stroke="black" stroke-width="0.4"/>
+<text x="15.0" y="15.0" font-size="6" font-family="sans-serif">Fin (cut 1) (root at left, 1:1 scale)</text>
+<polyline points="15.00,187.30 115.00,187.30" fill="none" stroke="black" stroke-width="0.8"/>
+<text x="15.0" y="194.3045321087892" font-size="4.5" font-family="sans-serif">100 mm - measure this after printing</text>
+</svg>
