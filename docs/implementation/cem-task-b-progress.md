@@ -1,5 +1,8 @@
 # Task B implementation status
 
+For continuation instructions, qualification gates and rerun commands, see the
+[Task B qualification handoff](cem-task-b-qualification-handoff.md).
+
 This is a fixture-based prototype, **not completion or qualification of Task B**.
 The requested task is [the Task B brief](cem-task-b.md). At the initial inspection
 Task A contained only a brief. Its later `e88c24f` implementation now supplies
