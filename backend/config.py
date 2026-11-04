@@ -30,11 +30,36 @@ GEMINI_MODEL_LITE: str = "gemini-3.5-flash"
 # Pipeline tuning knobs
 # ---------------------------------------------------------------------------
 
-# Maximum Machinist retries per part before the Critic Loop gives up
-CRITIC_MAX_RETRIES: int = 3
+import os as _os_cfg
 
-# Timeout (seconds) for a single CadQuery subprocess execution
-CADQUERY_TIMEOUT_S: int = 30
+
+def _env_int(name: str, default: int) -> int:
+    """Read an int env var; fall back to the default on missing/garbage."""
+    try:
+        return int(_os_cfg.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(_os_cfg.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+# Maximum Machinist retries per part before the Critic Loop gives up
+CRITIC_MAX_RETRIES: int = _env_int("MIRUM_CRITIC_MAX_RETRIES", 3)
+
+# Timeout (seconds) for a single CadQuery subprocess execution.
+# Clamped to [5, 60]: the sandbox contract caps script runtime so a
+# misconfigured env var can never silently disable the timeout invariant.
+CADQUERY_TIMEOUT_S: int = max(5, min(_env_int("MIRUM_CADQUERY_TIMEOUT_S", 30), 60))
+
+# Dimension-vs-spec gate: relative tolerance on REA key_dimensions vs the
+# measured bounding box, plus an absolute floor so tiny dims don't false-fail.
+DIM_TOLERANCE_REL: float = _env_float("MIRUM_DIM_TOL", 0.05)
+DIM_TOLERANCE_ABS_MM: float = 0.1
 
 # RLAIF hybrid reward weights (must sum to 1.0)
 RLAIF_EXEC_WEIGHT: float = 0.7

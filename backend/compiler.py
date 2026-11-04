@@ -53,6 +53,12 @@ if __package__:
 else:
     from script_policy import _ALLOWED_MODULES, _BANNED_BUILTINS, _check_ast_security
 
+# Subprocess timeout (seconds), env-tunable but clamped to [5, 60] in config.
+if __package__:
+    from .config import CADQUERY_TIMEOUT_S as _TIMEOUT_S
+else:
+    from config import CADQUERY_TIMEOUT_S as _TIMEOUT_S
+
 _MEM_LIMIT_BYTES = int(1.5 * 1024 * 1024 * 1024)
 
 _SANDBOX_RUNTIME_PREAMBLE = (
@@ -125,7 +131,7 @@ async def execute_cad_script(script_string: str) -> dict:
             else:
                 from process_runner import ProcessRunner
             env.update(OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1")
-            runner = ProcessRunner(timeout=30, output_limit=1048576, memory_mb=1536)
+            runner = ProcessRunner(timeout=_TIMEOUT_S, output_limit=1048576, memory_mb=1536)
             try:
                 outcome = await runner.run(
                     [sys.executable, "-"], input=sandboxed_script.encode("utf-8"),
@@ -164,7 +170,7 @@ async def execute_cad_script(script_string: str) -> dict:
             proc = subprocess.Popen([sys.executable, "-"], **popen_kwargs)
             try:
                 stdout, stderr = proc.communicate(
-                    input=sandboxed_script, timeout=30
+                    input=sandboxed_script, timeout=_TIMEOUT_S
                 )
             except subprocess.TimeoutExpired:
                 # Kill the entire process group, not just the parent
@@ -189,7 +195,7 @@ async def execute_cad_script(script_string: str) -> dict:
     except subprocess.TimeoutExpired:
         return {
             "status": "error",
-            "traceback": "TIMEOUT: Script exceeded 30-second execution limit.",
+            "traceback": f"TIMEOUT: Script exceeded {_TIMEOUT_S}-second execution limit.",
         }
     except Exception as e:
         return {
