@@ -11,7 +11,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 import numpy as np
-from scipy.optimize import root
+from cem.aero.numerics import bounded_newton
 
 from cem.aero.lifting import segment_velocity
 from cem.core import digest, canonical_json
@@ -95,12 +95,11 @@ def solve(record, controls, bank, *, speed_m_s=6., alpha_deg=4., altitude_m=0., 
     initial=np.zeros(len(mesh)) if initial_circulation_m2_s is None else np.asarray(initial_circulation_m2_s)
     if initial.shape!=(len(mesh),) or initial.dtype.kind not in 'fi' or not np.isfinite(initial).all():
         raise ValueError('Invalid initial circulation for coupled mesh')
-    fit=root(residual,initial,tol=1e-8)
-    error=float(np.max(np.abs(residual(fit.x))))
-    if not fit.success or not math.isfinite(error) or error>1e-6:
-        raise ValueError('Coupled coordinate circulation did not converge')
-    induced,velocity,speed,effective,reynolds,coeff=local(fit.x)
-    lift=rho*fit.x[:,None]*np.cross(velocity,b-a)
+    fit=bounded_newton(residual,initial,tolerance=1e-9)
+    gamma=fit['value']
+    error=fit['residual_norm']
+    induced,velocity,speed,effective,reynolds,coeff=local(gamma)
+    lift=rho*gamma[:,None]*np.cross(velocity,b-a)
     profile=.5*rho*speed[:,None]*area[:,None]*coeff[:,1,None]*velocity
     force=lift+profile
     moments=(np.cross(centers-np.asarray(aircraft.mass_summary()['cg_m']),force)+
@@ -110,7 +109,7 @@ def solve(record, controls, bank, *, speed_m_s=6., alpha_deg=4., altitude_m=0., 
         raise ValueError('Nonphysical coupled lifting drag')
     names=sorted({p['surface'] for p in mesh})
     source_velocity={name:np.einsum('ijk,j->ik',influence,
-        np.where([p['surface']==name for p in mesh],fit.x,0.)) for name in names}
+        np.where([p['surface']==name for p in mesh],gamma,0.)) for name in names}
     if not np.allclose(sum(source_velocity.values()),induced,rtol=0,atol=1e-10):
         raise ValueError('Source-resolved induced velocity does not conserve total')
     strips=[]
@@ -125,7 +124,7 @@ def solve(record, controls, bank, *, speed_m_s=6., alpha_deg=4., altitude_m=0., 
             area_m2=float(area[i]),chord_m=float(chord[i]),velocity_m_s=velocity[i].tolist(),
             induced_velocity_m_s=induced[i].tolist(),effective_alpha_deg=float(effective[i]),
             reynolds=float(reynolds[i]),section_cl_cd_cm=coeff[i].tolist(),
-            circulation_m2_s=float(fit.x[i]),
+            circulation_m2_s=float(gamma[i]),
             force_n=force[i].tolist(),moment_cg_nm=moments[i].tolist(),interaction_sources=interactions))
     report=dict(scope='attached_coordinate_lifting_surfaces_development',state='computed',
         geometry=record,installed_sha256=installed['installed_sha256'],controls=controls,
@@ -134,13 +133,15 @@ def solve(record, controls, bank, *, speed_m_s=6., alpha_deg=4., altitude_m=0., 
         polar_bank_sha256=digest(bank.reports),
         implementation_sha256=digest(dict(model=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             polar_interpolation=hashlib.sha256(Path(inspect.getfile(type(bank))).read_bytes()).hexdigest(),
+            covered_solver=hashlib.sha256(Path(inspect.getfile(bounded_newton)).read_bytes()).hexdigest(),
             kernel=hashlib.sha256(Path(inspect.getfile(segment_velocity)).read_bytes()).hexdigest())),
         runtime={name:version(name) for name in ('numpy','scipy','aerosandbox')},
         axes='geometry x aft, y right, z up; moments about screening inventory CG',
         force_n=force.sum(axis=0).tolist(),moment_cg_nm=moments.sum(axis=0).tolist(),
         induced_drag_n=max(0.,induced_drag),profile_drag_n=profile_drag,
         lifting_surface_drag_n=float(force.sum(axis=0)@wind),whole_aircraft_drag_n=None,
-        body_drag_n=None,circulation_residual=error,strips=strips,
+        body_drag_n=None,circulation_residual=error,
+        solver_diagnostics={k:v for k,v in fit.items() if k != 'value'},strips=strips,
         production_admission=False,qualified_aircraft_stall=False,qualified_control_authority=False,
         independent_numerical_performance=False,physical_construction=False,verified_gain=False,
         missing=['body OML and body/junction drag','qualified nonlinear interaction/stall envelope',

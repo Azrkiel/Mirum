@@ -1,0 +1,2050 @@
+{
+  "scope": "coordinate_family_software_verification_not_aircraft_qualification",
+  "date": "2026-11-04",
+  "integration_base": "40fa44aa5e9d34097249295dfad660a6e23711b8",
+  "source_sha256": {
+    "backend/cem/aero/polars.py": "ed535544361a68f5395f9040aaba7cff8ff790ce317bc94fc07c832e3a79086b",
+    "backend/cem/aero/numerics.py": "bbf0dc6bfbad015cbd84a3aed26158689e2da4ed97535d861bdcfd31fd067c90",
+    "backend/cem/glider/families/coordinate_polars.py": "a0f9ddaefccf523141d66416ec31db881abd8c0537bd57e3682061262aff3fd1",
+    "backend/cem/glider/families/coordinate_audit.py": "a2b5d21b606707cc93b975a2e4b0af6311dfc5a7b5bd0cdcbfc45fdaac0a2308",
+    "backend/cem/glider/families/coupled_aero.py": "463429eda27db6fe85e51fc9ec3a017ae9ff7e0c4eef29bebccb0804ae1b4b1e",
+    "scripts/cem/audit_coordinate_polars.py": "db2243213fe8a4f60b5afa7216a13a12277be9b75efbf1a08f415a4fd61509f1"
+  },
+  "runtime": {
+    "python": "3.12.14",
+    "packages": {
+      "numpy": "2.2.6",
+      "scipy": "1.15.3",
+      "aerosandbox": "4.2.10",
+      "neuralfoil": "0.3.3",
+      "pydantic": "2.9.2"
+    }
+  },
+  "native_build": {
+    "source_archives": {
+      "xfoil_6.99.dfsg+1.orig.tar.gz": "f5ece350981f35f7b5b4cef540c921ffad877b0942591efb88bad76cc08b597a",
+      "xfoil_6.99.dfsg+1-3.debian.tar.xz": "b6688dc60a8437fbabb0da80fdceb623bcdd6c4f35ca8afbe130f817c6140837"
+    },
+    "avl_revision": "b67837fa737afdf7a56655b044242619246b3ada",
+    "xfoil_flags": "-O0 -g -fbacktrace -fbounds-check -finit-real=inf -ffpe-trap=invalid,zero -fdefault-real-8 -fallow-argument-mismatch",
+    "headless_patch_sha256": "8e5df7f0731081c0066b7e3b6fd9dd31e3e1c910db9539c5faab6beedb22142a",
+    "compiler": "/workspace/mirum-tools/fc",
+    "compiler_version": "GNU Fortran (Debian 14.2.0-19) 14.2.0\nCopyright (C) 2024 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+    "fortran_link_flags": "",
+    "x11_include": "/workspace/mirum-tools/root/usr/include",
+    "x11_library": "/usr/lib/x86_64-linux-gnu/libX11.so.6",
+    "binaries": {
+      "xfoil": {
+        "path": "/workspace/mirum-native/Xfoil/bin/xfoil",
+        "sha256": "3faf545ff335b8727e96e02d2c6b532abe8b6cf5cce68ece9411181582b92da5"
+      },
+      "avl": {
+        "path": "/workspace/mirum-native/avl-build/src/avl",
+        "sha256": "a42b13345ea95b169917d0bff30fcddb3907659d782e1be405dd360989c2b196"
+      }
+    }
+  },
+  "tests": {
+    "focused": "........................                                                 [100%]\n24 passed in 48.37s\n",
+    "combined_regression": "......................F................................................. [ 13%]\n........................................................................ [ 26%]\n........................................................................ [ 40%]\n........................................................................ [ 53%]\n........................................................................ [ 66%]\n........................................................................ [ 80%]\n........................................................................ [ 93%]\n...................................                                      [100%]\n=================================== FAILURES ===================================\n________ test_native_initialization_audit_replays_without_running_tools ________\n\ntmp_path = PosixPath('/tmp/pytest-of-agent/pytest-2/test_native_initialization_aud0')\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f46cf4b6270>\n\n    def test_native_initialization_audit_replays_without_running_tools(tmp_path,monkeypatch):\n        try: resolve('xfoil')\n        except NativeFailure: pytest.skip('Native XFOIL executable not selected')\n        report=run_section_audit(tmp_path,'0006',30000.,[i*.5 for i in range(-8,17)])\n>       assert report['state']=='diagnostic_completed'\nE       AssertionError: assert 'diagnostic_failed' == 'diagnostic_completed'\nE         \nE         - diagnostic_completed\nE         ?            ^^^^  --\nE         + diagnostic_failed\nE         ?            ^^^\n\nbackend/tests/test_cem_aero_polar_audit.py:76: AssertionError\n=============================== warnings summary ===============================\n../mirum-venv/lib/python3.12/site-packages/starlette/testclient.py:40\n  /workspace/mirum-venv/lib/python3.12/site-packages/starlette/testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\nfrontend/test_cem_ui.py::test_shaped_elite_submits_archive_bound_comparison_and_renders_inconclusive\n  /workspace/mirum-venv/lib/python3.12/site-packages/streamlit/elements/vega_charts.py:358: AltairDeprecationWarning: \n  Deprecated since `altair=5.5.0`. Use altair.theme instead.\n  Most cases require only the following change:\n  \n      # Deprecated\n      alt.themes.enable('quartz')\n  \n      # Updated\n      alt.theme.enable('quartz')\n  \n  If your code registers a theme, make the following change:\n  \n      # Deprecated\n      def custom_theme():\n          return {'height': 400, 'width': 700}\n      alt.themes.register('theme_name', custom_theme)\n      alt.themes.enable('theme_name')\n  \n      # Updated\n      @alt.theme.register('theme_name', enable=True)\n      def custom_theme():\n          return alt.theme.ThemeConfig(\n              {'height': 400, 'width': 700}\n          )\n  \n  See the updated User Guide for further details:\n      https://altair-viz.github.io/user_guide/api.html#theme\n      https://altair-viz.github.io/user_guide/customization.html#chart-themes\n    with alt.themes.enable(\"none\") if alt.themes.active == \"default\" else nullcontext():  # type: ignore[attr-defined,unused-ignore]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ============================\nFAILED backend/tests/test_cem_aero_polar_audit.py::test_native_initialization_audit_replays_without_running_tools\n1 failed, 538 passed, 2 warnings in 896.89s (0:14:56)\n",
+    "isolated_initialization_rerun": ".                                                                        [100%]\n1 passed in 62.52s (0:01:02)\n"
+  },
+  "coordinate_audits": {
+    "canard/neutral": {
+      "geometry": {
+        "aircraft_revision": "9a4fb99eff8877be0edbe87f27cf95dcb792125c30651c503d6d02efafea9d12",
+        "builder_revision": "canard-screening-v1+f9174e01e0439bda0badf92d42c425ed0e50092c4c44611a7790b0d047797bd6",
+        "family": "canard",
+        "parameters": {
+          "family": "canard",
+          "foreplane": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 4.0,
+            "root_chord_m": 0.1,
+            "span_m": 0.45,
+            "sweep_deg": 0.0,
+            "taper": 0.8,
+            "washout_deg": 0.0
+          },
+          "foreplane_x_m": 0.04,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "body_length_m": 0.7,
+            "body_mass_kg": 0.02,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.35
+          },
+          "main_wing": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 2.0,
+            "root_chord_m": 0.18,
+            "span_m": 1.2,
+            "sweep_deg": 0.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "main_x_m": 0.4,
+          "vertical_separation_m": 0.04
+        }
+      },
+      "controls": {
+        "aileron": 0.0,
+        "foreplane_elevator": 0.0
+      },
+      "installed_sha256": "dd7dacff8c35326058139e8f1fc6414e7a6ed9d2f69e675eb17731a3f2ddf75e",
+      "foils": {
+        "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97": {
+          "state": "failed",
+          "stage": "initialization_and_panel_refinement",
+          "failure": {
+            "reason": "Coordinate initialization sensitivity exceeds tolerance",
+            "type": "ValueError"
+          },
+          "failures": [
+            {
+              "reason": "Coordinate initialization sensitivity exceeds tolerance",
+              "stage": "initialization_and_panel_refinement"
+            },
+            {
+              "reason": "Coordinate midpoint interpolation exceeds tolerance",
+              "stage": "interpolation_coverage"
+            }
+          ],
+          "implementation_sha256": "e8e55345e1586889007da23072ba5e2f6c45f135256dc040a89d4434fdb54c71",
+          "runtime": {
+            "aerosandbox": "4.2.10",
+            "numpy": "2.2.6",
+            "scipy": "1.15.3"
+          },
+          "tolerances": {
+            "cd": 0.001,
+            "cl": 0.025,
+            "cm": 0.005
+          },
+          "interpolation_differences": {
+            "cd": 0.023794999999999993,
+            "cl": 0.20645000000000002,
+            "cm": 0.034925
+          },
+          "interpolation_queries_checked": 1,
+          "evidence_sha256": "625c502cd3f2b5167b86ea745e2391f295694a98ad7438dceae991f57f148069",
+          "queries": [
+            {
+              "directory": "re_0/ascending",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/ascending_repeat",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/zero_centered",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/reset_each",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/refined",
+              "reynolds": 30000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending_repeat",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/zero_centered",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/reset_each",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/refined",
+              "reynolds": 300000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "midpoint_0",
+              "reynolds": 94868.32980505138,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            }
+          ],
+          "native_replay": "matched"
+        }
+      }
+    },
+    "canard/pitch_3deg": {
+      "geometry": {
+        "aircraft_revision": "9a4fb99eff8877be0edbe87f27cf95dcb792125c30651c503d6d02efafea9d12",
+        "builder_revision": "canard-screening-v1+f9174e01e0439bda0badf92d42c425ed0e50092c4c44611a7790b0d047797bd6",
+        "family": "canard",
+        "parameters": {
+          "family": "canard",
+          "foreplane": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 4.0,
+            "root_chord_m": 0.1,
+            "span_m": 0.45,
+            "sweep_deg": 0.0,
+            "taper": 0.8,
+            "washout_deg": 0.0
+          },
+          "foreplane_x_m": 0.04,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "body_length_m": 0.7,
+            "body_mass_kg": 0.02,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.35
+          },
+          "main_wing": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 2.0,
+            "root_chord_m": 0.18,
+            "span_m": 1.2,
+            "sweep_deg": 0.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "main_x_m": 0.4,
+          "vertical_separation_m": 0.04
+        }
+      },
+      "controls": {
+        "aileron": 0.0,
+        "foreplane_elevator": 3.0
+      },
+      "installed_sha256": "3a1b771288f1fe5fb3b4ac6c754ddd89d16023846539fc73a69346a0ffd660b1",
+      "foils": {
+        "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97": {
+          "state": "failed",
+          "stage": "initialization_and_panel_refinement",
+          "failure": {
+            "reason": "Coordinate initialization sensitivity exceeds tolerance",
+            "type": "ValueError"
+          },
+          "failures": [
+            {
+              "reason": "Coordinate initialization sensitivity exceeds tolerance",
+              "stage": "initialization_and_panel_refinement"
+            },
+            {
+              "reason": "Coordinate midpoint interpolation exceeds tolerance",
+              "stage": "interpolation_coverage"
+            }
+          ],
+          "implementation_sha256": "e8e55345e1586889007da23072ba5e2f6c45f135256dc040a89d4434fdb54c71",
+          "runtime": {
+            "aerosandbox": "4.2.10",
+            "numpy": "2.2.6",
+            "scipy": "1.15.3"
+          },
+          "tolerances": {
+            "cd": 0.001,
+            "cl": 0.025,
+            "cm": 0.005
+          },
+          "interpolation_differences": {
+            "cd": 0.023794999999999993,
+            "cl": 0.20645000000000002,
+            "cm": 0.034925
+          },
+          "interpolation_queries_checked": 1,
+          "evidence_sha256": "625c502cd3f2b5167b86ea745e2391f295694a98ad7438dceae991f57f148069",
+          "queries": [
+            {
+              "directory": "re_0/ascending",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/ascending_repeat",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/zero_centered",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/reset_each",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/refined",
+              "reynolds": 30000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending_repeat",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/zero_centered",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/reset_each",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/refined",
+              "reynolds": 300000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "midpoint_0",
+              "reynolds": 94868.32980505138,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            }
+          ],
+          "native_replay": "matched"
+        },
+        "f925aa8eb7278e37bf672436156955aaf51d4a37c4e72859213dfd2650f04f0d": {
+          "state": "failed",
+          "stage": "initialization_and_panel_refinement",
+          "failure": {
+            "reason": "Incomplete coordinate audit coverage at Re 30000.0: missing alpha [8.0]",
+            "type": "ValueError"
+          },
+          "failures": [
+            {
+              "reason": "Incomplete coordinate audit coverage at Re 30000.0: missing alpha [8.0]",
+              "stage": "initialization_and_panel_refinement"
+            },
+            {
+              "reason": "Coordinate midpoint interpolation exceeds tolerance",
+              "stage": "interpolation_coverage"
+            }
+          ],
+          "implementation_sha256": "e8e55345e1586889007da23072ba5e2f6c45f135256dc040a89d4434fdb54c71",
+          "runtime": {
+            "aerosandbox": "4.2.10",
+            "numpy": "2.2.6",
+            "scipy": "1.15.3"
+          },
+          "tolerances": {
+            "cd": 0.001,
+            "cl": 0.025,
+            "cm": 0.005
+          },
+          "interpolation_differences": {
+            "cd": 0.022002499999999998,
+            "cl": 0.20787499999999992,
+            "cm": 0.022500000000000006
+          },
+          "interpolation_queries_checked": 1,
+          "evidence_sha256": "1bb0173cb68bb4217f8f5257c1dae9c3534174e64944ded4dbc95869874ca732",
+          "queries": [
+            {
+              "directory": "re_0/ascending",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/ascending_repeat",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/zero_centered",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/reset_each",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "incomplete",
+              "missing_angles_deg": [
+                8.0
+              ]
+            },
+            {
+              "directory": "re_0/refined",
+              "reynolds": 30000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending_repeat",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/zero_centered",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/reset_each",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/refined",
+              "reynolds": 300000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "midpoint_0",
+              "reynolds": 94868.32980505138,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            }
+          ],
+          "native_replay": "matched"
+        }
+      }
+    },
+    "tailless_swept/neutral": {
+      "geometry": {
+        "aircraft_revision": "3b24b59d67836916067bf35bf8d4b02854e2d7dc452725b3d6615024c667ef8f",
+        "builder_revision": "tailless-swept-screening-v1+0c697d71047d7ce9c2cc4588985c19d90325869d2d4a361f2fd9bfdedaed93f3",
+        "family": "tailless_swept",
+        "parameters": {
+          "elevon_hinge": 0.75,
+          "family": "tailless_swept",
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "body_length_m": 0.7,
+            "body_mass_kg": 0.02,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.22
+          },
+          "reflex_fraction": 0.015,
+          "wing": {
+            "airfoil": "0012",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 2.0,
+            "root_chord_m": 0.18,
+            "span_m": 1.2,
+            "sweep_deg": 25.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "wing_x_m": 0.12
+        }
+      },
+      "controls": {
+        "elevon_pitch": 0.0,
+        "elevon_roll": 0.0
+      },
+      "installed_sha256": "9ab5d8049091ac2651082b95edda1a59a8b35b12dafad28f68c3d3be6f4bee8d",
+      "foils": {
+        "e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca": {
+          "state": "failed",
+          "stage": "initialization_and_panel_refinement",
+          "failure": {
+            "reason": "Coordinate panel refinement exceeds tolerance",
+            "type": "ValueError"
+          },
+          "failures": [
+            {
+              "reason": "Coordinate panel refinement exceeds tolerance",
+              "stage": "initialization_and_panel_refinement"
+            },
+            {
+              "reason": "Coordinate midpoint interpolation exceeds tolerance",
+              "stage": "interpolation_coverage"
+            }
+          ],
+          "implementation_sha256": "e8e55345e1586889007da23072ba5e2f6c45f135256dc040a89d4434fdb54c71",
+          "runtime": {
+            "aerosandbox": "4.2.10",
+            "numpy": "2.2.6",
+            "scipy": "1.15.3"
+          },
+          "tolerances": {
+            "cd": 0.001,
+            "cl": 0.025,
+            "cm": 0.005
+          },
+          "interpolation_differences": {
+            "cd": 0.010985000000000005,
+            "cl": 0.21499999999999997,
+            "cm": 0.0377
+          },
+          "interpolation_queries_checked": 1,
+          "evidence_sha256": "79582e9cea7cbe955b038c43bbabad84f05bbe2225eafac7fb498dfe79e2a50c",
+          "queries": [
+            {
+              "directory": "re_0/ascending",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/ascending_repeat",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/zero_centered",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/reset_each",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/refined",
+              "reynolds": 30000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending_repeat",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/zero_centered",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/reset_each",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/refined",
+              "reynolds": 300000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "midpoint_0",
+              "reynolds": 94868.32980505138,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            }
+          ],
+          "native_replay": "matched"
+        }
+      }
+    },
+    "tailless_swept/pitch_3deg": {
+      "geometry": {
+        "aircraft_revision": "3b24b59d67836916067bf35bf8d4b02854e2d7dc452725b3d6615024c667ef8f",
+        "builder_revision": "tailless-swept-screening-v1+0c697d71047d7ce9c2cc4588985c19d90325869d2d4a361f2fd9bfdedaed93f3",
+        "family": "tailless_swept",
+        "parameters": {
+          "elevon_hinge": 0.75,
+          "family": "tailless_swept",
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "body_length_m": 0.7,
+            "body_mass_kg": 0.02,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.22
+          },
+          "reflex_fraction": 0.015,
+          "wing": {
+            "airfoil": "0012",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 2.0,
+            "root_chord_m": 0.18,
+            "span_m": 1.2,
+            "sweep_deg": 25.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "wing_x_m": 0.12
+        }
+      },
+      "controls": {
+        "elevon_pitch": 3.0,
+        "elevon_roll": 0.0
+      },
+      "installed_sha256": "8edfe8e883ee04d86e3a66789196614eeb72d8084a225d4c4f81b62bac998665",
+      "foils": {
+        "d8e3b2bda89b9977d81a456e93fa17f14d245d01e5116eade8e14428325c95bd": {
+          "state": "failed",
+          "stage": "initialization_and_panel_refinement",
+          "failure": {
+            "reason": "Incomplete coordinate audit coverage at Re 300000.0: missing alpha [2.0, 4.0]",
+            "type": "ValueError"
+          },
+          "failures": [
+            {
+              "reason": "Incomplete coordinate audit coverage at Re 300000.0: missing alpha [2.0, 4.0]",
+              "stage": "initialization_and_panel_refinement"
+            },
+            {
+              "reason": "Incomplete coordinate audit coverage at Re 300000.0: missing alpha [2.0, 4.0]",
+              "stage": "initialization_and_panel_refinement"
+            },
+            {
+              "reason": "Incomplete coordinate audit coverage at Re 300000.0: missing alpha [2.0, 4.0]",
+              "stage": "initialization_and_panel_refinement"
+            },
+            {
+              "reason": "Incomplete coordinate audit coverage at Re 300000.0: missing alpha [2.0]",
+              "stage": "initialization_and_panel_refinement"
+            },
+            {
+              "reason": "Incomplete or altered coordinate polar",
+              "stage": "interpolation_coverage"
+            }
+          ],
+          "implementation_sha256": "e8e55345e1586889007da23072ba5e2f6c45f135256dc040a89d4434fdb54c71",
+          "runtime": {
+            "aerosandbox": "4.2.10",
+            "numpy": "2.2.6",
+            "scipy": "1.15.3"
+          },
+          "tolerances": {
+            "cd": 0.001,
+            "cl": 0.025,
+            "cm": 0.005
+          },
+          "interpolation_differences": null,
+          "interpolation_queries_checked": 0,
+          "evidence_sha256": "85eef415884da2b817904a5899850cf5d37aabc11796b543872957f3389de2c6",
+          "queries": [
+            {
+              "directory": "re_0/ascending",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/ascending_repeat",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/zero_centered",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/reset_each",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/refined",
+              "reynolds": 30000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "incomplete",
+              "missing_angles_deg": [
+                2.0,
+                4.0
+              ]
+            },
+            {
+              "directory": "re_1/ascending_repeat",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "incomplete",
+              "missing_angles_deg": [
+                2.0,
+                4.0
+              ]
+            },
+            {
+              "directory": "re_1/zero_centered",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "incomplete",
+              "missing_angles_deg": [
+                2.0,
+                4.0
+              ]
+            },
+            {
+              "directory": "re_1/reset_each",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/refined",
+              "reynolds": 300000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "incomplete",
+              "missing_angles_deg": [
+                2.0
+              ]
+            },
+            {
+              "directory": "midpoint_0",
+              "reynolds": 94868.32980505138,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            }
+          ],
+          "native_replay": "matched"
+        },
+        "e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca": {
+          "state": "failed",
+          "stage": "initialization_and_panel_refinement",
+          "failure": {
+            "reason": "Coordinate panel refinement exceeds tolerance",
+            "type": "ValueError"
+          },
+          "failures": [
+            {
+              "reason": "Coordinate panel refinement exceeds tolerance",
+              "stage": "initialization_and_panel_refinement"
+            },
+            {
+              "reason": "Coordinate midpoint interpolation exceeds tolerance",
+              "stage": "interpolation_coverage"
+            }
+          ],
+          "implementation_sha256": "e8e55345e1586889007da23072ba5e2f6c45f135256dc040a89d4434fdb54c71",
+          "runtime": {
+            "aerosandbox": "4.2.10",
+            "numpy": "2.2.6",
+            "scipy": "1.15.3"
+          },
+          "tolerances": {
+            "cd": 0.001,
+            "cl": 0.025,
+            "cm": 0.005
+          },
+          "interpolation_differences": {
+            "cd": 0.010985000000000005,
+            "cl": 0.21499999999999997,
+            "cm": 0.0377
+          },
+          "interpolation_queries_checked": 1,
+          "evidence_sha256": "79582e9cea7cbe955b038c43bbabad84f05bbe2225eafac7fb498dfe79e2a50c",
+          "queries": [
+            {
+              "directory": "re_0/ascending",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/ascending_repeat",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/zero_centered",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/reset_each",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/refined",
+              "reynolds": 30000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending_repeat",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/zero_centered",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/reset_each",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/refined",
+              "reynolds": 300000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "midpoint_0",
+              "reynolds": 94868.32980505138,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            }
+          ],
+          "native_replay": "matched"
+        }
+      }
+    },
+    "tandem/neutral": {
+      "geometry": {
+        "aircraft_revision": "57d38f45cbc22ad1d81ef040c4d89ceefe6aab1886f6ee07a91102e2cac44fe0",
+        "builder_revision": "tandem-screening-v1+6eac7cef982888e7f51af1dede83a6e4ffe8ca0ba5f474435db0d7df5582daab",
+        "family": "tandem",
+        "parameters": {
+          "family": "tandem",
+          "front_wing": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 3.0,
+            "root_chord_m": 0.15,
+            "span_m": 0.9,
+            "sweep_deg": 0.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "front_x_m": 0.05,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "body_length_m": 0.7,
+            "body_mass_kg": 0.02,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.28
+          },
+          "rear_wing": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 2.0,
+            "root_chord_m": 0.16,
+            "span_m": 1.0,
+            "sweep_deg": 0.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "rear_x_m": 0.43,
+          "vertical_separation_m": 0.06
+        }
+      },
+      "controls": {
+        "aileron": 0.0,
+        "front_elevator": 0.0,
+        "rear_elevator": 0.0
+      },
+      "installed_sha256": "e3d18af47bd5d9afcf349af56da21df64ed88a6a027323756f0c4bd949d56b98",
+      "foils": {
+        "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97": {
+          "state": "failed",
+          "stage": "initialization_and_panel_refinement",
+          "failure": {
+            "reason": "Coordinate initialization sensitivity exceeds tolerance",
+            "type": "ValueError"
+          },
+          "failures": [
+            {
+              "reason": "Coordinate initialization sensitivity exceeds tolerance",
+              "stage": "initialization_and_panel_refinement"
+            },
+            {
+              "reason": "Coordinate midpoint interpolation exceeds tolerance",
+              "stage": "interpolation_coverage"
+            }
+          ],
+          "implementation_sha256": "e8e55345e1586889007da23072ba5e2f6c45f135256dc040a89d4434fdb54c71",
+          "runtime": {
+            "aerosandbox": "4.2.10",
+            "numpy": "2.2.6",
+            "scipy": "1.15.3"
+          },
+          "tolerances": {
+            "cd": 0.001,
+            "cl": 0.025,
+            "cm": 0.005
+          },
+          "interpolation_differences": {
+            "cd": 0.023794999999999993,
+            "cl": 0.20645000000000002,
+            "cm": 0.034925
+          },
+          "interpolation_queries_checked": 1,
+          "evidence_sha256": "625c502cd3f2b5167b86ea745e2391f295694a98ad7438dceae991f57f148069",
+          "queries": [
+            {
+              "directory": "re_0/ascending",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/ascending_repeat",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/zero_centered",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/reset_each",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/refined",
+              "reynolds": 30000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending_repeat",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/zero_centered",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/reset_each",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/refined",
+              "reynolds": 300000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "midpoint_0",
+              "reynolds": 94868.32980505138,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            }
+          ],
+          "native_replay": "matched"
+        }
+      }
+    },
+    "tandem/pitch_3deg": {
+      "geometry": {
+        "aircraft_revision": "57d38f45cbc22ad1d81ef040c4d89ceefe6aab1886f6ee07a91102e2cac44fe0",
+        "builder_revision": "tandem-screening-v1+6eac7cef982888e7f51af1dede83a6e4ffe8ca0ba5f474435db0d7df5582daab",
+        "family": "tandem",
+        "parameters": {
+          "family": "tandem",
+          "front_wing": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 3.0,
+            "root_chord_m": 0.15,
+            "span_m": 0.9,
+            "sweep_deg": 0.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "front_x_m": 0.05,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "body_length_m": 0.7,
+            "body_mass_kg": 0.02,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.28
+          },
+          "rear_wing": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 2.0,
+            "root_chord_m": 0.16,
+            "span_m": 1.0,
+            "sweep_deg": 0.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "rear_x_m": 0.43,
+          "vertical_separation_m": 0.06
+        }
+      },
+      "controls": {
+        "aileron": 0.0,
+        "front_elevator": 3.0,
+        "rear_elevator": 0.0
+      },
+      "installed_sha256": "4829c82bbad044835745e4785f80c21a28c09fb94e8e502b9010e237c83c8a11",
+      "foils": {
+        "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97": {
+          "state": "failed",
+          "stage": "initialization_and_panel_refinement",
+          "failure": {
+            "reason": "Coordinate initialization sensitivity exceeds tolerance",
+            "type": "ValueError"
+          },
+          "failures": [
+            {
+              "reason": "Coordinate initialization sensitivity exceeds tolerance",
+              "stage": "initialization_and_panel_refinement"
+            },
+            {
+              "reason": "Coordinate midpoint interpolation exceeds tolerance",
+              "stage": "interpolation_coverage"
+            }
+          ],
+          "implementation_sha256": "e8e55345e1586889007da23072ba5e2f6c45f135256dc040a89d4434fdb54c71",
+          "runtime": {
+            "aerosandbox": "4.2.10",
+            "numpy": "2.2.6",
+            "scipy": "1.15.3"
+          },
+          "tolerances": {
+            "cd": 0.001,
+            "cl": 0.025,
+            "cm": 0.005
+          },
+          "interpolation_differences": {
+            "cd": 0.023794999999999993,
+            "cl": 0.20645000000000002,
+            "cm": 0.034925
+          },
+          "interpolation_queries_checked": 1,
+          "evidence_sha256": "625c502cd3f2b5167b86ea745e2391f295694a98ad7438dceae991f57f148069",
+          "queries": [
+            {
+              "directory": "re_0/ascending",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/ascending_repeat",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/zero_centered",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/reset_each",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/refined",
+              "reynolds": 30000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending_repeat",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/zero_centered",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/reset_each",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/refined",
+              "reynolds": 300000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "midpoint_0",
+              "reynolds": 94868.32980505138,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            }
+          ],
+          "native_replay": "matched"
+        },
+        "f925aa8eb7278e37bf672436156955aaf51d4a37c4e72859213dfd2650f04f0d": {
+          "state": "failed",
+          "stage": "initialization_and_panel_refinement",
+          "failure": {
+            "reason": "Incomplete coordinate audit coverage at Re 30000.0: missing alpha [8.0]",
+            "type": "ValueError"
+          },
+          "failures": [
+            {
+              "reason": "Incomplete coordinate audit coverage at Re 30000.0: missing alpha [8.0]",
+              "stage": "initialization_and_panel_refinement"
+            },
+            {
+              "reason": "Coordinate midpoint interpolation exceeds tolerance",
+              "stage": "interpolation_coverage"
+            }
+          ],
+          "implementation_sha256": "e8e55345e1586889007da23072ba5e2f6c45f135256dc040a89d4434fdb54c71",
+          "runtime": {
+            "aerosandbox": "4.2.10",
+            "numpy": "2.2.6",
+            "scipy": "1.15.3"
+          },
+          "tolerances": {
+            "cd": 0.001,
+            "cl": 0.025,
+            "cm": 0.005
+          },
+          "interpolation_differences": {
+            "cd": 0.022002499999999998,
+            "cl": 0.20787499999999992,
+            "cm": 0.022500000000000006
+          },
+          "interpolation_queries_checked": 1,
+          "evidence_sha256": "1bb0173cb68bb4217f8f5257c1dae9c3534174e64944ded4dbc95869874ca732",
+          "queries": [
+            {
+              "directory": "re_0/ascending",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/ascending_repeat",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/zero_centered",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_0/reset_each",
+              "reynolds": 30000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "incomplete",
+              "missing_angles_deg": [
+                8.0
+              ]
+            },
+            {
+              "directory": "re_0/refined",
+              "reynolds": 30000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/ascending_repeat",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "ascending_repeat",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/zero_centered",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "zero_centered",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/reset_each",
+              "reynolds": 300000.0,
+              "panels": 160,
+              "sequence": "reset_each",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "re_1/refined",
+              "reynolds": 300000.0,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            },
+            {
+              "directory": "midpoint_0",
+              "reynolds": 94868.32980505138,
+              "panels": 240,
+              "sequence": "ascending",
+              "state": "complete",
+              "missing_angles_deg": []
+            }
+          ],
+          "native_replay": "matched"
+        }
+      }
+    }
+  },
+  "references": {
+    "conventional": {
+      "case_id": "conventional-naca0012-rigid-v1",
+      "state": "passed",
+      "stage": null,
+      "failure": null,
+      "evidence_sha256": "5b24c1a0b489ed76d26f5e938b97e016a557c16355197bcaa2e4a468f85499d6",
+      "verified_gain": false,
+      "objective_m": 54.956840171980254,
+      "static_margin": 0.10488681608893452,
+      "unstable_case": "rejected_as_expected",
+      "native_replay": "matched"
+    },
+    "low_re": {
+      "case_id": "naca0006-low-re-attached-v1",
+      "state": "failed",
+      "stage": "interpolation_coverage",
+      "failure": {
+        "native_evidence": {
+          "artifacts": [
+            {
+              "file": "polar_6735fde6c4a23770.in",
+              "sha256": "61f2a48824ad7aef68781d4ccce2fc26a2db6089f9216bf07f0aca56f8f17832"
+            },
+            {
+              "file": "polar_6735fde6c4a23770.log",
+              "sha256": "690b62702ed3f32166b6bdc6f610223dfdd09bc0b965f7d3c53b200c007b5271"
+            },
+            {
+              "file": "polar_6735fde6c4a23770.out",
+              "sha256": "b7c6be371bb4d60c696b0e3d189326a4b438b63364e5cabb11667ab186375b58"
+            }
+          ],
+          "coverage": {
+            "converged_alpha_deg": [
+              -3.0,
+              -2.875,
+              -2.75,
+              -2.625,
+              -2.5,
+              -2.375,
+              -2.25,
+              -2.125,
+              -2.0,
+              -1.875,
+              -1.75,
+              -1.625,
+              -1.5,
+              -1.375,
+              -1.25,
+              -1.125,
+              -1.0,
+              -0.875,
+              -0.75,
+              -0.625,
+              -0.5,
+              -0.375,
+              -0.25,
+              -0.125,
+              0.0,
+              0.125,
+              0.25,
+              0.375,
+              0.5,
+              0.625,
+              0.75,
+              0.875,
+              1.0,
+              1.125,
+              1.25,
+              1.375,
+              1.5,
+              1.625,
+              1.75,
+              1.875,
+              2.0,
+              2.25,
+              2.375,
+              2.5,
+              2.625,
+              2.75,
+              2.875,
+              3.0
+            ],
+            "missing_alpha_deg": [
+              2.125
+            ],
+            "naca": "0006",
+            "requested_alpha_deg": [
+              -3.0,
+              -2.875,
+              -2.75,
+              -2.625,
+              -2.5,
+              -2.375,
+              -2.25,
+              -2.125,
+              -2.0,
+              -1.875,
+              -1.75,
+              -1.625,
+              -1.5,
+              -1.375,
+              -1.25,
+              -1.125,
+              -1.0,
+              -0.875,
+              -0.75,
+              -0.625,
+              -0.5,
+              -0.375,
+              -0.25,
+              -0.125,
+              0.0,
+              0.125,
+              0.25,
+              0.375,
+              0.5,
+              0.625,
+              0.75,
+              0.875,
+              1.0,
+              1.125,
+              1.25,
+              1.375,
+              1.5,
+              1.625,
+              1.75,
+              1.875,
+              2.0,
+              2.125,
+              2.25,
+              2.375,
+              2.5,
+              2.625,
+              2.75,
+              2.875,
+              3.0
+            ],
+            "reynolds": 34641.016151377546,
+            "transition": {
+              "bottom_xtr": 1.0,
+              "n_crit": 9.0,
+              "top_xtr": 1.0
+            }
+          },
+          "executable_sha256": "3faf545ff335b8727e96e02d2c6b532abe8b6cf5cce68ece9411181582b92da5",
+          "returncode": 0,
+          "solver": "xfoil",
+          "state": "nonconvergence"
+        },
+        "reason": "XFOIL nonconvergence: incomplete requested polar coverage",
+        "type": "NativeFailure"
+      },
+      "evidence_sha256": "557133771caa65a7a5bd881e81c641a87f3be5af4fec57b71276754ceb4c40ee",
+      "verified_gain": false,
+      "native_replay": "matched"
+    },
+    "t_tail": {
+      "case_id": "t-tail-naca0012-rigid-v1",
+      "state": "passed",
+      "stage": null,
+      "failure": null,
+      "evidence_sha256": "46f0a0267aac07bd5e2ea411f1e91a26bcfc9968d427ee2d3523afed53390d09",
+      "verified_gain": false,
+      "objective_m": 55.06876324078566,
+      "static_margin": 0.11851595192033816,
+      "unstable_case": "rejected_as_expected",
+      "native_replay": "matched"
+    },
+    "v_tail": {
+      "case_id": "v-tail-naca0012-rigid-v1",
+      "state": "passed",
+      "stage": null,
+      "failure": null,
+      "evidence_sha256": "f41d0adbd846cbcd33225cf5b3234427108518c716af2aef270dd3e6fad43335",
+      "verified_gain": false,
+      "objective_m": 55.029520952573506,
+      "static_margin": 0.1385981136569062,
+      "unstable_case": "rejected_as_expected",
+      "native_replay": "matched"
+    }
+  },
+  "coupled_development": {
+    "canard": {
+      "controls": {
+        "aileron": 0.0,
+        "foreplane_elevator": 0.0
+      },
+      "geometry": {
+        "aircraft_revision": "9a4fb99eff8877be0edbe87f27cf95dcb792125c30651c503d6d02efafea9d12",
+        "builder_revision": "canard-screening-v1+f9174e01e0439bda0badf92d42c425ed0e50092c4c44611a7790b0d047797bd6",
+        "family": "canard",
+        "parameters": {
+          "family": "canard",
+          "foreplane": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 4.0,
+            "root_chord_m": 0.1,
+            "span_m": 0.45,
+            "sweep_deg": 0.0,
+            "taper": 0.8,
+            "washout_deg": 0.0
+          },
+          "foreplane_x_m": 0.04,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "body_length_m": 0.7,
+            "body_mass_kg": 0.02,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.35
+          },
+          "main_wing": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 2.0,
+            "root_chord_m": 0.18,
+            "span_m": 1.2,
+            "sweep_deg": 0.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "main_x_m": 0.4,
+          "vertical_separation_m": 0.04
+        }
+      },
+      "production_admission": false,
+      "results": [
+        {
+          "derivatives": {
+            "alpha_step_deg": 0.25,
+            "cl_alpha_per_rad": 4.690333924507262,
+            "cm_alpha_per_rad": -0.37406438612972853,
+            "dynamic_stability_qualified": false,
+            "missing": [
+              "body derivatives",
+              "full-aircraft trim",
+              "dynamic modes and full inertia",
+              "independent family validation"
+            ],
+            "production_admission": false,
+            "scope": "attached_lifting_only_static_derivative_development",
+            "static_margin": 0.0797521865501347
+          },
+          "force_n": [
+            0.09795442371230853,
+            8.673617379884035e-18,
+            2.074715587386963
+          ],
+          "mesh": 2,
+          "moment_cg_nm": [
+            4.163336342344337e-17,
+            0.0336183908498603,
+            -2.168404344971009e-18
+          ],
+          "report_sha256": "a412e2700d1f2cebea60919a52aa972cedc8c4c1b805dd58ad9c04b5bfba9ece",
+          "solver_diagnostics": {
+            "iterations": 3,
+            "rejected_domain_trials": 0,
+            "residual_norm": 9.358850890353728e-13
+          }
+        },
+        {
+          "derivatives": {
+            "alpha_step_deg": 0.25,
+            "cl_alpha_per_rad": 4.646316537276832,
+            "cm_alpha_per_rad": -0.3804030434988985,
+            "dynamic_stability_qualified": false,
+            "missing": [
+              "body derivatives",
+              "full-aircraft trim",
+              "dynamic modes and full inertia",
+              "independent family validation"
+            ],
+            "production_admission": false,
+            "scope": "attached_lifting_only_static_derivative_development",
+            "static_margin": 0.08187196038990698
+          },
+          "force_n": [
+            0.09805359359490375,
+            2.3852447794681098e-18,
+            2.0712347522895507
+          ],
+          "mesh": 4,
+          "moment_cg_nm": [
+            -6.245004513516506e-17,
+            0.030907642634409146,
+            -1.951563910473908e-18
+          ],
+          "report_sha256": "3cebbfdb47392132846ad1c8768ccf41160f71fa34357ec125b4f519146179e5",
+          "solver_diagnostics": {
+            "iterations": 3,
+            "rejected_domain_trials": 0,
+            "residual_norm": 5.7184201981006e-10
+          }
+        }
+      ]
+    },
+    "tailless_swept": {
+      "controls": {
+        "elevon_pitch": 0.0,
+        "elevon_roll": 0.0
+      },
+      "geometry": {
+        "aircraft_revision": "3b24b59d67836916067bf35bf8d4b02854e2d7dc452725b3d6615024c667ef8f",
+        "builder_revision": "tailless-swept-screening-v1+0c697d71047d7ce9c2cc4588985c19d90325869d2d4a361f2fd9bfdedaed93f3",
+        "family": "tailless_swept",
+        "parameters": {
+          "elevon_hinge": 0.75,
+          "family": "tailless_swept",
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "body_length_m": 0.7,
+            "body_mass_kg": 0.02,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.22
+          },
+          "reflex_fraction": 0.015,
+          "wing": {
+            "airfoil": "0012",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 2.0,
+            "root_chord_m": 0.18,
+            "span_m": 1.2,
+            "sweep_deg": 25.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "wing_x_m": 0.12
+        }
+      },
+      "production_admission": false,
+      "results": [
+        {
+          "derivatives": {
+            "alpha_step_deg": 0.25,
+            "cl_alpha_per_rad": 6.784073261034162,
+            "cm_alpha_per_rad": -0.8978875227584036,
+            "dynamic_stability_qualified": false,
+            "missing": [
+              "body derivatives",
+              "full-aircraft trim",
+              "dynamic modes and full inertia",
+              "independent family validation"
+            ],
+            "production_admission": false,
+            "scope": "attached_lifting_only_static_derivative_development",
+            "static_margin": 0.13235227395252655
+          },
+          "force_n": [
+            0.032074969681316776,
+            3.2526065174565133e-18,
+            1.3351625366426718
+          ],
+          "mesh": 2,
+          "moment_cg_nm": [
+            -6.938893903907228e-17,
+            -0.010814488752341159,
+            -4.336808689942018e-19
+          ],
+          "report_sha256": "6bb59e0cb1667cbca1defa6bfc1a1a0f062e328299f7790dbe6d07e3d4fd295a",
+          "solver_diagnostics": {
+            "iterations": 2,
+            "rejected_domain_trials": 0,
+            "residual_norm": 1.1559891961584798e-11
+          }
+        },
+        {
+          "derivatives": {
+            "alpha_step_deg": 0.25,
+            "cl_alpha_per_rad": 6.4945128125014016,
+            "cm_alpha_per_rad": -0.9732413466895652,
+            "dynamic_stability_qualified": false,
+            "missing": [
+              "body derivatives",
+              "full-aircraft trim",
+              "dynamic modes and full inertia",
+              "independent family validation"
+            ],
+            "production_admission": false,
+            "scope": "attached_lifting_only_static_derivative_development",
+            "static_margin": 0.14985594374625852
+          },
+          "force_n": [
+            0.03485057320845036,
+            -3.686287386450715e-18,
+            1.2967427966538874
+          ],
+          "mesh": 4,
+          "moment_cg_nm": [
+            -2.7755575615628914e-17,
+            -0.013383711090684123,
+            0.0
+          ],
+          "report_sha256": "2bd95fc5dc15e2087b5a0c52b1e11837b8c2516e39514eae59dffa275f46d205",
+          "solver_diagnostics": {
+            "iterations": 3,
+            "rejected_domain_trials": 0,
+            "residual_norm": 9.243138596470829e-15
+          }
+        }
+      ]
+    },
+    "tandem": {
+      "controls": {
+        "aileron": 0.0,
+        "front_elevator": 0.0,
+        "rear_elevator": 0.0
+      },
+      "geometry": {
+        "aircraft_revision": "57d38f45cbc22ad1d81ef040c4d89ceefe6aab1886f6ee07a91102e2cac44fe0",
+        "builder_revision": "tandem-screening-v1+6eac7cef982888e7f51af1dede83a6e4ffe8ca0ba5f474435db0d7df5582daab",
+        "family": "tandem",
+        "parameters": {
+          "family": "tandem",
+          "front_wing": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 3.0,
+            "root_chord_m": 0.15,
+            "span_m": 0.9,
+            "sweep_deg": 0.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "front_x_m": 0.05,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "body_length_m": 0.7,
+            "body_mass_kg": 0.02,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.28
+          },
+          "rear_wing": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 2.0,
+            "root_chord_m": 0.16,
+            "span_m": 1.0,
+            "sweep_deg": 0.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "rear_x_m": 0.43,
+          "vertical_separation_m": 0.06
+        }
+      },
+      "production_admission": false,
+      "results": [
+        {
+          "derivatives": {
+            "alpha_step_deg": 0.25,
+            "cl_alpha_per_rad": 4.312257115939219,
+            "cm_alpha_per_rad": 1.5308696118206153,
+            "dynamic_stability_qualified": false,
+            "missing": [
+              "body derivatives",
+              "full-aircraft trim",
+              "dynamic modes and full inertia",
+              "independent family validation"
+            ],
+            "production_admission": false,
+            "scope": "attached_lifting_only_static_derivative_development",
+            "static_margin": -0.35500425198723073
+          },
+          "force_n": [
+            0.11468073405700491,
+            3.0357660829594124e-18,
+            2.043208580098394
+          ],
+          "mesh": 2,
+          "moment_cg_nm": [
+            -3.469446951953614e-18,
+            0.13897893082890317,
+            4.336808689942018e-19
+          ],
+          "report_sha256": "99bc1354835d194ce346ffe6d31c3f3da671eeb33af6d9588925dba411cd93df",
+          "solver_diagnostics": {
+            "iterations": 3,
+            "rejected_domain_trials": 0,
+            "residual_norm": 9.114844544934045e-14
+          }
+        },
+        {
+          "derivatives": {
+            "alpha_step_deg": 0.25,
+            "cl_alpha_per_rad": 4.0245275446503115,
+            "cm_alpha_per_rad": 1.8063097825984271,
+            "dynamic_stability_qualified": false,
+            "missing": [
+              "body derivatives",
+              "full-aircraft trim",
+              "dynamic modes and full inertia",
+              "independent family validation"
+            ],
+            "production_admission": false,
+            "scope": "attached_lifting_only_static_derivative_development",
+            "static_margin": -0.4488253000031029
+          },
+          "force_n": [
+            0.1170704169894896,
+            -1.734723475976807e-18,
+            2.001804676985234
+          ],
+          "mesh": 4,
+          "moment_cg_nm": [
+            -5.724587470723463e-17,
+            0.14099035069383578,
+            4.336808689942018e-19
+          ],
+          "report_sha256": "7b8a24cc79b77980b5c4e2c5fa786a72e3691caec1471ef652962f1289b35bf5",
+          "solver_diagnostics": {
+            "iterations": 3,
+            "rejected_domain_trials": 0,
+            "residual_norm": 5.079702624173291e-13
+          }
+        }
+      ]
+    }
+  },
+  "installed_cli": {
+    "window": {
+      "reynolds": [
+        900000.0,
+        1000000.0
+      ],
+      "angles_deg": [
+        -1.0,
+        0.0,
+        1.0
+      ]
+    },
+    "family": "tailless_swept",
+    "controls": "neutral",
+    "statuses": "generation exit 1\nreplay exit 1\n",
+    "receipt_sha256": "6da232cad5dbcb25e565516196751dadac0be120192733be6b08c1749cc0605e"
+  },
+  "api": {
+    "metadata_status": 200,
+    "feasibility_status": 200,
+    "production_search_status": {
+      "tailless_swept": 422,
+      "canard": 422,
+      "tandem": 422
+    }
+  },
+  "setup": {
+    "dependency_check": "passed",
+    "repeat_install": "passed",
+    "draft_saved": [
+      "install_script",
+      "start_skill"
+    ],
+    "publication": "not_performed",
+    "fresh_task_restoration": "not_performed"
+  },
+  "raw_directories": [
+    "/workspace/mirum-coordinate-verification-v3",
+    "/workspace/mirum-integration-verification",
+    "/workspace/mirum-coupled-verification",
+    "/workspace/mirum-coordinate-cli"
+  ],
+  "production_admission": false,
+  "physical_construction": false,
+  "verified_gain": false
+}

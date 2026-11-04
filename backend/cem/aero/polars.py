@@ -13,10 +13,11 @@ class PolarCoverageError(ValueError):
     """The queried station is outside the supported polar evidence domain."""
 
 
-def check_polar_controls(raw,naca,reynolds,transition):
+def check_polar_controls(raw,naca,reynolds,transition, *, coordinate_name=None):
     """Check reported foil/Re/Mach/transition, allowing native header rounding."""
     value=r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)'
-    foil=re.search(r'Calculated polar for:\s*NACA\s*(\d{4})\b',raw)
+    foil=(re.search(r'Calculated polar for:[ \t]*([^\r\n]+)',raw) if coordinate_name is not None
+          else re.search(r'Calculated polar for:\s*NACA\s*(\d{4})\b',raw))
     reynolds_match=re.search(r'\bRe\s*=\s*('+value+r')\s*[eE]\s*([-+]?\d+)',raw)
     mach=re.search(r'\bMach\s*=\s*('+value+r')(?=\s|$)',raw)
     ncrit=re.search(r'\bNcrit\s*=\s*('+value+r')\s+('+value+r')(?=\s|$)',raw)
@@ -32,7 +33,7 @@ def check_polar_controls(raw,naca,reynolds,transition):
     reported_re=float(mantissa)*10.**exponent
     observed=dict(reynolds=reported_re,mach=float(mach[1]),
         ncrit=[float(ncrit[1]),float(ncrit[2])],top_xtr=float(trips[1]),bottom_xtr=float(trips[2]))
-    if (not math.isfinite(reported_re) or quantum>500.000001 or foil[1]!=naca
+    if (not math.isfinite(reported_re) or quantum>500.000001 or foil[1].strip()!=(coordinate_name if coordinate_name is not None else naca)
             or abs(reported_re-reynolds)>quantum+1e-6 or observed['mach']!=0.
             or any(abs(v-transition.n_crit)>.000501 for v in observed['ncrit'])
             or abs(observed['top_xtr']-transition.top_xtr)>.000501

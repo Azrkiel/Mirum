@@ -11,6 +11,8 @@ import numpy as np
 
 from analysis.airfoil import _parse_polar_file
 from cem.aero.contracts import Transition
+from cem.aero.polars import PolarCoverageError, check_polar_controls
+from cem.aero.polar_audit import SEQUENCES
 from cem.aero.native import run, artifact, resolve
 from cem.core import canonical_json, digest
 
@@ -25,7 +27,9 @@ def coordinates_payload(coordinates):
     return points.astype(float).tolist()
 
 
-def query(coordinates, reynolds, angles, directory, *, transition=None, panels=160):
+def query(coordinates, reynolds, angles, directory, *, transition=None, panels=160, sequence="ascending"):
+    if sequence not in SEQUENCES:
+        raise ValueError('Unknown coordinate initialization sequence')
     points = coordinates_payload(coordinates)
     if (type(reynolds) not in (int, float) or not math.isfinite(reynolds)
             or not 30000 <= reynolds <= 1000000):
@@ -47,13 +51,22 @@ def query(coordinates, reynolds, angles, directory, *, transition=None, panels=1
         'PANE', 'OPER', f'VISC {reynolds:.12g}', 'MACH 0', 'VPAR',
         f'N {t.n_crit:.12g}', f'XTR {t.top_xtr:.12g} {t.bottom_xtr:.12g}', '',
         'ITER 150', 'ALFA 0', 'PACC', 'polar.out', '']
-    commands += [f'ALFA {a:.8g}' for a in angles]
+    if sequence in ('ascending', 'ascending_repeat'):
+        commands += [f'ALFA {a:.8g}' for a in angles]
+    elif sequence == 'zero_centered':
+        commands += [f'ALFA {a:.8g}' for a in angles if a >= 0]
+        commands += ['INIT'] + [f'ALFA {a:.8g}' for a in reversed(angles) if a < 0]
+    else:
+        commands += [v for a in angles for v in ('INIT', f'ALFA {a:.8g}')]
     commands += ['PACC', '', 'QUIT']
     native = run('xfoil', '\n'.join(commands)+'\n', folder, 'polar', ('polar.out',))
     native['artifacts'].append(artifact(folder/'foil.dat', folder))
+    observed = check_polar_controls((folder/'polar.out').read_text(), None, reynolds, t,
+                                    coordinate_name='mirum_exact_coordinates')
     parsed = _parse_polar_file(str(folder/'polar.out'))
     rows = [dict(alpha_deg=a, cl=cl, cd=cd, cm=cm) for a,cl,cd,cm in
             zip(parsed['alpha'],parsed['Cl'],parsed['Cd'],parsed['Cm'])]
+    rows.sort(key=lambda row: row['alpha_deg'])
     if (any(not all(math.isfinite(v) for v in row.values()) or row['cd'] <= 0 for row in rows)
             or any(b['alpha_deg'] <= a['alpha_deg'] for a,b in zip(rows,rows[1:]))):
         raise ValueError('Invalid native coordinate polar rows')
@@ -62,7 +75,7 @@ def query(coordinates, reynolds, angles, directory, *, transition=None, panels=1
     missing = [float(a) for a in angles if not any(abs(row['alpha_deg']-a) <= .001 for row in rows)]
     return dict(scope='exact_coordinate_section_polar_development', coordinates=points,
         coordinates_sha256=digest(points), reynolds=float(reynolds),
-        requested_angles_deg=list(angles), transition=t.model_dump(mode='json'), panels=panels,
+        sequence=sequence, reported_controls=observed, requested_angles_deg=list(angles), transition=t.model_dump(mode='json'), panels=panels,
         state='incomplete' if missing else 'complete', missing_angles_deg=missing,
         rows=rows, native=native, qualified_aircraft_stall=False)
 
@@ -88,7 +101,7 @@ def validate(report, directory):
             raise ValueError('Coordinate polar artifact differs from retained identity')
     with tempfile.TemporaryDirectory(prefix='mirum-coordinate-polar-') as tmp:
         expected = query(report['coordinates'], report['reynolds'], report['requested_angles_deg'], tmp,
-            transition=report['transition'], panels=report['panels'])
+            transition=report['transition'], panels=report['panels'], sequence=report['sequence'])
     # Native log timing text can vary. Compare scientific payloads exactly;
     # the retained raw logs must separately match their recorded hashes above.
     scientific = lambda r: {k:v for k,v in r.items() if k != 'native'}
@@ -131,15 +144,15 @@ class CoordinateBank:
         group = self.groups.get(foil, ())
         if (not math.isfinite(reynolds) or not math.isfinite(alpha) or not group
                 or not group[0]['reynolds'] <= reynolds <= group[-1]['reynolds']):
-            raise ValueError('Local Reynolds number outside coordinate polar coverage')
+            raise PolarCoverageError('Local Reynolds number outside coordinate polar coverage')
         angles = group[0]['requested_angles_deg']
         if not angles[0] <= alpha <= angles[-1]:
-            raise ValueError('Local angle outside coordinate polar coverage')
+            raise PolarCoverageError('Local angle outside coordinate polar coverage')
         i = max(0,min(len(group)-2,int(np.searchsorted([r['reynolds'] for r in group],reynolds))-1))
         a,b = group[i:i+2]
         j = max(0,min(len(angles)-2,int(np.searchsorted(angles,alpha))-1))
         if any(r['rows'][j+1]['cl'] <= r['rows'][j]['cl'] for r in (a,b)):
-            raise ValueError('Coordinate polar query outside attached positive-slope coverage')
+            raise PolarCoverageError('Coordinate polar query outside attached positive-slope coverage')
         w = math.log(reynolds/a['reynolds']) / math.log(b['reynolds']/a['reynolds'])
         return tuple(float((1-w)*np.interp(alpha,angles,[row[k] for row in a['rows']]) +
                            w*np.interp(alpha,angles,[row[k] for row in b['rows']])) for k in ('cl','cd','cm'))

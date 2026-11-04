@@ -72,7 +72,7 @@ def test_native_reflex_and_deflected_coordinates_are_not_replaced_by_naca(tmp_pa
 def test_native_missing_rows_are_explicit_and_unusable(tmp_path, monkeypatch):
     from cem.glider.families import coordinate_polars as p
     def fake_native(name,commands,folder,stem,outputs):
-        (folder/'polar.out').write_text('header\n -------\n -2.0 -.2 .01 .0 .0\n 2.0 .2 .01 .0 .0\n')
+        (folder/'polar.out').write_text('Calculated polar for: mirum_exact_coordinates\n Mach = 0.000 Re = 0.100 e 6 Ncrit = 9.000 9.000\n xtrf = 1.000 (top) 1.000 (bottom)\n -------\n -2.0 -.2 .01 .0 .0\n 2.0 .2 .01 .0 .0\n')
         return dict(artifacts=[])
     monkeypatch.setattr(p,'run',fake_native)
     report=p.query(asb.Airfoil('naca0012').coordinates,100000.,[-2.,0.,2.],tmp_path/'missing')
@@ -80,3 +80,49 @@ def test_native_missing_rows_are_explicit_and_unusable(tmp_path, monkeypatch):
     assert report['missing_angles_deg']==[0.]
     with pytest.raises(ValueError,match='Incomplete'):
         CoordinateBank([report])
+
+
+@pytest.mark.parametrize('change', ['name', 're', 'mach', 'ncrit', 'trip', 'missing'])
+def test_coordinate_native_metadata_rejects_wrong_reported_controls(change):
+    from cem.aero.polars import check_polar_controls
+    from cem.aero.contracts import Transition
+    raw = ('Calculated polar for: mirum_exact_coordinates\n'
+           'Mach = 0.000 Re = 0.100 e 6 Ncrit = 9.000 9.000\n'
+           'xtrf = 1.000 (top) 1.000 (bottom)\n')
+    assert check_polar_controls(raw, None, 100000., Transition(),
+                               coordinate_name='mirum_exact_coordinates')['mach'] == 0
+    replacements = dict(name=('mirum_exact_coordinates', 'NACA 0012'),
+        re=('0.100', '0.200'), mach=('0.000', '0.100'), ncrit=('9.000', '8.000'),
+        trip=('1.000 (top)', '0.500 (top)'), missing=('Ncrit', 'absent'))
+    a, b = replacements[change]
+    with pytest.raises(ValueError, match='operating'):
+        check_polar_controls(raw.replace(a, b), None, 100000., Transition(),
+                             coordinate_name='mirum_exact_coordinates')
+
+
+def test_coordinate_coverage_errors_use_shared_solver_domain():
+    from cem.aero.polars import PolarCoverageError
+    bank = CoordinateBank(fixture_reports())
+    for foil, re, alpha in [('absent', 150000., 0.),
+                            (fixture_reports()[0]['coordinates_sha256'], 150000., 5.)]:
+        with pytest.raises(PolarCoverageError):
+            bank.coefficients(foil, re, alpha)
+
+
+def test_coordinate_domain_drives_damped_solver_and_failure_diagnostics():
+    from cem.aero.numerics import bounded_newton, NumericalConvergenceError
+    bank = CoordinateBank(fixture_reports())
+    key = fixture_reports()[0]['coordinates_sha256']
+    def residual(x):
+        bank.coefficients(key, 150000., float(x[0]))
+        return [x[0]**3-1.]
+    result = bounded_newton(residual, [.1])
+    assert result['value'] == pytest.approx([1.])
+    assert result['rejected_domain_trials'] > 0
+    with pytest.raises(NumericalConvergenceError, match='Initial.*coverage'):
+        bounded_newton(residual, [3.])
+    def no_covered_root(x):
+        bank.coefficients(key, 150000., float(x[0]))
+        return [x[0]-3.]
+    with pytest.raises(NumericalConvergenceError, match='covered'):
+        bounded_newton(no_covered_root, [0.])

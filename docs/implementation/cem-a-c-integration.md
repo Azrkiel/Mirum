@@ -1,5 +1,10 @@
 # A into C: aerodynamic integration handoff
 
+Software follow-up: [coordinate-family verification](cem-coordinate-verification.md)
+adds covered circulation solves, coordinate-output metadata checks and native
+initialization/refinement/interpolation audits. The results below remain the
+historical integration receipt.
+
 This integrates A's `aae2b7e` and
 `26cd52830a95058a6c00d26c4ece9fb377764d5f` into
 `cem-task-c-aircraft-families`, based on C's `f921387` continuation. The merge
