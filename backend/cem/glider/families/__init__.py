@@ -13,6 +13,9 @@ def build(family, parameters=None):
 def capabilities():
     return {name: dict(geometry='screening_prototype',
         builder_revision=module.build().builder_revision, production_search=False,
+        shared_geometry_contract='mirum-aero-1',
+        shared_geometry_state=('unsupported_custom_reflex' if name == 'tailless_swept'
+                               else 'neutral_control_screening_adapter'),
         independent_numerical_performance=False, physical_construction=False,
         missing=['A: family-scoped aerodynamic contracts and native qualification',
                  'B: family-scoped construction and load-path qualification'])
