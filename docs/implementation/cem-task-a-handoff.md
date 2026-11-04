@@ -40,25 +40,80 @@ verified gain, comparison bundle HTTP 404.
 These are not passing whole-aircraft/family qualification cases. Stable controlled
 fixtures and passing individual solver diagnostics do not replace one.
 
-## Next A qualification work, in order
+## Qualification continuation results
 
-1. Freeze a reproducible conventional-aircraft positive native reference with
-   documented geometry, hardware, mass/CG, atmosphere and operating envelope.
-   Diagnose numerical solver excursions separately from genuinely unsupported
-   station conditions. Do not move hardware inside the equilibrium solve.
-2. Record native polar gaps explicitly by foil, Re, angle and transition. Test
-   bounded initialization/continuation sequences and qualify only complete
-   coverage actually required by the calculation. Do not interpolate through
-   missing angles, extrapolate, relax stability or manufacture coefficients.
-3. Check force/moment closure, local operating conditions, viscous/induced/body
-   drag accounting, coupled equilibrium and numerical refinement against native
-   references. Add a related unstable/untrimmable rejection case.
-4. Re-run the existing frozen pair. Its spiral rejection remains a rejection if
-   the evidence still violates the mission limits. An unsuccessful design is a
-   legitimate outcome, not a reason to relax admission.
-5. Extend qualification to the existing T- and V-tail envelopes individually,
-   then give C explicit qualified scope and remaining body/interference/stall
-   limitations. Physical-family admission also needs B's applicable evidence.
+One frozen high-Re conventional whole-aircraft reference now passes native polar
+panel refinement, coupled force/moment equilibrium, lifting/AVL mesh refinement,
+native force/axis agreement and the unchanged mission stability limits. The
+versioned input is `backend/cem/data/aero-conventional-reference-v1.json`:
+0.312 kg, CG x = 0.259 m, NACA 0012, Re 230,000–350,000, prescribed rigid geometry
+and inertia. Static margin is about 0.10489; predicted distance from 10 m is about
+54.95684 m. No mass, incidence or placement is adjusted during the solve.
+
+The separate aft-CG countercase (x = 0.33 m) is rejected for native pitch
+instability. Its assessment is at the positive case's operating point; it claims
+neither zero-moment trim nor an unstable flight equilibrium. This is a numerical
+method reference, not physical material, installed-rod or flight qualification.
+
+Covered-domain Newton backtracking now rejects invalid numerical trials without
+inventing coefficients or rejecting a design merely because one trial left its
+table. Failure still means no equilibrium established. Native operating-point
+and standard-axis force/drag consistency are explicitly checked. The 16/6 and
+24/8 AVL meshes pass the same tolerances within the retained 20-second cap; the
+larger 48/12 mesh had exceeded that cap on the whole-aircraft case.
+
+The original low-Re obstruction has a reproducible diagnostic. For NACA 0006 at
+Re 30,000 and Ncrit 9, ascending/repeated sweeps miss −4°, 4°, 7.5° and 8°;
+zero-centered continuation misses −4°, 4° and 7°; per-point initialization misses
+7°. The 8° coefficient is sequence-sensitive. These are converged-row gaps,
+separate from the repaired SIGFPE. No branch supplies a complete requested grid,
+and no fallback or union of partial rows is admitted.
+
+The combined native CEM/glider/UI suite passes **304 tests**. Qualification and
+audit reports bind the current source, inputs, executable identities and raw
+artifacts, and replay without executing native solvers. The shared contract and
+original analytical fixture interfaces are unchanged; C's families stay disabled.
+
+The final real HTTP rerun also passes parent evidence validation. It preserves
+eight shaped elites and the +0.13605958335011792 m primary screening difference.
+The new whole-aircraft reference passes inside that comparison, while both
+actual arms still reject incomplete NACA 0006/Re 30,000 coverage and both legacy
+AVL diagnostics retain the spiral-instability rejection. `verified_gain=false`
+and comparison bundle HTTP 404 remain correct.
+
+Current evidence identities:
+
+- Source/runtime fingerprint:
+  `27ee54426fb0e1785376cc7e2b8d7595a657f235513994b6a56321d00819153f`.
+- Frozen reference input:
+  `994594ce2c89c1920fb21e38adfb9e224fae2831a59b574fdb9ca7cb8cd0f05c`.
+- Whole-aircraft reference evidence:
+  `f2571d9d32ec1d100e3f1940ec1378a10e6a165764a955e006e7cfc383e39832`.
+- Low-Re section audit evidence:
+  `4316bd41a1f4fea7b4976d43f0a1f167911d469ebdaaf869a69b4d05e40273ac`.
+
+The case's 160/240-panel differences are 0.0039 Cl, 0.00002 Cd and 0.0009 Cm.
+The 12/24-strip objective difference is about 0.00490 m. The largest normalized
+equilibrium residual is below 4.2e-11. The unstable countercase's native Cma is
+positive (0.490627). These numbers verify the declared reference, not a broader
+family, physical flight result or calibrated error guarantee.
+
+## Remaining A qualification work, in order
+
+1. Establish supported low-Re coverage with a justified numerical/physical method
+   and explicit transition/stall envelope. The sequence audit is not a substitute
+   for complete polars or a reason to extrapolate or splice inconsistent rows.
+2. Add separate positive and rejected references for the existing T-/V-tail
+   envelopes. The new conventional reference does not qualify these by analogy.
+3. Preserve the real frozen pair's spiral rejection. A genuinely different stable
+   design requires its own geometry/hardware revision and fresh evidence; never
+   adjust hardware inside the comparison to rescue an arm.
+4. Bound body/interference and numerical-model errors beyond the present declared
+   engineering allowances before claiming broader applicability. Rigid attached
+   flow does not establish stall order, junction flow or flexible construction.
+5. Supply C only explicitly qualified scope. Its family-specific reflex/control,
+   interference/stall and native end-to-end qualifications remain C's work;
+   physical-family admission also needs B's applicable construction evidence.
 
 ## Coordination boundary while C runs
 
@@ -89,3 +144,23 @@ paths are not portable proof on another machine. Native reference inputs,
 expected tolerances and qualified/rejected outputs must be retained in the next
 handoff, with executable/raw-artifact identities. Deployment, environment
 publication, fresh-task restoration and empirical flight validation remain open.
+
+The continuation's local evidence is retained under
+`work/qualification/http-final/`, `work/qualification/frozen-reference-final/`
+and `work/qualification/section-audit-final/`. The frozen-reference copy replays
+successfully after relocation. These local paths are not hosted downloads; C
+should reproduce the scripts against its own executable/runtime identities.
+
+Run the added reference and sequence audit with the selected binaries:
+
+```sh
+python scripts/cem/qualify_aero.py --directory work/aero-reference
+python scripts/cem/qualify_aero.py --directory work/aero-reference --replay
+python scripts/cem/audit_aero_polars.py --directory work/low-re-audit
+python scripts/cem/audit_aero_polars.py --directory work/low-re-audit --replay
+```
+
+The audit always withholds aircraft admission and gain claims; successful command
+execution is not complete polar coverage. See the implementation notes for the
+reference's precise supported scope and the distinction between audit and
+qualification exit status.

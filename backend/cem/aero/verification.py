@@ -43,8 +43,13 @@ def native_references(folder, replay=False):
         raise ValueError('Native AVL finite-wing reference failed')
     if abs(high['coefficients']['Cmtot'])>.005:
         raise ValueError('Native AVL quarter-chord moment reference failed')
+    from .qualification import run_reference
+    whole=run_reference(folder/'whole_aircraft',replay=replay)
+    if whole['state']!='passed':
+        raise ValueError('Native whole-aircraft reference failed: '+whole.get('failure',{}).get('reason','missing evidence'))
     return dict(state='passed',xfoil_panel_differences=differences,
         xfoil=[p.model_dump(mode='json') for p in polars],avl=[low,high],
+        whole_aircraft_reference=whole,
         tolerances=dict(xfoil_cl=.025,xfoil_cd=.001,xfoil_cm=.005,avl_cl_mesh=.005,avl_reference_relative=.10))
 
 
@@ -69,8 +74,8 @@ def arm(geometry, gl, primary, req, calibration, folder, replay=False):
     fine=equilibrium(geometry,bank,req,calibration,primary,24)
     error=numerical_error(coarse,fine,req.objective)
     op=OperatingPoint.model_validate_json(canonical_json(fine['loads']['operating_point']))
-    low=avl.analyze(geometry,op,folder/'avl_low',24,8,replay=replay)
-    high=avl.analyze(geometry,op,folder/'avl_high',48,12,replay=replay)
+    low=avl.analyze(geometry,op,folder/'avl_low',*avl.QUALIFICATION_MESHES[0],replay=replay)
+    high=avl.analyze(geometry,op,folder/'avl_high',*avl.QUALIFICATION_MESHES[1],replay=replay)
     stability=avl.admission(low,high,geometry,fine,gl.cfg['limits'])
     return dict(state='passed',binding=geometry.binding.model_dump(mode='json'),
         installed_geometry=geometry.model_dump(mode='json'),

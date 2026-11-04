@@ -147,6 +147,13 @@ the installed rod never change during this solve. The reported trajectory uses
 the pinned launch, wind and uplift semantics; unbounded sustained flight is not
 converted into a finite objective.
 
+Circulation and equilibrium use a damped Newton solve restricted to supported
+evidence. An uncovered numerical trial supplies no aerodynamic coefficient:
+backtracking rejects it and tries a smaller covered step. A small step or a
+constrained minimum cannot satisfy admission; the actual residual must converge.
+Failure to find a covered numerical root is reported as no established
+equilibrium, rather than proof that the physical aircraft cannot trim.
+
 AVL independently receives the installed camber, twist, dihedral, symmetry and
 CG. Element forces reconstruct dimensional geometry-axis loads; their coefficient
 sum must close total force/moment within 0.003, accounting for report rounding.
@@ -154,7 +161,10 @@ AVL's `cmLE` changes sign on YDUP surfaces and is converted explicitly. The `ai`
 strip column is far-wake downwash, not local effective incidence. The coupled
 solver calculates its own local induced velocity instead.
 
-AVL refinement uses 24/8 and 48/12 span/chord resolution. Forces must change by
+AVL refinement uses 16/6 and 24/8 span/chord resolution. The larger 48/12 mesh
+exceeded the retained 20-second native invocation budget on the whole-aircraft
+reference. The supported pair passes the same convergence criteria; a failed
+refinement remains a failure. Forces must change by
 at most max(0.0005, 2%); derivatives by max(0.002, 5%). Native and independent
 lift must agree within max(0.02, 10%), pitch coefficient within 0.02 and induced
 drag within max(0.001, 15%). Body pitch/lift and destabilizing yaw increments enter
@@ -213,10 +223,10 @@ Publication branch: `cem-task-a-aerodynamic-verification`, based on task commit
 this implementation.
 
 The combined CEM, legacy glider, UI, AVL and airfoil regression run passed
-**290 tests**, including native solver tests, with two dependency deprecation
-warnings. The final aerodynamic/comparison/UI run, including the additional
-independent mass-constraint regression, passed **31 tests** with one dependency
-deprecation warning. `pip check`, Python compilation and `git diff --check` passed.
+**304 tests**, including the new whole-aircraft qualification, unstable
+countercase, covered-domain solver and native sequence-audit tests, with two
+dependency deprecation warnings. `pip check`, Python compilation and
+`git diff --check` passed.
 
 ```sh
 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -m pytest \
@@ -249,7 +259,63 @@ Final native qualification remains blocked on positive and unstable/untrimmable
 reference cases for each family's supported envelope. In particular, C must
 establish tailless reflex/control trim and stability, canard interference and
 stall order, and tandem lift sharing/interference/stall behavior. The present
-rigid attached-flow calculation and single-surface native references do not
-establish those behaviors. Missing polar coverage and the existing designs'
+rigid attached-flow calculation and its specific conventional native reference
+do not establish those behaviors. Missing polar coverage and the existing designs'
 native spiral rejection remain open A qualification limits. Physical family
 admission additionally depends on B's applicable construction/load-path evidence.
+
+## Whole-aircraft qualification continuation
+
+The frozen input `backend/cem/data/aero-conventional-reference-v1.json` now defines
+`conventional-naca0012-rigid-v1`. It prescribes 0.312 kg, CG x = 0.259 m, all
+surface/body placements, inertia, a 10 m drop and a 15 m/s speed ceiling. No
+hardware or mass property changes during either equilibrium solve. This is an
+idealized rigid numerical benchmark, not delivered material or rod qualification.
+
+Its complete NACA 0012 polar grid spans Re 230,000, 300,000 and 350,000, alpha
+−2° to 3° in 0.25° steps, Ncrit 9 and transition limits 1/1. Both 160- and
+240-panel native grids pass the declared coefficient convergence checks.
+The independent calculation refines from 12 to 24 lifting strips per half
+surface, closes inclined-glide force/moment equilibrium, agrees with the native
+AVL forces/moments within the existing limits, and passes the unchanged mission
+stability envelope. Its predicted distance is approximately 54.95684 m, with
+static margin 0.10489 and stable roll/Dutch-roll/spiral modes. This is a reference
+value, not a gain claim or physical flight prediction established by testing.
+
+The countercase changes only the separately declared reference CG to x = 0.33 m.
+Native pitch stability is then rejected as expected. It is a fixed-operating-point
+instability check, with no unstable trim or flight equilibrium claimed. Both
+cases retain raw inputs, polars, force/element/derivative reports, executable
+hashes, source/context bindings and replay validation. Successful whole-aircraft
+reference evidence is now required alongside the original native references in
+paired-comparison admission.
+
+Native operating alpha, beta, Mach and rates must match the requested point.
+The standard-axis total forces must also transform back to the reported CL/CD
+and close the induced/viscous drag sum within 0.00002. A changed CL label cannot
+bypass force conservation merely because the dimensional CX/CZ sums agree.
+
+```sh
+python scripts/cem/qualify_aero.py --directory work/aero-reference
+python scripts/cem/qualify_aero.py --directory work/aero-reference --replay
+python scripts/cem/audit_aero_polars.py --directory work/low-re-audit
+python scripts/cem/audit_aero_polars.py --directory work/low-re-audit --replay
+```
+
+The section audit is explicitly diagnostic. At NACA 0006, Re 30,000, Ncrit 9,
+the ascending and repeated ascending runs both miss −4°, 4°, 7.5° and 8°.
+Zero-centered continuation misses −4°, 4° and 7°; resetting the boundary layer
+at each point still misses 7°. The common converged result at 8° is
+sequence-sensitive beyond the diagnostic coefficient thresholds. No sequence
+supplies the requested complete grid. No rows are spliced, extrapolated or
+manufactured, and no initialization fallback is enabled for production.
+
+An audit command's zero exit status means diagnostics executed, not that polars
+or an aircraft passed admission. Its `production_admissible` and `verified_gain`
+remain false. The qualification command succeeds only for a passed reference.
+Replay reconstructs successful evidence from raw files without running solvers.
+
+The qualified scope is this specific high-Re rigid conventional reference.
+It does not qualify all conventional designs, the low-Re example, T-/V-tail
+envelopes or C's new families. Interference, stall, physical structure and
+empirical/calibrated error bounds remain outside this proof.

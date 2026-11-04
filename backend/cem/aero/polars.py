@@ -8,10 +8,15 @@ from .contracts import NativeIdentity, Artifact, StationPolar, Transition
 from .native import run, NativeFailure
 
 
+class PolarCoverageError(ValueError):
+    """The queried station is outside the supported polar evidence domain."""
+
+
 def script(naca, reynolds, angles, transition, output, panels=160):
     if not (len(naca) == 4 and naca.isdigit()) or not 30000 <= reynolds <= 1000000:
         raise ValueError('Unsupported XFOIL airfoil/Reynolds envelope')
-    if len(angles) < 3 or len(angles) > 81 or min(angles) < -10 or max(angles) > 12:
+    if (len(angles) < 3 or len(angles) > 81 or not all(math.isfinite(a) for a in angles)
+            or min(angles) < -10 or max(angles) > 12):
         raise ValueError('Unsupported XFOIL angle envelope')
     if any(b <= a for a,b in zip(angles,angles[1:])) or panels not in (160, 240):
         raise ValueError('Unordered angles or unsupported XFOIL panel count')
@@ -43,8 +48,15 @@ def query(binding, naca, reynolds, angles, folder, transition=None, panels=160, 
     else:
         evidence = run('xfoil',commands,folder,stem,(stem+'.out',))
     data = _parse_polar_file(str(folder/(stem+'.out')))
+    if any(not math.isfinite(value) for values in data.values() for value in values):
+        evidence['state']='invalid_output'
+        raise NativeFailure('XFOIL nonfinite native polar output',evidence)
     if len(data['alpha']) != len(angles) or not np.allclose(data['alpha'],angles,rtol=0,atol=.001):
         evidence['state'] = 'nonconvergence'
+        evidence['coverage']=dict(naca=naca,reynolds=float(reynolds),
+            transition=transition.model_dump(mode='json'),requested_alpha_deg=list(angles),
+            converged_alpha_deg=data['alpha'],
+            missing_alpha_deg=[float(a) for a in angles if not any(abs(a-b)<=.001 for b in data['alpha'])])
         raise NativeFailure('XFOIL nonconvergence: incomplete requested polar coverage', evidence)
     identity = NativeIdentity(solver='xfoil',executable_sha256=evidence['executable_sha256'],
         artifacts=tuple(Artifact(**v) for v in evidence['artifacts']))
@@ -73,15 +85,15 @@ class PolarBank:
             raise ValueError('Nonfinite station query')
         group = self.groups.get(naca, ())
         if not group or not group[0].reynolds <= reynolds <= group[-1].reynolds:
-            raise ValueError(f'Station Reynolds number {reynolds:.6g} outside polar coverage for NACA {naca}')
+            raise PolarCoverageError(f'Station Reynolds number {reynolds:.6g} outside polar coverage for NACA {naca}')
         i = max(0, min(len(group)-2, int(np.searchsorted([p.reynolds for p in group], reynolds))-1))
         a,b = group[i:i+2]
         if not a.alpha_deg[0] <= alpha <= a.alpha_deg[-1]:
-            raise ValueError('Effective station angle outside polar coverage')
+            raise PolarCoverageError(f'Effective station angle {alpha:.6g} outside polar coverage for NACA {naca}')
         j = max(0, min(len(a.alpha_deg)-2, int(np.searchsorted(a.alpha_deg, alpha))-1))
         for p in (a,b):
             if p.cl[j+1] <= p.cl[j]:
-                raise ValueError('Station polar outside attached positive-slope envelope')
+                raise PolarCoverageError('Station polar outside attached positive-slope envelope')
         w = math.log(reynolds/a.reynolds)/math.log(b.reynolds/a.reynolds)
         values = [(1-w)*np.interp(alpha,a.alpha_deg,getattr(a,k))+w*np.interp(alpha,b.alpha_deg,getattr(b,k))
                   for k in ('cl','cd','cm')]
