@@ -13,6 +13,8 @@ env/
 *.egg-info/
 dist/
 .pytest_cache/
+# Local aerodynamic builds, solver logs and task scratch files
+/work/
 
 # Node
 node_modules/

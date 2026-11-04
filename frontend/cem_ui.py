@@ -123,8 +123,8 @@ def _results(backend, headers):
         result = job['result']
         if result.get('kind') == 'shape_comparison':
             st.write(f"Paired shape comparison: **{result['status']}**.")
-            st.info('No verified performance gain is claimed. Hardware is fixed; mass and CG can change with shape. '
-                    'Independent diagnostics do not close whole-aircraft viscous performance.')
+            st.info('Hardware is fixed; mass and CG can change with shape. Numerical verification is separate '
+                    'from physical flight validation and manufacturing acceptance.')
             rows = [dict(arm=label, admitted=result[label]['result']['valid'],
                          objective=result[label]['result'].get('objective_value'),
                          failures=result[label]['result']['fail_reasons']) for label in ('baseline', 'shaped')]
@@ -132,6 +132,17 @@ def _results(backend, headers):
             if result['objective_delta'] is not None:
                 st.write(f"Paired screening change (shaped − unity control): **{result['objective_delta']:+.3f}**.")
             st.write(f"Independent XFOIL/AVL diagnostics: **{result['independent_recheck']['state']}**.")
+            independent=result.get('independent_performance',{'state':'not_requested','verified_gain':False})
+            if not independent.get('verified_gain'):
+                st.info('No verified performance gain is established by this comparison.')
+            st.write(f"Independent whole-aircraft numerical comparison: **{independent['state']}**.")
+            if independent.get('verified_gain'):
+                st.success('Numerical gain exceeds the declared paired error criterion within the reported model scope.')
+            elif independent['state']!='not_requested':
+                st.info('No independently verified gain: both arms must pass all coverage, stability and convergence gates, '
+                        'and improvement must exceed the sum of their declared error bounds.')
+            for label,item in zip(('Control','Shaped'),independent.get('arms',[])):
+                if item.get('reason'): st.write(f"{label}: {item['reason']}")
             st.download_button('Download paired comparison evidence', json.dumps(result, indent=2),
                 file_name=f"mirum-shape-comparison-{result['comparison_sha256'][:12]}.json", mime='application/json')
             st.json(result)
