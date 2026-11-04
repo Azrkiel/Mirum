@@ -49,7 +49,9 @@ from strategies import get_active_rules
 from schemas import AssemblyManifest, DesignRequirements, MateType, PartDefinition, sanitize_part_id
 from strategies import get_strategy
 from telemetry import log_attempt
+import config
 from config import GEMINI_MODEL_HEAVY, GEMINI_MODEL_LITE, GEMINI_MODEL_PRO
+from verification.report import CheckReport, CheckResult, check_dimensions
 
 # Heavy tier: Machinist first attempt (gemini-3.5-flash)
 MODEL = GEMINI_MODEL_HEAVY
@@ -92,6 +94,17 @@ class ScriptError(RuntimeError):
     def __init__(self, message: str, script: str = ""):
         super().__init__(message)
         self.script = script
+
+# Strong references for fire-and-forget tasks: the event loop only keeps weak
+# refs, so an un-referenced background task can be garbage-collected mid-flight.
+_BACKGROUND_TASKS: set = set()
+
+
+def _spawn_background(coro) -> None:
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+
 
 # Max concurrent Machinist calls (respects Gemini rate limits)
 _MACHINIST_SEMAPHORE = asyncio.Semaphore(3)
@@ -878,10 +891,22 @@ async def _save_part_step(part_id: str, script: str) -> str:
     return safe_path
 
 
+def _remove_quiet(path: str) -> None:
+    """Best-effort file removal."""
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 async def run_critic_loop(
     part_def: PartDefinition,
-    max_retries: int = 3,
+    max_retries: int | None = None,
     save_step: bool = True,
+    requirements: "DesignRequirements | None" = None,
+    dims_part_scoped: bool = False,
 ) -> tuple[str, str, dict | None]:
     """Subagent 3: The QA Inspector (Critic Loop).
 
@@ -893,14 +918,32 @@ async def run_critic_loop(
         max_retries: Max machinist attempts before giving up.
         save_step: Whether to export a .step file for the deterministic
             assembler. Single-part requests skip this to avoid an extra
-            subprocess call whose output they'd just throw away.
+            subprocess call whose output they'd just throw away. A temporary
+            STEP is still exported (and deleted) when ``requirements`` carries
+            key_dimensions, because the dimension check needs a measured bbox.
+        requirements: REA-extracted DesignRequirements; enables the
+            dimension-vs-spec check when key_dimensions is present.
+        dims_part_scoped: True in multi-part assemblies - only dimensions
+            whose name mentions this part_id are checked against this part.
 
     Returns:
         (validated_code, step_file_path, geometry_cert) — the clean CadQuery
         source, the absolute path to the pre-compiled .step file (empty string
         when save_step is False), and a GeometryCertificate dict (or None when
-        save_step is False or OCC is unavailable).
+        save_step is False or OCC is unavailable). When a certificate exists it
+        carries a ``verification`` key holding the sanitisable CheckReport
+        payload (cert + dimension checks) for the final attempt. The 3-tuple
+        contract is unchanged; a failed certificate still reaches the caller,
+        which refuses delivery unless ``passed is True``.
+
+    Verification failures (certificate or dimensions) consume a retry and feed
+    measured feedback to the next Machinist prompt. On the final attempt a
+    dimension mismatch is delivered flagged (``verification.degraded``) while
+    a failed certificate is returned for the caller to reject.
     """
+    if max_retries is None:
+        max_retries = config.CRITIC_MAX_RETRIES
+
     async with _MACHINIST_SEMAPHORE:
         # Classify once per part — domain is stable across retries
         classification = await classify_part(part_def.description)
@@ -909,6 +952,8 @@ async def run_critic_loop(
         error_context = ""
         retry_failure_class: str | None = None
         retry_techniques: list[str] | None = None
+        history: list[str] = []
+        key_dims = getattr(requirements, "key_dimensions", None) if requirements else None
 
         for attempt in range(1, max_retries + 1):
             code = await run_machinist(
@@ -930,15 +975,20 @@ async def run_critic_loop(
                 failure_op = classify_failure(
                     result.get("traceback", ""), code
                 )
-            log_attempt(
-                part_id=part_def.part_id,
-                domain=domain,
-                attempt=attempt,
-                code=code,
-                error=None if success else result.get("traceback"),
-                success=success,
-                failure_operation=failure_op,
-            )
+            if not success:
+                log_attempt(
+                    part_id=part_def.part_id,
+                    domain=domain,
+                    attempt=attempt,
+                    code=code,
+                    error=result.get("traceback"),
+                    success=False,
+                    failure_operation=failure_op,
+                    description=part_def.description,
+                )
+            # Compiled attempts are logged once, after verification below -
+            # telemetry success feeds the retrieval index on restart, so a
+            # geometrically rejected script must never be recorded as success.
 
             if success:
                 # T2-04: G2 continuity check for Domain C parts
@@ -1020,38 +1070,133 @@ async def run_critic_loop(
                     except Exception:
                         pass  # Curvature check is advisory — never block compilation
 
-                # Add to retrieval index for future few-shot injection
-                add_to_index(
-                    description=part_def.description,
-                    code=code,
-                    domain=domain,
-                )
-                # LVM scoring (T1-07) — async, fire-and-forget, non-blocking
-                asyncio.create_task(_score_and_log(part_def.description, code, part_def.part_id))
-                step_path = (
-                    await _save_part_step(part_def.part_id, code)
-                    if save_step
-                    else ""
-                )
-
-                # Geometry certificate — runs for all domains when a STEP file
-                # was produced. Return failures to the caller; live /generate
-                # requires all final certificates to pass before delivery.
+                # --- Verify the produced geometry --------------------------
+                # A STEP is needed for the certificate (and for the dimension
+                # check, which reads the measured bbox). Single-part requests
+                # without key_dimensions keep skipping the export.
+                final_attempt = attempt == max_retries
+                need_step = save_step or bool(key_dims)
+                step_path = ""
+                report = CheckReport(part_id=part_def.part_id, attempt=attempt)
+                report.add(CheckResult("compile", passed=True))
                 geometry_cert: dict | None = None
+                if need_step:
+                    try:
+                        step_path = await _save_part_step(part_def.part_id, code)
+                        report.add(CheckResult("export", passed=True))
+                    except ScriptError as exc:
+                        report.add(CheckResult(
+                            "export", passed=False,
+                            failures=[str(exc)[:800]],
+                            data={"failure_op": "export"},
+                        ))
+                        if final_attempt:
+                            raise
                 if step_path:
                     try:
                         from verification.geometry import certify_geometry
                         geometry_cert = dict(certify_geometry(step_path))
+                        occ_missing = any(
+                            "OCC not available" in f
+                            for f in geometry_cert.get("failures", [])
+                        )
+                        report.add(CheckResult(
+                            "cert",
+                            passed=bool(geometry_cert.get("passed")),
+                            skipped=occ_missing,
+                            failures=list(geometry_cert.get("failures", [])),
+                            data={"cert": geometry_cert},
+                        ))
                     except Exception as _cert_exc:
                         logger.debug("geometry cert skipped: %s", _cert_exc)
+                        report.add(CheckResult("cert", passed=True, skipped=True))
+                    try:
+                        report.add(check_dimensions(
+                            key_dims,
+                            geometry_cert.get("bounding_box") if geometry_cert else None,
+                            part_id=part_def.part_id if dims_part_scoped else None,
+                            rel_tol=config.DIM_TOLERANCE_REL,
+                            abs_floor_mm=config.DIM_TOLERANCE_ABS_MM,
+                        ))
+                    except Exception as _dim_exc:  # defensive: never block on the checker
+                        logger.debug("dimension check skipped: %s", _dim_exc)
 
+                if not report.passed:
+                    failure_class = report.failure_class()
+                    failure_summary = "; ".join(report.failure_messages())[:1500]
+                    log_attempt(
+                        part_id=part_def.part_id,
+                        domain=domain,
+                        attempt=attempt,
+                        code=code,
+                        error=failure_summary,
+                        success=False,
+                        failure_operation=failure_class,
+                        description=part_def.description,
+                        check_report=report.to_telemetry(),
+                    )
+                    if not final_attempt:
+                        _remove_quiet(step_path)
+                        history.append(f"attempt {attempt}: {report.summary_line()}")
+                        error_context = build_retry_context(
+                            traceback="",
+                            code=code,
+                            active_rules=get_active_rules(domain, part_def.description),
+                            check_failures=report.to_prompt_context(),
+                            previous_code=code,
+                            history=history,
+                            failure_class=failure_class,
+                        )
+                        retry_failure_class = failure_class
+                        retry_techniques = extract_techniques(code)
+                        continue
+                    # Final attempt: fall through and return what we have. A
+                    # failed certificate is rejected by the caller (fail-closed);
+                    # a dimension mismatch is flagged in the verification payload.
+                    logger.warning(
+                        "Part %r returned DEGRADED after %d attempts: %s",
+                        part_def.part_id, max_retries, failure_summary,
+                    )
+                else:
+                    log_attempt(
+                        part_id=part_def.part_id,
+                        domain=domain,
+                        attempt=attempt,
+                        code=code,
+                        error=None,
+                        success=True,
+                        description=part_def.description,
+                        check_report=report.to_telemetry(),
+                    )
+                    # Only fully-verified code enters the few-shot index -
+                    # geometrically-rejected scripts must never be re-served
+                    # as "successful examples".
+                    add_to_index(
+                        description=part_def.description,
+                        code=code,
+                        domain=domain,
+                    )
+                    # LVM scoring (T1-07) - async, fire-and-forget, non-blocking
+                    _spawn_background(
+                        _score_and_log(part_def.description, code, part_def.part_id)
+                    )
+
+                if geometry_cert is not None:
+                    geometry_cert["verification"] = report.to_payload()
+                if not save_step:
+                    _remove_quiet(step_path)
+                    step_path = ""
                 return code, step_path, geometry_cert
 
             active_rules = get_active_rules(domain, part_def.description)
+            tb = result.get("traceback", "")
+            history.append(f"attempt {attempt}: compile failure ({failure_op})")
             error_context = build_retry_context(
-                traceback=result.get("traceback", ""),
+                traceback=tb,
                 code=code,
                 active_rules=active_rules,
+                previous_code=code,
+                history=history,
             )
             retry_failure_class = failure_op
             retry_techniques = extract_techniques(code)

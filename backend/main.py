@@ -114,6 +114,49 @@ def _safe_error(detail: str | Exception) -> str:
     )
     return msg
 
+def _sanitize_report_payload(payload: dict | None) -> dict | None:
+    """Run every failure string in a CheckReport payload through _safe_error.
+
+    Check failures normally carry only measured geometry data, but error
+    paths inside the checkers can interpolate exceptions or absolute paths
+    (e.g. "STEP file not found: '/tmp/mirum/parts/...'"); sanitize them the
+    same way every other client-visible error string is. Returns a copy.
+    """
+    if payload is None:
+        return None
+    out = dict(payload)
+    out["checks"] = [
+        {**c, "failures": [_safe_error(f) for f in c.get("failures", [])]}
+        for c in payload.get("checks", [])
+    ]
+    return out
+
+
+def _client_cert(cert: dict | None) -> dict | None:
+    """Copy of a per-part geometry certificate that is safe to return to clients."""
+    if not isinstance(cert, dict):
+        return cert
+    out = dict(cert)
+    if "failures" in out:
+        out["failures"] = [_safe_error(f) for f in out.get("failures") or []]
+    if isinstance(out.get("verification"), dict):
+        out["verification"] = _sanitize_report_payload(out["verification"])
+    return out
+
+
+def _verification_warning(cert: dict | None) -> str:
+    """Sanitized one-line warning when a part compiled but failed a check."""
+    ver = (cert or {}).get("verification") if isinstance(cert, dict) else None
+    if not isinstance(ver, dict) or not ver.get("degraded"):
+        return ""
+    msgs = [
+        f"[{c.get('name')}] {f}"
+        for c in ver.get("checks", []) if not c.get("passed") and not c.get("skipped")
+        for f in c.get("failures", [])
+    ]
+    return _safe_error("; ".join(msgs)[:400])
+
+
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
     cleanup_tmp_parts()
@@ -544,6 +587,7 @@ async def _apply_diff_and_export(
     original_scripts: dict[str, str],
     prior_step_files: dict[str, str] | None = None,
     cert_sink: dict | None = None,
+    requirements=None,
 ):
     """Apply a ManifestDiff: rebuild changed/added parts, re-export reused STEPs.
 
@@ -574,7 +618,8 @@ async def _apply_diff_and_export(
 
     async def _rebuild(part_id: str):
         part = part_map[part_id]
-        code, step_path, cert = await run_critic_loop(part)
+        code, step_path, cert = await run_critic_loop(
+            part, requirements=requirements, dims_part_scoped=True)
         return part_id, code, step_path, cert
 
     tasks = [_rebuild(pid) for pid in parts_to_regenerate if pid in part_map]
@@ -652,6 +697,9 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     step_files: dict[str, str] = {}
     # G-05: per-part geometry certs — populated in the multi-part path.
     _part_certs: dict[str, dict | None] = {}
+    # Sanitized per-part CheckReport payloads for parts that compiled but
+    # failed a verification check (dimension-vs-spec, certificate).
+    _part_verification: dict[str, dict] = {}
 
     if single:
         # Single-part fast path: one machinist call, direct export, no assembler.
@@ -662,7 +710,8 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         label = f"machinist:{part.part_id}"
         yield _event(label, "running", "Manufacturing single part")
         try:
-            code, _, _cert = await run_critic_loop(part, save_step=False)
+            code, _, _cert = await run_critic_loop(
+                part, save_step=False, requirements=requirements)
         except ScriptError as e:
             logger.exception("Machinist failed (single-part)")
             debug_log_error(
@@ -695,7 +744,12 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             }
             yield f"data: {json.dumps(error_complete)}\n\n"
             return
-        yield _event(label, "done", f"Part '{part.part_id}' validated")
+        _warn = _verification_warning(_cert)
+        if _warn:
+            yield _event(label, "done", f"Part '{part.part_id}' delivered with warnings: {_warn}")
+            _part_verification[part.part_id] = _sanitize_report_payload(_cert.get("verification"))
+        else:
+            yield _event(label, "done", f"Part '{part.part_id}' validated")
 
         # Direct export — no assembler needed
         yield _event("export", "running", "Exporting to .glb")
@@ -742,7 +796,8 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
 
         # Run concurrently with semaphore-based rate limiting
         async def _build_part(part):
-            code, step_path, cert = await run_critic_loop(part)
+            code, step_path, cert = await run_critic_loop(
+                part, requirements=requirements, dims_part_scoped=True)
             return part.part_id, code, step_path, cert
 
         tasks = [asyncio.create_task(_build_part(part)) for part in parts]
@@ -773,7 +828,15 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                     part_scripts[part_id] = code
                     step_files[part_id] = step_path
                     _part_certs[part_id] = cert
-                    yield _event(labels[part_id], "done", f"Part '{part_id}' validated")
+                    _warn = _verification_warning(cert)
+                    if _warn:
+                        _part_verification[part_id] = _sanitize_report_payload(cert.get("verification"))
+                        yield _event(
+                            labels[part_id], "done",
+                            f"Part '{part_id}' delivered with warnings: {_warn}",
+                        )
+                    else:
+                        yield _event(labels[part_id], "done", f"Part '{part_id}' validated")
                 except ScriptError as e:
                     logger.exception("Machinist failed (multi-part)")
                     debug_log_error(
@@ -1018,7 +1081,8 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                     "description": f"{base_desc}\n\nREFINEMENT REQUIRED:\n{rp}",
                 })
                 new_code, _sp, _cert = await run_critic_loop(
-                    refined_part, max_retries=2, save_step=False)
+                    refined_part, max_retries=2, save_step=False,
+                    requirements=requirements)
                 if not new_code:
                     return None
                 _rs_path = _work_path(uuid.uuid4().hex + "_closure.step")
@@ -1064,7 +1128,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 (new_manifest, new_scripts, new_steps,
                  _regen, _skip) = await _apply_diff_and_export(
                     diff, cur_manifest, cur_scripts, cur_steps,
-                    cert_sink=new_certs)
+                    cert_sink=new_certs, requirements=requirements)
                 if not new_steps:
                     return None
                 report, _ = await _run_aero_stage(new_steps, requirements)
@@ -1230,13 +1294,15 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                 for pid, c in _part_certs.items():
                     if c:
                         for f in c.get("failures", []):
-                            all_failures.append(f"{pid}: {f}")
+                            all_failures.append(f"{pid}: {_safe_error(f)}")
                 # Component coverage remains required, but cannot replace a
                 # certificate of the final positioned assembly.
                 geometry_certificate = dict(result["acceptance"]["geometry_certificate"])
                 geometry_certificate["passed"] = geometry_certificate["passed"] is True and all_passed
                 geometry_certificate["part_count"] = len(_part_certs)
-                geometry_certificate["per_part"] = dict(_part_certs)
+                geometry_certificate["per_part"] = {
+                    pid: _client_cert(c) for pid, c in _part_certs.items()
+                }
                 geometry_certificate["failures"] = geometry_certificate["failures"] + all_failures
                 if assembly_joint_report is not None:
                     geometry_certificate["assembly_joints"] = assembly_joint_report
@@ -1292,6 +1358,12 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         "struct_report": struct_report, # Phase 4: StructuralReport dict or None
         "design_verdict": design_verdict,  # Phase 5: DesignVerdict dict or None
         "geometry_certificate": geometry_certificate,  # G-05: post-compile cert
+        # Parts that compiled but failed a verification check (e.g. bbox vs the
+        # requested key_dimensions); empty when every check passed.
+        "verification": {
+            "degraded": bool(_part_verification),
+            "parts": _part_verification,
+        },
     }
     yield f"data: {json.dumps(complete_payload)}\n\n"
 
