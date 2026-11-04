@@ -25,6 +25,27 @@ CLAMP = dict(density_kg_m3=1850., wall_m=.001, span_fraction=.275)
 DENSITIES = dict(foam=35., spar=1600., adhesive=1100., clamp=1850.)
 
 
+def material_core(outer, point, bore_radius):
+    """Closed foam stock with a bore coincident with the mating 64-gon."""
+    ends = np.tile(point, (2, 1)); ends[:, 1] = outer.bounds[:, 1]
+    axis = np.array([0., 1., 0.]); cuts = np.array([axis, axis])
+    core, _ = geo.core(outer, ends, cuts, axis, bore_radius, FOAM['min_web_m'],
+                      [dict(mesh=outer, points=ends, normals=cuts)])
+    # Alignment rays subdivide the same polygon, never a different circle.
+    delta = core.vertices[:, [0, 2]]-point[[0, 2]]
+    radial = np.linalg.norm(delta, axis=1)
+    mask = np.abs(radial-bore_radius) < 1e-10
+    angle = np.arctan2(delta[mask, 1], delta[mask, 0])
+    step = 2*math.pi/64
+    factor = math.cos(step/2)/np.cos(np.mod(angle, step)-step/2)
+    vertices = core.vertices.copy()
+    vertices[np.ix_(mask, [0, 2])] = point[[0, 2]]+delta[mask]*factor[:, None]
+    core.vertices = vertices
+    if np.ptp(core.vertices[:, 2]) > FOAM['max_stock_thickness_m']+geo.TOL:
+        raise ValueError('Delivered foam exceeds named stock thickness')
+    return core
+
+
 def construct(wing, diameter_m=.004):
     if (not isinstance(wing, ShapedWing) or wing.dihedral_deg != 0
             or wing.sweep_qc_deg != 0 or wing.incidence_deg != 0 or wing.washout_deg != 0
@@ -48,26 +69,7 @@ def construct(wing, diameter_m=.004):
             # Centre panels are bored for the clamp, which replaces foam.
             # Elsewhere the bore is filled exactly by the adhesive annulus.
             bore_radius = clamp_radius if i == 0 else outer_radius
-            ends = np.tile(point, (2, 1)); ends[:, 1] = outer.bounds[:, 1]
-            axis = np.array([0., 1., 0.]); cuts = np.array([axis, axis])
-            core, _ = geo.core(outer, ends, cuts, axis, bore_radius, FOAM['min_web_m'],
-                              [dict(mesh=outer, points=ends, normals=cuts)])
-            # The core inserts contour-alignment rays on its circle. Snap
-            # only those bore vertices onto the shared regular polygon so its
-            # entire boundary coincides with the mating material (no tiny
-            # unbonded crescent gaps between differently tessellated circles).
-            delta = core.vertices[:, [0, 2]]-point[[0, 2]]
-            radial = np.linalg.norm(delta, axis=1)
-            mask = np.abs(radial-bore_radius) < 1e-10
-            angle = np.arctan2(delta[mask, 1], delta[mask, 0])
-            step = 2*math.pi/64
-            offset = np.mod(angle, step)-step/2
-            factor = math.cos(step/2)/np.cos(offset)
-            vertices = core.vertices.copy()
-            vertices[np.ix_(mask, [0, 2])] = point[[0, 2]]+delta[mask]*factor[:, None]
-            core.vertices = vertices
-            if np.ptp(core.vertices[:, 2]) > FOAM['max_stock_thickness_m']+geo.TOL:
-                raise ValueError('Delivered foam exceeds named stock thickness')
+            core = material_core(outer, point, bore_radius)
             name = f'foam_{side}_{i}'
             parts[name] = dict(mesh=core, material=dict(law='solid', density_kg_m3=DENSITIES['foam']))
             interfaces.append(dict(name=name, bounds_y_m=outer.bounds[:, 1].tolist()))
@@ -101,7 +103,7 @@ def export_fixture(assembly, directory):
         write_stl(str(path), mesh.vertices, mesh.faces)
         items.append(dict(name=name, file=path.name, material=item['material'],
                           sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
-    return dict(mode=MODE, geometry_sha256=assembly['geometry_sha256'], parts=items)
+    return dict(mode=assembly['mode'], geometry_sha256=assembly['geometry_sha256'], parts=items)
 
 
 def verify_fixture(wing, diameter_m, manifest, directory):

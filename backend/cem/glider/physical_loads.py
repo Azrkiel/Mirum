@@ -96,6 +96,11 @@ def analyze(case, *, geometry_sha256, operating_sha256, half_span_m, section, ma
         raise ValueError('Loads do not cover the delivered half-span')
     if support is None:
         raise ValueError('Missing installed root support')
+    # Frozen Pydantic models can still be copied without validation by an
+    # internal caller. Revalidate complete values at the mechanics boundary.
+    case = InstalledLoadCase.model_validate(case.model_dump())
+    material = BeamMaterial.model_validate(material.model_dump())
+    support = RootSupport.model_validate(support.model_dump())
     if type(subdivisions) is not int or not 1 <= subdivisions <= 16:
         raise ValueError('Integration budget outside 1..16')
     keys = ('area_m2', 'min_inertia_m4', 'polar_inertia_m4', 'extreme_radius_m')
@@ -155,4 +160,5 @@ def analyze(case, *, geometry_sha256, operating_sha256, half_span_m, section, ma
                 qualification_state='analytical_fixture_only', manufacturing_ready=False,
                 unsupported=['aerodynamic load qualification', 'fuselage attachment compliance/strength',
                              'foam crushing/shear', 'bond peel/defects', 'buckling', 'fatigue',
-                             'polygon torsion warping', 'delivered aircraft trim'])
+                             'polygon torsion warping', 'shear deformation and support compliance',
+                             'delivered aircraft trim'])

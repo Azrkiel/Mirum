@@ -1,9 +1,10 @@
 # Task B implementation status
 
 This is a fixture-based prototype, **not completion or qualification of Task B**.
-The requested task is [the Task B brief](cem-task-b.md). The inspected Task A
-branch ends in a task brief as well; it supplies neither merged shared contracts
-nor validated shape-specific aerodynamic loads. No physical construction has
+The requested task is [the Task B brief](cem-task-b.md). At the initial inspection
+Task A contained only a brief. Its later `e88c24f` implementation now supplies
+shared contracts and fixtures; actual shape-specific native qualification is
+still incomplete. No physical construction has
 been admitted through requirements, discovery, parent validation or the UI.
 
 ## Implemented independently of A
@@ -81,7 +82,7 @@ continue rejecting physical multi-station missions, including the fixture name.
 
 ## Remaining work required by the brief
 
-1. Merge A's shared installed-material/support/load-case contract and adapt this
+1. Integrate A's shared installed-material/support/load-case contract and adapt this
    prototype to it. Preserve numerical axes, identity, operating-condition and
    raw-evidence bindings; fixture loads cannot satisfy aerodynamic qualification.
 2. Design an actual fuselage attachment, its material parts and interfaces;
@@ -99,3 +100,107 @@ continue rejecting physical multi-station missions, including the fixture name.
    tests do not justify enabling any physical construction mode.
 5. Perform release deployment, environment publication and fresh-task
    restoration checks separately; none is established by these code tests.
+
+## Continuation: installed collar-to-keel prototype
+
+The follow-on modules `attachment.py`, `foam_transfer.py` and `mounted_wing.py`
+extend the fixture into
+`bonded_shaped_wing_riveted_keel_prototype_v1`. This remains an isolated research
+diagnostic and is not an admitted production construction. Its 18 delivered
+parts are eight foam panels, the carbon rod, its adhesive annulus, a collar,
+two outer collar-to-foam bonds, two aluminium bearing plates, two aluminium
+through-rivets and a local plywood fuselage keel. Every part has a solid-volume
+material law. Plate/rivet density is 2700 kg/m³; the keel prior is 600 kg/m³.
+No unmodelled friction or fastener preload supplies capacity.
+
+Root foam is cut back 20 mm on each side to accommodate the plates. The physical
+lifting geometry therefore differs from the search wing. The revision changes,
+and loads naming the original wing are rejected. This geometry correction must
+also reach A's installed-aircraft aerodynamic inputs before final qualification;
+the existing uncut-wing trim is never presented as delivered trim.
+
+Trusted stock construction uses a bounded rectangle-with-polygon-bores
+extrusion. Delaunay triangulation is accepted only when every prescribed contour
+edge exists and the retained section's boundary is exactly the stock and bore
+loops. The verifier does not repair material. After STL import it reconstructs
+canonical surfaces, hole locations, stock thicknesses, net ligaments, pin
+sections and conforming interfaces. A separate station-loft/polygon-stock
+volume calculation checks the complete material partition. Missing or moved
+plates, rivets, keel or collar bonds fail even with refreshed artifact hashes.
+
+The mount reaction model assumes a rigid collar/plates and equal connector
+stiffness. Four measured plate/rivet contacts balance Fz, Mx and My from both
+half-wings, including asymmetric loads. The left input uses negative global Mx
+for positive lift; both torque inputs use global +Y. Whole-aircraft symmetry is
+not assumed. Pin mechanics integrate uniform plate bearing and an affine keel
+bearing distribution that balances the roll couple as well as force. Shear
+and bending extrema include interior stationary points. Constant keel bearing
+would miss asymmetric roll and is not used. Supported nominal checks cover pin
+shear/bending, plate and keel bearing/tear-out, and measured plate net sections.
+Coupon properties, contact elasticity, local concentrations, preload, clearance,
+fatigue, head pull-through and complete fuselage stiffness remain unqualified.
+
+Foam transfer uses measured bore perimeter and area with conforming adhesive
+and stock surfaces. Uniform vertical traction and constant polygon-tangent
+torque traction reproduce the applied force and torque per unit span. This is
+a nominal interface screen; it does not solve chordwise core elasticity or
+end-peel concentrations. Foam normal/shear priors are 100/80 kPa, adhesive
+normal/shear priors 1/8 MPa, with safety factor 2. These are declared assumptions,
+not measured strengths. End peel and bond defects remain explicit blockers.
+
+The mounted verifier reuses measured rod sections for both half-wing beam
+checks, using carbon E=100 GPa, G=5 GPa, normal/shear allowables 400/40 MPa and
+safety factor 2. Fixed-root Euler deflection is limited to half-span/20 and twist
+to five degrees. Mount compliance and shear deformation remain unsupported, so
+passing those calculations is insufficient stiffness qualification. Failed
+beam, foam-nominal or attachment checks reject a candidate. Passing them yields
+`incomplete`, never fabrication acceptance.
+
+### Executable delivered-section sizing fixture
+
+From the checkout root, using the glider dependencies:
+
+```sh
+PYTHONPATH=backend OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
+  MPLCONFIGDIR=/tmp/mirum-mpl XDG_CACHE_HOME=/tmp/mirum-cache \
+  python -m cem.glider.mounted_wing --output /tmp/cem-mounted-run
+```
+
+Use a new, empty output directory. `--wing-json` accepts a `ShapedWing` parameter
+object within the named flat-wing envelope. The default extra non-wing mass is
+50 g, the analytical load factor is 2, and peak torque is 0.01 N·m per metre.
+These can be set explicitly with the corresponding CLI options. The added mass
+is only a declared load fixture; no unexported aircraft's CG/inertia is certified.
+
+The load is zero through the root cutback and rises linearly toward the tip.
+Its integral on both half-wings equals the load factor times measured assembly
+plus declared extra mass times gravity. This distribution is deliberately
+analytical, not a reconstruction of aerodynamic lift. Every stock size receives
+fresh STL exports, a manifest, measured mass/inertia/interfaces, loads bound to
+that geometry revision and a new mechanics report. The loop tries 2, 3, 4, 5,
+6 and 8 mm rods and stops at the first passing supported fixture screen.
+
+The CLI returns **3 for incomplete**, **2 for rejected**. A completed diagnostic
+is not an accepted design. `result.json` records the attempted sections and
+remaining blockers; each attempted section has `manifest.json`, `loads.json`
+and `measurement.json`. Outputs stay outside the checkout.
+
+On this instance the default fixture rejected 2, 3 and 4 mm rods on beam checks
+and selected 5 mm for its passing supported checks, retaining `incomplete`.
+That run's loaded mass was about 277.45 g, including the declared extra 50 g.
+This is evidence of the executable fixture-sizing/measurement path only, not a
+minimum aircraft spar or a qualified performance result.
+
+The tests include a real CLI sizing run, fresh exports and revision-bound loads
+for every attempted section, full reaction equilibrium, analytical pin and net
+section references, polygon traction conservation across multiple resolutions,
+and rejected missing/disconnected/rehashed members. Requirements/discovery/UI
+admission and A's final aerodynamic/delivered-trim qualification remain pending.
+
+The combined focused run passed **152 tests** (one existing pytest configuration
+warning), including existing structure, segmented-wing, shape and requirements
+regressions. The first fixture groundwork is commit `d40cd0b`. Task A's newly
+available shared-contract implementation at `e88c24f` is the next integration
+dependency; it still reports incomplete real whole-aircraft polar coverage and
+native spiral rejection. Its passing numerical references do not qualify this
+mounted physical revision.
