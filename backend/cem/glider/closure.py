@@ -1,13 +1,13 @@
 """Independent mesh import, mass/inertia re-prediction and immutable-placement trim."""
 import copy
-import math
-from pathlib import Path
 
 import numpy as np
 
 from gliders.model.assembly import Glider
 from .geometry import measure_part, check_accounting, load_part_mesh, spar_enclosure
 from .model import SizedGlider, evaluate_candidate
+from .structure import verify_spar
+from . import foam_core, segmented
 
 
 class MeasuredGlider(SizedGlider):
@@ -57,10 +57,15 @@ def verify(gl, sized_result, bundle, directory, request, mission, calibration, p
                 raise ValueError('Mesh changed after construction')
             parts.append(dict(name=item['name'], **measured))
         by_name = {item['name']: directory / item['file'] for item in bundle['parts']}
-        enclosure = spar_enclosure(load_part_mesh(by_name['spar']),
-                                   [load_part_mesh(by_name[f'wing_{side}']) for side in (0, 1)])
-        if enclosure['state'] != 'passed':
-            failures.append('delivered spar is not certified enclosed by the wing surfaces')
+        construction = None
+        if not segmented.enabled(gl):
+            rod = load_part_mesh(by_name['spar'])
+            wings = [load_part_mesh(by_name[f'wing_{side}']) for side in (0, 1)]
+            if foam_core.enabled(gl):
+                construction, wings = foam_core.verify_delivery(gl, wings, rod)
+            enclosure = spar_enclosure(rod, wings)
+            if enclosure['state'] != 'passed':
+                failures.append('delivered spar is not certified enclosed by the wing surfaces')
         lower = np.min([p['bounds_m'][0] for p in parts], axis=0)
         upper = np.max([p['bounds_m'][1] for p in parts], axis=0)
         if upper[0] - lower[0] > mission.constraints.max_length_m + 1e-6 or upper[1] - lower[1] > mission.constraints.max_span_m + 1e-6:
@@ -73,36 +78,43 @@ def verify(gl, sized_result, bundle, directory, request, mission, calibration, p
         fraction = (measured.wing_position()[0] - nose) / (end - nose)
         measured.cfg['ranges']['fuselage']['wing_station_in_pod'] = (fraction, fraction)
         mass = measured.mass_summary()['mass']
+        segment_evidence = None
+        if segmented.enabled(gl):
+            meshes = {n: load_part_mesh(by_name[n]) for n in segmented.material_inventory(gl)}
+            segment_evidence = segmented.verify_delivery(gl, meshes, mass)
+            enclosure = dict(state='passed', method='segmented-original-cell-halfspaces-v1',
+                             max_outside_m=0., tolerance_m=2e-7, load_path_state='unverified')
         delta = abs(mass / sized_result['mass_kg'] - 1)
         if delta > .05:
-            failures.append('measured skin-equivalent mass differs from sizing by more than 5 percent')
+            failures.append('measured aircraft mass differs from sizing by more than 5 percent')
         result = evaluate_candidate(measured, request, mission, calibration, process)
         if not result['valid']:
             failures.append('measured-mass aerodynamic admission failed: ' + result['fail_reasons'])
         if abs(measured.tail_incidence_deg - gl.tail_incidence_deg) > .05:
             failures.append('measured-mass trim requires a geometry revision')
-        spar_part = next(p for p in parts if p['name'] == 'spar')
-        bounds = np.array(spar_part['bounds_m'])
-        # Recover the uniform Y-axis rod's actual polygon section moment from
-        # its measured solid inertia. Do not substitute an ideal circular formula
-        # for the delivered tessellation's cross-section.
-        moment = np.array(spar_part['inertia_kg_m2'])
-        density = spar_part['material_law']['density_kg_m3']
-        length = bounds[1, 1] - bounds[0, 1]
-        section_ixx = (moment[1, 1] + moment[0, 0] - moment[2, 2]) / (2 * density * length)
-        if not math.isfinite(section_ixx) or section_ixx <= 0:
-            raise ValueError('Missing measured root section inertia')
-        extreme_z = max(abs(bounds[:, 2] - spar_part['cg_m'][2]))
-        stress = gl.spar()['root_moment_nm'] * extreme_z / section_ixx
-        if stress > gl.spar()['allowable_with_sf_pa'] * (1 + 1e-5):
+        # Use the delivered rod and the converged measured aircraft mass.
+        # Sizing metadata cannot stand in for an independently proven section.
+        if segment_evidence is not None:
+            structure = segment_evidence
+            stress = max(p['max_stress_pa'] for p in structure['panels'])
+            section_ixx = min(p['section']['min_inertia_m4'] for p in structure['panels'])
+        else:
+            structure = verify_spar(rod, mass, gl.wing.span, mission.launch.method)
+            stress = structure['max_stress_pa']
+            section_ixx = structure['root_section_inertia_m4']
+        if structure['state'] != 'passed':
             failures.append('measured spar fails launch bending')
         return dict(state='failed' if failures else 'passed', failures=failures,
                     mass_relative_error=float(delta), measured_mass_kg=float(mass),
                     measured_spar_stress_pa=float(stress), parts=parts, reanalysis=result,
                     measured_spar_root_inertia_m4=float(section_ixx),
-                    part_accounting=accounting, spar_enclosure=enclosure,
+                    part_accounting=accounting, spar_enclosure=enclosure, spar_structure=structure,
+                    foam_core=construction,
+                    segmented_structure=segment_evidence,
                     delivered_bounds_m=[lower.tolist(), upper.tolist()],
-                    scope='Mesh-measured OML skin-equivalent mass and solid rod; not manufactured-part closure',
+                    scope=('Volume-measured segmented wing/rods/sleeves/bonds; engineering joint priors; tail/pod OML' if segment_evidence else
+                           'Volume-measured foam wing cores/rod; tail/pod OML mass; joints unverified' if construction else
+                           'Mesh-measured OML skin-equivalent mass and solid rod; not manufactured-part closure'),
                     manufacturing_ready=False)
     except (ValueError, KeyError, OSError, StopIteration, TypeError):
         return dict(state='failed', failures=['Required bounded mesh or closure evidence is unavailable'],

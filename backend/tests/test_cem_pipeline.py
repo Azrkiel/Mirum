@@ -98,6 +98,12 @@ def test_design_json_and_stl_are_repeatable_and_never_claim_manufacturing_accept
     # swept wing panels. Aerodynamic screening is not installed-spar evidence.
     assert a['status'] == 'rejected'
     assert a['closure']['spar_enclosure']['state'] == 'failed'
+    structure = a['closure']['spar_structure']
+    assert structure['state'] == 'passed'
+    assert structure['mass_kg'] == a['closure']['measured_mass_kg']
+    assert structure['stations'][0]['moment_nm'] == pytest.approx(
+        2 * structure['mass_kg'] * 9.81 * gl.wing.span / (3 * np.pi))
+    assert structure['load_path_state'] == 'unverified'
     assert any('spar' in reason for reason in a['closure']['failures'])
     assert (tmp_path/'a/performance_report.json').exists()
     from cem.evidence import validate

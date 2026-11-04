@@ -101,6 +101,22 @@ calibration snapshot. New flights do not overwrite the initial coefficients.
 
 ## What the masses and bands mean
 
+The opt-in `construction="segmented_foam_wing_v1"` mode follows the polyhedral
+wing with four rods, three sleeves and explicit adhesive layers. It closes the
+installed geometry and measures panel/joint sections under stated engineering
+priors. It can produce a screened bundle; foam load transfer, the wing saddle
+and test-qualified joint strengths remain unverified. See the
+[segmented-wing continuation](cem-segmented-wing.md) and its API example.
+
+The opt-in `construction="foam_core_wing_v1"` mode replaces wing OML mass with
+solid foam material volume and builds/verifies a through-channel for the stock
+rod. It requires `process="sheet_foam"`; tails/pod remain skin-equivalent and
+joints remain unverified. The existing admitted dihedral layouts currently fail
+its straight-path enclosure check. See [the foam-core continuation](cem-foam-core.md)
+for its positive subassembly control, explicit no-design result and remaining
+installed-path work. The following default mass description still applies to
+`construction="screening_oml"`.
+
 Wing/tail/pod meshes are closed **outer mould lines**. They are not fabricated
 hollow shells. Their mass law is explicitly a skin-equivalent areal density;
 triangle area moments provide their mass, CG and full inertia tensor. The spar

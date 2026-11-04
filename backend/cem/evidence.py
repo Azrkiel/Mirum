@@ -58,11 +58,118 @@ def physical_accounting(report, payload):
         if part.get('connected_components') != 1 or part.get('material_law') != expected[part['name']]:
             raise ValueError('Missing connected-part material evidence')
     enclosure = closure['spar_enclosure']
-    if (enclosure.get('state') != 'passed' or enclosure.get('method') != 'delivered-wing-face-halfspaces-v1'
+    enclosure_method = ('segmented-original-cell-halfspaces-v1' if req.construction == 'segmented_foam_wing_v1'
+                        else 'delivered-wing-face-halfspaces-v1')
+    if (enclosure.get('state') != 'passed' or enclosure.get('method') != enclosure_method
             or enclosure.get('load_path_state') != 'unverified'):
         raise ValueError('Missing bounded spar enclosure evidence')
     tolerance = number(enclosure.get('tolerance_m'), 0., 2e-7)
     number(enclosure.get('max_outside_m'), 0., tolerance)
+
+
+def structural_evidence(report, payload, directory):
+    """Recompute bounded section/load evidence from the hash-bound delivered rod."""
+    if payload['requirements'].get('construction') == 'segmented_foam_wing_v1':
+        segmented_evidence(report, payload, directory)
+        return
+    if report['closure'].get('segmented_structure') is not None:
+        raise ValueError('Unexpected segmented construction claim')
+    from cem.glider.geometry import load_part_mesh
+    from cem.glider.structure import verify_spar
+    closure = report['closure']
+    item = next(p for p in report['bundle']['parts'] if p['name'] == 'spar')
+    name = item['file']
+    if not re.fullmatch(r'[a-f0-9]{12}_spar\.stl', name):
+        raise ValueError('Unsafe structural artifact name')
+    if file_digest(directory / name) != item['sha256']:
+        raise ValueError('Structural artifact revision mismatch')
+    mass = number(closure['measured_mass_kg'], .000001)
+    span = payload['elite']['parameters']['wing']['span']
+    method = payload['requirements']['launch']['method']
+    measured = verify_spar(load_part_mesh(directory / name), mass, span, method)
+    if measured['state'] != 'passed' or canonical_json(measured) != canonical_json(closure['spar_structure']):
+        raise ValueError('Missing or inconsistent measured spar structure')
+    if (closure['measured_spar_stress_pa'] != measured['max_stress_pa']
+            or closure['measured_spar_root_inertia_m4'] != measured['root_section_inertia_m4']):
+        raise ValueError('Inconsistent measured section summary')
+
+
+def segmented_evidence(report, payload, directory):
+    """Re-import all material and recompute panel and joint evidence in parent."""
+    from cem.glider import segmented
+    from cem.glider.geometry import measure_part, load_part_mesh, expected_materials
+    from cem.glider.model import configuration, SizedGlider
+    from cem.glider.requirements import GliderMissionRequirements
+    from gliders.model.assembly import Glider
+    from gliders.model.components import WingParams, FuselageParams, TailParams
+    req = GliderMissionRequirements.model_validate(payload['requirements'])
+    elite, closure = payload['elite'], report['closure']
+    _, cfg = configuration(req, payload['calibration'], elite['process'])
+    p = elite['parameters']
+    gl = SizedGlider(WingParams(**p['wing']), FuselageParams(**p['fuselage']), TailParams(**p['tail']), cfg, **elite['placement'])
+    expected = expected_materials(gl)
+    meshes, measurements = {}, []
+    for item in report['bundle']['parts']:
+        name = item['name']; filename = f"{report['output_id']}_{name}.stl"
+        if item['file'] != filename or item['material'] != expected[name] or file_digest(directory/filename) != item['sha256']:
+            raise ValueError('Segmented material revision mismatch')
+        actual = dict(name=name, **measure_part(directory/filename, expected[name]))
+        supplied = next(m for m in closure['parts'] if m['name'] == name)
+        if canonical_json(actual) != canonical_json(supplied):
+            raise ValueError('Segmented material mass/CG/inertia differs from delivery')
+        measurements.append(actual)
+        if name in segmented.material_inventory(gl):
+            meshes[name] = load_part_mesh(directory/filename)
+    mass = sum(p['mass_kg'] for p in measurements)
+    mass += sum(p.mass for p in Glider.mass_items(gl) if p.name in ('payload', 'ballast', 'hardware'))
+    if not math.isclose(mass, closure['measured_mass_kg'], rel_tol=1e-12):
+        raise ValueError('Segmented load mass differs from measured aircraft mass')
+    actual = segmented.verify_delivery(gl, meshes, closure['measured_mass_kg'])
+    if actual['state'] != 'passed' or canonical_json(actual) != canonical_json(closure['segmented_structure']):
+        raise ValueError('Missing or inconsistent segmented structural evidence')
+    if canonical_json(actual) != canonical_json(closure['spar_structure']):
+        raise ValueError('Inconsistent segmented section summary')
+    if (closure['measured_spar_stress_pa'] != max(p['max_stress_pa'] for p in actual['panels'])
+            or closure['measured_spar_root_inertia_m4'] != min(p['section']['min_inertia_m4'] for p in actual['panels'])):
+        raise ValueError('Inconsistent segmented stress/inertia summary')
+
+
+def foam_evidence(report, payload, directory):
+    """Re-measure the opt-in material cores and their installed channel."""
+    from cem.glider import foam_core
+    if payload['requirements'].get('construction', 'screening_oml') != foam_core.MODE:
+        if report['closure'].get('foam_core') is not None:
+            raise ValueError('Unexpected physical foam construction claim')
+        return
+    from cem.glider.geometry import load_part_mesh, measure_part
+    from cem.glider.model import configuration, SizedGlider
+    from cem.glider.requirements import GliderMissionRequirements
+    from gliders.model.components import WingParams, FuselageParams, TailParams
+    elite = payload['elite']
+    req = GliderMissionRequirements.model_validate(payload['requirements'])
+    _, cfg = configuration(req, payload['calibration'], elite['process'])
+    p = elite['parameters']
+    gl = SizedGlider(WingParams(**p['wing']), FuselageParams(**p['fuselage']),
+                    TailParams(**p['tail']), cfg, **elite['placement'])
+    items = {p['name']: p for p in report['bundle']['parts']}
+    cores = []
+    for side in (0, 1):
+        name = f'wing_{side}'
+        item = items[name]
+        filename = f"{report['output_id']}_{name}.stl"
+        if item['file'] != filename or file_digest(directory/filename) != item['sha256']:
+            raise ValueError('Physical wing revision mismatch')
+        actual = dict(name=name, **measure_part(directory/filename, item['material']))
+        supplied = next(m for m in report['closure']['parts'] if m['name'] == name)
+        if canonical_json(actual) != canonical_json(supplied):
+            raise ValueError('Physical wing material measurement differs from delivery')
+        cores.append(load_part_mesh(directory/filename))
+    spar = items['spar']
+    if spar['file'] != f"{report['output_id']}_spar.stl":
+        raise ValueError('Unsafe installed spar artifact')
+    measured, _ = foam_core.verify_delivery(gl, cores, load_part_mesh(directory/spar['file']))
+    if canonical_json(measured) != canonical_json(report['closure']['foam_core']):
+        raise ValueError('Missing or inconsistent installed foam/channel evidence')
 
 
 def validate(report, payload, expected, directory):
@@ -125,6 +232,8 @@ def validate(report, payload, expected, directory):
     closure = report.get('closure')
     if not isinstance(closure, dict) or closure.get('state') not in ('passed', 'failed') or not isinstance(closure.get('failures'), list):
         raise ValueError('Missing closure evidence')
+    if closure.get('manufacturing_ready') is not False or report.get('bundle', {}).get('manufacturing_ready') is not False:
+        raise ValueError('Unsupported manufacturing-readiness claim')
     if report['status'] == 'rejected':
         if closure['state'] != 'failed' and report.get('minimum_performance_passed') is not False:
             raise ValueError('Inconsistent rejected report')
@@ -154,7 +263,8 @@ def validate(report, payload, expected, directory):
     if hard is not None and bands['bands'][payload['requirements']['objective']]['p10'] < hard:
         raise ValueError('Hard minimum not met at P10')
     manifest = report['bundle']['parts']
-    if not isinstance(manifest, list) or not 3 <= len(manifest) <= 16 or len(closure['parts']) != len(manifest):
+    part_limit = 32 if payload['requirements'].get('construction') == 'segmented_foam_wing_v1' else 16
+    if not isinstance(manifest, list) or not 3 <= len(manifest) <= part_limit or len(closure['parts']) != len(manifest):
         raise ValueError('Incomplete mesh accounting')
     seen = set()
     for part in manifest:
@@ -170,6 +280,8 @@ def validate(report, payload, expected, directory):
             raise ValueError('Missing artifact measurement binding')
         number(measurement['mass_kg'], .000000001)
         number(measurement['volume_m3'], .000000000001)
+    structural_evidence(report, payload, directory)
+    foam_evidence(report, payload, directory)
     bundle = directory / 'bundle.zip'
     if file_digest(bundle) != report.get('bundle_sha256'):
         raise ValueError('Bundle revision mismatch')
