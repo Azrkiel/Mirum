@@ -18,7 +18,7 @@ from . import avl
 SCOPE='Independent rigid attached-flow lifting-line/XFOIL plus slender-body model, cross-checked with AVL; no flight validation.'
 
 
-def native_references(folder, replay=False):
+def native_references(folder, replay=False,*,family='conventional'):
     """Native numerical references, not mocks or a declaration of installed tools."""
     from .fixtures import rectangular_fixture
     geometry=rectangular_fixture()
@@ -43,8 +43,14 @@ def native_references(folder, replay=False):
         raise ValueError('Native AVL finite-wing reference failed')
     if abs(high['coefficients']['Cmtot'])>.005:
         raise ValueError('Native AVL quarter-chord moment reference failed')
+    from .qualification import run_reference
+    whole=run_reference(folder/'whole_aircraft',replay=replay,case=family)
+    if whole['state']!='passed':
+        raise ValueError('Native whole-aircraft reference failed: '+whole.get('failure',{}).get('reason','missing evidence'))
     return dict(state='passed',xfoil_panel_differences=differences,
+        reference_family=family,
         xfoil=[p.model_dump(mode='json') for p in polars],avl=[low,high],
+        whole_aircraft_reference=whole,
         tolerances=dict(xfoil_cl=.025,xfoil_cd=.001,xfoil_cm=.005,avl_cl_mesh=.005,avl_reference_relative=.10))
 
 
@@ -69,8 +75,8 @@ def arm(geometry, gl, primary, req, calibration, folder, replay=False):
     fine=equilibrium(geometry,bank,req,calibration,primary,24)
     error=numerical_error(coarse,fine,req.objective)
     op=OperatingPoint.model_validate_json(canonical_json(fine['loads']['operating_point']))
-    low=avl.analyze(geometry,op,folder/'avl_low',24,8,replay=replay)
-    high=avl.analyze(geometry,op,folder/'avl_high',48,12,replay=replay)
+    low=avl.analyze(geometry,op,folder/'avl_low',*avl.QUALIFICATION_MESHES[0],replay=replay)
+    high=avl.analyze(geometry,op,folder/'avl_high',*avl.QUALIFICATION_MESHES[1],replay=replay)
     stability=avl.admission(low,high,geometry,fine,gl.cfg['limits'])
     return dict(state='passed',binding=geometry.binding.model_dump(mode='json'),
         installed_geometry=geometry.model_dump(mode='json'),
@@ -92,6 +98,8 @@ def inventory(directory):
 def verify_pair(gliders, primary_arms, req, calibration, process, directory):
     root=directory/'independent';root.mkdir(parents=True,exist_ok=True)
     geometries=[installed_geometry(gl,req,calibration,process) for gl in gliders]
+    if len(geometries)!=2 or geometries[0].family!=geometries[1].family:
+        raise ValueError('Paired independent reference family mismatch')
     report=dict(contract_version=CONTRACT_VERSION,scope=SCOPE,objective=req.objective,
         transition=Transition().model_dump(mode='json'),bindings=[g.binding.model_dump(mode='json') for g in geometries],
         executables={},references=dict(state='not_evaluated'),arms=[])
@@ -100,7 +108,7 @@ def verify_pair(gliders, primary_arms, req, calibration, process, directory):
             _,sha=resolve(name);report['executables'][name]=sha
         if not all(a['result'].get('valid') for a in primary_arms):
             raise ValueError('Both frozen-hardware primary arms must pass admission')
-        report['references']=native_references(root/'references')
+        report['references']=native_references(root/'references',family=geometries[0].family)
     except (ValueError,OSError) as exc:
         report['references']=dict(state='failed',reason=str(exc)[:400])
         if isinstance(exc,NativeFailure): report['references']['native_failure']=exc.evidence
@@ -158,7 +166,7 @@ def validate(report, gliders, primary_arms, req, calibration, process, directory
     if refs.get('state')=='passed':
         if report.get('executables')!=actual or len(actual)!=2:
             raise ValueError('Missing independent native identities')
-        expected=native_references(root/'references',replay=True)
+        expected=native_references(root/'references',replay=True,family=geometry[0].family)
         if canonical_json(refs)!=canonical_json(expected):
             raise ValueError('Native reference assessment differs from raw evidence')
     elif refs.get('state')!='failed':

@@ -2,13 +2,14 @@
 import math
 
 import numpy as np
-from scipy.optimize import least_squares
 
 from cem.core import digest
 from cem.glider.physics import G, atmosphere, launch_state, trajectory
 from .contracts import OperatingPoint, StructuralLoadCase
-from .body import increments
+from .body import increments, BodyApplicabilityError
 from .lifting import solve
+from .numerics import bounded_newton, NumericalConvergenceError
+from .polars import PolarCoverageError
 
 
 def equilibrium(geometry, bank, req, calibration, initial, spanwise=12):
@@ -50,17 +51,26 @@ def equilibrium(geometry, bank, req, calibration, initial, spanwise=12):
         raise ValueError('No common independently covered speed interval')
     lower=[minimum_speed,-3.,.001]; upper=[maximum_speed,8.,.4]
     x0=np.clip(x0,np.array(lower)+1e-5,np.array(upper)-1e-5)
-    fit=least_squares(lambda x:evaluate(x)[0],x0,bounds=(lower,upper),
-                      xtol=1e-7,ftol=1e-7,gtol=1e-7,max_nfev=35,diff_step=1e-4)
-    residual,loads,body,lift,drag=evaluate(fit.x)
-    if not fit.success or max(abs(residual))>1e-4:
+    scaling=np.array([x0[0],5.,.1])
+    def covered_residual(value):
+        point=value*scaling
+        if np.any(point<lower) or np.any(point>upper):
+            raise PolarCoverageError('Trial equilibrium outside supported speed/angle/descent bounds')
+        try:
+            return evaluate(point)[0]
+        except (PolarCoverageError,BodyApplicabilityError,NumericalConvergenceError) as exc:
+            raise PolarCoverageError('No covered aerodynamic residual at trial equilibrium: '+str(exc)) from exc
+    fit=bounded_newton(covered_residual,x0/scaling,tolerance=1e-8,iterations=35)
+    point=fit['value']*scaling
+    residual,loads,body,lift,drag=evaluate(point)
+    if max(abs(residual))>1e-4:
         raise ValueError('Fixed-hardware independent force/moment equilibrium failed')
     full_force=np.array(loads.force_n)+body.force_n
     full_moment=np.array(loads.moment_cg_nm)+body.moment_cg_nm
     if (abs(full_force[1])>weight*1e-4
             or max(abs(full_moment[[0,2]]))>weight*ref.span_m*1e-4):
         raise ValueError('Independent symmetric flight has unresolved side force/roll/yaw moment')
-    speed,alpha,gamma=map(float,fit.x)
+    speed,alpha,gamma=map(float,point)
     flight=trajectory(launch_state(req.launch,calibration)['effective_height_m'],speed,speed*math.sin(gamma),
                       req.environment.wind_m_s,req.environment.uplift_m_s)
     objective=flight[req.objective]
@@ -71,6 +81,7 @@ def equilibrium(geometry, bank, req, calibration, initial, spanwise=12):
     return dict(binding=geometry.binding.model_dump(mode='json'),speed_m_s=speed,alpha_deg=alpha,
         glide_angle_deg=math.degrees(gamma),lift_n=lift,drag_n=drag,
         moment_nm=loads.moment_cg_nm[1]+body.moment_cg_nm[1],
+        numerical_solver=dict(method='covered-damped-Newton-v1',**{k:v for k,v in fit.items() if k!='value'}),
         equilibrium_residual=residual.tolist(),trajectory=flight,objective_value=objective,
         loads=loads.model_dump(mode='json'),body=body.model_dump(mode='json'),
         structural_load_case=loadcase.model_dump(mode='json'))

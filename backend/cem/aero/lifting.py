@@ -7,9 +7,9 @@ This module never interprets AVL far-wake `ai` as local induced incidence.
 import math
 
 import numpy as np
-from scipy.optimize import root
 
 from .contracts import LiftingSurfaceLoads, StripLoad
+from .numerics import bounded_newton
 
 
 def panels(geometry, spanwise=12):
@@ -66,7 +66,9 @@ def segment_velocity(points, a, b):
     return cross*factor[:,:,None]
 
 
-def solve(geometry, op, bank, spanwise=12):
+def solve(geometry, op, bank, spanwise=12, *, diagnostics=None):
+    if op.mach!=0.:
+        raise ValueError('Compressible lifting-line analysis is not qualified')
     if geometry.family not in ('conventional','t_tail','v_tail'):
         raise ValueError('Aircraft family lacks independent aerodynamic qualification')
     if bank.binding!=geometry.binding:
@@ -96,12 +98,16 @@ def solve(geometry, op, bank, spanwise=12):
         _,_,speed,_,_,coeff=local(gamma)
         return (gamma-.5*speed*c*coeff[:,0])/(V*c)
 
-    solution=root(residual,np.zeros(len(mesh)),tol=1e-8)
-    error=float(np.max(np.abs(residual(solution.x))))
-    if not solution.success or error>1e-6:
+    scaling=V*c
+    solution=bounded_newton(lambda value:residual(value*scaling),np.zeros(len(mesh)),tolerance=1e-10)
+    circulation=solution['value']*scaling
+    error=float(np.max(np.abs(residual(circulation))))
+    if error>1e-6:
         raise ValueError('Nonlinear lifting-line circulation failed to converge')
-    induced,velocity,speed,effective,re,coeff=local(solution.x)
-    lift=rho*solution.x[:,None]*np.cross(velocity,b-a)
+    if diagnostics is not None:
+        diagnostics.update({k:v for k,v in solution.items() if k!='value'})
+    induced,velocity,speed,effective,re,coeff=local(circulation)
+    lift=rho*circulation[:,None]*np.cross(velocity,b-a)
     profile=.5*rho*speed[:,None]*area[:,None]*coeff[:,1,None]*velocity
     forces=lift+profile
     section_moments=.5*rho*speed[:,None]**2*area[:,None]*c[:,None]*coeff[:,2,None]*spans

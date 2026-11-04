@@ -57,7 +57,7 @@
       ],
       "state": "lifting_surfaces_computed",
       "production_admission": false,
-      "report_sha256": "396b9ff42873974b484225e01f1ed9b8401f241a59af6cef5e0ae1a01a1806c5",
+      "report_sha256": "6f63bc0d3f0d70e344feb76a9a3181e4d3e46d89561c20933755cda010fb7f5d",
       "static_derivative_failures": [],
       "static_derivatives": [
         {
@@ -142,7 +142,7 @@
       ],
       "state": "lifting_surfaces_computed",
       "production_admission": false,
-      "report_sha256": "bf6da79b0aa9789c338b2be2d400f7cc63943344894f9a9774ca23631a93de34",
+      "report_sha256": "1aa64d6a241f570bcc8f7fa0c9fa373c989e42e2ebcd568b9437f3a5a86ba85e",
       "static_derivative_failures": [],
       "static_derivatives": [
         {
@@ -228,7 +228,7 @@
       ],
       "state": "lifting_surfaces_computed",
       "production_admission": false,
-      "report_sha256": "024eba5eb363ebefa054387a8fcd278595d1ae3d0580a31b0bd2ceaccf12db25",
+      "report_sha256": "561e39f228e149025f7644655ac98befecce130aaac0009b4a1c777aed6b99af",
       "static_derivative_failures": [],
       "static_derivatives": [
         {

@@ -15,6 +15,10 @@ LIMITS = ('Slender circular sections only; no slab/cavity/exposed hardware drag.
           'Body drag bound is an engineering allowance, not a flight confidence interval.')
 
 
+class BodyApplicabilityError(ValueError):
+    """Operating conditions do not have supported body-model evidence."""
+
+
 def increments(geometry, op):
     stations, ref = geometry.body, geometry.reference
     x = np.array([s.x_m for s in stations])
@@ -23,7 +27,7 @@ def increments(geometry, op):
     re = op.density_kg_m3*op.velocity_m_s*length/op.viscosity_pa_s
     if (not 6 <= fineness <= 30 or not 100000 <= re <= 3000000 or abs(op.alpha_deg)>8
             or any(abs(s.width_m-s.height_m)>1e-8 or s.exponent!=2 for s in stations)):
-        raise ValueError('Body outside slender circular Re/angle/fineness applicability')
+        raise BodyApplicabilityError('Body outside slender circular Re/angle/fineness applicability')
     a = math.radians(op.alpha_deg); q=.5*op.density_kg_m3*op.velocity_m_s**2
     dx, dr = np.diff(x), np.diff(r)
     area = math.pi*(r[1:]+r[:-1])*np.hypot(dx,dr)

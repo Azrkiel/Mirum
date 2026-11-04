@@ -1,5 +1,9 @@
 # Task C implementation and qualification handoff
 
+Latest shared integration: [A into C aerodynamic integration](cem-a-c-integration.md)
+merges A's `aae2b7e` and `26cd528` after C's `f921387` continuation. See that
+record for merged-runtime validation and the coordinate-family work still open.
+
 Software continuation and current evidence:
 [cem-task-c-continuation.md](cem-task-c-continuation.md). The user elected to
 leave reference-dependent qualification gates open; the native development

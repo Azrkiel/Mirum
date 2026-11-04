@@ -1,0 +1,237 @@
+{
+  "format": "mirum-a-c-integration-receipt-1",
+  "source_a": "26cd52830a95058a6c00d26c4ece9fb377764d5f",
+  "source_c": "f921387720d6432208dcc3c42126e18578941595",
+  "implementation_sha256": "aca23ca42cc4615687b18ec59972da3f7e24779a6a92fd84116bebe9828a0ed7",
+  "runtime": {
+    "aerosandbox": "4.2.10",
+    "neuralfoil": "0.3.3",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "trimesh": "4.4.3",
+    "casadi": "3.8.2",
+    "python": "3.12.14"
+  },
+  "executables": {
+    "xfoil": "3faf545ff335b8727e96e02d2c6b532abe8b6cf5cce68ece9411181582b92da5",
+    "avl": "a42b13345ea95b169917d0bff30fcddb3907659d782e1be405dd360989c2b196"
+  },
+  "local_evidence_directory": "/workspace/mirum-a-c-integration-ekamjoqx",
+  "references": [
+    {
+      "case": "conventional",
+      "state": "passed",
+      "replay": "passed",
+      "input_sha256": "994594ce2c89c1920fb21e38adfb9e224fae2831a59b574fdb9ca7cb8cd0f05c",
+      "evidence_sha256": "f7d0bc3bfd7fc84dc4f20c95f352beec9c93de8d2d7418c8f48b6c3a72fb7bdd",
+      "objective_m": 54.956840171980254,
+      "static_margin": 0.10488681608893452,
+      "equilibrium_residual": [
+        -4.1543333183920654e-11,
+        -2.6138150804864263e-12,
+        3.6800433136616325e-11
+      ],
+      "numerical_solver": {
+        "iterations": 2,
+        "method": "covered-damped-Newton-v1",
+        "rejected_domain_trials": 0,
+        "residual_norm": 4.1543333183920654e-11
+      },
+      "countercase": "rejected_as_expected",
+      "countercase_reason": "AVL admission rejected: pitch stability/static margin"
+    },
+    {
+      "case": "t_tail",
+      "state": "passed",
+      "replay": "passed",
+      "input_sha256": "acefc299810d4dd9d7170cc491914aee8706bf117ed51e46c74c8b8dce2e3e42",
+      "evidence_sha256": "253a501dd9288890163e6a2056d644e73505c55b6ec28611a7e20b2e3264d53c",
+      "objective_m": 55.06876324078566,
+      "static_margin": 0.11851595192033816,
+      "equilibrium_residual": [
+        -4.2228486686139433e-11,
+        -2.9207926947211115e-12,
+        1.2136635703773106e-11
+      ],
+      "numerical_solver": {
+        "iterations": 2,
+        "method": "covered-damped-Newton-v1",
+        "rejected_domain_trials": 0,
+        "residual_norm": 4.2228486686139433e-11
+      },
+      "countercase": "rejected_as_expected",
+      "countercase_reason": "AVL admission rejected: pitch stability/static margin, lateral static/roll stability"
+    },
+    {
+      "case": "v_tail",
+      "state": "passed",
+      "replay": "passed",
+      "input_sha256": "9a94f741c24a07813700847dca7a671639be19455accb06a899664cc744534e6",
+      "evidence_sha256": "e51ba077aad5010bb9e21a1545609a9cf446ea042383255a40613cfb18b6845f",
+      "objective_m": 55.029520952573506,
+      "static_margin": 0.1385981136569062,
+      "equilibrium_residual": [
+        -3.9947100998269624e-11,
+        -2.7750423189793336e-12,
+        1.8956321181600845e-11
+      ],
+      "numerical_solver": {
+        "iterations": 2,
+        "method": "covered-damped-Newton-v1",
+        "rejected_domain_trials": 0,
+        "residual_norm": 3.9947100998269624e-11
+      },
+      "countercase": "rejected_as_expected",
+      "countercase_reason": "AVL admission rejected: pitch stability/static margin, lateral static/roll stability"
+    }
+  ],
+  "families_enabled": [],
+  "verified_gain": false,
+  "low_re_section": {
+    "state": "failed",
+    "replay": "passed_reconstruction_of_failed_qualification",
+    "stage": "interpolation_coverage",
+    "coverage": {
+      "converged_alpha_deg": [
+        -3.0,
+        -2.875,
+        -2.75,
+        -2.625,
+        -2.5,
+        -2.375,
+        -2.25,
+        -2.125,
+        -2.0,
+        -1.875,
+        -1.75,
+        -1.625,
+        -1.5,
+        -1.375,
+        -1.25,
+        -1.125,
+        -1.0,
+        -0.875,
+        -0.75,
+        -0.625,
+        -0.5,
+        -0.375,
+        -0.25,
+        -0.125,
+        0.0,
+        0.125,
+        0.25,
+        0.375,
+        0.5,
+        0.625,
+        0.75,
+        0.875,
+        1.0,
+        1.125,
+        1.25,
+        1.375,
+        1.5,
+        1.625,
+        1.75,
+        1.875,
+        2.0,
+        2.25,
+        2.375,
+        2.5,
+        2.625,
+        2.75,
+        2.875,
+        3.0
+      ],
+      "missing_alpha_deg": [
+        2.125
+      ],
+      "naca": "0006",
+      "requested_alpha_deg": [
+        -3.0,
+        -2.875,
+        -2.75,
+        -2.625,
+        -2.5,
+        -2.375,
+        -2.25,
+        -2.125,
+        -2.0,
+        -1.875,
+        -1.75,
+        -1.625,
+        -1.5,
+        -1.375,
+        -1.25,
+        -1.125,
+        -1.0,
+        -0.875,
+        -0.75,
+        -0.625,
+        -0.5,
+        -0.375,
+        -0.25,
+        -0.125,
+        0.0,
+        0.125,
+        0.25,
+        0.375,
+        0.5,
+        0.625,
+        0.75,
+        0.875,
+        1.0,
+        1.125,
+        1.25,
+        1.375,
+        1.5,
+        1.625,
+        1.75,
+        1.875,
+        2.0,
+        2.125,
+        2.25,
+        2.375,
+        2.5,
+        2.625,
+        2.75,
+        2.875,
+        3.0
+      ],
+      "reynolds": 34641.016151377546,
+      "transition": {
+        "bottom_xtr": 1.0,
+        "n_crit": 9.0,
+        "top_xtr": 1.0
+      }
+    },
+    "panel_differences": {
+      "cd": 1.0000000000003062e-05,
+      "cl": 0.00030000000000002247,
+      "cm": 0.00010000000000000113
+    },
+    "evidence_sha256": "19ff92aa2b0487f77b5ebcebd0aee768baf0df0bda76e923759c10e0b7766b79",
+    "failure": "XFOIL nonconvergence: incomplete requested polar coverage",
+    "aircraft_admission": false
+  },
+  "regression": {
+    "passed": 526,
+    "skipped": 0,
+    "warnings": 2,
+    "duration_seconds": 794.06,
+    "command": "python -m pytest backend/tests/test_cem* backend/tests/test_glider* frontend/test_cem_ui.py analysis/tests/test_avl.py analysis/tests/test_airfoil.py -q"
+  },
+  "coordinate_development_refresh": {
+    "families": [
+      "tailless_swept",
+      "canard",
+      "tandem"
+    ],
+    "native_polar_reconstruction": "passed",
+    "coupled_replay": "passed",
+    "scientific_summary_unchanged": true,
+    "pre_merge_raw_backup": "/workspace/mirum-coupled-development-pre-a-integration",
+    "refreshed_raw_directory": "/workspace/mirum-coupled-development",
+    "production_admission": false
+  },
+  "receipt_sha256": "381151af71bdeae28ee2b77f34f5ee5d9ebd5e88916a8c9ac1595c87b239c3e7"
+}

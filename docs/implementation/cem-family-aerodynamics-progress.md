@@ -4,6 +4,10 @@ This continuation extends the native development workflow after the
 [control-response handoff](cem-task-c-control-response.md). **Whole-aircraft
 qualification is incomplete.** It does not enable a production family.
 
+Subsequent shared integration: [A into C handoff](cem-a-c-integration.md).
+A's covered solver, reference cases and audits are now available on C; adapting
+them to the coordinate-family path remains explicit follow-up work.
+
 ## Implemented and exercised
 
 `families/coordinate_polars.py` supplies bounded native XFOIL queries for exact

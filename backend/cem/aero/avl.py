@@ -9,6 +9,9 @@ from gliders.model.analysis import lateral_modes
 from .native import run
 
 DERIVATIVES=('CLa','Cma','CYb','Clb','Cnb','CYp','Clp','Cnp','CYr','Clr','Cnr','Cmq')
+# Qualified within the native 20-second invocation budget for the current
+# installed surface count. Admission still requires the same numerical errors.
+QUALIFICATION_MESHES=((16,6),(24,8))
 
 
 def geometry_text(geometry, spanwise=24, chordwise=8):
@@ -92,7 +95,24 @@ def strip_closure(raw, totals, geometry):
                 tolerance=.003,axes='x aft, y right, z up; My nose-up')
 
 
+def check_total_axes(coefficients,op):
+    """FT/ST operating-point and standard-to-geometry force conservation."""
+    c=coefficients
+    if (abs(c['Alpha']-op.alpha_deg)>2e-5 or abs(c['Beta']-op.beta_deg)>1e-6
+            or abs(c['Mach']-op.mach)>1e-6
+            or any(abs(c[k])>1e-6 for k in ('pb/2V','qc/2V','rb/2V'))):
+        raise ValueError('AVL raw operating point differs from requested conditions')
+    alpha=math.radians(op.alpha_deg)
+    lift=c['CXtot']*math.sin(alpha)-c['CZtot']*math.cos(alpha)
+    drag=-c['CXtot']*math.cos(alpha)-c['CZtot']*math.sin(alpha)
+    if (abs(lift-c['CLtot'])>2e-5 or abs(drag-c['CDtot'])>2e-5
+            or abs(c['CDtot']-c['CDind']-c['CDvis'])>2e-5 or abs(c['CDvis'])>1e-6):
+        raise ValueError('AVL total force-axis/drag conservation failed')
+
+
 def analyze(geometry, op, folder, spanwise=24, chordwise=8, *, replay=False):
+    if op.mach!=0.:
+        raise ValueError('Compressible native analysis is not qualified')
     folder.mkdir(parents=True,exist_ok=True)
     path=folder/'aircraft.avl'
     from .native import artifact, resolve
@@ -106,9 +126,15 @@ def analyze(geometry, op, folder, spanwise=24, chordwise=8, *, replay=False):
         path.write_text(geometry_text(geometry,spanwise,chordwise))
         evidence=run('avl',command(op.alpha_deg),folder,'avl',('forces.ft','stability.st','elements.fe'))
     evidence['artifacts'].append(artifact(path,folder))
-    totals=coefficients((folder/'forces.ft').read_text(),
-        ('CLtot','CDind','Cmtot','e','CXtot','CYtot','CZtot','Cltot','Cntot'))
-    derivatives=coefficients((folder/'stability.st').read_text(),DERIVATIVES)
+    force_text=(folder/'forces.ft').read_text();stability_text=(folder/'stability.st').read_text()
+    if any('Standard axis orientation' not in raw for raw in (force_text,stability_text)):
+        raise ValueError('Unsupported AVL force/derivative axis orientation')
+    keys=('CLtot','CDtot','CDvis','CDind','Cmtot','e','CXtot','CYtot','CZtot','Cltot','Cntot',
+          'Alpha','Beta','Mach','pb/2V','qc/2V','rb/2V')
+    totals=coefficients(force_text,keys)
+    check_total_axes(totals,op)
+    check_total_axes(coefficients(stability_text,keys),op)
+    derivatives=coefficients(stability_text,DERIVATIVES)
     if totals['CLtot']<=0 or totals['CDind']<=0 or not 0<totals['e']<=1.2:
         raise ValueError('AVL invalid lift/induced-drag evidence')
     closure=strip_closure((folder/'elements.fe').read_text(),totals,geometry)
