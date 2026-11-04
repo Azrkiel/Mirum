@@ -32,6 +32,8 @@ def feasibility(req, calibration):
     calibration_matches = (all(calibration[k]['median'] == 1. for k in ('cd0_factor', 'cl_max_factor', 'oswald_factor'))
                            and all(calibration['mass_factor'][p]['median'] == 1. for p in processes))
     construction_matches = req.construction == 'screening_oml'
+    shape_matches = req.discovery.wing_shape == 'baseline'
+    construction_matches = construction_matches and shape_matches
     calibration_matches = calibration_matches and construction_matches
     qualified = qualified and calibration_matches
     if not qualified:
@@ -60,7 +62,8 @@ def feasibility(req, calibration):
                 optimistic_cl_1_5_over_cd=efficiency if calibration_matches else None,
                 optimistic_sink_m_s=sink if calibration_matches else None,
                 wing_loading_lower_bound_n_m2=loading if calibration_matches else None,
-                bound_state=('rebuild_required_for_construction' if not construction_matches else
+                bound_state=('rebuild_required_for_shape' if not shape_matches else
+                             'rebuild_required_for_construction' if not construction_matches else
                              'sampled_initial_model' if calibration_matches else 'rebuild_required_for_calibration'),
                 binding_constraint='aerodynamic efficiency / launch energy' if verdict == 'infeasible' else
                                    'requires physics sizing; feasibility is not design acceptance',

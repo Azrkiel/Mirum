@@ -135,6 +135,7 @@ def attach_cem_routes(app, limiter):
                     supported_families=list(SUPPORTED_FAMILIES), processes=list(PROCESSES),
                     requirements_schema=GliderMissionRequirements.model_json_schema(),
                     capabilities=dict(novel_shape_discovery=False, picogk_builder=False,
+                                      parametric_wing_shape_discovery=True,
                                       physical_manufacturing_closure=False, thermal_ridge=False))
 
     from cem.extraction import TextRequest

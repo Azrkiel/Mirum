@@ -11,14 +11,17 @@ from gliders.search import sample, finite_json
 from gliders.design_spec import preset, placement
 from .model import configuration, as_sized, evaluate_candidate, SUPPORTED_FAMILIES
 from .processes import PROCESSES
+from .shapes import sample_shape
 
 ALL_FAMILIES = ['conventional', 't_tail', 'v_tail', 'tailless_swept', 'flying_plank',
                 'canard', 'tandem', 'box', 'blended_body']
 
 
 def cell(result):
-    return (result['tail_kind'], int(result['aspect_ratio'] // 2),
-            int(result['wing_loading_g_dm2'] // 2), int(result.get('sweep_qc_deg', 0) // 3))
+    key = (result['tail_kind'], int(result['aspect_ratio'] // 2),
+           int(result['wing_loading_g_dm2'] // 2), int(result.get('sweep_qc_deg', 0) // 3))
+    factors = result.get('chord_shape_factors')
+    return key + tuple(round((f-1)/.05) for f in factors[1:-1]) if factors else key
 
 
 def discover(req, calibration, progress=lambda value: None):
@@ -29,6 +32,7 @@ def discover(req, calibration, progress=lambda value: None):
         rng = random.Random(req.discovery.seed)
         archive, rejected, baseline = {}, Counter(), None
         for i in range(req.discovery.budget_evals):
+            parent = None
             # A reproducible conventional comparator is always evaluated within
             # budget. Random/local resampling remains the existing Mirum search.
             if i == 0:
@@ -45,8 +49,17 @@ def discover(req, calibration, progress=lambda value: None):
             else:
                 parent = rng.choice([v[1] for _, v in sorted(archive.items())]) if archive and i % 4 else None
                 gl = sample(rng, cfg, i + 1, parent, radius=max(.05, .25*(1-i/req.discovery.budget_evals)))
+            # Retain one unmodified comparator and periodic template exploration.
+            # The remaining budget explores real interior chord distributions.
+            if req.discovery.wing_shape == 'multi_station' and i % 4:
+                gl.wing = sample_shape(gl.wing, rng, parent.wing if parent else None,
+                                       radius=max(.03, .15*(1-i/req.discovery.budget_evals)))
             gl = as_sized(gl)
             result = evaluate_candidate(gl, request, req, calibration, process)
+            if req.discovery.wing_shape == 'multi_station':
+                result['wing_shape'] = 'multi_station' if hasattr(gl.wing, 'chord_factors') else 'baseline'
+                if hasattr(gl.wing, 'chord_factors'):
+                    result['chord_shape_factors'] = list(gl.wing.chord_factors)
             result['sweep_qc_deg'] = gl.wing.sweep_qc_deg
             if i == 0:
                 baseline = result
@@ -76,8 +89,9 @@ def discover(req, calibration, progress=lambda value: None):
         candidates.extend(elites[:req.discovery.top_k])
     selected = ALL_FAMILIES if req.discovery.families == 'all' else req.discovery.families
     return dict(status='completed', per_process=per_process, candidates=candidates, evaluations=records,
-        search='seeded MAP-Elites over qualified conventional/T/V layouts; local resampling, no Opti refinement',
+        search='seeded MAP-Elites over conventional/T/V layouts; bounded chord-shape and local resampling, no Opti refinement',
         capabilities=dict(supported_families=list(SUPPORTED_FAMILIES),
             unavailable_families=[f for f in selected if f not in SUPPORTED_FAMILIES],
             novel_shape_discovery=False, picogk_builder=False,
+            parametric_wing_shape_discovery=True,
             advanced_environments=False, physical_calibration=calibration['state']))

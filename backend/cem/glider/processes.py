@@ -59,7 +59,8 @@ def manufacturing_checks(gl, process, spar):
         if gl.wing.root_chord * int(gl.wing.naca[2:]) / 100 > p['max_sheet_thickness_m']:
             failures.append('airfoil exceeds foam stock thickness')
     # Rod must remain within the section across the span (constant full-span rod).
-    if spar['diameter_m'] * 1.1 > gl.wing.tip_chord() * int(gl.wing.naca[2:]) / 100:
+    min_chord = min(s.chord for s in gl.wing.surface().sections)
+    if spar['diameter_m'] * 1.1 > min_chord * int(gl.wing.naca[2:]) / 100:
         failures.append('spar plus clearance does not fit tip airfoil thickness')
     return dict(state='failed' if failures else 'passed', failures=failures,
                 manufacturing_ready=False,

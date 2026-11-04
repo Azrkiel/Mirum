@@ -4,6 +4,11 @@ Date: 2026-11-03. This document describes the implementation left in the workspa
 
 ## Start here
 
+Shape-discovery continuation: [bounded wing planform search](cem-shape-discovery.md)
+adds opt-in five-station chord exploration with explicit screening limits.
+The user selected shape discovery ahead of further physical load-path work.
+
+
 Latest continuation: [segmented polyhedral wing and joint screening](cem-segmented-wing.md)
 records the installed four-segment path, sleeves/bond geometry, positive closure,
 and the remaining test qualification, foam transfer and wing-saddle work.
