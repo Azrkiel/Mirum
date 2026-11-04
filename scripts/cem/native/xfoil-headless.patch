@@ -1,0 +1,14 @@
+--- a/plotlib/plt_base.f
++++ b/plotlib/plt_base.f
+@@ -683,6 +683,11 @@
+ C...Returns current size of graphics window in absolute (page) units
+       include 'pltlib.inc'
+ C
++      if (.not.LGW_GEN) then
++        XSIZE = X_PAGE
++        YSIZE = Y_PAGE
++        return
++      endif
+       XSIZE = float(GX_SIZ) / G_SCALE
+       YSIZE = float(GY_SIZ) / G_SCALE
+       return
