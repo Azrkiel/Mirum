@@ -6,7 +6,7 @@ from cem.evidence import number
 from cem.provenance import provenance
 from .contracts import Transition
 from .native import run,resolve,artifact,NativeFailure
-from .polars import script
+from .polars import script,check_polar_controls
 from .qualification import _inventory
 
 SEQUENCES=('ascending','ascending_repeat','zero_centered','reset_each')
@@ -52,6 +52,7 @@ def run_section_audit(directory,naca,reynolds,angles,transition=None,*,replay=Fa
             else:
                 evidence=run('xfoil',commands,folder,'audit',('polar.out',))
             data=_parse_polar_file(str(folder/'polar.out'))
+            check_polar_controls((folder/'polar.out').read_text(),naca,reynolds,transition)
             for column in data.values():
                 for value in column: number(value)
             mapped={}

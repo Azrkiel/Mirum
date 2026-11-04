@@ -1,5 +1,6 @@
 """Native station polars; bounded alpha/log-Re interpolation without extrapolation."""
 import math
+import re
 
 import numpy as np
 
@@ -10,6 +11,34 @@ from .native import run, NativeFailure
 
 class PolarCoverageError(ValueError):
     """The queried station is outside the supported polar evidence domain."""
+
+
+def check_polar_controls(raw,naca,reynolds,transition):
+    """Check reported foil/Re/Mach/transition, allowing native header rounding."""
+    value=r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)'
+    foil=re.search(r'Calculated polar for:\s*NACA\s*(\d{4})\b',raw)
+    reynolds_match=re.search(r'\bRe\s*=\s*('+value+r')\s*[eE]\s*([-+]?\d+)',raw)
+    mach=re.search(r'\bMach\s*=\s*('+value+r')(?=\s|$)',raw)
+    ncrit=re.search(r'\bNcrit\s*=\s*('+value+r')\s+('+value+r')(?=\s|$)',raw)
+    trips=re.search(r'\bxtrf\s*=\s*('+value+r')\s*\(top\)\s*('+value+r')\s*\(bottom\)',raw)
+    if any(v is None for v in (foil,reynolds_match,mach,ncrit,trips)):
+        raise ValueError('Missing XFOIL native operating metadata')
+    exponent=int(reynolds_match[2])
+    if not -12<=exponent<=12:
+        raise ValueError('Invalid XFOIL native Reynolds metadata')
+    mantissa=reynolds_match[1]
+    decimals=len(mantissa.split('.',1)[1]) if '.' in mantissa else 0
+    quantum=.5*10.**(exponent-decimals)
+    reported_re=float(mantissa)*10.**exponent
+    observed=dict(reynolds=reported_re,mach=float(mach[1]),
+        ncrit=[float(ncrit[1]),float(ncrit[2])],top_xtr=float(trips[1]),bottom_xtr=float(trips[2]))
+    if (not math.isfinite(reported_re) or quantum>500.000001 or foil[1]!=naca
+            or abs(reported_re-reynolds)>quantum+1e-6 or observed['mach']!=0.
+            or any(abs(v-transition.n_crit)>.000501 for v in observed['ncrit'])
+            or abs(observed['top_xtr']-transition.top_xtr)>.000501
+            or abs(observed['bottom_xtr']-transition.bottom_xtr)>.000501):
+        raise ValueError('XFOIL native operating controls differ from requested polar')
+    return observed
 
 
 def script(naca, reynolds, angles, transition, output, panels=160):
@@ -43,7 +72,8 @@ def query(binding, naca, reynolds, angles, folder, transition=None, panels=160, 
         if (folder/(stem+'.in')).read_text()!=commands:
             raise ValueError('XFOIL commands differ from bound polar query')
         _,binary=resolve('xfoil')
-        evidence=dict(executable_sha256=binary,artifacts=[artifact(folder/(stem+ext),folder)
+        evidence=dict(solver='xfoil',state='completed',returncode=0,executable_sha256=binary,
+                      artifacts=[artifact(folder/(stem+ext),folder)
                       for ext in ('.in','.log','.out')])
     else:
         evidence = run('xfoil',commands,folder,stem,(stem+'.out',))
@@ -58,6 +88,11 @@ def query(binding, naca, reynolds, angles, folder, transition=None, panels=160, 
             converged_alpha_deg=data['alpha'],
             missing_alpha_deg=[float(a) for a in angles if not any(abs(a-b)<=.001 for b in data['alpha'])])
         raise NativeFailure('XFOIL nonconvergence: incomplete requested polar coverage', evidence)
+    try:
+        check_polar_controls((folder/(stem+'.out')).read_text(),naca,reynolds,transition)
+    except ValueError as exc:
+        evidence['state']='invalid_output'
+        raise NativeFailure(str(exc),evidence) from exc
     identity = NativeIdentity(solver='xfoil',executable_sha256=evidence['executable_sha256'],
         artifacts=tuple(Artifact(**v) for v in evidence['artifacts']))
     return StationPolar(binding=binding,naca=naca,reynolds=float(reynolds),mach=0.,transition=transition,

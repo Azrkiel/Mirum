@@ -9,6 +9,25 @@ from cem.aero.qualification import reference_inputs, run_reference, validate_ref
 from cem.aero.native import resolve, NativeFailure
 
 
+@pytest.mark.parametrize('case,expected_cg',[('t_tail',.254),('v_tail',.257)])
+def test_each_tail_reference_has_its_own_frozen_geometry_and_countercase(case,expected_cg):
+    spec,geometry,req,calibration=reference_inputs(case=case)
+    assert geometry.family==case
+    assert geometry.reference.mass_kg==.313
+    assert geometry.reference.cg_m==(expected_cg,0.,0.)
+    negative=reference_inputs(case=case,unstable=True)[1]
+    assert negative.reference.cg_m==(.4,0.,0.)
+    assert geometry.surfaces==negative.surfaces
+    assert geometry.binding.geometry_sha256!=negative.binding.geometry_sha256
+    assert geometry.binding.hardware_sha256!=negative.binding.hardware_sha256
+
+
+@pytest.mark.parametrize('case',['canard','tandem','tailless_swept','../other'])
+def test_unknown_or_c_owned_family_cannot_select_a_qualification_case(case):
+    with pytest.raises(ValueError,match='reference case'):
+        reference_inputs(case=case)
+
+
 def test_reference_inputs_are_frozen_and_countercase_has_its_own_bindings():
     spec,geometry,req,calibration=reference_inputs()
     again=reference_inputs()[1]
@@ -43,12 +62,13 @@ def test_qualification_preserves_existing_raw_evidence(tmp_path):
     assert (tmp_path/'previous.out').read_text()=='preserve'
 
 
-def test_native_frozen_aircraft_and_unstable_countercase_replay(tmp_path,monkeypatch):
+@pytest.mark.parametrize('case',['conventional','t_tail','v_tail'])
+def test_native_frozen_aircraft_and_unstable_countercase_replay(tmp_path,monkeypatch,case):
     try:
         resolve('xfoil');resolve('avl')
     except NativeFailure:
         pytest.skip('Native XFOIL and AVL executables not selected')
-    value=run_reference(tmp_path)
+    value=run_reference(tmp_path,case=case)
     assert value['state']=='passed',value.get('failure')
     assert value['verified_gain'] is False and value['families_enabled']==[]
     assert value['stability']['state']=='passed'

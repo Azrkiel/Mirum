@@ -43,6 +43,23 @@ def test_nonfinite_requested_angles_are_rejected_before_native_execution():
         script('0012',100000.,[-1.,float('nan'),1.],Transition(),'polar.out')
 
 
+def test_reported_native_controls_must_match_requested_polar():
+    from cem.aero.polars import check_polar_controls
+    raw=('Calculated polar for: NACA 0006\n'
+         'xtrf = 1.000 (top) 1.000 (bottom)\n'
+         'Mach = 0.000 Re = 0.030 e 6 Ncrit = 9.000 9.000\n')
+    assert check_polar_controls(raw,'0006',30000.,Transition())['reynolds']==30000.
+    # XFOIL's native header rounds Re to the nearest 500 at this precision.
+    check_polar_controls(raw,'0006',30384.,Transition())
+    changes=[('NACA 0006','NACA 0012'),('0.030 e 6','0.060 e 6'),
+             ('Ncrit = 9.000 9.000','Ncrit = 8.000 8.000'),
+             ('1.000 (top)','0.500 (top)'),('Mach = 0.000','Mach = 0.010'),
+             ('Mach = 0.000','Mach = 0.000e999')]
+    for a,b in changes:
+        with pytest.raises(ValueError,match='native.*control|native.*metadata'):
+            check_polar_controls(raw.replace(a,b),'0006',30000.,Transition())
+
+
 def test_unavailable_solver_cannot_make_a_section_audit_admissible(tmp_path,monkeypatch):
     monkeypatch.setenv('MIRUM_XFOIL_BIN','/missing/xfoil')
     value=run_section_audit(tmp_path,'0006',30000.,[-1.,0.,1.])

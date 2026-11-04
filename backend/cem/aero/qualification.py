@@ -1,6 +1,6 @@
-"""Reproducible native whole-aircraft reference and unstable countercase.
+"""Reproducible native whole-aircraft references and unstable countercases.
 
-This qualifies one declared rigid numerical benchmark. It enables no new
+This checks separately declared rigid numerical benchmarks. It enables no new
 family, manufacturing claim, flight validation or performance-gain claim.
 """
 import json
@@ -21,12 +21,19 @@ from .performance import equilibrium, numerical_error
 from .polars import PolarBank, query
 
 SPEC=Path(__file__).resolve().parents[1]/'data/aero-conventional-reference-v1.json'
+REFERENCE_FILES=dict(conventional=SPEC.name,t_tail='aero-t-tail-reference-v1.json',
+                     v_tail='aero-v-tail-reference-v1.json')
 
 
-def reference_inputs(*, unstable=False):
-    spec=json.loads(SPEC.read_text())
+def reference_inputs(*, unstable=False,case='conventional'):
+    if case not in REFERENCE_FILES:
+        raise ValueError('Unsupported native reference case')
+    path=SPEC if case=='conventional' else SPEC.parent/REFERENCE_FILES[case]
+    spec=json.loads(path.read_text())
     if spec['format']!='mirum-aero-qualification-1':
         raise ValueError('Unsupported native reference format')
+    if spec['geometry']['family']!=case:
+        raise ValueError('Native reference case/family identity mismatch')
     req=GliderMissionRequirements.model_validate(spec['requirements'])
     calibration=spec['calibration'];geometry=json.loads(canonical_json(spec['geometry']))
     hardware=json.loads(canonical_json(spec['hardware']))
@@ -61,12 +68,12 @@ def _inventory(root,exclude=('qualification.json',)):
     return result
 
 
-def run_reference(directory, *, replay=False):
+def run_reference(directory, *, replay=False,case='conventional'):
+    spec,geometry,req,calibration=reference_inputs(case=case)
     root=Path(directory)
     if root.exists() and any(root.iterdir()) and not replay:
         raise ValueError('Use an empty directory to preserve previous qualification evidence')
     root.mkdir(parents=True,exist_ok=True)
-    spec,geometry,req,calibration=reference_inputs()
     report=dict(kind='native_aerodynamic_qualification',case_id=spec['case_id'],scope=spec['scope'],
         input_sha256=digest(spec),binding=geometry.binding.model_dump(mode='json'),
         installed_geometry=geometry.model_dump(mode='json'),requirements=req.model_dump(mode='json'),
@@ -106,7 +113,7 @@ def run_reference(directory, *, replay=False):
 
         # Isolate the CG stability effect at the positive case's operating point.
         # No zero-moment trim or unstable equilibrium is claimed for this case.
-        _,negative,_,_=reference_inputs(unstable=True)
+        _,negative,_,_=reference_inputs(unstable=True,case=case)
         negative_bank=_bank(spec,negative,root/'unstable/polars',160,replay)
         loads=solve(negative,op,negative_bank,24)
         body=increments(negative,op)
@@ -148,6 +155,7 @@ def run_reference(directory, *, replay=False):
 def validate_reference(report,directory):
     if report.get('state')!='passed':
         raise ValueError('Missing successful native whole-aircraft qualification')
-    actual=run_reference(directory,replay=True)
+    family=report.get('installed_geometry',{}).get('family')
+    actual=run_reference(directory,replay=True,case=family)
     if canonical_json(report)!=canonical_json(actual):
         raise ValueError('Native qualification differs from reconstructed raw evidence')

@@ -210,8 +210,8 @@ The result was `inconclusive`, `verified_gain=false`, and the comparison bundle
 endpoint returned HTTP 404. A valid rejection was preserved.
 
 This is a bounded independent model and fail-closed comparison implementation;
-it does **not** establish a passing native whole-aircraft case for every existing
-family, a new physical flight-performance gain, calibrated interference bounds,
+it does **not** establish family-wide native coverage, a new physical
+flight-performance gain, calibrated interference bounds,
 fabrication acceptance or engineering certification. B can consume the shared
 fixtures immediately; final shape-specific structural qualification still needs
 an arm that passes the independent aerodynamic gates. Broader family/body/stall
@@ -223,9 +223,9 @@ Publication branch: `cem-task-a-aerodynamic-verification`, based on task commit
 this implementation.
 
 The combined CEM, legacy glider, UI, AVL and airfoil regression run passed
-**304 tests**, including the new whole-aircraft qualification, unstable
-countercase, covered-domain solver and native sequence-audit tests, with two
-dependency deprecation warnings. `pip check`, Python compilation and
+**317 tests**, including the three whole-aircraft references, unstable
+countercases, narrow-section failure replay, covered-domain solver and native
+sequence-audit tests, with two dependency deprecation warnings. `pip check`, Python compilation and
 `git diff --check` passed.
 
 ```sh
@@ -259,7 +259,7 @@ Final native qualification remains blocked on positive and unstable/untrimmable
 reference cases for each family's supported envelope. In particular, C must
 establish tailless reflex/control trim and stability, canard interference and
 stall order, and tandem lift sharing/interference/stall behavior. The present
-rigid attached-flow calculation and its specific conventional native reference
+rigid attached-flow calculation and its specific conventional/T-/V-tail references
 do not establish those behaviors. Missing polar coverage and the existing designs'
 native spiral rejection remain open A qualification limits. Physical family
 admission additionally depends on B's applicable construction/load-path evidence.
@@ -315,7 +315,58 @@ or an aircraft passed admission. Its `production_admissible` and `verified_gain`
 remain false. The qualification command succeeds only for a passed reference.
 Replay reconstructs successful evidence from raw files without running solvers.
 
-The qualified scope is this specific high-Re rigid conventional reference.
-It does not qualify all conventional designs, the low-Re example, T-/V-tail
-envelopes or C's new families. Interference, stall, physical structure and
-empirical/calibrated error bounds remain outside this proof.
+## Separate T-/V-tail references and low-Re interpolation continuation
+
+The reference registry now contains separate frozen conventional, T-tail and
+V-tail cases. `qualify_aero.py --case conventional|t_tail|v_tail` selects one;
+replay infers and checks its saved identity. Paired comparisons select the
+reference matching their actual installed family, and the parent reconstructs
+that same reference. Unknown and C-owned families cannot select a reference.
+
+The T-tail input prescribes mass 0.313 kg, CG x = 0.254 m and a horizontal tail
+at z = 0.15 m. The V-tail input prescribes mass 0.313 kg, CG x = 0.257 m and
+symmetric 0.225 m panels at 35 degrees. Both use the conventional reference's
+complete NACA 0012/Re 230,000–350,000 grid and unchanged numerical, stability and
+error criteria. Each passes panel/mesh refinement, equilibrium, force/axis and
+native stability checks. Predicted distances are 55.0687632 m and 55.0295210 m;
+static margins are 0.1185160 and 0.1385981. Separate aft-CG x = 0.40 m cases
+are rejected for pitch instability at the positive cases' operating points.
+These new geometries were declared before freezing; the solve changes none of
+their prescribed hardware or mass properties.
+
+XFOIL reports must now identify the requested NACA section, Reynolds number,
+zero Mach, both Ncrit values and top/bottom transition controls. Header rounding
+is bounded explicitly; altered or missing native controls invalidate evidence
+even when the input command text matches. Station queries and initialization
+audits enforce this in execution and replay.
+
+The pinned `aero-low-re-section-reference-v1.json` attempts a narrower numerical
+window: NACA 0006, Re 30,000/40,000/50,000/60,000, alpha −3° to 3° by 0.25°,
+160/240 panels, and the same transition controls. These sampled grids are
+complete, have positive lift slope, and pass panel and initialization checks.
+The next gate independently tests log-Re midpoints at 0.125° spacing. At
+Re sqrt(30,000 × 40,000), the native 240-panel output lacks the 2.125° row.
+The qualification therefore **fails**; it establishes no continuous supported
+window. Its report preserves the completed checks and raw failure. Replay
+reconstructs both passed checks and the failure without a native invocation,
+and rejects forged success or aircraft admission.
+
+```sh
+python scripts/cem/qualify_aero.py --case t_tail --directory work/reference-t
+python scripts/cem/qualify_aero.py --case v_tail --directory work/reference-v
+python scripts/cem/qualify_aero_section.py --directory work/section-reference
+python scripts/cem/qualify_aero_section.py --directory work/section-reference --replay
+```
+
+The section qualification and its replay return exit 1 for this failed case.
+The production [-4°, 8°] grid is unchanged. No automatic narrowing, initialization
+fallback, splicing or extrapolation is enabled. This failure also shows why panel
+agreement alone cannot establish supported interpolation. Neither a section
+proof nor any of the three aircraft references enables a new family or gain.
+
+The qualified numerical scope consists of the three specific high-Re rigid
+references. It does not qualify family-wide geometry envelopes, the low-Re
+example or C's new families. Interference, stall, physical structure and
+empirical/calibrated error bounds remain outside these proofs. Current results
+and reproducible identities are recorded in `cem-task-a-handoff.md` and
+`cem-a-qualification-results.json`.
