@@ -61,6 +61,10 @@ for key, default in [
     ("aero_plots", None),      # T2-16: cached {cl_alpha, cd_alpha, cp_dist} base64 PNGs
     ("xfoil_pdf_bytes", None),      # PDF-04: cached PDF bytes for "Download XFOIL Results"
     ("geometry_certificate", None),  # G-05: GeometryCertificate dict from /generate
+    ("verification", None),    # {"degraded": bool, "parts": {part_id: CheckReport payload}}
+    ("run_id", ""),            # artifact store id for CAD downloads
+    ("downloads", {}),         # {"step": True, "glb": True}
+    ("bom", None),             # bill of materials for assemblies
     ("struct_report", None),         # Phase 6: StructuralReport dict from /generate complete event
 ]:
     if key not in st.session_state:
@@ -243,6 +247,11 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     steps, idx = [], {}
     script_code, glb_bytes = "", None
     error_message = ""
+    error_detail = ""
+    verification = None
+    run_id = ""
+    downloads: dict = {}
+    bom = None
     terminal_done = False
     staged_manifest = staged_scripts = None
     params = {}
@@ -294,6 +303,10 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
                         aero_report = ev.get("aero_report")  # Phase 3
                         struct_report = ev.get("struct_report")  # Phase 6
                         geometry_cert = ev.get("geometry_certificate")  # G-05
+                        verification = ev.get("verification")
+                        run_id = ev.get("run_id", "") or ""
+                        downloads = ev.get("downloads", {}) or {}
+                        bom = ev.get("bom")
                         if isinstance(geometry_cert, dict) and geometry_cert.get("scope") == "structural_solid_set_v1":
                             import hashlib
                             if (geometry_cert.get("passed") is not True
@@ -308,6 +321,7 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
                             staged_scripts = ev["scripts"]
                     elif status == "error":
                         error_message = ev.get("message", "")
+                        error_detail = ev.get("detail", "")
                     script_code = ev.get("script", script_code)
                     continue
                 if step == "script" and status == "done":
@@ -337,7 +351,15 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
         # A failed or truncated attempt must not destroy the last accepted view.
         message = error_message or ("Generation failed." if has_error else "Generation ended without a complete model.")
         st.session_state.status = "Error: generation failed"
+        # Plain sentence, no code fences: the payload used to carry generated
+        # code containing ``` which terminated an outer fence early.
         st.error(message)
+        if error_detail:
+            with st.expander("Technical detail (for debugging)"):
+                st.code(error_detail, language="text")
+        if script_code:
+            with st.expander("Last generated script"):
+                st.code(script_code, language="python")
         progress_ph.markdown(_progress_md(steps))
         return
 
@@ -353,6 +375,10 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     st.session_state.aero_plots = None          # T2-16: reset so plots are re-fetched
     st.session_state.xfoil_pdf_bytes = None    # PDF-04: reset so PDF is re-fetched
     st.session_state.geometry_certificate = geometry_cert  # G-05
+    st.session_state.verification = verification
+    st.session_state.run_id = run_id
+    st.session_state.downloads = downloads
+    st.session_state.bom = bom
     if script_code:
         st.session_state.script_version += 1
 
@@ -410,6 +436,12 @@ def run_script(script: str) -> None:
         st.session_state.script_code = script
         st.session_state.geometry_certificate = certificate
         st.session_state.struct_report = None
+        # The edited script's geometry is not in the artifact store: the STEP
+        # on offer would be the previous model's, and its report/BOM are stale.
+        st.session_state.verification = None
+        st.session_state.run_id = ""
+        st.session_state.downloads = {}
+        st.session_state.bom = None
         st.session_state.parameters = {}
         st.session_state.last_manifest = None
         st.session_state.last_scripts = {}
@@ -566,6 +598,140 @@ def _fetch_xfoil_pdf(report: dict) -> bytes | None:
     except Exception as _e:
         st.warning(f"PDF request failed: {_e}")
     return None
+
+
+def _fetch_artifact(run_id: str, fmt: str) -> bytes | None:
+    """Pull a generated CAD file from the backend artifact store."""
+    try:
+        resp = requests.get(
+            f"{BACKEND_URL}/download/{run_id}/{fmt}",
+            headers=_auth_headers(),
+            timeout=60,
+        )
+        if resp.status_code == 200:
+            return resp.content
+        st.warning(f"{fmt.upper()} unavailable (HTTP {resp.status_code}).")
+    except requests.RequestException:
+        st.warning(f"Could not fetch {fmt.upper()}.")
+    return None
+
+
+# STEP first and labelled for its use: it is the format SolidWorks / NX /
+# Onshape import as real B-rep geometry. GLB is a mesh for the viewer.
+_FORMAT_LABELS: dict[str, tuple[str, str]] = {
+    "step": ("Download STEP", "B-rep solid - opens in SolidWorks, NX, Onshape, Fusion, CAM"),
+    "glb":  ("Download GLB",  "Mesh - web viewer format"),
+}
+
+
+def _render_download_row(key_suffix: str) -> None:
+    """One download control per format the run actually produced."""
+    run_id = st.session_state.get("run_id") or ""
+    downloads = st.session_state.get("downloads") or {}
+    offered = [f for f in ("step", "glb") if downloads.get(f)]
+
+    if not run_id or not offered:
+        # Fall back to the in-memory GLB; say plainly that no CAD file exists
+        # for this model (e.g. after a manual script re-run).
+        if st.session_state.get("glb_bytes"):
+            st.download_button(
+                "Download .glb (mesh)",
+                st.session_state.glb_bytes,
+                "assembly.glb",
+                "model/gltf-binary",
+                key=f"glb_fallback_{key_suffix}",
+            )
+            st.caption(
+                "No STEP is stored for this model - only mesh output is "
+                "available. Mesh files import as un-editable bodies in CAD."
+            )
+        return
+
+    cols = st.columns(len(offered))
+    for col, fmt in zip(cols, offered):
+        label, help_text = _FORMAT_LABELS[fmt]
+        with col:
+            if fmt == "glb" and st.session_state.get("glb_bytes"):
+                st.download_button(
+                    label, st.session_state.glb_bytes, "assembly.glb",
+                    "model/gltf-binary", key=f"dl_{fmt}_{key_suffix}",
+                    help=help_text, use_container_width=True,
+                )
+            elif st.button(label, key=f"fetch_{fmt}_{key_suffix}", help=help_text,
+                           use_container_width=True):
+                blob = _fetch_artifact(run_id, fmt)
+                if blob:
+                    st.download_button(
+                        f"Save {fmt.upper()}", blob, f"assembly.{fmt}",
+                        key=f"save_{fmt}_{key_suffix}", use_container_width=True,
+                    )
+    if not downloads.get("step"):
+        st.caption("STEP export is unavailable for this run - the CAD-native format is missing.")
+
+
+_CHECK_LABELS: dict[str, str] = {
+    "compile": "Script executes",
+    "export": "Exports to STEP",
+    "cert": "Solid is topologically valid",
+    "dimensions": "Dimensions match the request",
+    "g2": "Surface continuity (G2)",
+    "curvature": "Curvature (no unintended saddles)",
+}
+
+
+def _render_verification_card(verification: dict | None) -> None:
+    """Show per-part verification failures (dimension-vs-spec, certificate).
+
+    The payload only lists parts that compiled but failed a check; an empty or
+    non-degraded payload renders nothing.
+    """
+    if not isinstance(verification, dict) or not verification.get("degraded"):
+        return
+    parts = verification.get("parts") or {}
+    st.warning(
+        "**Delivered with warnings.** The geometry was produced, but at least "
+        "one part did not pass every verification check. Review before manufacturing."
+    )
+    with st.expander("Verification detail", expanded=True):
+        for pid, rep in parts.items():
+            st.markdown(f"**{pid}**")
+            for check in (rep or {}).get("checks") or []:
+                label = _CHECK_LABELS.get(check.get("name", ""), check.get("name", ""))
+                if check.get("skipped"):
+                    st.markdown(f"- not checked: {label}")
+                elif check.get("passed"):
+                    st.markdown(f"- passed: {label}")
+                else:
+                    st.markdown(f"- **FAILED: {label}**")
+                    for msg in (check.get("failures") or [])[:4]:
+                        st.code(str(msg), language="text")
+
+
+def _render_bom(bom: dict | None) -> None:
+    """Bill of materials - the parts list an engineer expects for an assembly."""
+    if not isinstance(bom, dict) or not bom.get("lines"):
+        return
+    st.markdown("#### Bill of materials")
+    rows = [
+        {
+            "Item": i + 1,
+            "Part": line.get("part_id", ""),
+            "Qty": line.get("quantity", 1),
+            "Material": line.get("material") or "-",
+            "Mass (g)": (
+                f"{line['mass_g']:.1f}" if isinstance(line.get("mass_g"), (int, float))
+                else "-"
+            ),
+            "Description": (line.get("description") or "")[:80],
+        }
+        for i, line in enumerate(bom["lines"])
+    ]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+    total = bom.get("total_mass_g")
+    if isinstance(total, (int, float)):
+        st.caption(f"{bom.get('total_parts')} part(s), total mass {total:.1f} g")
+    st.download_button("Download BOM (CSV)", bom.get("csv", ""), "bom.csv",
+                       "text/csv", key="bom_csv")
 
 
 def _render_geometry_cert_card(cert: dict) -> None:
@@ -910,25 +1076,16 @@ if st.session_state.glb_bytes:
         viewer_col, card_col = st.columns([3, 2], gap="medium")
         with viewer_col:
             render_glb_viewer(st.session_state.glb_bytes, height=460)
-            st.download_button(
-                "⬇ Download .glb",
-                st.session_state.glb_bytes,
-                "assembly.glb",
-                "model/gltf-binary",
-                key="glb_download_1",
-            )
+            _render_download_row("1")
         with card_col:
             _render_performance_card(aero_report)
     else:
         # No aero report — full-width viewer
         render_glb_viewer(st.session_state.glb_bytes)
-        st.download_button(
-            "⬇ Download .glb",
-            st.session_state.glb_bytes,
-            "assembly.glb",
-            "model/gltf-binary",
-            key="glb_download_2",
-        )
+        _render_download_row("2")
+
+    _render_verification_card(st.session_state.get("verification"))
+    _render_bom(st.session_state.get("bom"))
 
     # G-06: geometry certificate collapsible card (shown below viewer always)
     geo_cert = st.session_state.get("geometry_certificate")
