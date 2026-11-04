@@ -1,0 +1,18 @@
+{
+  "requirements": {
+    "objective": "distance_m",
+    "mode": "maximize",
+    "reference_target": 1200.0,
+    "launch": {"height_m": 10.0, "method": "drop"},
+    "environment": {"kind": "still_air"},
+    "constraints": {
+      "max_span_m": 1.4,
+      "max_length_m": 0.95,
+      "max_mass_kg": 0.5,
+      "payload": {"mass_kg": 0.06, "diameter_m": 0.045, "length_m": 0.06}
+    },
+    "process": "sheet_foam",
+    "construction": "foam_core_wing_v1",
+    "discovery": {"families": "all", "budget_evals": 8, "seed": 42, "top_k": 3}
+  }
+}

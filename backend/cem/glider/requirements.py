@@ -94,4 +94,11 @@ class GliderMissionRequirements(StrictModel):
     environment: Environment = Field(default_factory=Environment)
     constraints: Constraints = Field(default_factory=Constraints)
     process: Process = 'auto'
+    construction: Literal['screening_oml', 'foam_core_wing_v1', 'segmented_foam_wing_v1'] = 'screening_oml'
     discovery: Discovery = Field(default_factory=Discovery)
+
+    @model_validator(mode='after')
+    def supported_construction(self):
+        if self.construction != 'screening_oml' and self.process != 'sheet_foam':
+            raise ValueError('Solid foam wing construction requires process=sheet_foam')
+        return self

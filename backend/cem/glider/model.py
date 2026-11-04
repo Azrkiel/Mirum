@@ -8,12 +8,15 @@ from gliders.search import admissible
 from gliders.model.analysis import evaluate, _aero
 
 from .physics import atmosphere, launch_state, trajectory
-from .processes import materials, spar_size, manufacturing_checks
+from .processes import materials, manufacturing_checks
+from .structure import converged_spar
 
 SUPPORTED_FAMILIES = {'conventional': 'conventional', 't_tail': 'T', 'v_tail': 'V'}
 
 
 def configuration(req, calibration, process):
+    if req.construction != 'screening_oml' and process != 'sheet_foam':
+        raise ValueError('Physical foam construction cannot substitute another process')
     payload = req.constraints.payload
     families = list(SUPPORTED_FAMILIES) if req.discovery.families == 'all' else [
         f for f in req.discovery.families if f in SUPPORTED_FAMILIES]
@@ -39,23 +42,58 @@ def configuration(req, calibration, process):
         temperature_deviation_k=env.temperature_c - (15. - .0065 * env.altitude_m),
         **{k: calibration[k]['median'] for k in ('cd0_factor', 'cl_max_factor', 'oswald_factor')})
     cfg['cem_launch_method'] = req.launch.method
+    cfg['cem_construction'] = req.construction
+    cfg['cem_foam_mass_factor'] = calibration['mass_factor']['sheet_foam']['median']
     return request, cfg
 
 
 class SizedGlider(Glider):
-    """Full-span catalogue spar sized against the mass cap: conservative and stable."""
+    """Full-span catalogue spar closed against current payload/ballast/rod mass."""
     def spar(self):
-        return spar_size(self.cfg['limits']['max_total_mass_kg'], self.wing.span, self.cfg['cem_launch_method'])
+        from . import foam_core, segmented
+        if segmented.enabled(self):
+            return segmented.size_spar(self, Glider.mass_items(self))
+        if foam_core.enabled(self):
+            return foam_core.size_spar(self, Glider.mass_items(self))
+        base_mass = sum(item.mass for item in Glider.mass_items(self))
+        return converged_spar(base_mass, self.wing.span, self.cfg['cem_launch_method'])
 
     def mass_items(self, include_ballast=True, include_payload=True):
+        from . import foam_core, segmented
         items = super().mass_items(include_ballast, include_payload)
+        if segmented.enabled(self):
+            items = [p for p in items if p.name != 'wing']
+            for name, part in segmented.selected(self)['parts'].items():
+                x, y, z = part['mesh'].center_mass
+                items.append(MassItem(name, part['mesh'].volume*part['density'], x, y, z))
+            return items
+        if foam_core.enabled(self):
+            items = [p for p in items if p.name != 'wing']
+            for side, core in enumerate(foam_core.core_meshes(self)):
+                x, y, z = core.center_mass
+                items.append(MassItem(f'wing_{side}', core.volume*foam_core.density(self), x, y, z))
         spar = self.spar()
-        x, z = self.wing_position()
+        x, _, z = foam_core.spar_position(self)
         # Distributed rod points preserve its spanwise inertia in the sizing model.
         for i in range(32):
             y = self.wing.span * ((i + .5) / 32 - .5)
-            items.append(MassItem('spar', spar['mass_kg'] / 32, x + .3 * self.wing.root_chord, y, z))
+            items.append(MassItem('spar', spar['mass_kg'] / 32, x, y, z))
         return items
+
+    def mass_summary(self, include_ballast=True, include_payload=True):
+        from . import foam_core, segmented
+        result = super().mass_summary(include_ballast, include_payload)
+        if segmented.enabled(self):
+            inertia = sum(p['mesh'].moment_inertia*p['density'] for p in segmented.selected(self)['parts'].values())
+            for i, key in enumerate(('Ixx', 'Iyy', 'Izz')):
+                result[key] += inertia[i, i]
+        if foam_core.enabled(self):
+            # Point placement supplies parallel-axis terms; retain each core's
+            # intrinsic volume inertia for the existing lateral-mode screen.
+            inertia = sum(m.moment_inertia for m in foam_core.core_meshes(self))*foam_core.density(self)
+            for i, key in enumerate(('Ixx', 'Iyy', 'Izz')):
+                result[key] += inertia[i, i]
+        return result
 
 
 def as_sized(gl):
@@ -64,6 +102,18 @@ def as_sized(gl):
 
 
 def evaluate_candidate(gl, request, mission, calibration, process):
+    from . import foam_core, segmented
+    if foam_core.enabled(gl) or segmented.enabled(gl):
+        try:
+            if segmented.enabled(gl):
+                segmented.selected(gl)
+            else:
+                foam_core.core_meshes(gl)
+        except ValueError as exc:
+            # Installed-path restrictions are admission failures, not worker
+            # crashes or permission to relax the original aerodynamic ranges.
+            return dict(valid=False, fail_reasons=str(exc),
+                        manufacturability=dict(state='failed', manufacturing_ready=False, failures=[str(exc)]))
     result = admissible(gl, request, evaluate(gl))
     spar = gl.spar()
     manufacture = manufacturing_checks(gl, process, spar)

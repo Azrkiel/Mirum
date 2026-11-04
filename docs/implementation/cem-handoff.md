@@ -4,6 +4,17 @@ Date: 2026-11-03. This document describes the implementation left in the workspa
 
 ## Start here
 
+Latest continuation: [segmented polyhedral wing and joint screening](cem-segmented-wing.md)
+records the installed four-segment path, sleeves/bond geometry, positive closure,
+and the remaining test qualification, foam transfer and wing-saddle work.
+
+Latest construction continuation: [volume-measured foam wing cores](cem-foam-core.md)
+records real solid-material/channel geometry, its verified flat-wing control,
+and the installed dihedral-path restriction still preventing a complete glider.
+
+Latest continuation: [converged stock-rod bending](cem-converged-structure.md)
+records the actual-mass sizing/section checks and remaining physical closure work.
+
 Continuation: [delivered-part integrity and spar enclosure](cem-closure-integrity.md)
 records the subsequent G2/G3 integrity checks, tightened build rejection behavior,
 verification and remaining physical-construction work.

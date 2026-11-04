@@ -18,8 +18,11 @@ MAX_BYTES = 84 + 50 * MAX_FACETS
 def expected_materials(gl):
     """Canonical physical part inventory, independent of the supplied manifest."""
     from .processes import CARBON
+    from . import foam_core, segmented
     result = {}
     for surface in [gl.wing_surface(), *gl.tail_surfaces()]:
+        if surface.role == 'wing' and segmented.enabled(gl):
+            continue
         density = gl.cfg['materials'][
             'wing_areal_density_kg_m2' if surface.role == 'wing' else 'tail_areal_density_kg_m2'] / 2
         for side in range(2 if surface.symmetric else 1):
@@ -27,9 +30,14 @@ def expected_materials(gl):
             if name in result:
                 raise ValueError('Duplicate canonical part name')
             result[name] = dict(law='skin_equivalent', areal_density_kg_m2=density)
+            if surface.role == 'wing' and foam_core.enabled(gl):
+                result[name] = dict(law='solid', density_kg_m3=foam_core.density(gl))
     result['fuselage'] = dict(law='skin_equivalent',
         areal_density_kg_m2=gl.cfg['materials']['fuselage_shell_areal_density_kg_m2'])
-    result['spar'] = dict(law='solid', density_kg_m3=CARBON['density_kg_m3'])
+    if segmented.enabled(gl):
+        result.update(segmented.material_inventory(gl))
+    else:
+        result['spar'] = dict(law='solid', density_kg_m3=CARBON['density_kg_m3'])
     return result
 
 
@@ -124,7 +132,7 @@ def closed_mesh(rings):
     return mesh
 
 
-def surface_meshes(surface):
+def surface_rings(surface):
     from gliders.model.components import naca
     # No duplicated closure point; finite NACA trailing edge is closed by a facet.
     af = naca(surface.airfoil).repanel(n_points_per_side=33).coordinates
@@ -144,7 +152,11 @@ def surface_meshes(surface):
         thickness_axis = normal * math.cos(t) + np.array([math.sin(t), 0., 0.])
         rings.append(np.array([s.x, s.y, s.z]) + s.chord *
                      (af[:, :1] * chord_axis + af[:, 1:] * thickness_axis))
-    meshes = [closed_mesh(rings)]
+    return rings
+
+
+def surface_meshes(surface):
+    meshes = [closed_mesh(surface_rings(surface))]
     if surface.symmetric:
         mirrored = meshes[0].copy()
         mirrored.apply_scale([1., -1., 1.])
@@ -154,12 +166,18 @@ def surface_meshes(surface):
 
 def build_meshes(gl):
     import trimesh
+    from . import foam_core, segmented
     parts = []
     for surface in [gl.wing_surface(), *gl.tail_surfaces()]:
-        for side, mesh in enumerate(surface_meshes(surface)):
+        if surface.role == 'wing' and segmented.enabled(gl):
+            continue
+        meshes = foam_core.core_meshes(gl) if surface.role == 'wing' and foam_core.enabled(gl) else surface_meshes(surface)
+        for side, mesh in enumerate(meshes):
             density = (gl.cfg['materials']['wing_areal_density_kg_m2'] if surface.role == 'wing'
                        else gl.cfg['materials']['tail_areal_density_kg_m2']) / 2
             parts.append((f'{surface.name}_{side}', mesh, dict(law='skin_equivalent', areal_density_kg_m2=density)))
+            if surface.role == 'wing' and foam_core.enabled(gl):
+                parts[-1] = (f'{surface.name}_{side}', mesh, dict(law='solid', density_kg_m3=foam_core.density(gl)))
     # Match the existing fuselage cross-section model rather than replacing it
     # with a visually similar ellipse.
     ap = gl.fuse.to_asb()
@@ -171,9 +189,13 @@ def build_meshes(gl):
     mesh = closed_mesh(rings)
     parts.append(('fuselage', mesh, dict(law='skin_equivalent',
                  areal_density_kg_m2=gl.cfg['materials']['fuselage_shell_areal_density_kg_m2'])))
+    if segmented.enabled(gl):
+        parts.extend((name, item['mesh'], dict(law='solid', density_kg_m3=item['density']))
+                     for name, item in segmented.selected(gl)['parts'].items())
+        return parts
     spar = gl.spar()
     transform = trimesh.geometry.align_vectors([0, 0, 1], [0, 1, 0])
-    transform[:3, 3] = [gl.wing_position()[0] + .3*gl.wing.root_chord, 0, gl.wing_position()[1]]
+    transform[:3, 3] = foam_core.spar_position(gl)
     rod = trimesh.creation.cylinder(radius=spar['diameter_m']/2, height=spar['span_m'], sections=48, transform=transform)
     parts.append(('spar', rod, dict(law='solid', density_kg_m3=1600.)))
     return parts
@@ -181,6 +203,7 @@ def build_meshes(gl):
 
 def export_bundle(gl, directory, output_id):
     from gliders.model import export
+    from . import foam_core, segmented
     import trimesh
     directory.mkdir(parents=True, exist_ok=True)
     manifest = []
@@ -190,7 +213,8 @@ def export_bundle(gl, directory, output_id):
         path = directory / f'{output_id}_{name}.stl'
         export.write_stl(str(path), mesh.vertices, mesh.faces)
         with path.open('r+b') as f:
-            f.write(f'Mirum CEM {output_id}; mm; analysis OML'.encode().ljust(80, b' '))
+            label = 'segmented wing' if segmented.enabled(gl) else 'solid foam wing' if foam_core.enabled(gl) else 'analysis OML'
+            f.write(f'Mirum CEM {output_id}; mm; {label}'.encode().ljust(80, b' '))
         manifest.append(dict(name=name, file=path.name, material=material,
                              sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
     export.export_templates(gl, str(directory))
@@ -199,6 +223,16 @@ def export_bundle(gl, directory, output_id):
             continue
         path.write_text(path.read_text().replace('<svg', f'<!-- Mirum CEM {output_id}; screening template -->\n<svg', 1))
         path.rename(directory / f'{output_id}_{path.name}')
+    if segmented.enabled(gl):
+        return dict(output_id=output_id, parts=manifest, manufacturing_ready=False,
+                    geometry_kind='segmented foam wing/rods/sleeves/bonds; tail/pod analysis OML',
+                    missing_features=['test-qualified joints and foam load transfer', 'wing saddle',
+                                      'physical tail/pod', 'payload/ballast cavities', 'manufacturing qualification'])
+    if foam_core.enabled(gl):
+        return dict(output_id=output_id, parts=manifest, manufacturing_ready=False,
+                    geometry_kind='solid foam wing cores with stock-rod channel; tail/pod analysis OML',
+                    missing_features=['wing joints/load transfer', 'physical tail/pod construction',
+                                      'ballast/payload cavities', 'toolpaths/stock cutting qualification'])
     return dict(output_id=output_id, parts=manifest, manufacturing_ready=False,
                 geometry_kind='closed outer mould lines + solid spar; skin-equivalent analysis',
                 missing_features=['spar channels', 'rib layout', 'ballast/payload cavities', 'FDM shell/infill/bed splitting'])
