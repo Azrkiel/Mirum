@@ -20,8 +20,9 @@ def capabilities():
 
 
 def archive(aircraft):
+    from copy import deepcopy
     return dict(family=aircraft.family, builder_revision=aircraft.builder_revision,
-                parameters=aircraft.parameters, aircraft_revision=aircraft.revision)
+                parameters=deepcopy(aircraft.parameters), aircraft_revision=aircraft.revision)
 
 
 def reconstruct(record):

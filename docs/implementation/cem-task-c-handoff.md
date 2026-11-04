@@ -125,4 +125,94 @@ Fixture tests are deliberately labelled as fixture evidence. They cannot enable
   passed. The environment draft saves the CEM installation/start instructions
   and this checkout's branch-head SHA. Publication and fresh-task restoration
   have not been performed; review/save the draft in environment settings and
-  publish when appropriate. Code changes are local and uncommitted.
+  publish when appropriate. The initial implementation was committed as
+  `a4d7101`; nothing has been pushed.
+
+## Native diagnostic continuation
+
+`families/diagnostics.py` now exercises installed AeroSandbox VLM with the actual
+family geometry, including the reflexed airfoil coordinates. Reference area is
+the sum of installed lifting-wing areas, span the largest installed span and
+reference chord their area-weighted mean aerodynamic chord. This avoids silently
+using the canard foreplane as the whole-aircraft reference. Archive creation also
+copies parameters so editing a returned archive cannot alter the live aircraft.
+
+The diagnostic holds equipment, incidence, ballast and all geometry fixed. It
+brackets pitching-moment zero within declared alpha limits, rejects missing or
+ambiguous roots, then scales velocity to L=W. It recomputes force, moment and
+alpha derivatives at that solution and applies the family's static-margin
+screen. All raw operating samples, reference quantities, geometry revision,
+conditions, mesh resolutions and diagnostic/library source identities are in
+the JSON report. Invalid or nonfinite output raises an error, never a pass.
+
+Two meshes assess sensitivity in alpha (0.5 degrees), relative speed (5%) and
+static margin (0.02). These are development diagnostic limits, not a qualified
+error estimate. Default resolutions 3 and 6 expose mesh sensitivity in the
+positive reference cases. Refining to 6 and 9 produced:
+
+| Family | Equipment x (m) | Alpha (deg), fine mesh | Speed (m/s), fine mesh | Static margin, fine mesh | State |
+| --- | --- | --- | --- | --- | --- |
+| Tailless swept | 0.22 | 6.518961 | 5.197095 | 0.078272 | diagnostic_equilibrium |
+| Canard | 0.30 | 0.664705 | 6.076586 | 0.127629 | diagnostic_equilibrium |
+| Tandem | 0.10 | -1.493706 | 9.061661 | 0.099099 | diagnostic_equilibrium |
+
+Each reference starts from that family's defaults with the listed equipment
+position set **before** archive generation. The solver never adjusts that
+position to rescue an arm. These are separate reference cases, not comparisons
+with the default hardware. The default canard is untrimmable within the declared
+alpha interval; the default tandem moment root has nonpositive lift. A canard
+with equipment at x=0.60 m has positive native Cma and is not admitted. Native
+tests retain those rejection cases alongside the positive equilibria.
+
+This inviscid calculation does not evaluate profile/body drag, real glide
+performance, control authority, nonlinear interference/stall, dynamic modes or
+construction. `diagnostic_equilibrium` is therefore not a qualified family, and
+the report is rejected by the admission evidence schema. All production,
+performance, physical and verified-gain capabilities remain false.
+
+Reproduce the reference reports outside the checkout:
+
+```sh
+cd /workspace/Mirum
+PYTHONPATH=backend OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
+  MPLCONFIGDIR=/tmp/mirum-matplotlib /workspace/mirum-venv/bin/python - <<'PY'
+from pathlib import Path
+from cem.core import canonical_json
+from cem.glider.families import archive, build
+from cem.glider.families.diagnostics import Conditions, diagnose
+out = Path('/tmp/mirum-family-native')
+out.mkdir(exist_ok=True)
+conditions = Conditions(coarse_resolution=6, fine_resolution=9)
+(out/'conditions.json').write_text(canonical_json(conditions))
+for family, x in [('tailless_swept', .22), ('canard', .30), ('tandem', .10)]:
+    params = build(family).parameters
+    params['inventory']['equipment_x_m'] = x
+    record = archive(build(family, params))
+    (out/(family+'-archive.json')).write_text(canonical_json(record))
+    (out/(family+'-report.json')).write_text(canonical_json(diagnose(record, conditions)))
+PY
+```
+
+The CLI also accepts exact archives and Conditions JSON. Its output must be a
+new file so existing evidence is not overwritten:
+
+```sh
+PYTHONPATH=backend OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
+  MPLCONFIGDIR=/tmp/mirum-matplotlib /workspace/mirum-venv/bin/python \
+  -m cem.glider.families.diagnostics tailless_swept \
+  --archive /tmp/mirum-family-native/tailless_swept-archive.json \
+  --conditions /tmp/mirum-family-native/conditions.json \
+  --output /tmp/mirum-family-native/tailless-cli.json
+```
+
+The CLI was executed and its full JSON matched the direct invocation exactly.
+The focused native/family/API test run completed **71 passed**. Native
+diagnostics strengthen development evidence; Task A/B qualification and final
+Task C release acceptance remain outstanding.
+
+The expanded combined regression run completed **342 passed, 7 skipped** in
+141.22 seconds, with the same existing UI deprecation warning. Dependency
+compatibility and `git diff --check` passed. After restarting the API, HTTP
+metadata returned 200 and retained all unqualified production gates. Neither
+deployment nor publication/fresh-task restoration was performed. The commits
+are local; remote reproduction of unpublished commits is not established.

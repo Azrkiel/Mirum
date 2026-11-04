@@ -90,8 +90,11 @@ class Aircraft:
             wings.append(asb.Wing(name=surface.name, symmetric=True,
                 xsecs=[asb.WingXSec(xyz_le=[s.x, s.y, s.z], chord=s.chord,
                                     twist=s.twist, airfoil=af) for s in surface.sections]))
+        areas = [w.area() for w in wings]
         return asb.Airplane(name=self.family, wings=wings,
-                             xyz_ref=self.mass_summary()['cg_m'])
+            s_ref=sum(areas), b_ref=max(w.span() for w in wings),
+            c_ref=sum(a*w.mean_aerodynamic_chord() for a, w in zip(areas, wings))/sum(areas),
+            xyz_ref=self.mass_summary()['cg_m'])
 
 
 def surface(wing, name, x, z=0.):
