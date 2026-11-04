@@ -8,6 +8,7 @@ import zipfile
 
 from cem.core import digest
 from cem.core import canonical_json
+from cem.glider.shapes import wing_from_parameters
 
 
 def file_digest(path, maximum=64*1024*1024):
@@ -33,12 +34,12 @@ def physical_accounting(report, payload):
     from cem.glider.geometry import expected_materials
     from cem.glider.model import configuration, SizedGlider
     from cem.glider.requirements import GliderMissionRequirements
-    from gliders.model.components import WingParams, FuselageParams, TailParams
+    from gliders.model.components import FuselageParams, TailParams
     elite = payload['elite']
     req = GliderMissionRequirements.model_validate(payload['requirements'])
     _, cfg = configuration(req, payload['calibration'], elite['process'])
     p = elite['parameters']
-    gl = SizedGlider(WingParams(**p['wing']), FuselageParams(**p['fuselage']),
+    gl = SizedGlider(wing_from_parameters(p['wing'], req), FuselageParams(**p['fuselage']),
                     TailParams(**p['tail']), cfg, **elite['placement'])
     expected = expected_materials(gl)
     closure, manifest = report['closure'], report['bundle']['parts']
@@ -101,12 +102,12 @@ def segmented_evidence(report, payload, directory):
     from cem.glider.model import configuration, SizedGlider
     from cem.glider.requirements import GliderMissionRequirements
     from gliders.model.assembly import Glider
-    from gliders.model.components import WingParams, FuselageParams, TailParams
+    from gliders.model.components import FuselageParams, TailParams
     req = GliderMissionRequirements.model_validate(payload['requirements'])
     elite, closure = payload['elite'], report['closure']
     _, cfg = configuration(req, payload['calibration'], elite['process'])
     p = elite['parameters']
-    gl = SizedGlider(WingParams(**p['wing']), FuselageParams(**p['fuselage']), TailParams(**p['tail']), cfg, **elite['placement'])
+    gl = SizedGlider(wing_from_parameters(p['wing'], req), FuselageParams(**p['fuselage']), TailParams(**p['tail']), cfg, **elite['placement'])
     expected = expected_materials(gl)
     meshes, measurements = {}, []
     for item in report['bundle']['parts']:
@@ -144,12 +145,12 @@ def foam_evidence(report, payload, directory):
     from cem.glider.geometry import load_part_mesh, measure_part
     from cem.glider.model import configuration, SizedGlider
     from cem.glider.requirements import GliderMissionRequirements
-    from gliders.model.components import WingParams, FuselageParams, TailParams
+    from gliders.model.components import FuselageParams, TailParams
     elite = payload['elite']
     req = GliderMissionRequirements.model_validate(payload['requirements'])
     _, cfg = configuration(req, payload['calibration'], elite['process'])
     p = elite['parameters']
-    gl = SizedGlider(WingParams(**p['wing']), FuselageParams(**p['fuselage']),
+    gl = SizedGlider(wing_from_parameters(p['wing'], req), FuselageParams(**p['fuselage']),
                     TailParams(**p['tail']), cfg, **elite['placement'])
     items = {p['name']: p for p in report['bundle']['parts']}
     cores = []
@@ -188,6 +189,8 @@ def validate(report, payload, expected, directory):
     if report.get('engineering_certified') is not False:
         raise ValueError('Unsupported certification claim')
     if payload['kind'] == 'discovery':
+        from cem.glider.requirements import GliderMissionRequirements
+        mission = GliderMissionRequirements.model_validate(payload['requirements'])
         if report.get('status') != 'completed' or not isinstance(report.get('candidates'), list) or not isinstance(report.get('per_process'), dict):
             raise ValueError('Missing archive evidence')
         archive = [e for p in report['per_process'].values() for e in p['archive']]
@@ -201,6 +204,13 @@ def validate(report, payload, expected, directory):
             if revision != elite['elite_id']:
                 raise ValueError('Elite parameters do not match its revision')
             result = elite['result']
+            wing = wing_from_parameters(elite['parameters']['wing'], mission)
+            if mission.discovery.wing_shape == 'multi_station':
+                factors = getattr(wing, 'chord_factors', None)
+                shape = 'multi_station' if factors is not None else 'baseline'
+                if (result.get('wing_shape') != shape
+                        or result.get('chord_shape_factors') != (list(factors) if factors is not None else None)):
+                    raise ValueError('Archive wing shape differs from its parameter revision')
             if result.get('valid') is not True or result.get('fail_reasons'):
                 raise ValueError('Archive contains failed evidence')
             for key in ('mass_kg', 'CL_trim', 'CD_trim', 'CLmax_est', 'glide_speed_m_s', 'objective_value'):

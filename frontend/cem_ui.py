@@ -53,6 +53,10 @@ def render_cem(backend, headers):
         temperature = right.number_input('Ambient temperature (°C)', -30., 45., 15.)
         budget = right.number_input('Evaluations per process', 8, 120, 40)
         seed = right.number_input('Seed', 0, 2147483647, 42)
+        wing_shape = st.selectbox('Wing planform search', ['baseline', 'multi_station'],
+            format_func=lambda v: {'baseline': 'Existing wing templates',
+                                   'multi_station': 'Five-station chord shapes (screening only)'}[v],
+            help='Varies three interior chords by up to 15%. Existing tail families; no independently verified novelty or manufacturing claim.')
         families = st.multiselect('Layout families', ['conventional', 't_tail', 'v_tail'], default=['conventional', 't_tail', 'v_tail'],
                                   format_func=lambda v: {'conventional':'Conventional', 't_tail':'T-tail', 'v_tail':'V-tail'}[v])
         hard = st.checkbox('Also enforce a hard minimum at P10',
@@ -72,7 +76,7 @@ def render_cem(backend, headers):
                     uplift_m_s=uplift if environment == 'uniform_uplift' else 0., altitude_m=altitude, temperature_c=temperature),
                 constraints=dict(max_span_m=span, max_length_m=length, max_mass_kg=mass/1000,
                     payload=dict(mass_kg=payload/1000, diameter_m=diameter/1000, length_m=payload_length/1000) if payload else None),
-                process=process, discovery=dict(families=families, budget_evals=budget, seed=seed, top_k=3))
+                process=process, discovery=dict(families=families, wing_shape=wing_shape, budget_evals=budget, seed=seed, top_k=3))
             body = dict(requirements=req, calibration_version=cal_version or None)
             r = requests.post(f'{backend}/cem/glider/feasibility', json=body, headers=headers(), timeout=15)
             r.raise_for_status()
@@ -91,6 +95,8 @@ def render_cem(backend, headers):
             st.write(f"Required L/D: {f['required_lift_to_drag']:.1f}; optimistic envelope: {f['optimistic_lift_to_drag']:.1f}.")
         if f.get('bound_state') == 'rebuild_required_for_calibration':
             st.info('This calibration needs a regenerated feasibility envelope. Continue with physics sizing; no infeasibility claim is made.')
+        if f.get('bound_state') == 'rebuild_required_for_shape':
+            st.info('The existing feasibility bound does not cover this wing shape search. Candidate screening continues without an infeasibility claim.')
         st.dataframe(f['levers'], hide_index=True)
         with st.expander('Feasibility evidence and assumptions'):
             st.json(f)

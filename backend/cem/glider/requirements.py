@@ -72,6 +72,7 @@ class Constraints(StrictModel):
 
 
 class Discovery(StrictModel):
+    wing_shape: Literal['baseline', 'multi_station'] = 'baseline'
     families: list[Family] | Literal['all'] = 'all'
     budget_evals: int = Field(40, ge=8, le=120)
     seed: int = Field(42, ge=0, le=2147483647)
@@ -99,6 +100,8 @@ class GliderMissionRequirements(StrictModel):
 
     @model_validator(mode='after')
     def supported_construction(self):
+        if self.discovery.wing_shape != 'baseline' and self.construction != 'screening_oml':
+            raise ValueError('Multi-station shape search supports screening_oml construction only')
         if self.construction != 'screening_oml' and self.process != 'sheet_foam':
             raise ValueError('Solid foam wing construction requires process=sheet_foam')
         return self

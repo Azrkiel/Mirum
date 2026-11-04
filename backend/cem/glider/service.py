@@ -8,12 +8,13 @@ import zipfile
 from cem import VERSION
 from cem.core import canonical_json, digest, output_id
 from cem.provenance import provenance
-from gliders.model.components import WingParams, FuselageParams, TailParams
+from gliders.model.components import FuselageParams, TailParams
 from gliders.search import finite_json
 from .requirements import GliderMissionRequirements
 from .calibration import version
 from .feasibility import feasibility
 from .discovery import discover
+from .shapes import wing_from_parameters
 from .model import configuration, SizedGlider
 from .geometry import export_bundle
 from .closure import verify
@@ -50,7 +51,7 @@ def build_design(req, calibration, elite, directory):
     process = elite['process']
     request, cfg = configuration(req, calibration, process)
     p = elite['parameters']
-    gl = SizedGlider(WingParams(**p['wing']), FuselageParams(**p['fuselage']), TailParams(**p['tail']),
+    gl = SizedGlider(wing_from_parameters(p['wing'], req), FuselageParams(**p['fuselage']), TailParams(**p['tail']),
                     cfg, **elite['placement'])
     ids = identity(req, calibration)
     attempts = []
@@ -149,7 +150,7 @@ class GliderCEM:
         req, elite = design.requirements, design.elite
         request, cfg = configuration(req, self.calibration, elite['process'])
         p = elite['parameters']
-        gl = SizedGlider(WingParams(**p['wing']), FuselageParams(**p['fuselage']), TailParams(**p['tail']),
+        gl = SizedGlider(wing_from_parameters(p['wing'], req), FuselageParams(**p['fuselage']), TailParams(**p['tail']),
                         cfg, **elite['placement'])
         root = Path(os.environ.get('MIRUM_WORK_DIR', '/tmp/mirum/work')) / 'cem/stages'
         root.mkdir(parents=True, exist_ok=True)
