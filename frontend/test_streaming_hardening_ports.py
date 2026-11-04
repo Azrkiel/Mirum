@@ -8,7 +8,7 @@ import base64
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -32,7 +32,8 @@ def run_stream(events):
     response.__exit__ = Mock(return_value=False)
     response.iter_lines.return_value = [e if isinstance(e,str) else 'data: '+json.dumps(e) for e in events]
     requests = SimpleNamespace(post=Mock(return_value=response), ConnectionError=ConnectionError, Timeout=TimeoutError, RequestException=RuntimeError)
-    st = SimpleNamespace(session_state=state, error=Mock())
+    # expander/code: failure details render in a collapsible block.
+    st = SimpleNamespace(session_state=state, error=Mock(), expander=MagicMock(), code=Mock())
     ns = dict(st=st, requests=requests, BACKEND_URL='http://fixture', _auth_headers=lambda: {}, json=json, base64=base64,
               _progress_md=lambda steps: str(steps), _step_label=lambda step: step)
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(APP), 'exec'), ns)
