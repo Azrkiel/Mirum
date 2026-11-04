@@ -1,0 +1,9 @@
+# Core verifier versions match the pinned runtime image.
+numpy==2.2.4
+scipy==1.15.3
+pydantic==2.10.6
+pytest==8.3.3
+# Standalone browser server; no Gemini, CadQuery, Streamlit or external JS assets.
+fastapi==0.115.0
+uvicorn==0.30.6
+httpx==0.27.2
