@@ -204,7 +204,7 @@ Targeted hardening ports and their scope are described in
 docker build -f Dockerfile.verify -t mirum-integration-verify .
 docker run --rm --network none --read-only --init \
   --cap-drop ALL --security-opt no-new-privileges \
-  --memory 4g --cpus 2 --tmpfs /tmp:rw,size=1g,mode=1777 \
+  --memory 4g --cpus 2 --tmpfs /tmp:rw,exec,size=1g,mode=1777 \
   -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent \
   -e GEMINI_API_KEY= -e GOOGLE_API_KEY= mirum-integration-verify
 ```
