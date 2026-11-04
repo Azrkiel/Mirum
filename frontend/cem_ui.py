@@ -59,6 +59,8 @@ def render_cem(backend, headers):
             help='Varies three interior chords by up to 15%. Existing tail families; no independently verified novelty or manufacturing claim.')
         families = st.multiselect('Layout families', ['conventional', 't_tail', 'v_tail'], default=['conventional', 't_tail', 'v_tail'],
                                   format_func=lambda v: {'conventional':'Conventional', 't_tail':'T-tail', 'v_tail':'V-tail'}[v])
+        st.caption('Tailless swept, canard and tandem geometry prototypes are not available for search. '
+                   'Their family-specific aerodynamic and construction qualification is still required.')
         hard = st.checkbox('Also enforce a hard minimum at P10',
                            help='The lower 10th percentile of the model uncertainty band must meet this value.')
         minimum = st.number_input('Hard minimum (m or s)', .001, 1000000., 100.)

@@ -138,8 +138,10 @@ def attach_cem_routes(app, limiter):
         from cem.provenance import provenance
         from cem.glider.model import SUPPORTED_FAMILIES
         from cem.glider.processes import PROCESSES
+        from cem.glider.families import capabilities as family_capabilities
         return dict(cem_version=provenance()['cem_version'], calibration_version=calibration.version(calibration.initial()),
                     supported_families=list(SUPPORTED_FAMILIES), processes=list(PROCESSES),
+                    family_prototypes=family_capabilities(),
                     requirements_schema=GliderMissionRequirements.model_json_schema(),
                     capabilities=dict(novel_shape_discovery=False, picogk_builder=False,
                                       parametric_wing_shape_discovery=True,
