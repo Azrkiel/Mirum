@@ -5,6 +5,7 @@ import math
 from importlib.metadata import version
 from pathlib import Path
 
+from cem.aero import native
 from cem.aero.native import NativeFailure
 from cem.aero.polar_audit import SEQUENCES
 from cem.aero.qualification import _inventory
@@ -34,7 +35,7 @@ def audit(coordinates, reynolds, angles, directory, *, transition=None, vaccel=N
         coordinates_sha256=digest(points), inputs=dict(coordinates=points,
         reynolds=list(reynolds), angles=list(angles), transition=transition, vaccel=vaccel),
         implementation_sha256=digest({name: Path(inspect.getfile(module)).read_text()
-            for name, module in [('audit', inspect.getmodule(audit)), ('polars', polars),
+            for name, module in [('audit', inspect.getmodule(audit)), ('polars', polars), ('native', native),
                 ('metadata', inspect.getmodule(polars.check_polar_controls))]}),
         runtime={name: version(name) for name in ('numpy', 'scipy', 'aerosandbox')},
         tolerances=TOLERANCES.copy(), queries=[], comparisons=[], production_admission=False,
@@ -48,6 +49,15 @@ def audit(coordinates, reynolds, angles, directory, *, transition=None, vaccel=N
     def query(tag, re, alpha, panels=160, sequence='ascending'):
         folder = root/tag
         if replay:
+            if (folder/'failure.json').exists():
+                failure = json.loads((folder/'failure.json').read_text())
+                inputs = dict(coordinates=points, reynolds=re, angles=list(alpha),
+                    panels=panels, sequence=sequence, vaccel=vaccel,
+                    transition=polars.Transition.model_validate(transition or {}).model_dump(mode='json'))
+                if failure['inputs'] != inputs or (folder/'query.json').exists():
+                    raise ValueError('Interrupted audit query inputs changed')
+                polars.validate_failure(failure, folder)
+                raise NativeFailure(failure['reason'], failure)
             result = json.loads((folder/'query.json').read_text())
             if (result['coordinates'] != points or result['reynolds'] != re or
                     result['requested_angles_deg'] != list(alpha) or result['panels'] != panels

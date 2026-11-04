@@ -3,6 +3,8 @@
 These two-dimensional attached-flow results do not qualify aircraft stall or
 interference. Existing mirum-aero-1 NACA/neutral restrictions are unchanged.
 """
+import inspect
+import json
 import math
 from pathlib import Path
 import tempfile
@@ -13,7 +15,8 @@ from analysis.airfoil import _parse_polar_file
 from cem.aero.contracts import Transition
 from cem.aero.polars import PolarCoverageError, check_polar_controls
 from cem.aero.polar_audit import SEQUENCES
-from cem.aero.native import run, artifact, resolve
+from cem.aero import native as native_runner
+from cem.aero.native import run, artifact, resolve, NativeFailure
 from cem.core import canonical_json, digest
 
 
@@ -72,7 +75,20 @@ def query(coordinates, reynolds, angles, directory, *, transition=None, panels=1
     else:
         commands += [v for a in angles for v in ('INIT', f'ALFA {a:.8g}')]
     commands += ['PACC', '', 'QUIT']
-    native = run('xfoil', '\n'.join(commands)+'\n', folder, 'polar', ('polar.out',))
+    try:
+        native = run('xfoil', '\n'.join(commands)+'\n', folder, 'polar', ('polar.out',))
+    except NativeFailure as exc:
+        # Preserve an interrupted invocation separately from scientific query rows.
+        evidence = dict(scope='interrupted_coordinate_query', inputs=dict(
+            coordinates=points, reynolds=reynolds, angles=list(angles),
+            transition=t.model_dump(mode='json'), panels=panels, sequence=sequence,
+            vaccel=vaccel), native=exc.evidence, reason=str(exc),
+            timeout_s=native_runner.TIMEOUT_S,
+            implementation_sha256=digest({name: Path(inspect.getfile(module)).read_text()
+                for name, module in [('query', inspect.getmodule(query)), ('native', native_runner)]}),
+            foil=artifact(folder/'foil.dat', folder), production_admission=False)
+        (folder/'failure.json').write_text(canonical_json(evidence))
+        raise NativeFailure(str(exc), evidence) from exc
     native['artifacts'].append(artifact(folder/'foil.dat', folder))
     observed = check_polar_controls((folder/'polar.out').read_text(), None, reynolds, t,
                                     coordinate_name='mirum_exact_coordinates')
@@ -126,6 +142,35 @@ def validate(report, directory):
     scientific = lambda r: {k:v for k,v in r.items() if k != 'native'}
     if canonical_json(scientific(expected)) != canonical_json(scientific(report)):
         raise ValueError('Coordinate polar differs from native reconstruction')
+    return False
+
+
+def validate_failure(report, directory):
+    """Reconstruct a failure with fresh native work; never return admission."""
+    folder = Path(directory)
+    native = report['native']
+    if (report.get('scope') != 'interrupted_coordinate_query'
+            or native.get('solver') != 'xfoil'
+            or native.get('state') not in ('timeout', 'runtime_sigfpe', 'runtime_failure', 'missing_output')
+            or resolve('xfoil')[1] != native.get('executable_sha256')):
+        raise ValueError('Unsupported or changed interrupted executable evidence')
+    entries = [report['foil'], *native['artifacts']]
+    names = [entry['file'] for entry in entries]
+    if (len(names) != len(set(names)) or not {'foil.dat', 'polar.in', 'polar.log'} <= set(names)
+            or not set(names) <= {'foil.dat', 'polar.in', 'polar.log', 'polar.out'}):
+        raise ValueError('Missing or unexpected interrupted artifacts')
+    for entry in entries:
+        path = folder/entry['file']
+        if path.is_symlink() or artifact(path, folder) != entry:
+            raise ValueError('Interrupted artifact identity changed')
+    with tempfile.TemporaryDirectory(prefix='mirum-interrupted-query-') as tmp:
+        try:
+            query(directory=tmp, **report['inputs'])
+        except NativeFailure as exc:
+            if canonical_json(exc.evidence) != canonical_json(report):
+                raise ValueError('Interrupted query differs from native reconstruction') from exc
+        else:
+            raise ValueError('Interrupted query did not reproduce failure')
     return False
 
 

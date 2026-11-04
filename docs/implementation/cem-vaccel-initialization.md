@@ -1,5 +1,7 @@
 # Exact-foil initialization and acceleration continuation
 
+Follow-up: [interrupted-audit reconstruction and fresh swept trials](cem-interrupted-audit-continuation.md). The results below remain the historical run; the follow-up does not repair its absent raw replay.
+
 Continuation from `3fe617c95968fc7a3a7928c64012f6f77be03fbc` on
 `cem-integration-verification`, in the existing isolated `/workspace/Mirum`
 checkout. No worktree was created. Production gates remain closed.

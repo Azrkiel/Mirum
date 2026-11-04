@@ -83,3 +83,55 @@ def test_native_coordinate_audit_replays_without_promoting_qualification(tmp_pat
     bad['queries'][-1]['report']['rows'][0]['cl'] += .1
     with pytest.raises(ValueError, match='reconstruction'):
         audit.validate(bad, tmp_path)
+
+
+@pytest.mark.parametrize('tamper', ['none', 'inputs', 'artifact', 'missing', 'binary', 'promoted', 'forged', 'success'])
+def test_interrupted_audit_reconstructs_and_rejects_forgery(tmp_path, monkeypatch, tamper):
+    from cem.aero.native import NativeFailure, artifact
+    from cem.core import canonical_json
+    points = coordinates_payload(asb.Airfoil('naca0012').coordinates)
+    monkeypatch.setattr(audit.polars, 'resolve', lambda name: (None, 'binary-identity'))
+
+    def interrupted(name, script, folder, stem, outputs):
+        (folder/'polar.in').write_text(script)
+        (folder/'polar.log').write_text('retained native timeout log')
+        (folder/'polar.out').write_text('partial native output')
+        raise NativeFailure('xfoil: timeout', dict(solver='xfoil', state='timeout',
+            returncode=None, executable_sha256='binary-identity', artifacts=[
+                artifact(folder/n, folder) for n in ('polar.in', 'polar.log', 'polar.out')]))
+
+    monkeypatch.setattr(audit.polars, 'run', interrupted)
+    result = audit.audit(points, [100000., 200000.], [-2., 0., 2.], tmp_path)
+    assert result['state'] == 'failed'
+    assert result['queries'] == []
+    assert result['failure']['native_evidence']['timeout_s'] == 20
+    assert audit.validate(result, tmp_path) is False
+    failure_path = tmp_path/'re_0/ascending/failure.json'
+    failure = __import__('json').loads(failure_path.read_text())
+    if tamper == 'none':
+        return
+    if tamper == 'inputs':
+        failure['inputs']['vaccel'] = 0.
+    elif tamper == 'artifact':
+        (failure_path.parent/'polar.log').write_text('altered')
+    elif tamper == 'missing':
+        (failure_path.parent/'polar.in').unlink()
+    elif tamper == 'binary':
+        failure['native']['executable_sha256'] = 'forged-binary'
+    elif tamper == 'promoted':
+        result['state'] = 'passed'
+        result['production_admission'] = True
+    elif tamper == 'forged':
+        # Even consistently rehashed retained bytes must match a new native run.
+        (failure_path.parent/'polar.in').write_text('forged commands')
+        failure['native']['artifacts'][0] = artifact(failure_path.parent/'polar.in', failure_path.parent)
+    else:
+        # A new successful invocation cannot substantiate the retained timeout.
+        monkeypatch.setattr(audit.polars, 'query', lambda *a, **kw: {})
+    failure_path.write_text(canonical_json(failure))
+    # Rehashing the enclosing report cannot bypass independent reconstruction.
+    result['artifacts'] = audit._inventory(tmp_path, exclude=('coordinate-audit.json',))
+    result.pop('evidence_sha256')
+    result['evidence_sha256'] = audit.digest(result)
+    with pytest.raises(ValueError, match='reconstruction'):
+        audit.validate(result, tmp_path)
