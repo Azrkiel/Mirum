@@ -33,7 +33,7 @@ logger = logging.getLogger("mirum.agents")
 
 from classifier import classify_part
 from compiler import _WORK_DIR, execute_cad_script
-from failure_analysis import build_retry_context, classify_failure
+from failure_analysis import build_retry_context, classify_failure, user_facing_failure
 from propulsion.rea_schema import (
     mentions_propulsion,
     propulsion_rea_schema_extension,
@@ -49,7 +49,9 @@ from strategies import get_active_rules
 from schemas import AssemblyManifest, DesignRequirements, MateType, PartDefinition, sanitize_part_id
 from strategies import get_strategy
 from telemetry import log_attempt
+import config
 from config import GEMINI_MODEL_HEAVY, GEMINI_MODEL_LITE, GEMINI_MODEL_PRO
+from verification.report import CheckReport, CheckResult, check_dimensions
 
 # Heavy tier: Machinist first attempt (gemini-3.5-flash)
 MODEL = GEMINI_MODEL_HEAVY
@@ -89,9 +91,23 @@ def cleanup_tmp_parts() -> None:
 class ScriptError(RuntimeError):
     """RuntimeError subclass that carries the last attempted CadQuery script."""
 
-    def __init__(self, message: str, script: str = ""):
+    def __init__(self, message: str, script: str = "", user_message: str = ""):
         super().__init__(message)
         self.script = script
+        # Plain-language sentence for the END USER (no traceback, no generated
+        # code, no prompt text). str(exc) stays operator-grade.
+        self.user_message = user_message
+
+# Strong references for fire-and-forget tasks: the event loop only keeps weak
+# refs, so an un-referenced background task can be garbage-collected mid-flight.
+_BACKGROUND_TASKS: set = set()
+
+
+def _spawn_background(coro) -> None:
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+
 
 # Max concurrent Machinist calls (respects Gemini rate limits)
 _MACHINIST_SEMAPHORE = asyncio.Semaphore(3)
@@ -423,6 +439,36 @@ def _rea_schema_for(prompt: str) -> dict[str, Any]:
     return schema
 
 
+def _agent_model(agent_type: str, default_model: str, **extra) -> tuple[str, dict]:
+    """Resolve (model_id, generation_config) for an agent from the ModelRegistry.
+
+    Until this existed every Gemini call ran at the API's default sampling
+    settings (temperature ~1.0), which is a poor fit for code generation and
+    structured extraction — and it meant the /admin/model-config hot-swap
+    endpoint, plus the whole registry, changed nothing at runtime.
+
+    `default_model` is the fallback when the registry has no usable entry, so
+    a registry miss or a hot-swap that blanked the model id can never send an
+    empty model name to the API. `extra` (response_mime_type, response_schema)
+    is merged last and always wins.
+    """
+    cfg = None
+    try:
+        from subagents.model_registry import ModelRegistry  # noqa: PLC0415
+        cfg = ModelRegistry.instance().get(agent_type)
+    except Exception as exc:  # pragma: no cover — registry is pure-python
+        logger.debug("ModelRegistry unavailable for %r: %s", agent_type, exc)
+
+    model_id = getattr(cfg, "model_id", "") or default_model
+    gen: dict = {}
+    if cfg is not None and cfg.model_id:
+        gen["temperature"] = cfg.temperature
+        if cfg.max_tokens:
+            gen["max_output_tokens"] = cfg.max_tokens
+    gen.update(extra)
+    return model_id, gen
+
+
 async def run_rea(prompt: str) -> "DesignRequirements | None":
     """T2-12: Requirements Engineering Agent.
 
@@ -435,8 +481,9 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
     """
     _REA_SCHEMA = _rea_schema_for(prompt)
 
+    _rea_model, _rea_gen = _agent_model("rea", MODEL_PRO)
     model = genai.GenerativeModel(
-        model_name=MODEL_PRO,
+        model_name=_rea_model,
         system_instruction=(
             "You are a mechanical engineering requirements analyst. "
             "Extract structured design requirements from the user's CAD design brief. "
@@ -482,6 +529,7 @@ async def run_rea(prompt: str) -> "DesignRequirements | None":
         response = await model.generate_content_async(
             f"Extract design requirements from this brief:\n\n{prompt}",
             generation_config={
+                **_rea_gen,
                 "response_mime_type": "application/json",
                 "response_schema": _REA_SCHEMA,
             },
@@ -529,8 +577,9 @@ async def run_clarifier(prompt: str) -> list[str]:
 
     This is a fast, cheap call — it should complete in <5 seconds.
     """
+    _clar_model, _clar_gen = _agent_model("clarifier", MODEL_LITE)
     model = genai.GenerativeModel(
-        model_name=MODEL_LITE,
+        model_name=_clar_model,
         system_instruction=(
             "You are a mechanical engineering requirements analyst. "
             "Given a user's 3D CAD design prompt, identify ONLY the most critical "
@@ -550,6 +599,7 @@ async def run_clarifier(prompt: str) -> list[str]:
         response = await model.generate_content_async(
             f"Identify missing specifications in this design prompt:\n\n{prompt}",
             generation_config={
+                **_clar_gen,
                 "response_mime_type": "application/json",
                 "response_schema": {
                     "type": "object",
@@ -579,8 +629,9 @@ async def run_planner(
     Converts a natural-language mechanical request into a structured
     AssemblyManifest using Gemini's structured output mode.
     """
+    _plan_model, _plan_gen = _agent_model("planner", MODEL_PRO)
     model = genai.GenerativeModel(
-        model_name=MODEL_PRO,
+        model_name=_plan_model,
         system_instruction=(
             "You are the Chief Draftsman for a mechanical CAD system. "
             "Convert the user's mechanical request into a strict AssemblyManifest JSON. "
@@ -689,13 +740,15 @@ async def run_planner(
 
     schema = _get_gemini_schema()
     logger.info(
-        "run_planner: calling Gemini (model=%s, prompt=%d chars, has_requirements=%s)",
-        MODEL, len(planner_input), requirements is not None,
+        "run_planner: calling Gemini (model=%s, temp=%s, prompt=%d chars, has_requirements=%s)",
+        _plan_model, _plan_gen.get("temperature"), len(planner_input),
+        requirements is not None,
     )
     llm_t0 = time.monotonic()
     response = await model.generate_content_async(
         planner_input,
         generation_config={
+            **_plan_gen,
             "response_mime_type": "application/json",
             "response_schema": schema,
         },
@@ -753,6 +806,7 @@ async def run_machinist(
     error_context: str = "",
     retry_failure_class: str | None = None,
     retry_techniques: list[str] | None = None,
+    is_final_retry: bool = False,
 ) -> str:
     """Subagent 2: The Machinist.
 
@@ -765,14 +819,23 @@ async def run_machinist(
     working example of the exact pattern that just blew up, instead of more
     semantically-similar parts that share the same broken technique.
 
-    Model escalation: first attempt uses the Heavy flash model for speed.
-    Any retry (error_context present) escalates to Pro for deeper reasoning
-    about the logic error that caused the failure.
+    Model selection: Heavy (flash) for every attempt except the LAST retry
+    (``is_final_retry``), which escalates to the Pro-tier "critic" config -
+    Pro tokens are spent on the one attempt that carries the complete failure
+    history. Sampling comes from the ModelRegistry (machinist temp 0.2)
+    instead of the API default (~1.0), which is too loose for code generation.
     """
     system_prompt = get_strategy(domain, part_def.description)
 
-    # Always use Heavy (gemini-3.5-flash) — Pro escalation on retries removed.
-    active_model = MODEL
+    agent_type = "critic" if is_final_retry else "machinist"
+    active_model, gen_config = _agent_model(
+        agent_type, MODEL_PRO if is_final_retry else MODEL
+    )
+    if is_final_retry:
+        logger.info(
+            "run_machinist: final retry for %r - escalating to %s",
+            part_def.part_id, active_model,
+        )
     model = genai.GenerativeModel(
         model_name=active_model,
         system_instruction=system_prompt,
@@ -822,14 +885,16 @@ async def run_machinist(
             f"Return the complete corrected script."
         )
 
-    response = await model.generate_content_async(prompt)
+    response = await model.generate_content_async(
+        prompt, generation_config=gen_config or None
+    )
 
     # Log token usage for cost analysis (T1-10)
     try:
         usage = response.usage_metadata
         from telemetry import log_token_usage
         log_token_usage(
-            agent=f"machinist_{domain}",
+            agent=f"machinist_{domain}" + ("_pro" if is_final_retry else ""),
             prompt_tokens=usage.prompt_token_count or 0,
             completion_tokens=usage.candidates_token_count or 0,
         )
@@ -878,10 +943,22 @@ async def _save_part_step(part_id: str, script: str) -> str:
     return safe_path
 
 
+def _remove_quiet(path: str) -> None:
+    """Best-effort file removal."""
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 async def run_critic_loop(
     part_def: PartDefinition,
-    max_retries: int = 3,
+    max_retries: int | None = None,
     save_step: bool = True,
+    requirements: "DesignRequirements | None" = None,
+    dims_part_scoped: bool = False,
 ) -> tuple[str, str, dict | None]:
     """Subagent 3: The QA Inspector (Critic Loop).
 
@@ -893,14 +970,32 @@ async def run_critic_loop(
         max_retries: Max machinist attempts before giving up.
         save_step: Whether to export a .step file for the deterministic
             assembler. Single-part requests skip this to avoid an extra
-            subprocess call whose output they'd just throw away.
+            subprocess call whose output they'd just throw away. A temporary
+            STEP is still exported (and deleted) when ``requirements`` carries
+            key_dimensions, because the dimension check needs a measured bbox.
+        requirements: REA-extracted DesignRequirements; enables the
+            dimension-vs-spec check when key_dimensions is present.
+        dims_part_scoped: True in multi-part assemblies - only dimensions
+            whose name mentions this part_id are checked against this part.
 
     Returns:
         (validated_code, step_file_path, geometry_cert) — the clean CadQuery
         source, the absolute path to the pre-compiled .step file (empty string
         when save_step is False), and a GeometryCertificate dict (or None when
-        save_step is False or OCC is unavailable).
+        save_step is False or OCC is unavailable). When a certificate exists it
+        carries a ``verification`` key holding the sanitisable CheckReport
+        payload (cert + dimension checks) for the final attempt. The 3-tuple
+        contract is unchanged; a failed certificate still reaches the caller,
+        which refuses delivery unless ``passed is True``.
+
+    Verification failures (certificate or dimensions) consume a retry and feed
+    measured feedback to the next Machinist prompt. On the final attempt a
+    dimension mismatch is delivered flagged (``verification.degraded``) while
+    a failed certificate is returned for the caller to reject.
     """
+    if max_retries is None:
+        max_retries = config.CRITIC_MAX_RETRIES
+
     async with _MACHINIST_SEMAPHORE:
         # Classify once per part — domain is stable across retries
         classification = await classify_part(part_def.description)
@@ -909,6 +1004,8 @@ async def run_critic_loop(
         error_context = ""
         retry_failure_class: str | None = None
         retry_techniques: list[str] | None = None
+        history: list[str] = []
+        key_dims = getattr(requirements, "key_dimensions", None) if requirements else None
 
         for attempt in range(1, max_retries + 1):
             code = await run_machinist(
@@ -917,6 +1014,10 @@ async def run_critic_loop(
                 error_context=error_context,
                 retry_failure_class=retry_failure_class,
                 retry_techniques=retry_techniques,
+                # Escalate only on the last attempt AND only when there is
+                # failure history to reason about - a single-attempt budget
+                # must not silently become a Pro-priced request.
+                is_final_retry=(attempt == max_retries and attempt > 1),
             )
             unit_error = unconverted_metre_builders(code)
             result = (
@@ -930,15 +1031,20 @@ async def run_critic_loop(
                 failure_op = classify_failure(
                     result.get("traceback", ""), code
                 )
-            log_attempt(
-                part_id=part_def.part_id,
-                domain=domain,
-                attempt=attempt,
-                code=code,
-                error=None if success else result.get("traceback"),
-                success=success,
-                failure_operation=failure_op,
-            )
+            if not success:
+                log_attempt(
+                    part_id=part_def.part_id,
+                    domain=domain,
+                    attempt=attempt,
+                    code=code,
+                    error=result.get("traceback"),
+                    success=False,
+                    failure_operation=failure_op,
+                    description=part_def.description,
+                )
+            # Compiled attempts are logged once, after verification below -
+            # telemetry success feeds the retrieval index on restart, so a
+            # geometrically rejected script must never be recorded as success.
 
             if success:
                 # T2-04: G2 continuity check for Domain C parts
@@ -1020,38 +1126,138 @@ async def run_critic_loop(
                     except Exception:
                         pass  # Curvature check is advisory — never block compilation
 
-                # Add to retrieval index for future few-shot injection
-                add_to_index(
-                    description=part_def.description,
-                    code=code,
-                    domain=domain,
-                )
-                # LVM scoring (T1-07) — async, fire-and-forget, non-blocking
-                asyncio.create_task(_score_and_log(part_def.description, code, part_def.part_id))
-                step_path = (
-                    await _save_part_step(part_def.part_id, code)
-                    if save_step
-                    else ""
-                )
-
-                # Geometry certificate — runs for all domains when a STEP file
-                # was produced. Return failures to the caller; live /generate
-                # requires all final certificates to pass before delivery.
+                # --- Verify the produced geometry --------------------------
+                # A STEP is needed for the certificate (and for the dimension
+                # check, which reads the measured bbox). Single-part requests
+                # without key_dimensions keep skipping the export.
+                final_attempt = attempt == max_retries
+                need_step = save_step or bool(key_dims)
+                step_path = ""
+                report = CheckReport(part_id=part_def.part_id, attempt=attempt)
+                report.add(CheckResult("compile", passed=True))
                 geometry_cert: dict | None = None
+                if need_step:
+                    try:
+                        step_path = await _save_part_step(part_def.part_id, code)
+                        report.add(CheckResult("export", passed=True))
+                    except ScriptError as exc:
+                        report.add(CheckResult(
+                            "export", passed=False,
+                            failures=[str(exc)[:800]],
+                            data={"failure_op": "export"},
+                        ))
+                        if final_attempt:
+                            raise ScriptError(
+                                str(exc), script=code,
+                                user_message=user_facing_failure(
+                                    "export", part_def.part_id, max_retries,
+                                ),
+                            ) from exc
                 if step_path:
                     try:
                         from verification.geometry import certify_geometry
                         geometry_cert = dict(certify_geometry(step_path))
+                        occ_missing = any(
+                            "OCC not available" in f
+                            for f in geometry_cert.get("failures", [])
+                        )
+                        report.add(CheckResult(
+                            "cert",
+                            passed=bool(geometry_cert.get("passed")),
+                            skipped=occ_missing,
+                            failures=list(geometry_cert.get("failures", [])),
+                            data={"cert": geometry_cert},
+                        ))
                     except Exception as _cert_exc:
                         logger.debug("geometry cert skipped: %s", _cert_exc)
+                        report.add(CheckResult("cert", passed=True, skipped=True))
+                    try:
+                        report.add(check_dimensions(
+                            key_dims,
+                            geometry_cert.get("bounding_box") if geometry_cert else None,
+                            part_id=part_def.part_id if dims_part_scoped else None,
+                            rel_tol=config.DIM_TOLERANCE_REL,
+                            abs_floor_mm=config.DIM_TOLERANCE_ABS_MM,
+                        ))
+                    except Exception as _dim_exc:  # defensive: never block on the checker
+                        logger.debug("dimension check skipped: %s", _dim_exc)
 
+                if not report.passed:
+                    failure_class = report.failure_class()
+                    failure_summary = "; ".join(report.failure_messages())[:1500]
+                    log_attempt(
+                        part_id=part_def.part_id,
+                        domain=domain,
+                        attempt=attempt,
+                        code=code,
+                        error=failure_summary,
+                        success=False,
+                        failure_operation=failure_class,
+                        description=part_def.description,
+                        check_report=report.to_telemetry(),
+                    )
+                    if not final_attempt:
+                        _remove_quiet(step_path)
+                        history.append(f"attempt {attempt}: {report.summary_line()}")
+                        error_context = build_retry_context(
+                            traceback="",
+                            code=code,
+                            active_rules=get_active_rules(domain, part_def.description),
+                            check_failures=report.to_prompt_context(),
+                            previous_code=code,
+                            history=history,
+                            failure_class=failure_class,
+                        )
+                        retry_failure_class = failure_class
+                        retry_techniques = extract_techniques(code)
+                        continue
+                    # Final attempt: fall through and return what we have. A
+                    # failed certificate is rejected by the caller (fail-closed);
+                    # a dimension mismatch is flagged in the verification payload.
+                    logger.warning(
+                        "Part %r returned DEGRADED after %d attempts: %s",
+                        part_def.part_id, max_retries, failure_summary,
+                    )
+                else:
+                    log_attempt(
+                        part_id=part_def.part_id,
+                        domain=domain,
+                        attempt=attempt,
+                        code=code,
+                        error=None,
+                        success=True,
+                        description=part_def.description,
+                        check_report=report.to_telemetry(),
+                    )
+                    # Only fully-verified code enters the few-shot index -
+                    # geometrically-rejected scripts must never be re-served
+                    # as "successful examples".
+                    add_to_index(
+                        description=part_def.description,
+                        code=code,
+                        domain=domain,
+                    )
+                    # LVM scoring (T1-07) - async, fire-and-forget, non-blocking
+                    _spawn_background(
+                        _score_and_log(part_def.description, code, part_def.part_id)
+                    )
+
+                if geometry_cert is not None:
+                    geometry_cert["verification"] = report.to_payload()
+                if not save_step:
+                    _remove_quiet(step_path)
+                    step_path = ""
                 return code, step_path, geometry_cert
 
             active_rules = get_active_rules(domain, part_def.description)
+            tb = result.get("traceback", "")
+            history.append(f"attempt {attempt}: compile failure ({failure_op})")
             error_context = build_retry_context(
-                traceback=result.get("traceback", ""),
+                traceback=tb,
                 code=code,
                 active_rules=active_rules,
+                previous_code=code,
+                history=history,
             )
             retry_failure_class = failure_op
             retry_techniques = extract_techniques(code)
@@ -1060,9 +1266,31 @@ async def run_critic_loop(
                     f"Part '{part_def.part_id}' failed after {max_retries} attempts. "
                     f"Last error:\n{error_context}",
                     script=code,
+                    user_message=user_facing_failure(
+                        failure_op or "unknown", part_def.part_id, max_retries,
+                    ),
                 )
 
         raise ScriptError(f"Part '{part_def.part_id}' failed unexpectedly.")
+
+
+def group_parts_by_description(
+    parts: list[PartDefinition],
+) -> list[tuple[PartDefinition, list[str]]]:
+    """Group parts whose descriptions are identical so geometry is built once.
+
+    The Planner emits identical parts as separate entries (``leg_1``..``leg_4``
+    rather than one ``legs``), which is right for the manifest but means a
+    four-legged table otherwise pays 4x classify + Machinist + STEP export to
+    produce four copies of one solid.
+
+    Returns [(representative_part, [every part_id sharing that description])].
+    Order follows first appearance, so build order stays planner-defined.
+    """
+    groups: dict[str, list[PartDefinition]] = {}
+    for part in parts:
+        groups.setdefault(part.description, []).append(part)
+    return [(g[0], [p.part_id for p in g]) for g in groups.values()]
 
 
 async def run_machinist_batch(
@@ -1075,35 +1303,24 @@ async def run_machinist_batch(
     identical parts.
 
     Returns:
-        (part_scripts, step_files, geometry_certs) — three dicts mapping
+        (part_scripts, step_files, geometry_certs) - three dicts mapping
         part_id to validated code, pre-compiled .step file path, and
         GeometryCertificate dict (or None when OCC is unavailable).
     """
-    # Group parts by description for deduplication
-    desc_to_parts: dict[str, list[PartDefinition]] = {}
-    for part in parts:
-        desc_to_parts.setdefault(part.description, []).append(part)
+    groups = group_parts_by_description(parts)
+    results = await asyncio.gather(*[run_critic_loop(rep) for rep, _ in groups])
 
-    # Build one representative per unique description
-    unique_parts = [group[0] for group in desc_to_parts.values()]
-
-    tasks = [run_critic_loop(part) for part in unique_parts]
-    results = await asyncio.gather(*tasks)
-
-    # Map representative description -> (code, step_path, geometry_cert)
-    desc_to_result = {
-        part.description: result for part, result in zip(unique_parts, results)
-    }
-
-    # Fan out cached results to all parts sharing the same description
+    # Fan the one build out to every part_id sharing that description. The
+    # STEP path is shared deliberately: the assembler emits a separate
+    # importStep + assembly.add per part_id, so one file backs N instances.
     part_scripts: dict[str, str] = {}
     step_files: dict[str, str] = {}
     geometry_certs: dict[str, dict | None] = {}
-    for part in parts:
-        code, step_path, geometry_cert = desc_to_result[part.description]
-        part_scripts[part.part_id] = code
-        step_files[part.part_id] = step_path
-        geometry_certs[part.part_id] = geometry_cert
+    for (_rep, part_ids), (code, step_path, geometry_cert) in zip(groups, results):
+        for pid in part_ids:
+            part_scripts[pid] = code
+            step_files[pid] = step_path
+            geometry_certs[pid] = geometry_cert
 
     return part_scripts, step_files, geometry_certs
 
@@ -1527,8 +1744,9 @@ async def run_refiner(
         if r.source_part_id != r.target_part_id
     )
 
+    _ref_model, _ref_gen = _agent_model("refiner", MODEL_PRO)
     model = genai.GenerativeModel(
-        model_name=MODEL_PRO,
+        model_name=_ref_model,
         system_instruction=(
             "You are the Chief Draftsman for a mechanical CAD system. "
             "You are given an existing assembly design and a refinement request. "
@@ -1619,6 +1837,7 @@ async def run_refiner(
         response = await model.generate_content_async(
             user_message,
             generation_config={
+                **_ref_gen,
                 "response_mime_type": "application/json",
                 "response_schema": diff_schema,
             },

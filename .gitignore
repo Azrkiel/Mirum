@@ -1,6 +1,7 @@
 # Environment variables — NEVER commit this
 .env
 .env.*
+!.env.example
 .hermes/
 
 # Python

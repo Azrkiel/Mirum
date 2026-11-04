@@ -256,9 +256,14 @@ RULE_BLOCKS = {
         "overlapping. Neither mode is a manufacturing thread. "
         "\n"
         "Do NOT hand-build a bolt or nut from .polygon() + .circle() + "
-        ".extrude() — the helpers already produce a valid centered solid. "
+        ".extrude() — the helpers already produce a valid centered solid with "
+        "ISO 4014/4032 hex dimensions. "
         "Hand-rolled fasteners historically fail because the "
-        "LLM invents face selectors or miscomputes the hex circumscribed radius."
+        "LLM invents face selectors or miscomputes the hex circumscribed radius. "
+        "NOTE: the helpers produce COSMETIC threads (correct major diameter, "
+        "annular ribs, no helix) — a simplified thread representation, not "
+        "cuttable thread geometry. Do not claim in a part description that the "
+        "output has true thread form."
     ),
 
     # ── Domain C: Organic / Ergonomic ─────────────────────────────────
