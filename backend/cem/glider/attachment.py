@@ -15,15 +15,16 @@ from cem.core import digest
 from . import segmented_geometry as geo
 from .physical_loads import resultants
 
-MODE = 'two_plate_riveted_keel_v1'
+MODE = 'two_plate_riveted_keel_v2'
 SPEC = dict(plate_width_m=.044, plate_bottom_m=-.045, plate_top_m=.007,
             plate_thickness_m=.005, keel_width_m=.030, keel_bottom_m=-.045,
             keel_top_m=-.020, keel_front_m=-.050, keel_back_m=.120,
             bolt_half_pitch_m=.012, bolt_z_m=-.032, bolt_radius_m=.0015,
-            head_radius_m=.003, head_thickness_m=.001)
+            head_radius_m=.003, head_thickness_m=.001, collar_bond_thickness_m=.00015)
 MATERIALS = dict(
     plate=dict(density_kg_m3=2700., normal_pa=150e6, shear_pa=70e6, bearing_pa=120e6),
     rivet=dict(density_kg_m3=2700., normal_pa=150e6, shear_pa=80e6),
+    bond=dict(density_kg_m3=1100., normal_pa=1e6, shear_pa=8e6),
     keel=dict(density_kg_m3=600., shear_pa=4e6, bearing_pa=12e6),
     safety_factor=2.)
 
@@ -108,10 +109,14 @@ def construct(point, collar_radius_m):
     parts = {}
     for side in (-1, 1):
         ends = sorted([side*s['keel_width_m']/2, side*(s['keel_width_m']/2+s['plate_thickness_m'])])
+        bond_radius = collar_radius_m+s['collar_bond_thickness_m']
         mesh = perforated_prism([-s['plate_width_m']/2, s['plate_bottom_m'],
                                  s['plate_width_m']/2, s['plate_top_m']], ends,
-                                [(0., 0., collar_radius_m), *bolts])
+                                [(0., 0., bond_radius), *bolts])
         parts[f'mount_plate_{side}'] = dict(mesh=mesh, kind='plate')
+        bond = geo.tube([[0., ends[0], 0.], [0., ends[1], 0.]],
+            [[0., 1., 0.]]*2, [[0., 1., 0.]], bond_radius, collar_radius_m, count=64)
+        parts[f'mount_collar_bond_{side}'] = dict(mesh=bond, kind='bond')
     mesh = perforated_prism([s['keel_front_m'], s['keel_bottom_m'], s['keel_back_m'], s['keel_top_m']],
                            [-s['keel_width_m']/2, s['keel_width_m']/2], bolts)
     parts['fuselage_keel'] = dict(mesh=mesh, kind='keel')
@@ -207,13 +212,23 @@ def measure(point, collar, meshes, *, collar_radius_m):
         bores.sort(key=lambda b: -b['center_xz_m'][1])
         top, bolts = bores[0], sorted(bores[1:], key=lambda b: b['center_xz_m'][0])
         if (np.linalg.norm(np.array(top['center_xz_m'])-point[[0, 2]]) > geo.TOL
-                or abs(top['radius_m']-radius) > geo.TOL):
+                or abs(top['radius_m']-radius-SPEC['collar_bond_thickness_m']) > geo.TOL):
             raise ValueError('Disconnected collar-to-plate bearing interface')
         if collar.bounds[0, 1] > mesh.bounds[0, 1]+geo.TOL or collar.bounds[1, 1] < mesh.bounds[1, 1]-geo.TOL:
             raise ValueError('Collar does not cover installed mount plates')
         sections = [net_section(mesh, b['center_xz_m'][1]) for b in (top, *bolts)]
+        bond_mesh = meshes[f'mount_collar_bond_{side}']
+        bond_section = geo.section(bond_mesh, np.array([point[0], y, point[2]]),
+            np.array([0., 1., 0.]), hollow=True)
+        bond_length = float(np.ptp(bond_mesh.bounds[:, 1]))
+        bore_loops = geo.section_loops(collar, point, np.array([0., 1., 0.]))
+        outer_loop = max(bore_loops, key=lambda loop: _polygon(loop, [0, 2])[0])
+        perimeter = float(np.linalg.norm(np.diff(outer_loop, axis=0), axis=1).sum())
+        collar_area = _polygon(outer_loop, [0, 2])[0]
         plates.append(dict(name=f'mount_plate_{side}', y_m=y, bores=bores,
             bolt_bores=bolts, thickness_m=float(np.ptp(mesh.bounds[:, 1])), net_sections=sections,
+            collar_bond_section=bond_section, collar_bond_length_m=bond_length,
+            collar_perimeter_m=perimeter, collar_enclosed_area_m2=collar_area,
             lower_edge_m=float(mesh.bounds[0, 2])))
     keel = meshes['fuselage_keel']
     keel_bores = sorted(_bores(keel, float(np.mean(keel.bounds[:, 1]))), key=lambda b: b['center_xz_m'][0])
@@ -332,13 +347,13 @@ def analyze(left, right, *, geometry_sha256, operating_sha256, half_span_m, inte
     for i, rivet in enumerate(rivets):
         radius = rivet['section']['extreme_radius_m']
         applied = np.abs(reactions[:, i])
-        bearing = pin_bearing(-reactions[:, i],
+        pin = pin_bearing(-reactions[:, i],
             [[p['y_m']-p['thickness_m']/2, p['y_m']+p['thickness_m']/2] for p in plates],
             interfaces['keel_width_m'])
-        shear = 4/3*bearing['max_shear_n']/rivet['section']['area_m2']
-        bending = bearing['max_bending_nm']*radius/rivet['section']['min_inertia_m4']
-        keel_force_bound = bearing['keel_absolute_force_n']
-        keel_bearing = bearing['keel_peak_line_load_n_m']/(2*radius)
+        shear = 4/3*pin['max_shear_n']/rivet['section']['area_m2']
+        bending = pin['max_bending_nm']*radius/rivet['section']['min_inertia_m4']
+        keel_force_bound = pin['keel_absolute_force_n']
+        keel_bearing = pin['keel_peak_line_load_n_m']/(2*radius)
         z = rivet['z_m']
         keel_edge = min(z-interfaces['keel_bounds_z_m'][0], interfaces['keel_bounds_z_m'][1]-z)-radius
         if keel_edge <= 0:
@@ -349,21 +364,27 @@ def analyze(left, right, *, geometry_sha256, operating_sha256, half_span_m, inte
         checks[f'keel_{i}_bearing'] = keel_bearing <= MATERIALS['keel']['bearing_pa']/sf
         checks[f'keel_{i}_tearout'] = keel_tearout <= MATERIALS['keel']['shear_pa']/sf
         for j, plate in enumerate(plates):
-            bearing = applied[j]/(2*radius*plate['thickness_m'])
+            plate_bearing = applied[j]/(2*radius*plate['thickness_m'])
             edge = z-plate['lower_edge_m']-radius
             if edge <= 0:
                 raise ValueError('Missing mount plate ligament')
             tearout = applied[j]/(2*edge*plate['thickness_m'])
-            checks[f'plate_{j}_{i}_bearing'] = bool(bearing <= MATERIALS['plate']['bearing_pa']/sf)
+            checks[f'plate_{j}_{i}_bearing'] = bool(plate_bearing <= MATERIALS['plate']['bearing_pa']/sf)
             checks[f'plate_{j}_{i}_tearout'] = bool(tearout <= MATERIALS['plate']['shear_pa']/sf)
         details.append(dict(name=rivet['name'], plane_forces_n=reactions[:, i].tolist(),
-            shear_pa=shear, bending_bound_pa=bending, pin_bearing=bearing, keel_bearing_bound_pa=keel_bearing,
+            shear_pa=shear, bending_bound_pa=bending, pin_bearing=pin, keel_bearing_bound_pa=keel_bearing,
             keel_tearout_bound_pa=keel_tearout))
     for j, plate in enumerate(plates):
         f = float(abs(reactions[j].sum()))
         m = float(abs(np.dot(reactions[j], xs)))
         stresses = [f/s['area_m2']+m*s['extreme_x_m']/s['inertia_y_m4'] for s in plate['net_sections']]
         checks[f'plate_{j}_net_section'] = max(stresses) <= MATERIALS['plate']['normal_pa']/sf
+        # A plain round bearing cannot transmit My. The explicit annular bond
+        # supplies a declared nominal torque path without crediting friction.
+        normal = f/(plate['collar_perimeter_m']*plate['collar_bond_length_m'])
+        shear = normal+m/(2*plate['collar_enclosed_area_m2']*plate['collar_bond_length_m'])
+        checks[f'collar_bond_{j}_normal'] = normal <= MATERIALS['bond']['normal_pa']/sf
+        checks[f'collar_bond_{j}_shear'] = shear <= MATERIALS['bond']['shear_pa']/sf
     checks = {k: bool(v) for k, v in checks.items()}
     return dict(state='incomplete' if all(checks.values()) else 'failed',
         supported_checks_state='passed' if all(checks.values()) else 'failed',
@@ -372,7 +393,7 @@ def analyze(left, right, *, geometry_sha256, operating_sha256, half_span_m, inte
         load_sha256=digest(dict(left=left.model_dump(mode='json'), right=right.model_dump(mode='json'))),
         attachment_sha256=interfaces['attachment_sha256'], material_priors=copy.deepcopy(MATERIALS),
         manufacturing_ready=False, load_path_state='partial',
-        unsupported=['collar/plate contact elasticity and local stress concentrations',
+        unsupported=['collar/plate bond peel, elasticity and local stress concentrations',
                      'rivet clearance, fatigue, head pull-through and axial loading',
                      'keel-to-rest-of-fuselage transfer and stiffness',
                      'foam transfer and adhesive peel', 'validated aerodynamic loads and delivered trim'])

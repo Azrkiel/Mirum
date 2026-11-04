@@ -105,13 +105,20 @@ continue rejecting physical multi-station missions, including the fixture name.
 
 The follow-on modules `attachment.py`, `foam_transfer.py` and `mounted_wing.py`
 extend the fixture into
-`bonded_shaped_wing_riveted_keel_prototype_v1`. This remains an isolated research
-diagnostic and is not an admitted production construction. Its 18 delivered
+`bonded_shaped_wing_riveted_keel_prototype_v2`. This remains an isolated research
+diagnostic and is not an admitted production construction. Its 20 delivered
 parts are eight foam panels, the carbon rod, its adhesive annulus, a collar,
-two outer collar-to-foam bonds, two aluminium bearing plates, two aluminium
-through-rivets and a local plywood fuselage keel. Every part has a solid-volume
+two outer collar-to-foam bonds, two collar-to-plate bond layers, two aluminium
+bearing plates, two aluminium through-rivets and a local plywood fuselage keel. Every part has a solid-volume
 material law. Plate/rivet density is 2700 kg/m³; the keel prior is 600 kg/m³.
 No unmodelled friction or fastener preload supplies capacity.
+
+The V2 collar-to-plate annuli correct a load-path issue in the V1 prototype:
+a plain circular bearing cannot carry pitch torque about its own axis without
+friction. The new adhesive layers have explicit measured geometry and nominal
+normal/shear checks; removing either layer fails inventory. Torque capacity is
+never credited to the underlying plain bearing. Local peel still needs its
+own qualification.
 
 Root foam is cut back 20 mm on each side to accommodate the plates. The physical
 lifting geometry therefore differs from the search wing. The revision changes,
@@ -187,7 +194,7 @@ and `measurement.json`. Outputs stay outside the checkout.
 
 On this instance the default fixture rejected 2, 3 and 4 mm rods on beam checks
 and selected 5 mm for its passing supported checks, retaining `incomplete`.
-That run's loaded mass was about 277.45 g, including the declared extra 50 g.
+The V2 run's loaded mass was about 277.39 g, including the declared extra 50 g.
 This is evidence of the executable fixture-sizing/measurement path only, not a
 minimum aircraft spar or a qualified performance result.
 
@@ -197,10 +204,85 @@ section references, polygon traction conservation across multiple resolutions,
 and rejected missing/disconnected/rehashed members. Requirements/discovery/UI
 admission and A's final aerodynamic/delivered-trim qualification remain pending.
 
-The combined focused run passed **152 tests** (one existing pytest configuration
-warning), including existing structure, segmented-wing, shape and requirements
-regressions. The first fixture groundwork is commit `d40cd0b`. Task A's newly
-available shared-contract implementation at `e88c24f` is the next integration
-dependency; it still reports incomplete real whole-aircraft polar coverage and
-native spiral rejection. Its passing numerical references do not qualify this
-mounted physical revision.
+Before the shared-contract merge, the combined focused run passed **152 tests**
+(one existing pytest configuration warning), including existing structure,
+segmented-wing, shape and requirements regressions. The first fixture groundwork
+is commit `d40cd0b`, and the initial mounted/sizing continuation is `686bf42`.
+Task A's shared-contract implementation at `e88c24f` has now been merged into
+this branch. It still reports incomplete real whole-aircraft polar coverage and
+native spiral rejection. Its numerical references do not qualify this mounted
+physical revision.
+
+## Shared contract handoff and read-only reconstruction
+
+`structural_adapter.py` now consumes A's actual `InstalledGeometry`,
+`StructuralLoadCase`, `InstalledMaterial`, `Support` and `InstalledStructure`
+types. The provisional distributed-load fixture remains useful for beam
+references; it does not replace A's point-strip load contract.
+
+`consume_loads` requires exact geometry, hardware, mission, process, calibration
+and implementation binding equality. It retains every strip force and section
+couple in global X-aft/Y-right/Z-up axes. It recovers the section couple by
+subtracting `(strip_center - CG) × force` from the recorded CG moment, then
+translates moments to the structural spar once. The load factor scales both
+forces and couples exactly once. Point loads stay point loads; no interpolation
+changes their total force or first moments. Centreline ambiguity, an absent
+half-wing, unknown surfaces, out-of-span strips and stale contexts fail.
+
+The consumer exposes all six resultant components and exact outboard cuts.
+Tail/other surface loads remain named and quantified as unassigned, rather
+than being folded into wing lift. Drag and lateral force are retained, even
+though this prototype's beam/joint strength checks do not qualify their paths.
+Moment translation is invariant under a CG change when source moments are
+re-expressed consistently. Shared schema validity is not proof of native
+qualification: the consumer always reports `shared_load_contract_only` and
+`incomplete`. Body, inertia/payload/rod, gust and landing loads still need an
+explicit complete-aircraft load case.
+
+`export_structure(wing, diameter, manifest, directory, binding=...)` reconstructs
+the delivered parts and contact geometry before producing
+`installed-structure.json` and `installed-support-evidence.json`. Twenty material
+records reference actual STL hashes, measured mass, CG, density and inertia;
+22 supports form a connected graph from keel to every delivered wing member.
+The support evidence artifact binds both participating material hashes,
+locations, declared mechanisms, measured contact sections and all six context
+identities. Mechanical constraints and `closure_state` stay `declared`.
+
+The A geometry binding and B's delivered-construction hash are distinct
+identities, not aliases. Aerodynamic-to-material geometry correspondence remains
+`unverified`; attaching the shared structure to a supplied aerodynamic context
+does not prove that correspondence. A's material schema carries only inertia
+diagonals, so the full measured tensors are retained separately. The parent-style
+`validate_structure` reimports the material and recreates the expected handoff
+read-only. It rejects edited mass/density, missing supports, changed context,
+promoted closure, modified inertia or raw support artifacts. Even a valid
+declared handoff returns false for physical admission. Export preserves an
+existing, different evidence file and requires a new output revision.
+
+Tests use A's genuine shared fixtures for the 0.5 N / 0.125 N·m half-wing reaction
+reference, complete vector/couple retention, CG-origin invariance, all six stale
+binding cases, no implicit mirroring, and material/support replay. This is
+fixture-based integration. Native tools are not present on this instance, and
+Fortran/CMake build prerequisites are absent; no fresh native aerodynamic
+qualification or actual mounted-aircraft trim is claimed.
+
+The post-merge CEM, legacy-glider, API/UI and aerodynamic adapter run completed
+**368 passed, 8 skipped** in 224.83 seconds. The skips are native solver checks;
+the two warnings are dependency deprecations. The command was:
+
+```sh
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
+  MPLCONFIGDIR=/tmp/mirum-mpl XDG_CACHE_HOME=/tmp/mirum-cache \
+  python -m pytest backend/tests/test_cem* backend/tests/test_glider* \
+  frontend/test_cem_ui.py analysis/tests/test_avl.py analysis/tests/test_airfoil.py -q
+```
+
+Dependency consistency (`uv pip check`) passed. No source, test, manifest or
+lockfile changes were needed to install the frontend/API test dependencies;
+the repository's pinned frontend, SlowAPI and pytest-asyncio versions were used.
+The final reporting correction preserves the complete pin-bearing evidence
+dictionary alongside each plate-bearing stress; it does not alter the numerical
+strength checks. A separate overload reference rejects pitch torque exceeding
+the explicit collar-to-plate bonds' nominal shear capacity.
+After that correction, all **49** targeted attachment, real mounted-CLI and
+shared-contract reconstruction checks passed in 85.65 seconds.

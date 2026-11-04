@@ -15,7 +15,7 @@ from .geometry import closed_mesh, surface_rings, load_part_mesh, measure_part
 from .physical_loads import (BeamMaterial, RootSupport, InstalledLoadCase, StationLoad,
                              analyze as analyze_beam)
 
-MODE = 'bonded_shaped_wing_riveted_keel_prototype_v1'
+MODE = 'bonded_shaped_wing_riveted_keel_prototype_v2'
 COLLAR_BOND_THICKNESS_M = .00025
 ROD_PRIORS = dict(youngs_modulus_pa=100e9, shear_modulus_pa=5e9,
     allowable_normal_pa=400e6, allowable_shear_pa=40e6, safety_factor=2.)

@@ -41,7 +41,8 @@ def analyze(interfaces, left=None, right=None):
 
 def test_real_installed_parts_are_closed_and_contacts_recovered(delivered):
     point, assembly, collar, meshes = delivered
-    assert set(meshes) == {'mount_plate_-1', 'mount_plate_1', 'mount_rivet_0', 'mount_rivet_1', 'fuselage_keel'}
+    assert set(meshes) == {'mount_plate_-1', 'mount_plate_1', 'mount_rivet_0', 'mount_rivet_1',
+                          'mount_collar_bond_-1', 'mount_collar_bond_1', 'fuselage_keel'}
     evidence = mount.measure(point, collar, meshes, collar_radius_m=.0033)
     assert evidence['contact_state'] == 'canonical_conforming_bearing_interfaces'
     assert evidence['keel_width_m'] == pytest.approx(.030, abs=geo.TOL)
@@ -75,10 +76,21 @@ def test_rivet_shear_matches_force_over_measured_area_and_overloads_fail(deliver
     for rivet, actual in zip(r['rivets'], e['rivets']):
         assert rivet['shear_pa'] == pytest.approx(4/3*.5/actual['section']['area_m2'])
         assert rivet['keel_bearing_bound_pa'] == pytest.approx(1./(.003*.030), rel=1e-5)
+        assert rivet['pin_bearing']['max_bending_nm'] == pytest.approx(.005, rel=1e-5)
+        assert abs(rivet['pin_bearing']['force_residual_n']) < 1e-12
     overloaded = analyze(e, case(20000., 100.), case(20000., 100.))
     assert overloaded['state'] == 'failed'
     assert not overloaded['checks']['rivet_0_shear']
     assert not overloaded['checks']['keel_0_bearing']
+
+
+def test_pitch_torque_requires_the_explicit_collar_bond_capacity(delivered):
+    point, _, collar, meshes = delivered
+    e = mount.measure(point, collar, meshes, collar_radius_m=.0033)
+    r = analyze(e, case(0., 100.), case(0., 100.))
+    assert not r['checks']['collar_bond_0_shear']
+    assert not r['checks']['collar_bond_1_shear']
+    assert r['state'] == 'failed'
 
 
 def test_measured_net_ligaments_match_analytical_reference(delivered):
@@ -95,7 +107,7 @@ def test_measured_net_ligaments_match_analytical_reference(delivered):
     assert at_bolts['inertia_y_m4'] == pytest.approx(integral, rel=2e-5)
 
 
-@pytest.mark.parametrize('missing', ['mount_plate_-1', 'mount_plate_1', 'mount_rivet_0', 'fuselage_keel'])
+@pytest.mark.parametrize('missing', ['mount_plate_-1', 'mount_plate_1', 'mount_rivet_0', 'fuselage_keel', 'mount_collar_bond_1'])
 def test_missing_support_or_member_rejected(delivered, missing):
     point, _, collar, original = delivered
     meshes = dict(original); meshes.pop(missing)

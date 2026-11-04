@@ -34,7 +34,7 @@ def test_real_mounted_geometry_properties_and_reactions_are_reconstructed(delive
     r = mounted.verify(w, .004, manifest, directory, left=c, right=c, operating_sha256='a'*64)
     assert r['state'] == 'incomplete'
     assert r['attachment_mechanics']['supported_checks_state'] == 'passed'
-    assert len(r['measured_parts']) == 18
+    assert len(r['measured_parts']) == 20
     assert r['material_partition_relative_error'] < 1e-5
     props = r['material_properties']
     expected_mass = sum(p['mesh'].volume*p['material']['density_kg_m3'] for p in a['parts'].values())
@@ -134,7 +134,7 @@ def test_real_cli_sizing_reexports_every_changed_section_and_keeps_closure_incom
         left = InstalledLoadCase.model_validate_json(json.dumps(data['left']))
         assert attempt['geometry_sha256'] == manifest['geometry_sha256'] == left.geometry_sha256
         assert left.geometry_sha256 not in seen; seen.add(left.geometry_sha256)
-        assert len(manifest['parts']) == 18
+        assert len(manifest['parts']) == 20
         assert 2*resultants(left, 0.)['shear_n'] == pytest.approx(attempt['loaded_mass_kg']*9.81)
         assert measurement['state'] == attempt['state']
         assert measurement['foam_transfer']['nominal_checks_state'] == attempt['foam_nominal_state']
