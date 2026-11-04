@@ -1,0 +1,251 @@
+{
+  "scope": "native_development_not_whole_aircraft_qualification",
+  "families": {
+    "tailless_swept": {
+      "geometry": {
+        "family": "tailless_swept",
+        "builder_revision": "tailless-swept-screening-v1+0c697d71047d7ce9c2cc4588985c19d90325869d2d4a361f2fd9bfdedaed93f3",
+        "parameters": {
+          "family": "tailless_swept",
+          "wing": {
+            "span_m": 1.2,
+            "root_chord_m": 0.18,
+            "taper": 0.65,
+            "sweep_deg": 25.0,
+            "incidence_deg": 2.0,
+            "washout_deg": 2.0,
+            "dihedral_deg": 3.0,
+            "airfoil": "0012"
+          },
+          "wing_x_m": 0.12,
+          "reflex_fraction": 0.015,
+          "elevon_hinge": 0.75,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.22,
+            "body_mass_kg": 0.02,
+            "body_length_m": 0.7
+          }
+        },
+        "aircraft_revision": "3b24b59d67836916067bf35bf8d4b02854e2d7dc452725b3d6615024c667ef8f"
+      },
+      "controls": {
+        "elevon_pitch": 0.0,
+        "elevon_roll": 0.0
+      },
+      "polar_reports": [
+        {
+          "foil": "e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca",
+          "reynolds": 30000.0,
+          "state": "complete",
+          "missing_angles_deg": [],
+          "native_binary": "3faf545ff335b8727e96e02d2c6b532abe8b6cf5cce68ece9411181582b92da5"
+        },
+        {
+          "foil": "e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca",
+          "reynolds": 300000.0,
+          "state": "complete",
+          "missing_angles_deg": [],
+          "native_binary": "3faf545ff335b8727e96e02d2c6b532abe8b6cf5cce68ece9411181582b92da5"
+        }
+      ],
+      "failures": [],
+      "computed_meshes": [
+        2,
+        4
+      ],
+      "state": "lifting_surfaces_computed",
+      "production_admission": false,
+      "report_sha256": "396b9ff42873974b484225e01f1ed9b8401f241a59af6cef5e0ae1a01a1806c5",
+      "static_derivative_failures": [],
+      "static_derivatives": [
+        {
+          "alpha_step_deg": 0.25,
+          "cl_alpha_per_rad": 6.784073261762744,
+          "cm_alpha_per_rad": -0.8978875227694089,
+          "static_margin": 0.13235227393993468,
+          "dynamic_stability_qualified": false
+        },
+        {
+          "alpha_step_deg": 0.25,
+          "cl_alpha_per_rad": 6.494512812361514,
+          "cm_alpha_per_rad": -0.9732413466827731,
+          "static_margin": 0.14985594374844047,
+          "dynamic_stability_qualified": false
+        }
+      ]
+    },
+    "canard": {
+      "geometry": {
+        "family": "canard",
+        "builder_revision": "canard-screening-v1+f9174e01e0439bda0badf92d42c425ed0e50092c4c44611a7790b0d047797bd6",
+        "parameters": {
+          "family": "canard",
+          "foreplane": {
+            "span_m": 0.45,
+            "root_chord_m": 0.1,
+            "taper": 0.8,
+            "sweep_deg": 0.0,
+            "incidence_deg": 4.0,
+            "washout_deg": 0.0,
+            "dihedral_deg": 3.0,
+            "airfoil": "2412"
+          },
+          "main_wing": {
+            "span_m": 1.2,
+            "root_chord_m": 0.18,
+            "taper": 0.65,
+            "sweep_deg": 0.0,
+            "incidence_deg": 2.0,
+            "washout_deg": 2.0,
+            "dihedral_deg": 3.0,
+            "airfoil": "2412"
+          },
+          "foreplane_x_m": 0.04,
+          "main_x_m": 0.4,
+          "vertical_separation_m": 0.04,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.35,
+            "body_mass_kg": 0.02,
+            "body_length_m": 0.7
+          }
+        },
+        "aircraft_revision": "9a4fb99eff8877be0edbe87f27cf95dcb792125c30651c503d6d02efafea9d12"
+      },
+      "controls": {
+        "foreplane_elevator": 0.0,
+        "aileron": 0.0
+      },
+      "polar_reports": [
+        {
+          "foil": "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97",
+          "reynolds": 30000.0,
+          "state": "complete",
+          "missing_angles_deg": [],
+          "native_binary": "3faf545ff335b8727e96e02d2c6b532abe8b6cf5cce68ece9411181582b92da5"
+        },
+        {
+          "foil": "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97",
+          "reynolds": 300000.0,
+          "state": "complete",
+          "missing_angles_deg": [],
+          "native_binary": "3faf545ff335b8727e96e02d2c6b532abe8b6cf5cce68ece9411181582b92da5"
+        }
+      ],
+      "failures": [],
+      "computed_meshes": [
+        2,
+        4
+      ],
+      "state": "lifting_surfaces_computed",
+      "production_admission": false,
+      "report_sha256": "bf6da79b0aa9789c338b2be2d400f7cc63943344894f9a9774ca23631a93de34",
+      "static_derivative_failures": [],
+      "static_derivatives": [
+        {
+          "alpha_step_deg": 0.25,
+          "cl_alpha_per_rad": 4.690333924386407,
+          "cm_alpha_per_rad": -0.37406438625020083,
+          "static_margin": 0.07975218657787488,
+          "dynamic_stability_qualified": false
+        },
+        {
+          "alpha_step_deg": 0.25,
+          "cl_alpha_per_rad": 4.646316537239085,
+          "cm_alpha_per_rad": -0.3804030438297008,
+          "static_margin": 0.08187196046176878,
+          "dynamic_stability_qualified": false
+        }
+      ]
+    },
+    "tandem": {
+      "geometry": {
+        "family": "tandem",
+        "builder_revision": "tandem-screening-v1+6eac7cef982888e7f51af1dede83a6e4ffe8ca0ba5f474435db0d7df5582daab",
+        "parameters": {
+          "family": "tandem",
+          "front_wing": {
+            "span_m": 0.9,
+            "root_chord_m": 0.15,
+            "taper": 0.65,
+            "sweep_deg": 0.0,
+            "incidence_deg": 3.0,
+            "washout_deg": 2.0,
+            "dihedral_deg": 3.0,
+            "airfoil": "2412"
+          },
+          "rear_wing": {
+            "span_m": 1.0,
+            "root_chord_m": 0.16,
+            "taper": 0.65,
+            "sweep_deg": 0.0,
+            "incidence_deg": 2.0,
+            "washout_deg": 2.0,
+            "dihedral_deg": 3.0,
+            "airfoil": "2412"
+          },
+          "front_x_m": 0.05,
+          "rear_x_m": 0.43,
+          "vertical_separation_m": 0.06,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.28,
+            "body_mass_kg": 0.02,
+            "body_length_m": 0.7
+          }
+        },
+        "aircraft_revision": "57d38f45cbc22ad1d81ef040c4d89ceefe6aab1886f6ee07a91102e2cac44fe0"
+      },
+      "controls": {
+        "front_elevator": 0.0,
+        "rear_elevator": 0.0,
+        "aileron": 0.0
+      },
+      "polar_reports": [
+        {
+          "foil": "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97",
+          "reynolds": 30000.0,
+          "state": "complete",
+          "missing_angles_deg": [],
+          "native_binary": "3faf545ff335b8727e96e02d2c6b532abe8b6cf5cce68ece9411181582b92da5"
+        },
+        {
+          "foil": "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97",
+          "reynolds": 300000.0,
+          "state": "complete",
+          "missing_angles_deg": [],
+          "native_binary": "3faf545ff335b8727e96e02d2c6b532abe8b6cf5cce68ece9411181582b92da5"
+        }
+      ],
+      "failures": [],
+      "computed_meshes": [
+        2,
+        4
+      ],
+      "state": "lifting_surfaces_computed",
+      "production_admission": false,
+      "report_sha256": "024eba5eb363ebefa054387a8fcd278595d1ae3d0580a31b0bd2ceaccf12db25",
+      "static_derivative_failures": [],
+      "static_derivatives": [
+        {
+          "alpha_step_deg": 0.25,
+          "cl_alpha_per_rad": 4.31225711576343,
+          "cm_alpha_per_rad": 1.530869611947955,
+          "static_margin": -0.3550042520312322,
+          "dynamic_stability_qualified": false
+        },
+        {
+          "alpha_step_deg": 0.25,
+          "cl_alpha_per_rad": 4.02452754176336,
+          "cm_alpha_per_rad": 1.806309784858383,
+          "static_margin": -0.44882530088660844,
+          "dynamic_stability_qualified": false
+        }
+      ]
+    }
+  }
+}

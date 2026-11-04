@@ -75,6 +75,9 @@ def compare(left, right, *, conditions=None, controls=None):
 
 def replay(report):
     """Parent-side native recomputation; a self-consistent hash is insufficient."""
+    from . import control_response
+    if report.get('scope') == control_response.SCOPE:
+        return control_response.replay(report)
     if report.get('scope') != SCOPE:
         raise ValueError('Unknown native family report scope')
     if 'evaluations' in report:
@@ -142,6 +145,10 @@ def main():
     import json
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='operation', required=True)
+    p = sub.add_parser('control-response')
+    p.add_argument('archive', type=Path)
+    p.add_argument('--conditions', type=Path)
+    p.add_argument('--output', type=Path, required=True)
     for name in ('search', 'compare', 'export'):
         p = sub.add_parser(name)
         p.add_argument('archive', type=Path)
@@ -155,6 +162,14 @@ def main():
             p.add_argument('--seed', type=int, default=42)
     args = parser.parse_args()
     load = lambda p: json.loads(p.read_text()) if p else None
+    if args.operation == 'control-response':
+        from .control_response import sweep
+        if args.output.exists():
+            parser.error('Output must be a new file')
+        result = sweep(load(args.archive), load(args.conditions))
+        with args.output.open('x') as f:
+            f.write(canonical_json(result))
+        return
     options = dict(conditions=load(args.conditions), controls=load(args.controls))
     if args.operation == 'export':
         export(load(args.archive), args.output, **options)

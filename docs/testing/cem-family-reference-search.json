@@ -1,0 +1,56 @@
+{
+  "method": "public GitHub repository search; Firecrawl unavailable, NASA request proxy-denied",
+  "queries": [
+    {
+      "query": "canard aerodynamic",
+      "url": "https://github.com/search?q=canard+aerodynamic&type=repositories",
+      "result_count": 2,
+      "error": null
+    },
+    {
+      "query": "tandem wing",
+      "url": "https://github.com/search?q=tandem+wing&type=repositories",
+      "result_count": 5,
+      "error": null
+    },
+    {
+      "query": "flying wing wind tunnel",
+      "url": "https://github.com/search?q=flying+wing+wind+tunnel&type=repositories",
+      "result_count": 2,
+      "error": null
+    },
+    {
+      "query": "aerodynamic validation data",
+      "url": "https://github.com/search?q=aerodynamic+validation+data&type=repositories",
+      "result_count": 12,
+      "error": null
+    }
+  ],
+  "inspected": [
+    {
+      "url": "https://github.com/ohernando12-lab/Bachelor-Thesis",
+      "inspected_file": "ohernando12-lab--Bachelor-Thesis-README.md",
+      "sha256": "2e35cb46cb4a6fa843697f7f7a379cb69b90d8bca775c36dfe0bd9252702064f",
+      "finding": "README explicitly describes sanitized templates and omitted raw case values; insufficient qualification data"
+    },
+    {
+      "url": "https://github.com/elanchezhian/TandemWIngStateSpaceModel",
+      "inspected_file": "elanchezhian--TandemWIngStateSpaceModel-README.md",
+      "sha256": "29db890d2fb07cab9f9a1beea9147a7d6a6ded2da9dbaac2fbcb780816e8e358",
+      "finding": "README describes XFLR5-derived coefficients and MATLAB linearization; numerical reference candidate, not measured validation"
+    },
+    {
+      "url": "https://github.com/lucapiombo/3D-CFD-with-Weissinger-method",
+      "inspected_file": "lucapiombo--3D-CFD-with-Weissinger-method-README.md",
+      "sha256": "95c8e8f3000ee05194e983b61832902d2fd4f4cb5af5286cc53f03227b700ddf",
+      "finding": "Educational MATLAB panel implementation compared with XFLR5; not measured aircraft qualification"
+    },
+    {
+      "url": "https://github.com/garranz/TandemWings",
+      "inspected_file": "main.tex",
+      "sha256": "70833a9f124b0a1e3311f8f52a04dfd7a016fa2b8de002b20a4d70f1e51dcaa1",
+      "finding": "main.tex contains empty methodology/results/conclusions; unsuitable as a validation package"
+    }
+  ],
+  "qualification_state": "no accepted family validation dataset"
+}

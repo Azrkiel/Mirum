@@ -5,6 +5,13 @@ Software continuation and current evidence:
 leave reference-dependent qualification gates open; the native development
 workflow and coordinate/control representation do not grant production admission.
 
+Next software continuation: [native control-response evidence](cem-task-c-control-response.md),
+with two-mesh fixed-operating-point channel sweeps and authoritative native replay.
+
+Current aerodynamic continuation: [coordinate polars, coupled lifting loads and
+qualification blockers](cem-family-aerodynamics-progress.md). Whole-aircraft
+qualification remains incomplete; reference research requires configured access.
+
 The three new families have isolated screening prototype builders in
 `backend/cem/glider/families/`. They are **not admitted production families**.
 Existing conventional, T-tail and V-tail search remains the production path.

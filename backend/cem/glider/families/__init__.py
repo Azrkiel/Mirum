@@ -20,6 +20,8 @@ def capabilities():
         development_geometry_contract='mirum-family-coordinates-1',
         development_geometry_scope='rigid_lifting_oml_with_explicit_controls',
         native_development_workflow='search_compare_export_with_reconstruction',
+        native_control_response='fixed_operating_point_central_difference',
+        qualified_control_authority=False,
         independent_numerical_performance=False, physical_construction=False,
         missing=['A: family-scoped native qualification and reflex/control support',
                  'B: family-scoped construction and load-path qualification'])
