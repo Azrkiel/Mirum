@@ -138,7 +138,10 @@ def build_index() -> None:
                     ):
                         code_str = r["generated_code"]
                         records.append({
-                            "description": r.get("part_id", ""),  # part_id ≈ description key
+                            # Prefer the prose description (logged since telemetry
+                            # gained the `description` field); legacy records
+                            # fall back to the part_id slug.
+                            "description": r.get("description") or r.get("part_id", ""),
                             "code": code_str,
                             "domain": r.get("domain_classification", "A"),
                             "techniques": extract_techniques(code_str),
@@ -196,6 +199,8 @@ def retrieve_few_shots(
         scored.append((sim, i))
 
     scored.sort(reverse=True)
+    # Per-candidate relevance floor: each hit must clear it on its own score,
+    # so one good match never drags along unrelated entries.
     top_k = [_INDEX[i] for score, i in scored[:k] if score > 0.05]
 
     return top_k
@@ -241,6 +246,10 @@ _FAILURE_TO_TECHNIQUE: dict[str, str] = {
     "revolve":    "revolve",
     "text":       "text",
     "spline":     "spline",
+    # Verification-gate failure classes (CheckReport). Continuity/curvature
+    # failures on organic parts are overwhelmingly loft-technique bugs.
+    "continuity":          "loft",
+    "gaussian_curvature":  "loft",
 }
 
 
