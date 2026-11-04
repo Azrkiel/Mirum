@@ -100,7 +100,7 @@ def _safe_error(detail: str | Exception) -> str:
     Redacts:
     - Source filenames in tracebacks (`File "..."`)
     - Absolute paths that leak the host filesystem layout. Covers POSIX
-      (/app/, /opt/), Windows forward-slash (C:/), repr-escaped Windows
+      (/app/, /opt/, /tmp/), Windows forward-slash (C:/), repr-escaped Windows
       (C:\\\\) that come from str(PermissionError), AND plain single-
       backslash Windows paths (C:\\) that come from Python launcher
       stderr like `python.exe: can't open file 'C:\\path\\x.py'`.
@@ -110,7 +110,7 @@ def _safe_error(detail: str | Exception) -> str:
     # Match /app/, /opt/, C:/, C:\ (single bs), or C:\\ (repr'd double bs),
     # then greedily consume non-whitespace/non-quote chars.
     msg = re.sub(
-        r"(/app/|/opt/|[A-Za-z]:(?:/|\\{1,2}))[^\s\"']+",
+        r"(/app/|/opt/|/tmp/|[A-Za-z]:(?:/|\\{1,2}))[^\s\"']+",
         "<internal>",
         msg,
     )
@@ -1571,6 +1571,7 @@ async def download_artifact(run_id: str, fmt: str, request: Request):
     from fastapi import HTTPException  # noqa: PLC0415
     from fastapi.responses import FileResponse  # noqa: PLC0415
 
+    artifacts.sweep()
     if fmt not in artifacts.FORMATS:
         raise HTTPException(
             status_code=404,

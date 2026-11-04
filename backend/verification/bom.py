@@ -103,7 +103,10 @@ def build_bom(
 
 
 # Characters that make Excel / Google Sheets treat a cell as a formula.
-_CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+_CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@", "|", "\t", "\r",
+                         "\uff1d", "\uff0b", "\uff0d", "\uff20")  # fullwidth = + - @
+# Leading characters spreadsheets skip before deciding a cell is a formula.
+_CSV_LEADING_SKIP = " \t\r\n\x0b\x0c"
 
 
 def _csv_safe(value: object) -> str:
@@ -118,7 +121,8 @@ def _csv_safe(value: object) -> str:
     forces text interpretation and is stripped on display.
     """
     text = "" if value is None else str(value)
-    if text.startswith(_CSV_FORMULA_TRIGGERS):
+    if text.startswith(_CSV_FORMULA_TRIGGERS) or text.lstrip(
+            _CSV_LEADING_SKIP).startswith(_CSV_FORMULA_TRIGGERS):
         return "'" + text
     return text
 

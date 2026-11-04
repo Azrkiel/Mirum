@@ -418,3 +418,82 @@ def test_pipeline_publishes_nothing_when_the_certificate_fails(monkeypatch):
     assert final["status"] == "error"
     assert "run_id" not in final
     assert list(artifacts._RUNS_DIR.iterdir()) == []
+
+
+# ---------------------------------------------------------------------------
+# Security-review follow-ups: disk caps, separate root, CSV triggers, /tmp redaction
+# ---------------------------------------------------------------------------
+
+def test_run_count_cap_evicts_oldest_first(monkeypatch):
+    monkeypatch.setattr(artifacts, "_MAX_RUNS", 3)
+    ids = []
+    for i in range(5):
+        rid, _ = artifacts.publish({"glb": b"g", "step": b"s"})
+        os.utime(artifacts.run_dir(rid), (1000 + i, 1000 + i))
+        ids.append(rid)
+    remaining = {p.name for p in artifacts._RUNS_DIR.iterdir()}
+    assert len(remaining) <= 3
+    assert ids[-1] in remaining and ids[0] not in remaining
+
+
+def test_total_bytes_cap_evicts_oldest_first(monkeypatch):
+    monkeypatch.setattr(artifacts, "_MAX_TOTAL_BYTES", 250)
+    a, _ = artifacts.publish({"glb": b"x" * 100, "step": b"x" * 100})
+    os.utime(artifacts.run_dir(a), (1000, 1000))
+    b, _ = artifacts.publish({"glb": b"x" * 100, "step": b"x" * 100})
+    remaining = {p.name for p in artifacts._RUNS_DIR.iterdir()}
+    assert b in remaining and a not in remaining
+
+
+def test_oversize_artifact_is_refused_but_other_formats_survive(monkeypatch):
+    monkeypatch.setattr(artifacts, "_MAX_ARTIFACT_BYTES", 10)
+    run_id, downloads = artifacts.publish({"glb": b"g" * 11, "step": b"ok"})
+    assert downloads == {"step": True, "glb": False}
+    assert artifacts.publish({"glb": b"g" * 11, "step": b"s" * 11}) == ("", {"step": False, "glb": False})
+
+
+def test_oversize_artifact_does_not_fail_delivery(monkeypatch):
+    monkeypatch.setattr(artifacts, "_MAX_ARTIFACT_BYTES", 5)
+    final, accepted = _drive_pipeline(monkeypatch, cert_passed=True)
+    assert final["status"] == "done"
+    assert final["glb"]                       # GLB still in the SSE payload
+    assert final["run_id"] == "" and not any(final["downloads"].values())
+
+
+def test_download_sweeps_expired_runs(client):
+    run_id, _ = artifacts.publish({"glb": b"g", "step": b"s"})
+    os.utime(artifacts.run_dir(run_id), (0, 0))
+    assert client.get(f"/download/{run_id}/step").status_code == 404
+    assert not artifacts.run_dir(run_id).exists()
+
+
+def test_artifact_root_is_separate_from_the_sandbox_cwd():
+    from compiler import _WORK_DIR
+    root = artifacts._ARTIFACT_ROOT.resolve()
+    work = _WORK_DIR.resolve()
+    assert root != work and work not in root.parents and root not in work.parents
+    assert artifacts._ARTIFACT_ROOT.as_posix().endswith("/tmp/mirum/artifacts")
+
+
+@pytest.mark.parametrize("payload", [
+    " =1+1", "\t=1+1", "\n=cmd", "\x0b@SUM(A1)", "\x0c+1", "  -2",
+    "|calc", "＝1+1", "＋1", "－1", "＠SUM(A1)", " ＝1",
+])
+def test_bom_csv_neutralises_whitespace_prefixed_and_exotic_triggers(payload):
+    from verification.bom import _csv_safe
+    assert _csv_safe(payload) == "'" + payload
+
+
+def test_bom_csv_does_not_prefix_plain_text():
+    from verification.bom import _csv_safe
+    for text in ("leg_1", "60mm - square", "a=b", ""):
+        assert _csv_safe(text) == text
+
+
+def test_safe_error_redacts_tmp_paths():
+    import main
+    out = main._safe_error("STEP not found: '/tmp/mirum/artifacts/runs/ab/model.step' bad")
+    assert "/tmp/" not in out and "<internal>" in out
+    payload = {"checks": [{"name": "cert", "failures": ["x /tmp/mirum/work/a.step y"]}]}
+    cleaned = main._sanitize_report_payload(payload)
+    assert "/tmp/" not in cleaned["checks"][0]["failures"][0]
