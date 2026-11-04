@@ -282,7 +282,31 @@ def trim(gl: Glider, cg, V, W, rho, S, objective, stall_margin, below_deg=1.0):
 # ---------------------------------------------------------------------- #
 # Main evaluation
 # ---------------------------------------------------------------------- #
-def evaluate(gl: Glider) -> dict:
+def fixed_geometry_trim(gl, cg, V, W, rho, S, below_deg=1.0):
+    """Find equilibrium speed/alpha without changing any aircraft controls.
+
+    This is a screening equilibrium (L = W, as in the existing trim model),
+    not a speed-to-fly optimization or permission to adjust tail incidence.
+    """
+    from scipy.optimize import least_squares
+    ap = gl.airplane(cg)
+    def residual(x):
+        alpha, speed = x
+        aero = _aero(ap, speed, alpha)
+        return [_f(aero['CL'])*.5*rho*speed**2*S/W-1., _f(aero['Cm'])]
+    fit = least_squares(residual, [4., min(max(V, .51), 29.9)],
+                        bounds=([ALPHAS[0], .5], [ALPHAS[-1], 30.]),
+                        xtol=1e-9, ftol=1e-9, gtol=1e-9, max_nfev=80)
+    if not fit.success or np.max(np.abs(residual(fit.x))) > 1e-4:
+        raise ValueError('Fixed-geometry equilibrium did not converge')
+    alpha, speed = map(float, fit.x)
+    d = local_aero(ap, speed, alpha, below_deg)
+    d.update(stability_derivatives(ap, speed, alpha))
+    clmax = float(np.max(_aero(ap, speed, ALPHAS)['CL'])) * gl.cfg.get('cem_context', {}).get('cl_max_factor', 1.)
+    return alpha, gl.tail_incidence_deg, clmax, speed, d
+
+
+def evaluate(gl: Glider, *, fixed_geometry=False) -> dict:
     cfg = gl.cfg
     lim, mis = cfg["limits"], cfg["mission"]
     rho, g = mis["air_density_kg_m3"], mis["gravity_m_s2"]
@@ -304,15 +328,20 @@ def evaluate(gl: Glider) -> dict:
 
         # ---- 1+2. balance: slide wing, slide payload, then nose ballast ----
         V = math.sqrt(2 * m0 * g / (rho * S * 0.6))
-        x_np = balance_with_wing_slide(gl, V, lim["static_margin_target"])
+        if not fixed_geometry:
+            balance_with_wing_slide(gl, V, lim["static_margin_target"])
         fails, info = geometry_checks(gl, lim, mis)       # re-check: the wing may have moved
         res.update(info)
         S, b, mac = info["wing_area_m2"], info["wing_span_m"], info["wing_mac_m"]
 
         # ---- 3+4. trim, then re-balance once with the neutral point at the trim condition ----
-        for attempt in range(2):
+        for attempt in range(1 if fixed_geometry else 2):
             ms = gl.mass_summary()
             m, cg = ms["mass"], ms["cg"]
+            if fixed_geometry:
+                alpha_star, delta, CLmax, V, d = fixed_geometry_trim(
+                    gl, cg, V, m * g, rho, S, lim['pitch_stable_below_trim_deg'])
+                break
             alpha_star, delta, CLmax, V, d = trim(gl, cg, V, m * g, rho, S, mis["objective"],
                                                   lim["stall_margin"], lim["pitch_stable_below_trim_deg"])
             SM = (_f(d["x_np"]) - cg[0]) / mac
@@ -394,6 +423,8 @@ def evaluate(gl: Glider) -> dict:
             fails.append("glide/landing speed too high")
 
         res["valid"] = not fails
+        if fixed_geometry:
+            res['fixed_geometry'] = True
         res["fail_reasons"] = "; ".join(fails)
         res["score"] = (LD if mis["objective"] == "distance" else res["time_aloft_s"]) if not fails else float("nan")
     except Exception as e:  # never let one bad design kill the batch

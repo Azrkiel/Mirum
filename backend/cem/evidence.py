@@ -188,6 +188,10 @@ def validate(report, payload, expected, directory):
         raise ValueError('Report input binding missing')
     if report.get('engineering_certified') is not False:
         raise ValueError('Unsupported certification claim')
+    if payload['kind'] == 'comparison':
+        from cem.glider.comparison import validate_comparison
+        validate_comparison(report, payload, directory)
+        return
     if payload['kind'] == 'discovery':
         from cem.glider.requirements import GliderMissionRequirements
         mission = GliderMissionRequirements.model_validate(payload['requirements'])

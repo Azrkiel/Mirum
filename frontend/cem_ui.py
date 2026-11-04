@@ -121,6 +121,24 @@ def _results(backend, headers):
             st.error(job['detail'])
             return
         result = job['result']
+        if result.get('kind') == 'shape_comparison':
+            st.write(f"Paired shape comparison: **{result['status']}**.")
+            st.info('No verified performance gain is claimed. Hardware is fixed; mass and CG can change with shape. '
+                    'Independent diagnostics do not close whole-aircraft viscous performance.')
+            rows = [dict(arm=label, admitted=result[label]['result']['valid'],
+                         objective=result[label]['result'].get('objective_value'),
+                         failures=result[label]['result']['fail_reasons']) for label in ('baseline', 'shaped')]
+            st.dataframe(rows, hide_index=True)
+            if result['objective_delta'] is not None:
+                st.write(f"Paired screening change (shaped − unity control): **{result['objective_delta']:+.3f}**.")
+            st.write(f"Independent XFOIL/AVL diagnostics: **{result['independent_recheck']['state']}**.")
+            st.download_button('Download paired comparison evidence', json.dumps(result, indent=2),
+                file_name=f"mirum-shape-comparison-{result['comparison_sha256'][:12]}.json", mime='application/json')
+            st.json(result)
+            if st.session_state.get('cem_discovery_job') and st.button('Return to discovery archive'):
+                st.session_state.update(cem_job=st.session_state.cem_discovery_job, cem_kind='discovery')
+                st.rerun()
+            return
         if 'per_process' not in result:
             st.write(f"Closure result: **{result['status']}**. Manufacturing acceptance: **not qualified**.")
             if result['status'] == 'screened':
@@ -153,6 +171,17 @@ def _results(backend, headers):
                 format_func=lambda e: f"{e['process']} / {e['result']['tail_kind']} / {e['result']['objective_value']:.1f} / {e['elite_id']}")
             with st.expander('Elite physics and constraints'):
                 st.json(chosen)
+            if 'chord_factors' in chosen['parameters']['wing']:
+                independent = st.checkbox('Run independent XFOIL and AVL rechecks',
+                    help='Requires server-installed executables. Missing or failed checks remain explicit; no verified gain is claimed.')
+                if st.button('Compare shape with fixed hardware'):
+                    r = requests.post(f'{backend}/cem/glider/compare-shape',
+                        json=dict(discovery_job_id=key, elite_id=chosen['elite_id'], independent_recheck=independent),
+                        headers=headers(), timeout=15)
+                    r.raise_for_status()
+                    st.session_state.update(cem_discovery_job=key, cem_job=r.json()['job_id'],
+                                            cem_status='running', cem_kind='comparison')
+                    st.rerun()
             if st.button('Build analysis geometry and check mass closure'):
                 r = requests.post(f'{backend}/cem/glider/design', json=dict(discovery_job_id=key, elite_id=chosen['elite_id']),
                                   headers=headers(), timeout=15)

@@ -55,3 +55,39 @@ def test_advanced_mission_still_overrides_the_shape_form(monkeypatch):
     next(x for x in app.button if x.label == 'Check feasibility').click().run()
     assert not app.exception
     assert submitted == [mission]
+
+
+def test_shaped_elite_submits_archive_bound_comparison_and_renders_inconclusive(monkeypatch):
+    import requests
+    submitted = []
+    elite = dict(elite_id='a'*16, process='sheet_foam', parameters={'wing': {'chord_factors': [1., 1.1, 1., 1., 1.]}},
+                 result=dict(tail_kind='conventional', objective_value=120., aspect_ratio=8., wing_loading_g_dm2=5.))
+    class Response:
+        def __init__(self, value): self.value = value
+        def raise_for_status(self): pass
+        def json(self): return self.value
+    def get(url, **kwargs):
+        if url.endswith('b'*32):
+            return Response(dict(status='completed', result=dict(kind='shape_comparison', status='inconclusive',
+                comparison_sha256='c'*64, objective_delta=None, baseline=dict(result=dict(valid=False, fail_reasons='trim failed')),
+                shaped=dict(result=dict(valid=True, fail_reasons='', objective_value=120.)),
+                independent_recheck={'state': 'incomplete'}, verified_gain=False)))
+        return Response(dict(status='completed', result=dict(per_process={'sheet_foam': {'best': elite, 'archive': [elite]}})))
+    def post(url, **kwargs):
+        assert url.endswith('/cem/glider/compare-shape')
+        submitted.append(kwargs['json'])
+        return Response(dict(job_id='b'*32))
+    monkeypatch.setattr(requests, 'get', get)
+    monkeypatch.setattr(requests, 'post', post)
+    app = AppTest.from_string('from frontend.cem_ui import render_cem\nrender_cem("http://backend", lambda: {})')
+    app.session_state['cem_job'] = 'a'*32
+    app.session_state['cem_status'] = 'completed'
+    app.session_state['cem_kind'] = 'discovery'
+    app.run()
+    assert not app.exception
+    next(x for x in app.checkbox if x.label == 'Run independent XFOIL and AVL rechecks').check()
+    next(x for x in app.button if x.label == 'Compare shape with fixed hardware').click().run()
+    assert not app.exception
+    assert submitted == [dict(discovery_job_id='a'*32, elite_id='a'*16, independent_recheck=True)]
+    assert any('inconclusive' in x.value for x in app.markdown)
+    assert any('No verified performance gain' in x.value for x in app.info)
