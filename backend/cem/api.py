@@ -35,6 +35,10 @@ class DesignRequest(StrictModel):
     elite_id: str = Field(pattern=r'^[a-f0-9]{16}$', max_length=16)
 
 
+class ComparisonRequest(DesignRequest):
+    independent_recheck: bool = False
+
+
 class FlightMeasurement(StrictModel):
     launch_height_m: float = Field(ge=.01, le=100)
     launch_method: str = Field(pattern=r'^(drop|hand_toss|discus|catapult|hi_start)$', max_length=16)
@@ -89,6 +93,9 @@ class Jobs:
         env = dict(PATH=os.environ.get('PATH', ''), LANG='C.UTF-8',
                    OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1',
                    MPLCONFIGDIR=str(job['directory'] / 'matplotlib'))
+        for name in ('MIRUM_XFOIL_BIN', 'MIRUM_AVL_BIN'):
+            if name in os.environ:
+                env[name] = os.environ[name]
         try:
             result = await runner.run([sys.executable, str(Path(__file__).with_name('worker.py')), str(job['directory'])],
                                       input=canonical_json(payload).encode(), env=env)
@@ -184,6 +191,19 @@ def attach_cem_routes(app, limiter):
         if elite is None:
             raise HTTPException(404, 'Elite does not belong to this archive')
         return jobs.start(dict(kind='design', requirements=source['requirements'], calibration=source['calibration'], elite=elite))
+
+    @app.post('/cem/glider/compare-shape', status_code=202)
+    @limiter.limit('3/minute')
+    async def glider_compare_shape(body: ComparisonRequest, request: Request):
+        source = jobs.completed(body.discovery_job_id, 'discovery')['result']
+        elite = next((e for p in source['per_process'].values() for e in p['archive']
+                      if e['elite_id'] == body.elite_id), None)
+        if elite is None:
+            raise HTTPException(404, 'Elite does not belong to this archive')
+        if 'chord_factors' not in elite['parameters']['wing']:
+            raise HTTPException(422, 'Select an archive elite with wing shape factors')
+        return jobs.start(dict(kind='comparison', requirements=source['requirements'],
+            calibration=source['calibration'], elite=elite, independent_recheck=body.independent_recheck))
 
     @app.get('/cem/glider/jobs/{job_id}')
     @limiter.limit('120/minute')

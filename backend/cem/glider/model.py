@@ -101,7 +101,7 @@ def as_sized(gl):
                       tail_incidence_deg=gl.tail_incidence_deg, payload_x=gl.payload_x, wing_x=gl.wing_x)
 
 
-def evaluate_candidate(gl, request, mission, calibration, process):
+def evaluate_candidate(gl, request, mission, calibration, process, *, fixed_geometry=False):
     from . import foam_core, segmented
     if foam_core.enabled(gl) or segmented.enabled(gl):
         try:
@@ -114,9 +114,12 @@ def evaluate_candidate(gl, request, mission, calibration, process):
             # crashes or permission to relax the original aerodynamic ranges.
             return dict(valid=False, fail_reasons=str(exc),
                         manufacturability=dict(state='failed', manufacturing_ready=False, failures=[str(exc)]))
-    result = admissible(gl, request, evaluate(gl))
+    result = admissible(gl, request, evaluate(gl, fixed_geometry=True) if fixed_geometry else evaluate(gl))
     spar = gl.spar()
     manufacture = manufacturing_checks(gl, process, spar)
+    if fixed_geometry and spar['stress_pa'] > spar['allowable_with_sf_pa']:
+        manufacture['failures'].append('fixed source spar exceeds bending stress envelope')
+        manufacture['state'] = 'failed'
     result.update(spar=spar, manufacturability=manufacture)
     if manufacture['state'] != 'passed':
         result.update(valid=False, fail_reasons='; '.join(filter(None, [result['fail_reasons'], *manufacture['failures']])))

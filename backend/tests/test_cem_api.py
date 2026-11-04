@@ -118,3 +118,27 @@ async def test_cem_and_legacy_jobs_share_one_solver_slot(monkeypatch,tmp_path):
     try:
         with pytest.raises(HTTPException): cem.start(payload())
     finally: await legacy.close()
+
+
+def test_comparison_requires_an_archived_shaped_elite_and_preserves_inputs(monkeypatch, tmp_path):
+    from backend.tests.test_cem_comparison import shaped_example, elite_for
+    req, _, gl = shaped_example()
+    elite = elite_for(gl)
+    source = dict(requirements=req.model_dump(mode='json'), calibration=initial(), candidates=[],
+                  per_process={'sheet_foam': {'archive': [elite]}})
+    manager = api.Jobs()
+    manager.jobs['a'*32] = dict(status='completed', kind='discovery', result=source)
+    submitted = []
+    def start(value):
+        submitted.append(value)
+        return dict(job_id='b'*32, status='running')
+    monkeypatch.setattr(manager, 'start', start)
+    with TestClient(app_for(manager, monkeypatch)) as client:
+        base = dict(discovery_job_id='a'*32, elite_id=elite['elite_id'], independent_recheck=True)
+        assert client.post('/cem/glider/compare-shape', json=base).status_code == 202
+        assert submitted[-1] == dict(kind='comparison', requirements=source['requirements'],
+            calibration=source['calibration'], elite=elite, independent_recheck=True)
+        assert client.post('/cem/glider/compare-shape', json=dict(base, elite_id='f'*16)).status_code == 404
+        assert client.post('/cem/glider/compare-shape', json=dict(base, independent_recheck='true')).status_code == 422
+        del elite['parameters']['wing']['chord_factors']
+        assert client.post('/cem/glider/compare-shape', json=base).status_code == 422
