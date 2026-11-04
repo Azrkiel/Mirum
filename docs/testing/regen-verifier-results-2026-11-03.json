@@ -1,0 +1,163 @@
+{
+  "report_date": "2026-11-03",
+  "state": "targeted_validation_incomplete_largest_timeout",
+  "measured_at": "2026-11-03T20:06:31.166769-05:00",
+  "tested_source": {
+    "base_commit": "c6e9416a311eddd3e5f241027c159403ee8abc92",
+    "local_changes_were_uncommitted": true,
+    "source_sha256": {
+      "backend/engineering/regen_mesh.py": "9d59b01501343cfe17b4d820029258325e6e42fb7ce4236386eb36191d317f1b",
+      "backend/tests/test_regen_budget.py": "b8456aad5e0055a76d96a8b5f611cf2dcb5bdb01c54cd192bdd7dcca4930c9e5",
+      "backend/tests/test_regen_mesh.py": "5e2e11227f34f4b71fd20e06afaa98517204054e6193e9cd81d3aa88a1c6f761"
+    },
+    "immutable_local_image_id": "sha256:a4b8b7fa6128357a29320ea4d1e4010b5ea02554b20ac781ac347e8be2b244cf",
+    "image_published": false
+  },
+  "overall": {
+    "primary_meshes_passed": 6,
+    "planned_primary_meshes": 48,
+    "primary_meshes_not_yet_tested": 41,
+    "primary_meshes_with_unresolved_resource_failure": 1,
+    "benchmark_repeats_matched": 1,
+    "planned_benchmark_repeats": 8,
+    "reference_runs_passed": 1,
+    "planned_reference_runs": 2,
+    "accepted_runs_including_retries": 9,
+    "unique_accepted_case_results": 8,
+    "total_geometry_attempts": 14,
+    "retained_resource_interruptions": 5,
+    "retained_host_memory_stops": 4,
+    "retained_deadline_timeouts": 1
+  },
+  "focused_retry": {
+    "runs_passed": 5,
+    "unique_designs": 4,
+    "max_container_peak_GiB": 1.767,
+    "repeat_raw_and_cleaned_hashes_match": true,
+    "rows": [
+      {
+        "label": "Large regression mesh",
+        "verdict": "accepted",
+        "wall_seconds": 227.922,
+        "builder_seconds": 86,
+        "container_peak_GiB": 1.765,
+        "checks_passed": 12,
+        "raw_hash_matches_baseline": true,
+        "cleaned_hash_matches_baseline": true
+      },
+      {
+        "label": "Representative geometry 1",
+        "verdict": "accepted",
+        "wall_seconds": 160.234,
+        "builder_seconds": 56,
+        "container_peak_GiB": 1.163,
+        "checks_passed": 12,
+        "raw_hash_matches_baseline": true,
+        "cleaned_hash_matches_baseline": true
+      },
+      {
+        "label": "Representative geometry 2",
+        "verdict": "accepted",
+        "wall_seconds": 147.641,
+        "builder_seconds": 66,
+        "container_peak_GiB": 1.411,
+        "checks_passed": 12,
+        "raw_hash_matches_baseline": true,
+        "cleaned_hash_matches_baseline": true
+      },
+      {
+        "label": "Representative geometry 3",
+        "verdict": "accepted",
+        "wall_seconds": 130.609,
+        "builder_seconds": 45,
+        "container_peak_GiB": 0.932,
+        "checks_passed": 12,
+        "raw_hash_matches_baseline": true,
+        "cleaned_hash_matches_baseline": true
+      },
+      {
+        "label": "Fresh repeat of large regression mesh",
+        "verdict": "accepted",
+        "wall_seconds": 223.265,
+        "builder_seconds": 84,
+        "container_peak_GiB": 1.767,
+        "checks_passed": 12,
+        "raw_hash_matches_baseline": true,
+        "cleaned_hash_matches_baseline": true
+      }
+    ]
+  },
+  "latest_policy": {
+    "container_memory_cap_GiB": 2,
+    "cpus": 2,
+    "numeric_threads": 2,
+    "network": "none",
+    "deadline_seconds": 360,
+    "host_launch_floor_GiB": 3.6,
+    "host_stop_floor_GiB": 1.5,
+    "temporary_WSL_memory": "3GB",
+    "python_malloc_mmap_threshold_bytes": 8192,
+    "python_malloc_trim_threshold_bytes": 8192,
+    "builder_allocator": "default",
+    "geometry_and_work_limits_unchanged": true,
+    "earlier_four_accepted_runs_used_default_allocator_and_3_GiB_cap": true
+  },
+  "unresolved": {
+    "largest_mesh": {
+      "configured_deadline_seconds": 360,
+      "limiter_observed_seconds": 361,
+      "total_wall_seconds": 361.922,
+      "builder_seconds": 134,
+      "container_peak_GiB": 1.785,
+      "OOM": false,
+      "host_floor_stop": false,
+      "raw_hash_matches_baseline": true,
+      "geometry_verdict": null,
+      "cleaned_hash_verdict": null
+    },
+    "other_large_mesh_prior_interruption": {
+      "reason": "Host memory floor",
+      "host_available_GiB": 0.6,
+      "limiter_observed_seconds": 110,
+      "total_wall_seconds": 112.078,
+      "container_peak_GiB": 1.023,
+      "OOM": false,
+      "geometry_verdict": null,
+      "subsequently_passed": true
+    }
+  },
+  "retained_native_evidence": {
+    "tests_passed": 222,
+    "small_tests": 179,
+    "adversarial_tests": 43,
+    "source_hashes_match": true,
+    "rerun_for_this_export": false,
+    "saved_defects_detected": 16,
+    "saved_defects_total": 16,
+    "saved_valid_controls_passed": 2,
+    "saved_valid_controls_total": 2,
+    "matrix_resource_failures": 0,
+    "matrix_max_process_tree_peak_GiB": 1.0,
+    "matrix_process_tree_cap_GiB": 2,
+    "largest_native_300_second_attempt": "timeout",
+    "largest_native_separate_600_second_diagnostic": {
+      "verdict": "all_twelve_checks_pass",
+      "seconds": 341.297,
+      "peak_process_tree_GiB": 1.55
+    }
+  },
+  "cleanup": {
+    "original_WSL_configuration_restored": true,
+    "no_running_WSL_distributions": true
+  },
+  "scope": {
+    "full_sweep_complete": false,
+    "all_focused_designs_accepted": false,
+    "stress_tested": false,
+    "physics": "not_evaluated",
+    "standards": "not_evaluated",
+    "engineering_certified": false,
+    "private_fixtures_and_full_reports_included": false
+  },
+  "next_step": "Investigate largest mesh runtime under the unchanged 360-second acceptance deadline; broader qualification remains incomplete."
+}
