@@ -32,6 +32,8 @@ import shutil
 import time
 import uuid
 
+import os
+
 try:  # package import (tests, ``backend.main``) vs. flat import (``uvicorn main:app``)
     from compiler import _WORK_DIR
 except ImportError:  # pragma: no cover
@@ -39,10 +41,24 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger("mirum.artifacts")
 
-_RUNS_DIR = _WORK_DIR / "runs"
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, str(default))))
+    except (TypeError, ValueError):
+        return default
 
-# How long a completed run's files stay downloadable.
-_TTL_SECONDS = 6 * 3600
+
+# Separate root from the sandbox cwd (_WORK_DIR). Must stay under /tmp/mirum:
+# the container rootfs is read-only.
+_ARTIFACT_ROOT = pathlib.Path(os.environ.get("MIRUM_ARTIFACT_DIR", "/tmp/mirum/artifacts"))
+_RUNS_DIR = _ARTIFACT_ROOT / "runs"
+
+# How long a completed run's files stay downloadable, and hard caps on disk use
+# (oldest runs are evicted first).
+_TTL_SECONDS = _env_int("MIRUM_ARTIFACT_TTL_S", 6 * 3600)
+_MAX_RUNS = _env_int("MIRUM_ARTIFACT_MAX_RUNS", 50)
+_MAX_TOTAL_BYTES = _env_int("MIRUM_ARTIFACT_MAX_TOTAL_BYTES", 512 * 1024 * 1024)
+_MAX_ARTIFACT_BYTES = _env_int("MIRUM_ARTIFACT_MAX_BYTES", 64 * 1024 * 1024)
 
 # Formats the store knows how to name and serve.
 #  * STL is intentionally absent: producing it would mean re-meshing outside the
@@ -154,9 +170,51 @@ def sweep(ttl_seconds: int | None = None) -> int:
     return removed
 
 
+def _run_size(entry: pathlib.Path) -> int:
+    total = 0
+    try:
+        for f in entry.iterdir():
+            try:
+                if f.is_file() and not f.is_symlink():
+                    total += f.stat().st_size
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return total
+
+
+def enforce_caps(max_runs: int | None = None, max_bytes: int | None = None) -> int:
+    """Evict the oldest runs until run count and total bytes are within caps."""
+    max_runs = _MAX_RUNS if max_runs is None else max_runs
+    max_bytes = _MAX_TOTAL_BYTES if max_bytes is None else max_bytes
+    if not _RUNS_DIR.is_dir():
+        return 0
+    try:
+        runs = []
+        for e in _RUNS_DIR.iterdir():
+            if e.is_dir() and not e.is_symlink() and is_valid_run_id(e.name):
+                runs.append((e.stat().st_mtime, e, _run_size(e)))
+    except OSError:
+        return 0
+    runs.sort(key=lambda r: r[0])  # oldest first
+    total = sum(r[2] for r in runs)
+    removed = 0
+    while runs and (len(runs) > max_runs or total > max_bytes):
+        _, entry, size = runs.pop(0)
+        shutil.rmtree(entry, ignore_errors=True)
+        total -= size
+        removed += 1
+    if removed:
+        logger.info("Artifact cap evicted %d run(s)", removed)
+    return removed
+
+
 def create_run() -> tuple[str, pathlib.Path]:
     """Start a new run: sweep expired ones, then make this run's directory."""
     sweep()
+    # Leave room for the run about to be created.
+    enforce_caps(max_runs=max(_MAX_RUNS - 1, 0))
     run_id = new_run_id()
     path = run_dir(run_id, create=True)
     if path is None:  # unreachable for a uuid4 hex, but asserts vanish under -O
@@ -167,6 +225,9 @@ def create_run() -> tuple[str, pathlib.Path]:
 def store(run_id: str, fmt: str, data: bytes) -> bool:
     """Write already-accepted bytes for one format. Returns True on success."""
     if not data:
+        return False
+    if len(data) > _MAX_ARTIFACT_BYTES:
+        logger.warning("Refusing to store %s artifact: %d bytes exceeds cap", fmt, len(data))
         return False
     path = artifact_path(run_id, fmt)
     if path is None:
@@ -196,6 +257,7 @@ def publish(accepted: dict) -> tuple[str, dict[str, bool]]:
     if not any(downloads.values()):
         discard(run_id)
         return "", downloads
+    enforce_caps()
     return run_id, downloads
 
 
