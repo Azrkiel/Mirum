@@ -1,5 +1,10 @@
 # Task C implementation and qualification handoff
 
+Software continuation and current evidence:
+[cem-task-c-continuation.md](cem-task-c-continuation.md). The user elected to
+leave reference-dependent qualification gates open; the native development
+workflow and coordinate/control representation do not grant production admission.
+
 The three new families have isolated screening prototype builders in
 `backend/cem/glider/families/`. They are **not admitted production families**.
 Existing conventional, T-tail and V-tail search remains the production path.

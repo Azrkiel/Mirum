@@ -17,6 +17,9 @@ def capabilities():
         shared_geometry_state=('unsupported_custom_reflex' if name == 'tailless_swept'
                                else 'neutral_control_screening_adapter'),
         shared_load_handoff='incomplete_rigid_member_resultants',
+        development_geometry_contract='mirum-family-coordinates-1',
+        development_geometry_scope='rigid_lifting_oml_with_explicit_controls',
+        native_development_workflow='search_compare_export_with_reconstruction',
         independent_numerical_performance=False, physical_construction=False,
         missing=['A: family-scoped native qualification and reflex/control support',
                  'B: family-scoped construction and load-path qualification'])

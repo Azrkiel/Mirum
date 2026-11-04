@@ -36,15 +36,15 @@ class Conditions(StrictModel):
         return self
 
 
-def identity(record, conditions):
+def identity(record, conditions, installed=None):
     sources = [Path(__file__), Path(inspect.getfile(asb.VortexLatticeMethod))]
-    return digest(dict(geometry=record, conditions=conditions.model_dump(mode='json'),
+    return digest(dict(geometry=record, installed=installed, conditions=conditions.model_dump(mode='json'),
         sources={p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sources},
         runtime={n: version(n) for n in ('aerosandbox', 'numpy', 'scipy')}))
 
 
-def _run(aircraft, conditions, alpha, speed, resolution, derivatives=False):
-    solver = asb.VortexLatticeMethod(aircraft.airplane(),
+def _run(aircraft, conditions, alpha, speed, resolution, derivatives=False, *, airplane=None):
+    solver = asb.VortexLatticeMethod(aircraft.airplane() if airplane is None else airplane,
         asb.OperatingPoint(atmosphere=asb.Atmosphere(altitude=conditions.altitude_m),
                            velocity=speed, alpha=alpha),
         spanwise_resolution=resolution, chordwise_resolution=resolution)
@@ -59,24 +59,34 @@ def _run(aircraft, conditions, alpha, speed, resolution, derivatives=False):
     return result
 
 
-def diagnose(record, conditions=None):
+def diagnose(record, conditions=None, *, control_deflections_deg=None):
     aircraft = reconstruct(record)
     c = conditions if isinstance(conditions, Conditions) else Conditions.model_validate(conditions or {})
+    installed = None
     ap = aircraft.airplane()
-    report = dict(aircraft_revision=aircraft.revision, diagnostic_revision=identity(record, c),
+    if control_deflections_deg is not None:
+        from .installed import freeze, validate
+        installed = freeze(record, control_deflections_deg)
+        ap = validate(installed)
+    def run(alpha, speed, resolution, derivatives=False):
+        return _run(aircraft, c, alpha, speed, resolution, derivatives, airplane=ap)
+    report = dict(aircraft_revision=aircraft.revision, diagnostic_revision=identity(record, c, installed),
+        installed=installed,
         geometry=archive(aircraft), conditions=c.model_dump(mode='json'),
         solver='AeroSandbox VLM', scope='fixed_hardware_inviscid_diagnostic',
+        equilibrium_scope='lift_weight_and_pitch_only',
         reference=dict(area_m2=float(ap.s_ref), chord_m=float(ap.c_ref), span_m=float(ap.b_ref),
                        cg_m=aircraft.mass_summary()['cg_m']),
         axes='geometry: x aft, y right, z up; Cm positive nose-up; alpha derivatives per radian',
         independent_numerical_performance=False, physical_construction=False, verified_gain=False,
         missing=['profile and body drag', 'nonlinear interaction and stall qualification',
-                 'control authority', 'dynamic modes', 'construction and load paths'],
+                 'qualified control authority', 'roll/yaw equilibrium and directional control',
+                 'dynamic modes', 'construction and load paths'],
         mesh_levels=[])
     for resolution in (c.coarse_resolution, c.fine_resolution):
         level = dict(resolution=resolution)
         report['mesh_levels'].append(level)
-        samples = [(a, _run(aircraft, c, a, 6., resolution))
+        samples = [(a, run(a, 6., resolution))
                    for a in np.linspace(c.alpha_min_deg, c.alpha_max_deg, 9)]
         level['moment_samples'] = [dict(alpha_deg=float(a), **raw) for a, raw in samples]
         brackets = [(lo[0], hi[0]) for lo, hi in zip(samples, samples[1:])
@@ -84,8 +94,8 @@ def diagnose(record, conditions=None):
         if len(brackets) != 1:
             level['state'] = 'untrimmable' if not brackets else 'ambiguous_equilibrium'
             continue
-        alpha = brentq(lambda a: _run(aircraft, c, a, 6., resolution)['Cm'], *brackets[0], xtol=1e-7)
-        raw = _run(aircraft, c, alpha, 6., resolution)
+        alpha = brentq(lambda a: run(a, 6., resolution)['Cm'], *brackets[0], xtol=1e-7)
+        raw = run(alpha, 6., resolution)
         if raw['L'] <= 0:
             level['state'] = 'nonpositive_lift'
             continue
@@ -94,7 +104,7 @@ def diagnose(record, conditions=None):
         if not c.minimum_speed_m_s <= speed <= c.maximum_speed_m_s:
             level.update(state='speed_outside_envelope', alpha_deg=alpha, speed_m_s=speed)
             continue
-        raw = _run(aircraft, c, alpha, speed, resolution, derivatives=True)
+        raw = run(alpha, speed, resolution, derivatives=True)
         margin = -raw['Cma']/raw['CLa'] if raw['CLa'] > 0 else None
         from . import BUILDERS
         lo, hi = BUILDERS[aircraft.family].STATIC_MARGIN
@@ -127,13 +137,15 @@ if __name__ == '__main__':
     parser.add_argument('family', choices=('tailless_swept', 'canard', 'tandem'))
     parser.add_argument('--archive', type=Path, help='Exact geometry archive; family must match')
     parser.add_argument('--conditions', type=Path, help='Validated Conditions JSON, including mesh resolutions')
+    parser.add_argument('--controls', type=Path, help='Explicit installed deflection for every control, JSON degrees')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     record = json.loads(args.archive.read_text()) if args.archive else archive(build(args.family))
     if record['family'] != args.family:
         parser.error('Archive belongs to another family')
     conditions = json.loads(args.conditions.read_text()) if args.conditions else None
-    result = diagnose(record, conditions)
+    controls = json.loads(args.controls.read_text()) if args.controls else None
+    result = diagnose(record, conditions, control_deflections_deg=controls)
     with args.output.open('x') as f:
         f.write(canonical_json(result))
     print(result['state'])
