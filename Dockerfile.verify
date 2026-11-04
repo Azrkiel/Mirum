@@ -46,4 +46,5 @@ RUN python -c "from pathlib import Path; [(p.write_bytes(p.read_bytes().replace(
 # Restored cloud checkouts can have owner-only permissions. Code stays root-owned.
 RUN chmod -R a+rX /workspace && node --version
 USER 10001:10001
-CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "--tb=short"]
+# test_regen_* need the PicoGK builder image; .github/workflows/regen-web.yml runs them.
+CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "--tb=short", "--ignore-glob=backend/tests/test_regen_*.py"]
