@@ -188,7 +188,18 @@ initialization diagnostics, published references, the frozen lock, saved install
 script and native binaries/build manifest. It does not contain the missing old
 coordinate audit directories and does not replace their replay.
 
-The final remote recheck failed GitHub authentication after the initial fetch
-had succeeded. Consequently, upstream changes after that successful fetch cannot
-be ruled out. Restore the existing task GitHub proxy connection to publish this
-continuation; do not supply a token in chat or overwrite a changed remote branch.
+An intermediate remote recheck failed GitHub authentication. The subsequent
+normal push succeeded: implementation/evidence commit
+`0dc973b929358a6f68427289fd42e65013532188` is on
+`cem-integration-verification`. A successful post-push remote check confirmed
+that A and B still have the exact tips recorded above. No authentication action
+is currently required. This documentation-only follow-up records delivery;
+it does not change the tested implementation or raw evidence.
+
+The environment draft saves `install_script`, `start_skill` and the verified
+repository commit/path. Review/save those settings and publish the environment
+through the product, then perform restoration checks in a genuinely new task.
+Neither publication nor fresh-task restoration was performed here. A locally
+verified Git bundle at `/workspace/mirum-onboarding/continuation.bundle` also
+retains this continuation relative to the starting commit; bundle verification
+is not environment restoration validation.

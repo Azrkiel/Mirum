@@ -7,7 +7,7 @@
     "part_a_change": "acceptance_documentation_integrated",
     "part_b": "5f5fc120163e18d37daf765e5956635a63bb1911",
     "part_b_already_integrated": true,
-    "final_remote_recheck": "blocked_by_GitHub_authentication_after_initial_successful_fetch"
+    "final_remote_recheck": "passed_after_successful_push_A_and_B_tips_unchanged"
   },
   "source_sha256": {
     "backend/cem/glider/families/coordinate_audit.py": "609afd2a183e0b0486ce8edd7f419ec23711cc5883e3f7545a479286f11243a6",
@@ -235,7 +235,8 @@
     "dependency_compatibility": "101 packages compatible",
     "native_jobs": "sequential_20_second_limit_unchanged",
     "first_combined_run": "interrupted_at_sandbox_API_socket_stall_not_passed_or_failed",
-    "API_tests_outside_sandbox": "7 passed, 1 dependency warning"
+    "API_tests_outside_sandbox": "7 passed, 1 dependency warning",
+    "intermediate_GitHub_authentication_failure": "resolved_for_push_and_post_push_read"
   },
   "raw_evidence": {
     "path": "/workspace/mirum-onboarding/continuation-evidence.tar.gz",
@@ -252,7 +253,8 @@
   "verified_gain": false,
   "configuration_fields_saved": [
     "install_script",
-    "start_skill"
+    "start_skill",
+    "repositories"
   ],
   "publication": "not_performed",
   "fresh_task_restoration": "not_performed",
@@ -272,5 +274,12 @@
     "sha256": "c718b8b099354ce1c66a8d91d18f0cb970ed6a8546ed27c9baaf438a6eb278e0",
     "official_mit_site": "proxy_CONNECT_403",
     "family_specific_measurements": "not_supplied_by_reference"
+  },
+  "delivery": {
+    "verified_implementation_commit": "0dc973b929358a6f68427289fd42e65013532188",
+    "pushed": true,
+    "branch": "cem-integration-verification",
+    "documentation_followup": "records_delivery_without_implementation_changes",
+    "local_bundle": "/workspace/mirum-onboarding/continuation.bundle"
   }
 }
