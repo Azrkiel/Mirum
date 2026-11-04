@@ -1,5 +1,9 @@
 # Integration continuation from dcb1592
 
+Follow-up from this handoff's final commit: [explicit VACCEL and fresh
+initialization audits](cem-vaccel-initialization.md). This document and its
+receipt remain the historical run; consult the follow-up for new outcomes.
+
 This run starts at `dcb15927542cc28c4262b018df1a70ce74c403cf` on
 `cem-integration-verification`, using the existing `/workspace/Mirum` checkout.
 No worktree was created. Production gates remain closed.

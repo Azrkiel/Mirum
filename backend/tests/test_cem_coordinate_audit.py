@@ -8,11 +8,12 @@ import aerosandbox as asb
 
 
 @pytest.mark.parametrize('failure', [None, 'missing', 'initialization', 'panels', 'midpoint', 'mixed'])
-def test_audit_checks_actual_coordinate_state_and_retains_failure(tmp_path, monkeypatch, failure):
+@pytest.mark.parametrize('vaccel', [None, 0.])
+def test_audit_checks_actual_coordinate_state_and_retains_failure(tmp_path, monkeypatch, failure, vaccel):
     calls = []
     points = coordinates_payload(asb.Airfoil('naca0012').coordinates)
 
-    def query(coords, re, angles, folder, *, transition, panels, sequence):
+    def query(coords, re, angles, folder, *, transition, panels, sequence, vaccel):
         assert coords == points
         calls.append((re, list(angles), panels, sequence))
         folder.mkdir(parents=True)
@@ -26,13 +27,14 @@ def test_audit_checks_actual_coordinate_state_and_retains_failure(tmp_path, monk
         missing = [angles[1]] if failure == 'missing' or (failure == 'mixed' and sequence == 'reset_each') else []
         rows = [row for row in rows if row['alpha_deg'] not in missing]
         return dict(coordinates=coords, reynolds=re, requested_angles_deg=list(angles),
-                    panels=panels, sequence=sequence, transition=audit.polars.Transition().model_dump(),
+                    panels=panels, sequence=sequence, vaccel=vaccel, transition=audit.polars.Transition().model_dump(),
                     state='incomplete' if missing else 'complete', missing_angles_deg=missing,
                     coordinates_sha256=audit.digest(coords), rows=rows)
 
     monkeypatch.setattr(audit.polars, 'query', query)
     monkeypatch.setattr(audit.polars, 'validate', lambda *args: False)
-    result = audit.audit(points, [100000., 200000.], [-2., 0., 2.], tmp_path)
+    result = audit.audit(points, [100000., 200000.], [-2., 0., 2.], tmp_path, vaccel=vaccel)
+    assert result['inputs']['vaccel'] == vaccel
     assert result['state'] == ('passed' if failure is None else 'failed')
     assert result['production_admission'] is False
     comparisons = result['comparisons']

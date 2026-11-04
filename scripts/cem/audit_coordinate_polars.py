@@ -19,6 +19,7 @@ def main():
     parser.add_argument('--reynolds', type=float, nargs='+', default=[30000., 300000.])
     parser.add_argument('--angles', type=float, nargs='+', default=[-4., -2., 0., 2., 4., 6., 8.])
     parser.add_argument('--replay', action='store_true')
+    parser.add_argument('--vaccel', type=float, default=None, help='Explicit XFOIL acceleration, 0 through .01; omitted retains native default')
     args = parser.parse_args()
     installed = freeze(json.loads(args.archive.read_text()), json.loads(args.controls.read_text()))
     plane = validate(installed)
@@ -33,11 +34,11 @@ def main():
         if args.replay:
             result = json.loads((root/key/'coordinate-audit.json').read_text())
             if result['inputs'] != dict(coordinates=points, reynolds=args.reynolds,
-                                       angles=args.angles, transition=None):
+                                       angles=args.angles, transition=None, vaccel=args.vaccel):
                 raise ValueError('Installed coordinate audit inputs changed')
             replay_audit(result, root/key)
         else:
-            result = audit(points, args.reynolds, args.angles, root/key)
+            result = audit(points, args.reynolds, args.angles, root/key, vaccel=args.vaccel)
         results[key] = result
     receipt = dict(installed_sha256=installed['installed_sha256'], foils=results,
                    production_admission=False, verified_gain=False)

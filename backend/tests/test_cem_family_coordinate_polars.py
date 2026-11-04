@@ -55,6 +55,36 @@ def test_native_exact_coordinate_reference_and_parent_replay(tmp_path):
         query(points,1000000.,[0.,2.,4.],tmp_path/'polar')
 
 
+@pytest.mark.parametrize('vaccel', [True, -.001, .011, float('nan'), float('inf'), '0'])
+def test_coordinate_vaccel_rejects_unsupported_input(tmp_path, vaccel):
+    with pytest.raises(ValueError, match='VACCEL'):
+        query(asb.Airfoil('naca0012').coordinates, 60000., [-1., 0., 1.],
+              tmp_path/'invalid', vaccel=vaccel)
+    assert not (tmp_path/'invalid').exists()
+
+
+def test_native_coordinate_vaccel_is_explicit_and_replayed(tmp_path):
+    report = query(asb.Airfoil('naca0012').coordinates, 1000000., [0., 2., 4.],
+                   tmp_path/'explicit', vaccel=0.)
+    commands = (tmp_path/'explicit'/'polar.in').read_text()
+    assert commands.index('VACC 0\n') < commands.index('ALFA 0\n')
+    assert report['vaccel'] == 0.
+    assert report['state'] == 'complete'
+    assert validate(report, tmp_path/'explicit') is False
+    bad = deepcopy(report)
+    bad['vaccel'] = .001
+    with pytest.raises(ValueError, match='reconstruction'):
+        validate(bad, tmp_path/'explicit')
+
+
+def test_coordinate_bank_rejects_mixed_acceleration():
+    reports = fixture_reports()
+    reports[0]['vaccel'] = 0.
+    reports[1]['vaccel'] = .001
+    with pytest.raises(ValueError, match='Inconsistent'):
+        CoordinateBank(reports)
+
+
 def test_native_reflex_and_deflected_coordinates_are_not_replaced_by_naca(tmp_path):
     a=build('tailless_swept')
     neutral={c.name:0. for c in a.controls}

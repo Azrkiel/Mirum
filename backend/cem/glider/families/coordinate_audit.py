@@ -14,12 +14,13 @@ from . import coordinate_polars as polars
 TOLERANCES = dict(cl=.025, cd=.001, cm=.005)
 
 
-def audit(coordinates, reynolds, angles, directory, *, transition=None, replay=False):
+def audit(coordinates, reynolds, angles, directory, *, transition=None, vaccel=None, replay=False):
     """Audit all initializations, two meshes and alpha/log-Re cell midpoints.
 
     Missing or sensitive rows remain failures. Every query has its own retained
     artifacts; replay repeats native queries and compares scientific payloads.
     """
+    polars.check_vaccel(vaccel)
     root = Path(directory)
     if root.exists() and any(root.iterdir()) and not replay:
         raise ValueError('Coordinate audit requires an empty directory')
@@ -31,7 +32,7 @@ def audit(coordinates, reynolds, angles, directory, *, transition=None, replay=F
     root.mkdir(parents=True, exist_ok=True)
     report = dict(scope='exact_coordinate_section_audit_development', state='failed',
         coordinates_sha256=digest(points), inputs=dict(coordinates=points,
-        reynolds=list(reynolds), angles=list(angles), transition=transition),
+        reynolds=list(reynolds), angles=list(angles), transition=transition, vaccel=vaccel),
         implementation_sha256=digest({name: Path(inspect.getfile(module)).read_text()
             for name, module in [('audit', inspect.getmodule(audit)), ('polars', polars),
                 ('metadata', inspect.getmodule(polars.check_polar_controls))]}),
@@ -50,13 +51,13 @@ def audit(coordinates, reynolds, angles, directory, *, transition=None, replay=F
             result = json.loads((folder/'query.json').read_text())
             if (result['coordinates'] != points or result['reynolds'] != re or
                     result['requested_angles_deg'] != list(alpha) or result['panels'] != panels
-                    or result['sequence'] != sequence or result['transition'] !=
+                    or result['sequence'] != sequence or result['vaccel'] != vaccel or result['transition'] !=
                     polars.Transition.model_validate(transition or {}).model_dump(mode='json')):
                 raise ValueError('Coordinate audit query inputs changed')
             polars.validate(result, folder)
         else:
             result = polars.query(points, re, alpha, folder, transition=transition,
-                                  panels=panels, sequence=sequence)
+                                  panels=panels, sequence=sequence, vaccel=vaccel)
             (folder/'query.json').write_text(canonical_json(result))
         report['queries'].append(dict(directory=tag, report=result))
         if result['state'] != 'complete':

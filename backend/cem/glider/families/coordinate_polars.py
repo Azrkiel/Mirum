@@ -27,7 +27,16 @@ def coordinates_payload(coordinates):
     return points.astype(float).tolist()
 
 
-def query(coordinates, reynolds, angles, directory, *, transition=None, panels=160, sequence="ascending"):
+def check_vaccel(vaccel):
+    # XFOIL's manual recommends reducing acceleration below Re 100,000.
+    # None retains the native default; no automatic convergence rescue is used.
+    if vaccel is not None and (type(vaccel) not in (int, float) or
+            not math.isfinite(vaccel) or not 0 <= vaccel <= .01):
+        raise ValueError('Unsupported XFOIL VACCEL (expected 0 through .01 or None)')
+
+
+def query(coordinates, reynolds, angles, directory, *, transition=None, panels=160, sequence="ascending", vaccel=None):
+    check_vaccel(vaccel)
     if sequence not in SEQUENCES:
         raise ValueError('Unknown coordinate initialization sequence')
     points = coordinates_payload(coordinates)
@@ -51,6 +60,10 @@ def query(coordinates, reynolds, angles, directory, *, transition=None, panels=1
         'PANE', 'OPER', f'VISC {reynolds:.12g}', 'MACH 0', 'VPAR',
         f'N {t.n_crit:.12g}', f'XTR {t.top_xtr:.12g} {t.bottom_xtr:.12g}', '',
         'ITER 150', 'ALFA 0', 'PACC', 'polar.out', '']
+    if vaccel is not None:
+        # Set before the first ALFA, inside VPAR, then leave VPAR normally.
+        commands[commands.index('ITER 150'):commands.index('ITER 150')] = [
+            'VPAR', f'VACC {vaccel:.17g}', '']
     if sequence in ('ascending', 'ascending_repeat'):
         commands += [f'ALFA {a:.8g}' for a in angles]
     elif sequence == 'zero_centered':
@@ -75,7 +88,7 @@ def query(coordinates, reynolds, angles, directory, *, transition=None, panels=1
     missing = [float(a) for a in angles if not any(abs(row['alpha_deg']-a) <= .001 for row in rows)]
     return dict(scope='exact_coordinate_section_polar_development', coordinates=points,
         coordinates_sha256=digest(points), reynolds=float(reynolds),
-        sequence=sequence, reported_controls=observed, requested_angles_deg=list(angles), transition=t.model_dump(mode='json'), panels=panels,
+        sequence=sequence, vaccel=vaccel, reported_controls=observed, requested_angles_deg=list(angles), transition=t.model_dump(mode='json'), panels=panels,
         state='incomplete' if missing else 'complete', missing_angles_deg=missing,
         rows=rows, native=native, qualified_aircraft_stall=False)
 
@@ -101,7 +114,13 @@ def validate(report, directory):
             raise ValueError('Coordinate polar artifact differs from retained identity')
     with tempfile.TemporaryDirectory(prefix='mirum-coordinate-polar-') as tmp:
         expected = query(report['coordinates'], report['reynolds'], report['requested_angles_deg'], tmp,
-            transition=report['transition'], panels=report['panels'], sequence=report['sequence'])
+            transition=report['transition'], panels=report['panels'], sequence=report['sequence'], vaccel=report['vaccel'])
+    # Bind declared numerical controls to the retained deterministic commands,
+    # even when two settings happen to yield identical rounded polar rows.
+    for name in ('polar.in', 'foil.dat'):
+        identity = lambda r: next(a for a in r['native']['artifacts'] if a['file'] == name)
+        if identity(expected) != identity(report):
+            raise ValueError('Coordinate polar inputs differ from native reconstruction')
     # Native log timing text can vary. Compare scientific payloads exactly;
     # the retained raw logs must separately match their recorded hashes above.
     scientific = lambda r: {k:v for k,v in r.items() if k != 'native'}
@@ -118,6 +137,7 @@ class CoordinateBank:
         self.reports = reports
         self.groups = {}
         for r in reports:
+            check_vaccel(r.get('vaccel'))
             if (r['state'] != 'complete' or r['missing_angles_deg'] or
                     digest(coordinates_payload(r['coordinates'])) != r['coordinates_sha256']):
                 raise ValueError('Incomplete or altered coordinate polar')
@@ -136,8 +156,8 @@ class CoordinateBank:
             group.sort(key=lambda r:r['reynolds'])
             if len(group) < 2 or len({r['reynolds'] for r in group}) != len(group):
                 raise ValueError('Missing or duplicate coordinate Reynolds coverage')
-            if any((r['requested_angles_deg'],r['transition'],r['panels']) !=
-                   (group[0]['requested_angles_deg'],group[0]['transition'],group[0]['panels']) for r in group):
+            if any((r['requested_angles_deg'],r['transition'],r['panels'],r.get('vaccel')) !=
+                   (group[0]['requested_angles_deg'],group[0]['transition'],group[0]['panels'],group[0].get('vaccel')) for r in group):
                 raise ValueError('Inconsistent coordinate polar grid')
 
     def coefficients(self, foil, reynolds, alpha):
