@@ -1,0 +1,276 @@
+{
+  "scope": "initialization_domain_diagnosis_not_aircraft_qualification",
+  "date": "2026-11-04",
+  "base_commit": "dcb15927542cc28c4262b018df1a70ce74c403cf",
+  "upstream_checked": {
+    "part_a": "6b4df7a38a5e5eaf700686ff21fde9acd62683d3",
+    "part_a_change": "acceptance_documentation_integrated",
+    "part_b": "5f5fc120163e18d37daf765e5956635a63bb1911",
+    "part_b_already_integrated": true,
+    "final_remote_recheck": "blocked_by_GitHub_authentication_after_initial_successful_fetch"
+  },
+  "source_sha256": {
+    "backend/cem/glider/families/coordinate_audit.py": "609afd2a183e0b0486ce8edd7f419ec23711cc5883e3f7545a479286f11243a6",
+    "backend/cem/glider/families/coordinate_polars.py": "a0f9ddaefccf523141d66416ec31db881abd8c0537bd57e3682061262aff3fd1",
+    "backend/cem/glider/families/installed.py": "7ad4c4fe59b2c7cfaca7325dcdd13dc2e517666cb3d5fa285e3bf3beecd7b294",
+    "backend/cem/aero/polars.py": "ed535544361a68f5395f9040aaba7cff8ff790ce317bc94fc07c832e3a79086b",
+    "scripts/cem/diagnose_window_coverage.py": "f7a346aa0e1f370a73c935b820f77cec681011ef63013fc76521ac2a7484d4b7",
+    "backend/tests/test_cem_window_coverage.py": "c55e96448cfbf28106fc9e4b700f677c6a531351500233b648ee5fa01f04aebb",
+    "docs/testing/cem-family-development-envelope.json": "b82e2f4c299cd98ca6159731306653b26b6a6fc171e3d353e99528be03cb933e"
+  },
+  "old_recorded_solver_sources_match": true,
+  "runtime": {
+    "python": "3.12.14",
+    "packages": {
+      "numpy": "2.2.6",
+      "scipy": "1.15.3",
+      "aerosandbox": "4.2.10",
+      "neuralfoil": "0.3.3",
+      "pydantic": "2.9.2",
+      "casadi": "3.8.2",
+      "pytest": "8.3.3",
+      "anyio": "4.16.0"
+    }
+  },
+  "runtime_lock_sha256": "7f6b725472d3df6263025e0a31d49f95b6b64c3eefee7a884c0be3b1c817cffc",
+  "native_build": {
+    "source_archives": {
+      "xfoil_6.99.dfsg+1.orig.tar.gz": "f5ece350981f35f7b5b4cef540c921ffad877b0942591efb88bad76cc08b597a",
+      "xfoil_6.99.dfsg+1-3.debian.tar.xz": "b6688dc60a8437fbabb0da80fdceb623bcdd6c4f35ca8afbe130f817c6140837"
+    },
+    "avl_revision": "b67837fa737afdf7a56655b044242619246b3ada",
+    "xfoil_flags": "-O0 -g -fbacktrace -fbounds-check -finit-real=inf -ffpe-trap=invalid,zero -fdefault-real-8 -fallow-argument-mismatch",
+    "headless_patch_sha256": "8e5df7f0731081c0066b7e3b6fd9dd31e3e1c910db9539c5faab6beedb22142a",
+    "compiler": "/workspace/mirum-tools/fc",
+    "compiler_version": "GNU Fortran (Debian 14.2.0-19) 14.2.0\nCopyright (C) 2024 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+    "fortran_link_flags": "",
+    "x11_include": "/workspace/mirum-tools/root/usr/include",
+    "x11_library": "/usr/lib/x86_64-linux-gnu/libX11.so.6",
+    "binaries": {
+      "xfoil": {
+        "path": "/workspace/mirum-native/Xfoil/bin/xfoil",
+        "sha256": "2996f60d1eb0b47c3c15eed62b9943346b2142471b685ef2c7d8e18a381f274d"
+      },
+      "avl": {
+        "path": "/workspace/mirum-native/avl-build/src/avl",
+        "sha256": "cda4097a09d98cc01b62255c139aaf23109c0092380a24cecc4ad3da3a31c9e9"
+      }
+    }
+  },
+  "native_binaries_match_historical_receipt": true,
+  "conditions": {
+    "speed_m_s": 6.0,
+    "alpha_deg": 4.0,
+    "altitude_m": 0.0,
+    "spanwise": 4,
+    "circulation": "zero_initialization_only"
+  },
+  "installed_states": [
+    {
+      "family": "tailless_swept",
+      "controls": {
+        "elevon_pitch": 0.0,
+        "elevon_roll": 0.0
+      },
+      "installed_sha256": "9ab5d8049091ac2651082b95edda1a59a8b35b12dafad28f68c3d3be6f4bee8d",
+      "initial_strips": 24,
+      "outside_historical_bounds": 24,
+      "reynolds_range": [
+        49028.54645807039,
+        72802.05492172875
+      ],
+      "alpha_range_deg": [
+        4.068918110357824,
+        5.897594682712896
+      ],
+      "common_reynolds_speed_interval": {
+        "lower_m_s": 12.237768470520024,
+        "upper_m_s": 9.889830730383771,
+        "empty": true,
+        "scope": "Reynolds_only_at_declared_alpha_zero_circulation"
+      }
+    },
+    {
+      "family": "tailless_swept",
+      "controls": {
+        "elevon_pitch": 3.0,
+        "elevon_roll": 0.0
+      },
+      "installed_sha256": "8edfe8e883ee04d86e3a66789196614eeb72d8084a225d4c4f81b62bac998665",
+      "initial_strips": 24,
+      "outside_historical_bounds": 24,
+      "reynolds_range": [
+        49028.54645807039,
+        72802.05492172875
+      ],
+      "alpha_range_deg": [
+        4.068918110357824,
+        5.897594682712896
+      ],
+      "common_reynolds_speed_interval": {
+        "lower_m_s": 12.237768470520024,
+        "upper_m_s": 9.889830730383771,
+        "empty": true,
+        "scope": "Reynolds_only_at_declared_alpha_zero_circulation"
+      }
+    },
+    {
+      "family": "canard",
+      "controls": {
+        "foreplane_elevator": 0.0,
+        "aileron": 0.0
+      },
+      "installed_sha256": "dd7dacff8c35326058139e8f1fc6414e7a6ed9d2f69e675eb17731a3f2ddf75e",
+      "initial_strips": 56,
+      "outside_historical_bounds": 56,
+      "reynolds_range": [
+        33167.65533186724,
+        72802.81346579439
+      ],
+      "alpha_range_deg": [
+        4.069052576351969,
+        7.988583755946036
+      ],
+      "common_reynolds_speed_interval": {
+        "lower_m_s": 36.17982603814171,
+        "upper_m_s": 18.131167425558186,
+        "empty": true,
+        "scope": "Reynolds_only_at_declared_alpha_zero_circulation"
+      }
+    },
+    {
+      "family": "canard",
+      "controls": {
+        "foreplane_elevator": 3.0,
+        "aileron": 0.0
+      },
+      "installed_sha256": "3a1b771288f1fe5fb3b4ac6c754ddd89d16023846539fc73a69346a0ffd660b1",
+      "initial_strips": 56,
+      "outside_historical_bounds": 56,
+      "reynolds_range": [
+        33167.65533186724,
+        72802.81346579439
+      ],
+      "alpha_range_deg": [
+        4.069052576351969,
+        7.988583755946036
+      ],
+      "common_reynolds_speed_interval": {
+        "lower_m_s": 36.17982603814171,
+        "upper_m_s": 18.131167425558186,
+        "empty": true,
+        "scope": "Reynolds_only_at_declared_alpha_zero_circulation"
+      }
+    },
+    {
+      "family": "tandem",
+      "controls": {
+        "front_elevator": 0.0,
+        "rear_elevator": 0.0,
+        "aileron": 0.0
+      },
+      "installed_sha256": "e3d18af47bd5d9afcf349af56da21df64ed88a6a027323756f0c4bd949d56b98",
+      "initial_strips": 56,
+      "outside_historical_bounds": 56,
+      "reynolds_range": [
+        40856.95086749526,
+        64713.603178208126
+      ],
+      "alpha_range_deg": [
+        4.069026692047094,
+        6.901527502157847
+      ],
+      "common_reynolds_speed_interval": {
+        "lower_m_s": 29.370767385255107,
+        "upper_m_s": 20.397566124775775,
+        "empty": true,
+        "scope": "Reynolds_only_at_declared_alpha_zero_circulation"
+      }
+    },
+    {
+      "family": "tandem",
+      "controls": {
+        "front_elevator": 3.0,
+        "rear_elevator": 0.0,
+        "aileron": 0.0
+      },
+      "installed_sha256": "4829c82bbad044835745e4785f80c21a28c09fb94e8e502b9010e237c83c8a11",
+      "initial_strips": 56,
+      "outside_historical_bounds": 56,
+      "reynolds_range": [
+        40856.95086749526,
+        64713.603178208126
+      ],
+      "alpha_range_deg": [
+        4.069026692047094,
+        6.901527502157847
+      ],
+      "common_reynolds_speed_interval": {
+        "lower_m_s": 29.370767385255107,
+        "upper_m_s": 20.397566124775775,
+        "empty": true,
+        "scope": "Reynolds_only_at_declared_alpha_zero_circulation"
+      }
+    }
+  ],
+  "historical_results": {
+    "passed_sampled_windows": 4,
+    "failed_trial_windows": 2,
+    "raw_archive_present_on_arrival": false,
+    "current_replay": "unperformed_no_retained_raw_evidence"
+  },
+  "current_checks": {
+    "coverage_tests": "5 passed",
+    "combined_regression": "546 passed, 2 warnings in 800.14s (0:13:20)",
+    "combined_exit_code": 0,
+    "combined_log_sha256": "4181d95ae3165a3125cb2302dcd9055536ad7347c20552d572d863955b97f89c",
+    "api_restart": {
+      "canard": 422,
+      "feasibility": 200,
+      "metadata": 200,
+      "tailless_swept": 422,
+      "tandem": 422
+    },
+    "repeat_saved_install_script": "passed",
+    "dependency_compatibility": "101 packages compatible",
+    "native_jobs": "sequential_20_second_limit_unchanged",
+    "first_combined_run": "interrupted_at_sandbox_API_socket_stall_not_passed_or_failed",
+    "API_tests_outside_sandbox": "7 passed, 1 dependency warning"
+  },
+  "raw_evidence": {
+    "path": "/workspace/mirum-onboarding/continuation-evidence.tar.gz",
+    "publication": "local_workspace_only",
+    "sha256": "dfa7bc4b70557ac716dd6edaaad6602eb522f3949770d515fd98a41c92d17226"
+  },
+  "initialization_domain": "outside_historical_passing_bounds_all_six_states",
+  "converged_flight_coverage": "unestablished",
+  "aircraft_aerodynamics": "unsupported_missing_family_body_junction_models_and_qualified_operating_envelope",
+  "full_aircraft_dynamics": "unsupported_missing_delivered_inertia_and_authority_requirements",
+  "family_construction": "unsupported_incomplete_B_and_external_material_process_evidence",
+  "production_admission": false,
+  "physical_construction": false,
+  "verified_gain": false,
+  "configuration_fields_saved": [
+    "install_script",
+    "start_skill"
+  ],
+  "publication": "not_performed",
+  "fresh_task_restoration": "not_performed",
+  "provider_generation": "unperformed",
+  "interactive_browser": "unperformed",
+  "part_a_reference_target": "docs/testing/cem-family-development-envelope.json",
+  "part_a_reference_initialization_diagnostic": {
+    "path": "/workspace/mirum-onboarding/part-a-initialization-coverage.json",
+    "sha256": "ddcc0e5ba27fc61e7a64651bd06a9e16b7869bad5957de31bb6f24b58e48ae4e",
+    "swept_outside_strips": 20,
+    "swept_total_strips": 24,
+    "canard_and_tandem_outside_strips": 56,
+    "canard_and_tandem_total_strips": 56
+  },
+  "published_reference": {
+    "url": "https://github.com/RobotLocomotion/avl/blob/b67837fa737afdf7a56655b044242619246b3ada/avl_doc.txt",
+    "sha256": "c718b8b099354ce1c66a8d91d18f0cb970ed6a8546ed27c9baaf438a6eb278e0",
+    "official_mit_site": "proxy_CONNECT_403",
+    "family_specific_measurements": "not_supplied_by_reference"
+  }
+}
