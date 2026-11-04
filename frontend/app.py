@@ -794,7 +794,11 @@ if ACCESS_GATE and not st.session_state.get("access_token"):
     st.stop()
 
 # ── Page Layout ─────────────────────────────────────────────
-workflow = st.radio('Design workflow', ['Text to CAD', 'Passive glider distance search'], horizontal=True)
+workflow = st.radio('Design workflow', ['Text to CAD', 'Passive glider distance search', 'Physics-based glider CEM'], horizontal=True)
+if workflow == 'Physics-based glider CEM':
+    from cem_ui import render_cem
+    render_cem(BACKEND_URL, _auth_headers)
+    st.stop()
 if workflow == 'Passive glider distance search':
     from glider_ui import render_glider
     render_glider(BACKEND_URL, _auth_headers)

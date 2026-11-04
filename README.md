@@ -183,6 +183,13 @@ must not be presented as verified.
 
 The Streamlit workflow selector includes a passive-glider search for maximum trimmed L/D under designer constraints. See [inputs, API, setup and limitations](docs/glider-search.md). It uses the integrated parametric AeroSandbox screening model, adaptive exploration/refinement and STL/template downloads; no provider calls are needed for search.
 
+The new **[physics-based glider CEM workflow](docs/implementation/cem-glider.md)**
+adds mission feasibility/gap reports, launch energy, process comparisons,
+wind-aware distance or duration search, measured-mass closure and uncertainty.
+Its current layouts are conventional, T-tail and V-tail. Outputs are screening
+geometry and templates; novel-family discovery and the PicoGK manufacturing
+builder remain unqualified and unavailable.
+
 ## Verification
 
 Targeted hardening ports and their scope are described in

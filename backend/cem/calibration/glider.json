@@ -1,0 +1,21 @@
+{
+  "version": "uncalibrated-1",
+  "state": "engineering_priors_not_flight_validated",
+  "cd0_factor": {"median": 1.0, "log_sigma": 0.18},
+  "cl_max_factor": {"median": 1.0, "log_sigma": 0.10},
+  "oswald_factor": {"median": 1.0, "log_sigma": 0.08},
+  "eta_launch": {
+    "drop": {"median": 0.0, "log_sigma": 0.0},
+    "hand_toss": {"median": 0.6, "log_sigma": 0.20},
+    "discus": {"median": 0.6, "log_sigma": 0.20},
+    "catapult": {"median": 0.6, "log_sigma": 0.20},
+    "hi_start": {"median": 0.6, "log_sigma": 0.20}
+  },
+  "mass_factor": {
+    "sheet_foam": {"median": 1.0, "log_sigma": 0.08},
+    "balsa": {"median": 1.0, "log_sigma": 0.10},
+    "fdm_lwpla": {"median": 1.0, "log_sigma": 0.15},
+    "fdm_pla": {"median": 1.0, "log_sigma": 0.08},
+    "hybrid": {"median": 1.0, "log_sigma": 0.12}
+  }
+}
