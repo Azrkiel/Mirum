@@ -104,15 +104,43 @@ on port 8000 was left alone.
 2. Extend each existing family's reference only through separately declared
    positive and rejected cases over the intended geometry/operating envelope.
    The three frozen cases do not qualify junction flow, stall or all T/V designs.
-3. Preserve the real pair's spiral rejection. A new stable design needs a new
+3. Qualify the full paired-comparison path within the declared supported scope.
+   Both frozen-hardware arms must pass complete polar coverage, coupled
+   force/moment equilibrium, mesh convergence and native stability. Reconstruct
+   their results and objective/error arithmetic in the API parent, and verify
+   the API/UI states end to end. A gain is permitted only when the shaped
+   improvement exceeds the sum of both arms' declared error bounds. A passing
+   pair need not demonstrate a gain; insufficient improvement must remain
+   `verified_gain=false`. Keep screening results separate from independent ones.
+4. Preserve the real pair's spiral rejection. A new stable design needs a new
    geometry/hardware revision and fresh evidence, with no in-solve hardware edits.
-4. Establish body/interference error envelopes beyond the current engineering
-   allowances; add applicable empirical flight/material validation.
-5. C must qualify tailless reflex/control trim and stability, canard interference
+5. Justify body/interference and numerical/model error bounds for the declared
+   supported scope beyond the current engineering allowances. Keep conditions
+   without adequate evidence explicitly unsupported. Empirical flight/material
+   validation is separate from A's numerical acceptance, and belongs to the
+   applicable physical-validation scope.
+6. C must qualify tailless reflex/control trim and stability, canard interference
    and stall order, and tandem lift sharing/interference/stall behavior. Extend
    section/control contracts explicitly where required. Removing a family guard
    or relabelling a conventional surface is insufficient. Physical family
    admission additionally needs B's construction/load-path closure.
+
+## Completion and release acceptance
+
+Use [A's original task brief](cem-task-a.md) as the requirement source and the
+[technical record](cem-aerodynamic-verification.md) for the implemented criteria.
+Before closing A, record the supported geometry/operating scope, passing native
+reference and paired-comparison evidence, stable/unstable and unsupported cases,
+and polar/force/moment/mesh checks within the stated tolerances. Re-run the
+combined regression and actual HTTP path after implementation changes. Preserve
+revision, executable and raw-artifact identities and receiving-runtime replay
+instructions; missing, stale, nonfinite or insufficient evidence must withhold
+gain. Scope exclusions must be explicit rather than treated as qualified.
+
+If A is selected for delivery, deployment, environment publication and
+fresh-task restoration are additional release-acceptance checks. They remain
+unperformed. C's new-family qualifications and B's physical closure retain their
+own ownership; neither is silently counted as completed by A's references.
 
 ## Reproduce and transfer
 
