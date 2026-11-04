@@ -1,0 +1,64 @@
+Objective: distance   evaluated: 960   valid: 239 (25%)
+
+Why designs were rejected (one design can fail several checks):
+    226  vertical tail volume too large
+    215  horizontal tail volume too large
+    172  vertical tail volume too small
+    156  horizontal tail volume too small
+    120  payload does not fit in fuselage
+     80  aspect ratio too high (structure)
+     58  wing loading too high
+     22  no weathercock stability (Cn_beta <= 0)
+     15  tail arm too short
+      8  loses pitch stability just below trim angle (low-Re airfoil kink)
+      5  glide/landing speed too high
+      2  Dutch roll unstable / poorly damped (too much dihedral for the fin)
+      1  spiral divergence too fast (too little dihedral for the fin)
+
+By tail type:  pass rate | best score | median score of valid
+  T                 24%      13.30      11.31
+  V                 21%      13.26      11.38
+  conventional      28%      13.29      11.35
+
+By wing style:  pass rate | best score | median score of valid
+  elliptical        22%      13.30      11.17
+  polyhedral        33%      13.29      11.94
+  tapered           20%      11.85      10.82
+
+By fuselage style:  pass rate | best score | median score of valid
+  pod_boom          30%      13.30      11.28
+  slab              26%      13.29      11.34
+  torpedo            4%      12.38      12.31
+
+Most successful wings (appearances among valid designs):
+  W04: 35
+  W12: 34
+  W02: 30
+  W08: 30
+  W09: 30
+
+Most successful fuselages (appearances among valid designs):
+  F01: 45
+  F06: 43
+  F02: 40
+  F07: 37
+  F03: 35
+
+Most successful tails (appearances among valid designs):
+  T09: 38
+  T07: 36
+  T06: 29
+  T02: 26
+  T05: 24
+
+Top 10:
+  #1   W07-F08-T04    elliptical pod_boom  T            L/D  13.3  sink 0.34 m/s  speed 4.6 m/s  mass 189 g
+  #2   W12-F06-T07    polyhedral slab      conventional L/D  13.3  sink 0.44 m/s  speed 5.9 m/s  mass 158 g
+  #3   W12-F08-T07    polyhedral pod_boom  conventional L/D  13.3  sink 0.45 m/s  speed 6.0 m/s  mass 162 g
+  #4   W12-F06-T10    polyhedral slab      V            L/D  13.3  sink 0.45 m/s  speed 5.9 m/s  mass 158 g
+  #5   W12-F01-T10    polyhedral slab      V            L/D  13.2  sink 0.45 m/s  speed 5.9 m/s  mass 156 g
+  #6   W12-F08-T10    polyhedral pod_boom  V            L/D  13.2  sink 0.45 m/s  speed 6.0 m/s  mass 162 g
+  #7   W12-F08-T09    polyhedral pod_boom  conventional L/D  13.2  sink 0.45 m/s  speed 6.0 m/s  mass 163 g
+  #8   W12-F06-T02    polyhedral slab      V            L/D  13.2  sink 0.45 m/s  speed 6.0 m/s  mass 158 g
+  #9   W12-F07-T07    polyhedral slab      conventional L/D  13.2  sink 0.46 m/s  speed 6.1 m/s  mass 165 g
+  #10  W12-F01-T02    polyhedral slab      V            L/D  13.2  sink 0.45 m/s  speed 5.9 m/s  mass 156 g

@@ -4,3 +4,5 @@ neuralfoil==0.3.3
 dill==0.4.1
 seaborn==0.13.2
 sortedcontainers==2.4.0
+trimesh==4.4.3
+networkx==3.4.2

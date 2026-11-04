@@ -1,0 +1,22 @@
+# Headless PicoGK spike. Needs picogk-runtime:26.2 from Dockerfile.runtime.
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS publish
+COPY avast-ca.pem /usr/local/share/ca-certificates/avast-ca.crt
+RUN update-ca-certificates
+WORKDIR /spike
+COPY Program.cs spike.csproj ./
+RUN dotnet publish spike.csproj -c Release -o /app
+
+# Slim runtime: same Debian release as gcc:15, gcc:15's own libstdc++.
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libtbb12 libblosc1 libboost-iostreams1.83.0 zlib1g libzstd1 liblz4-1 \
+      libgl1 libx11-6 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=picogk-runtime:26.2 /usr/local/lib64/libstdc++.so.6 /usr/local/lib/picogk-gcc/libstdc++.so.6
+COPY --from=picogk-runtime:26.2 /usr/local/lib64/libgcc_s.so.1 /usr/local/lib/picogk-gcc/libgcc_s.so.1
+COPY --from=publish /app /app
+COPY --from=picogk-runtime:26.2 /picogk/picogk.26.2.so /app/picogk.26.2.so
+COPY --from=picogk-runtime:26.2 /picogk/picogk.26.2.so.sha256 /app/picogk.26.2.so.sha256
+ENV LD_LIBRARY_PATH=/usr/local/lib/picogk-gcc:/app
+WORKDIR /out
+ENTRYPOINT ["/app/spike"]

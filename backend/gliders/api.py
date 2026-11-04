@@ -12,6 +12,7 @@ import uuid
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse
 from process_runner import ProcessRunner
+from solver_slot import slot
 from .spec import GliderRequest
 from .design_spec import DesignSpec, from_candidate
 from .preview import preview, metadata
@@ -28,6 +29,7 @@ class Jobs:
         kind = "evaluation" if isinstance(spec, DesignSpec) else "search"
         if self.task and not self.task.done():
             raise HTTPException(429, 'A glider search or evaluation is running; try again after it finishes.')
+        slot.check()
         # Bounded retention. Downloads expire with jobs; do not touch other application files.
         for key, job in list(self.jobs.items()):
             if time.monotonic() - job['created'] > 3600 or len(self.jobs) >= 8:
@@ -39,6 +41,7 @@ class Jobs:
         self.jobs[key] = {'status': 'running', 'created': time.monotonic(), 'directory': directory, 'kind': kind,
                           'input_revision': spec.digest() if kind == 'evaluation' else None}
         self.task = asyncio.create_task(self.run(key, spec))
+        slot.claim(self)
         return {'job_id': key, 'evaluation_id': key if kind == 'evaluation' else None,
                 'input_revision': self.jobs[key]['input_revision'], 'status': 'running'}
 
@@ -65,7 +68,10 @@ class Jobs:
             logger.exception('Glider job failed')
             job.update(status='failed', detail='Glider task could not complete; no results are accepted.')
         finally:
-            await runner.close()
+            try:
+                await runner.close()
+            finally:
+                slot.release(self)
 
     def get(self, key, kind=None):
         if key not in self.jobs:
@@ -78,6 +84,7 @@ class Jobs:
         if self.task and not self.task.done():
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)
+        slot.release(self)
 
 
 jobs = Jobs()

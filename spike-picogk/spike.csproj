@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net9.0</TargetFramework><Nullable>disable</Nullable><RuntimeIdentifier>linux-x64</RuntimeIdentifier><SelfContained>true</SelfContained><InvariantGlobalization>true</InvariantGlobalization></PropertyGroup>
+  <ItemGroup><PackageReference Include="PicoGK" Version="2.3.0" /></ItemGroup>
+</Project>

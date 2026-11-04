@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="747.9mm" height="305.5mm" viewBox="0 0 747.9 305.5">
+<rect width="100%" height="100%" fill="white"/>
+<polyline points="15.00,35.00 227.36,55.60 404.32,73.79 545.89,89.35 637.91,100.39 694.54,108.21 722.86,114.44 722.86,240.33 694.54,248.35 637.91,250.46 545.89,248.91 404.32,242.20 227.36,230.06 15.00,211.80 15.00,35.00" fill="none" stroke="black" stroke-width="0.4"/>
+<polyline points="227.36,55.60 227.36,230.06" fill="none" stroke="#d62728" stroke-width="0.4" stroke-dasharray="3,2"/>
+<polyline points="404.32,73.79 404.32,242.20" fill="none" stroke="#d62728" stroke-width="0.4" stroke-dasharray="3,2"/>
+<polyline points="545.89,89.35 545.89,248.91" fill="none" stroke="#d62728" stroke-width="0.4" stroke-dasharray="3,2"/>
+<polyline points="637.91,100.39 637.91,250.46" fill="none" stroke="#d62728" stroke-width="0.4" stroke-dasharray="3,2"/>
+<polyline points="694.54,108.21 694.54,248.35" fill="none" stroke="#d62728" stroke-width="0.4" stroke-dasharray="3,2"/>
+<text x="15.0" y="15.0" font-size="6" font-family="sans-serif">Wing half-panel (cut 2, mirror one) (root at left, 1:1 scale)</text>
+<text x="15.0" y="23.0" font-size="4.5" font-family="sans-serif">Red dashed = dihedral breaks. Panel dihedral angles from root: 10.6 deg, 10.6 deg, 10.6 deg, 10.6 deg, 10.6 deg, 10.6 deg</text>
+<polyline points="15.00,293.46 115.00,293.46" fill="none" stroke="black" stroke-width="0.8"/>
+<text x="15.0" y="300.46102231843804" font-size="4.5" font-family="sans-serif">100 mm - measure this after printing</text>
+</svg>

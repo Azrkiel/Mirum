@@ -60,6 +60,18 @@ logger = logging.getLogger("mirum.api")
 _WORK_DIR = pathlib.Path(os.environ.get("MIRUM_WORK_DIR", "/tmp/mirum/work"))
 _WORK_DIR.mkdir(parents=True, exist_ok=True)
 
+
+def _work_path(name: str) -> str:
+    """Scratch path under _WORK_DIR, forward slashes only.
+
+    These strings get embedded into generated script literals (and
+    .replace'd over the assembler's 'output.glb' sentinel). On a Windows
+    host a backslash path mangles when the script is parsed (\\t -> TAB),
+    so Assembly.save writes somewhere os.path.exists never looks. Windows
+    APIs accept forward slashes; Docker paths never contain backslashes.
+    """
+    return str(_WORK_DIR / name).replace("\\", "/")
+
 _GEMINI_KEY_HEAVY = os.environ.get("GEMINI_API_KEY_HEAVY")
 if not _GEMINI_KEY_HEAVY:
     raise RuntimeError(
@@ -111,6 +123,8 @@ async def _lifespan(application: FastAPI):
     finally:
         from gliders.api import jobs as glider_jobs
         await glider_jobs.close()
+        from cem.api import jobs as cem_jobs
+        await cem_jobs.close()
 
 
 limiter = Limiter(key_func=get_remote_address)
@@ -306,8 +320,8 @@ async def _run_aero_stage(
         return None, f"polar parse failed: {type(e).__name__}: {_safe_error(str(e))}"
 
     cl_max_str = f"{polar.Cl_max:.3f}" if polar.Cl_max is not None else "n/a"
-    sa_str = f"{polar.stall_alpha:.1f}°" if polar.stall_alpha is not None else "n/a"
-    msg = f"converged {polar.converged_count} α-points; Cl_max={cl_max_str}; stall α={sa_str}"
+    sa_str = f"{polar.stall_alpha:.1f}Â°" if polar.stall_alpha is not None else "n/a"
+    msg = f"converged {polar.converged_count} Î±-points; Cl_max={cl_max_str}; stall Î±={sa_str}"
     # Sanitize NaN/Inf → null before JSON serialisation (XFOIL can emit NaN
     # for unconverged alpha points; JSON has no NaN literal).
     return _sanitize_floats(polar.model_dump()), msg
@@ -483,6 +497,127 @@ async def _run_struct_stage(
     return _sanitize_floats(flat.model_dump()), msg
 
 
+def _run_verdict_stage(
+    requirements, aero_report: dict | None, struct_report: dict | None,
+) -> tuple[dict | None, str]:
+    """Phase 5: compare analysis reports against extracted DesignTargets.
+
+    Pure-number judgment — no LLM, no subprocess. Returns
+    (DesignVerdict.model_dump() | None, status_msg). None = not applicable.
+    """
+    targets = getattr(requirements, "design_targets", None) if requirements else None
+    if targets is None:
+        return None, "no design_targets extracted"
+    try:
+        from verdict import evaluate_design  # noqa: PLC0415
+        v = evaluate_design(targets, aero_report, struct_report)
+    except Exception as e:  # never block delivery
+        return None, f"verdict failed: {type(e).__name__}: {_safe_error(str(e))}"
+    if v.overall == "not_applicable":
+        return None, "no criteria to evaluate"
+    n_pass = sum(1 for c in v.criteria if c.passed)
+    msg = f"{v.overall}: {n_pass}/{len(v.criteria)} criteria met"
+    return v.model_dump(), msg
+
+
+def _targets_imply_stages(
+    requirements, run_aero: bool, run_struct: bool,
+) -> tuple[bool, bool]:
+    """Stated performance targets imply consent to the analyses that check them.
+
+    A user stating "MS ≥ 0.5" has opted into structural analysis; without this
+    the verdict is guaranteed "incomplete" (plan review finding R5).
+    """
+    targets = getattr(requirements, "design_targets", None) if requirements else None
+    if targets is not None:
+        if any(getattr(targets, f) is not None
+               for f in ("cl_max_min", "l_d_min", "stall_alpha_min")):
+            run_aero = True
+        if any(getattr(targets, f) is not None for f in ("ms_min", "v_ne_min_ms")):
+            run_struct = True
+    return run_aero, run_struct
+
+
+async def _apply_diff_and_export(
+    diff,
+    original_manifest,
+    original_scripts: dict[str, str],
+    prior_step_files: dict[str, str] | None = None,
+    cert_sink: dict | None = None,
+):
+    """Apply a ManifestDiff: rebuild changed/added parts, re-export reused STEPs.
+
+    Extracted from the /refine endpoint so the design-closure loop in
+    _pipeline shares one implementation. Returns
+    (updated_manifest, new_scripts, step_files, parts_to_regenerate,
+    parts_to_skip). When ``cert_sink`` is given, each rebuilt part's
+    geometry certificate is recorded in it. Raises on diff-application or rebuild failure — callers
+    choose the error policy (/refine returns the detail to the client; the
+    closure loop degrades to "no refinement").
+    """
+    import asyncio
+
+    updated_manifest = apply_manifest_diff(original_manifest, diff)
+
+    # Identify which parts need re-generation
+    parts_to_regenerate = set(diff.modified_parts) | {p.part_id for p in diff.added_parts}
+    parts_to_skip = {
+        p.part_id for p in updated_manifest.parts
+        if p.part_id not in parts_to_regenerate
+        and p.part_id in original_scripts
+    }
+
+    # Re-run Machinists only for changed/new parts
+    new_scripts: dict[str, str] = dict(original_scripts)
+    step_files: dict[str, str] = {}
+    part_map = {p.part_id: p for p in updated_manifest.parts}
+
+    async def _rebuild(part_id: str):
+        part = part_map[part_id]
+        code, step_path, cert = await run_critic_loop(part)
+        return part_id, code, step_path, cert
+
+    tasks = [_rebuild(pid) for pid in parts_to_regenerate if pid in part_map]
+    if tasks:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for res in results:
+            if isinstance(res, Exception):
+                raise res
+            part_id, code, step_path, cert = res
+            new_scripts[part_id] = code
+            step_files[part_id] = step_path
+            if cert_sink is not None:
+                cert_sink[part_id] = cert
+
+    # For reused parts we need their step files — reuse the prior run's file
+    # when it still exists (the in-pipeline closure path), otherwise re-export
+    # from the existing script (the /refine path, where only scripts arrive).
+    for pid in parts_to_skip:
+        prior = (prior_step_files or {}).get(pid)
+        if prior and os.path.exists(prior):
+            step_files[pid] = prior
+            continue
+        # Write a temporary .step for the reused part
+        try:
+            # part_id is client-supplied on /refine: keep the file name inside _WORK_DIR.
+            tmp_step = _work_path(f"{_sanitize_part_id(pid)}_{uuid.uuid4().hex[:8]}.step")
+            reuse_script = original_scripts[pid]
+            export_script = reuse_script.rstrip() + (
+                f"\n\nimport cadquery as cq\n"
+                f"if isinstance(result, cq.Assembly):\n"
+                f"    result.save({tmp_step!r})\n"
+                f"else:\n"
+                f"    cq.exporters.export(result, {tmp_step!r})\n"
+            )
+            result_exec = await execute_cad_script(export_script)
+            if result_exec["status"] == "success":
+                step_files[pid] = tmp_step
+        except Exception:
+            pass  # If re-export fails, assembler will report missing parts
+
+    return updated_manifest, new_scripts, step_files, parts_to_regenerate, parts_to_skip
+
+
 async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = False) -> AsyncGenerator[str, None]:
     """Run the full pipeline, yielding SSE progress events."""
 
@@ -510,7 +645,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     # / open / os.remove all resolve to the same writable tmpfs location.
     # Relative names like "output.glb" would land in whatever cwd the
     # subprocess happens to have, which is /app (read-only).
-    output_filename = str(_WORK_DIR / (uuid.uuid4().hex + ".glb"))
+    output_filename = _work_path(uuid.uuid4().hex + ".glb")
     param_dict = {}  # T1-06: Initialize for both paths
     # Phase 3: hoisted so the post-export aero stage can see the per-part
     # STEP files. Populated only in the multi-part path; empty for single-part.
@@ -792,6 +927,9 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     # T3-08: Check if prompt has tolerance callouts (inform frontend to offer /pmi/annotate)
     pmi_detected = has_tolerance_callouts(prompt)
 
+    # Stated performance targets imply consent to the analyses that check them.
+    run_aero, run_struct = _targets_imply_stages(requirements, run_aero, run_struct)
+
     # Phase 3 (XFOIL): optional aerodynamic polar. Gated on the opt-in flag;
     # every failure path inside _run_aero_stage returns (None, reason) so this
     # block can never prevent the "complete" event from being emitted.
@@ -839,6 +977,216 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event("struct", "done", struct_msg)
         else:
             yield _event("struct", "skipped", struct_msg)
+
+    # Phase 3 (closure): bounded design-closure loop — verdict → fix →
+    # re-analyze, max 2 LLM refinements + 1 analytic wing-box re-size.
+    # Replaces the Phase-5 advisory verdict. _run_verdict_stage is kept as a
+    # standalone advisory helper (exercised by tests/test_verdict_stage.py);
+    # the /jobs polling path on branch mirum/backend-throughput is its
+    # intended production reuse point after that worktree merges.
+    design_verdict: dict | None = None
+    _closure_changed = False
+    _final_step: dict = {}    # COMMITTED refined geometry (improved + analyzed)
+    _pending_step: dict = {}  # candidate awaiting closure's improvement check
+    _targets = getattr(requirements, "design_targets", None) if requirements else None
+    if (run_aero or run_struct) and _targets is not None:
+        from closure import run_design_closure  # noqa: PLC0415
+
+        async def _rerun_struct(reqs):
+            report, _ = await _run_struct_stage(reqs)
+            return report
+
+        async def _commit_geometry():
+            # Called by closure ONLY when an iteration strictly improved the
+            # verdict — best-attempt delivery, never a regressed candidate.
+            _final_step.clear()
+            _final_step.update(_pending_step)
+            _pending_step.clear()
+
+        if single:
+            async def _refine_aero(rp: str):
+                # No manifest to diff — regenerate the single part with the
+                # lever instruction appended to its description, then export
+                # a temp STEP for XFOIL (same pattern as the aero block above).
+                # Iterations chain: build on the last COMMITTED refined part;
+                # strip any earlier REFINEMENT block first so the Machinist
+                # never sees stale contradictory actuals.
+                base_part = _final_step.get("part", part)
+                base_desc = base_part.description.split(
+                    "\n\nREFINEMENT REQUIRED:\n")[0]
+                refined_part = base_part.model_copy(update={
+                    "description": f"{base_desc}\n\nREFINEMENT REQUIRED:\n{rp}",
+                })
+                new_code, _sp, _cert = await run_critic_loop(
+                    refined_part, max_retries=2, save_step=False)
+                if not new_code:
+                    return None
+                _rs_path = _work_path(uuid.uuid4().hex + "_closure.step")
+                _rs_exec = await execute_cad_script(
+                    f"{new_code}\n\n"
+                    f"import cadquery as cq\n"
+                    f"cq.exporters.export(result, r'{_rs_path}')\n"
+                )
+                if _rs_exec["status"] != "success" or not os.path.exists(_rs_path):
+                    try:
+                        os.remove(_rs_path)
+                    except OSError:
+                        pass
+                    return None
+                report, _ = await _run_aero_stage(
+                    {part.part_id: _rs_path}, requirements)
+                try:
+                    os.remove(_rs_path)
+                except OSError:
+                    pass
+                if report is None:
+                    return None
+                # Stage the ANALYZED candidate; closure commits it only on
+                # improvement (review M1 + best-attempt contract).
+                _pending_step.clear()
+                _pending_step["code"] = new_code
+                _pending_step["part"] = refined_part
+                return report
+        else:
+            async def _refine_aero(rp: str):
+                # Diff-refine the assembly: Refiner → apply diff → rebuild
+                # changed parts → fresh STEPs → XFOIL. Iteration N+1 starts
+                # from iteration N's COMMITTED manifest/scripts.
+                cur_manifest = _final_step.get("manifest", manifest)
+                cur_scripts = _final_step.get("scripts", part_scripts)
+                cur_steps = _final_step.get("steps", step_files)
+                cur_certs = _final_step.get("certs", _part_certs)
+                new_certs: dict = {}
+                diff = await run_refiner(
+                    original_manifest=cur_manifest,
+                    original_scripts=cur_scripts,
+                    refinement_prompt=rp)
+                (new_manifest, new_scripts, new_steps,
+                 _regen, _skip) = await _apply_diff_and_export(
+                    diff, cur_manifest, cur_scripts, cur_steps,
+                    cert_sink=new_certs)
+                if not new_steps:
+                    return None
+                report, _ = await _run_aero_stage(new_steps, requirements)
+                if report is None:
+                    return None
+                # Stage the ANALYZED candidate (see single path).
+                _pending_step.clear()
+                _pending_step["manifest"] = new_manifest
+                _pending_step["scripts"] = new_scripts
+                _pending_step["steps"] = new_steps
+                # Reused parts keep their prior certificates; rebuilt parts
+                # carry the certificate from their own critic loop.
+                _pending_step["certs"] = {
+                    p.part_id: new_certs.get(p.part_id, cur_certs.get(p.part_id))
+                    for p in new_manifest.parts
+                }
+                return report
+
+        yield _event("verdict", "running", "Checking design against targets")
+        try:
+            (design_verdict, _closure_changed,
+             aero_report, struct_report) = await run_design_closure(
+                requirements, aero_report, struct_report,
+                refine_aero=_refine_aero, rerun_struct=_rerun_struct,
+                commit_geometry=_commit_geometry)
+        except Exception as _closure_exc:
+            # Verdict logic must never cost the user the finished model —
+            # the GLB is already encoded; degrade to "no verdict".
+            debug_log_error("design_closure", _closure_exc, None)
+            design_verdict = None
+            _closure_changed = False
+            yield _event("verdict", "skipped",
+                         f"verdict failed: {_safe_error(str(_closure_exc))}")
+        else:
+            if design_verdict is not None:
+                status = ("done" if design_verdict["overall"] == "pass"
+                          else "warning")
+                yield _event(
+                    "verdict", status,
+                    f"{design_verdict['overall']} after "
+                    f"{design_verdict['iterations_used']} refinement(s)")
+                # One telemetry record per closure run (local-only JSONL,
+                # never returned to clients).
+                try:
+                    from telemetry import log_design_closure  # noqa: PLC0415
+                    log_design_closure(
+                        overall=design_verdict["overall"],
+                        iterations_used=design_verdict.get("iterations_used", 0),
+                        criteria=[
+                            {"name": c.get("name"), "target": c.get("target"),
+                             "actual": c.get("actual"), "passed": c.get("passed")}
+                            for c in design_verdict.get("criteria", [])],
+                        geometry_changed=_closure_changed,
+                    )
+                except Exception:
+                    pass  # telemetry must never break delivery
+            else:
+                yield _event("verdict", "skipped", "no design targets to check")
+
+    # Phase 3 (closure): the GLB was encoded *before* the closure loop ran —
+    # when closure swapped the geometry, re-export so the delivered model
+    # matches the verdict's final iteration (review R3). Runs BEFORE the
+    # geometry certificate so the cert can describe the DELIVERED geometry.
+    # Uses the exact same export paths as the original delivery
+    # (run_single_part_export / deterministic assembler; Assembly.save infers
+    # glTF from the .glb extension). A struct-only re-size leaves _final_step
+    # empty — the CAD geometry is unchanged, so no re-export is needed.
+    _closure_delivered = False  # refined geometry actually replaced the GLB
+    if design_verdict is not None and _closure_changed and _final_step:
+        _new_glb = _work_path(uuid.uuid4().hex + "_closure.glb")
+        _re_exec: dict = {"status": "error"}
+        _re_script = ""
+        _re_params: dict = {}
+        try:
+            if single and _final_step.get("code"):
+                _re_script = await run_single_part_export(
+                    _final_step["code"], _new_glb)
+                _re_script, _re_params = parameterize_script(_re_script)
+                _re_exec = await _execute_accepted(_re_script, _new_glb, "result")
+            elif (not single) and _final_step.get("steps"):
+                _re_script = await run_assembly_critic_loop(
+                    _final_step["manifest"], _final_step["steps"])
+                _re_script = _re_script.replace("output.glb", _new_glb)
+                _re_exec = await _execute_accepted(_re_script, _new_glb, "assembly")
+                if _re_exec.get("status") == "success":
+                    # Same joint gate as the original delivery: refined
+                    # geometry that only "ran" is not delivered.
+                    from verification.joints import verify_assembly_joints
+                    _re_joints = await verify_assembly_joints(
+                        _re_exec["acceptance"]["step"], _final_step["manifest"])
+                    if _re_joints.get("passed") is not True:
+                        _re_exec = {"status": "error"}
+        except Exception as _re_exc:
+            debug_log_error("closure_reexport", _re_exc, None)
+            _re_exec = {"status": "error"}
+        if _re_exec.get("status") == "success" and os.path.exists(_new_glb):
+            with open(_new_glb, "rb") as f:
+                glb_b64 = base64.b64encode(f.read()).decode("utf-8")
+            # The delivered geometry, its captured acceptance evidence, and
+            # the scripts/manifest returned to the client all move together.
+            final_script = _re_script.replace(_new_glb, "output.glb")
+            result = _re_exec
+            if single:
+                param_dict_final = _re_params
+                code = _final_step["code"]
+            else:
+                manifest = _final_step["manifest"]
+                parts = manifest.parts
+                part_scripts = _final_step["scripts"]
+                step_files = _final_step["steps"]
+                _part_certs = _final_step["certs"]
+                assembly_joint_report = _re_joints
+            _closure_delivered = True
+        # Always clean up the temp GLB — a failed export may still have
+        # written a partial file.
+        try:
+            os.remove(_new_glb)
+        except OSError:
+            pass
+        # Export failure → keep the original GLB. The verdict still reports
+        # honestly: its criteria reflect the refined analysis, and the stale
+        # GLB is the previous validated geometry, never a broken one.
 
     # Geometry certificate — aggregate across all parts.
     # Multi-part: use the certs collected during _build_part().
@@ -942,6 +1290,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         "pmi_detected": pmi_detected,   # T3-08: hints frontend to offer PMI annotation
         "aero_report": aero_report,     # Phase 3: PolarReport dict or None
         "struct_report": struct_report, # Phase 4: StructuralReport dict or None
+        "design_verdict": design_verdict,  # Phase 5: DesignVerdict dict or None
         "geometry_certificate": geometry_certificate,  # G-05: post-compile cert
     }
     yield f"data: {json.dumps(complete_payload)}\n\n"
@@ -1111,16 +1460,19 @@ from engineering.api import attach_engineering_routes
 attach_engineering_routes(app, limiter)
 from gliders.api import attach_glider_routes
 attach_glider_routes(app, limiter)
+from cem.api import attach_cem_routes
+attach_cem_routes(app, limiter)
 
 
 @app.get("/stats")
-async def get_stats():
+@limiter.limit("30/minute")
+async def get_stats(request: Request):
     """Return failure rate statistics stratified by domain and operation type."""
     try:
         from failure_analysis import generate_failure_report
         return generate_failure_report()
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _safe_error(str(e))}
 
 
 # ---------------------------------------------------------------------------
@@ -1207,8 +1559,6 @@ async def refine_assembly(body: RefineRequest, request: Request):
     Refinement telemetry (original_script, refinement_prompt, revised_script)
     is logged for future instruction-following fine-tuning.
     """
-    import asyncio
-
     # Reconstruct manifest from dict
     from schemas import AssemblyManifest, RefinementRequest as RR
     try:
@@ -1227,65 +1577,18 @@ async def refine_assembly(body: RefineRequest, request: Request):
         logger.exception("RefinerAgent failed")
         return {"status": "error", "detail": _safe_error(e)}
 
-    # Apply diff to get updated manifest
+    # Apply diff: updated manifest + rebuilt parts + reused-part STEP exports.
+    # Shared with the design-closure loop in _pipeline (_apply_diff_and_export).
     try:
-        updated_manifest = apply_manifest_diff(original_manifest, diff)
+        (updated_manifest, new_scripts, step_files,
+         parts_to_regenerate, parts_to_skip) = await _apply_diff_and_export(
+            diff, original_manifest, body.original_scripts)
     except Exception as e:
-        logger.exception("ManifestDiff apply failed")
+        logger.exception("ManifestDiff apply/rebuild failed")
         return {"status": "error", "detail": _safe_error(e)}
 
-    # Identify which parts need re-generation
-    parts_to_regenerate = set(diff.modified_parts) | {p.part_id for p in diff.added_parts}
-    parts_to_skip = {
-        p.part_id for p in updated_manifest.parts
-        if p.part_id not in parts_to_regenerate
-        and p.part_id in body.original_scripts
-    }
-
-    # Re-run Machinists only for changed/new parts
-    new_scripts: dict[str, str] = dict(body.original_scripts)
-    step_files: dict[str, str] = {}
-    part_map = {p.part_id: p for p in updated_manifest.parts}
-
-    async def _rebuild(part_id: str):
-        part = part_map[part_id]
-        code, step_path, _cert = await run_critic_loop(part)
-        return part_id, code, step_path
-
-    tasks = [_rebuild(pid) for pid in parts_to_regenerate if pid in part_map]
-    if tasks:
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for res in results:
-            if isinstance(res, Exception):
-                return {"status": "error", "detail": _safe_error(res)}
-            part_id, code, step_path = res
-            new_scripts[part_id] = code
-            step_files[part_id] = step_path
-
-    # For reused parts, we need their step files — re-export from existing scripts
-    for pid in parts_to_skip:
-        if pid in body.original_scripts:
-            # Write a temporary .step for the reused part
-            try:
-                import tempfile, pathlib
-                # part_id is client-supplied: keep the file name inside _WORK_DIR.
-                tmp_step = str(_WORK_DIR / f"{_sanitize_part_id(pid)}_{uuid.uuid4().hex[:8]}.step")
-                reuse_script = body.original_scripts[pid]
-                export_script = reuse_script.rstrip() + (
-                    f"\n\nimport cadquery as cq\n"
-                    f"if isinstance(result, cq.Assembly):\n"
-                    f"    result.save({tmp_step!r})\n"
-                    f"else:\n"
-                    f"    cq.exporters.export(result, {tmp_step!r})\n"
-                )
-                result_exec = await execute_cad_script(export_script)
-                if result_exec["status"] == "success":
-                    step_files[pid] = tmp_step
-            except Exception:
-                pass  # If re-export fails, assembler will report missing parts
-
     # Assemble
-    output_filename = str(_WORK_DIR / (uuid.uuid4().hex + ".glb"))
+    output_filename = _work_path(uuid.uuid4().hex + ".glb")
     try:
         asm_script = await run_assembly_critic_loop(updated_manifest, step_files)
         asm_script = asm_script.replace("output.glb", output_filename)
@@ -1434,8 +1737,8 @@ async def generate_analysis_plots(body: PlotsRequest, request: Request):
     """T2-16: Generate aerodynamic polar plots as base64 PNGs.
 
     Generates three server-side matplotlib charts:
-      - cl_alpha : Cl vs α with stall_alpha marker and Cl_max annotation
-      - cd_alpha : Cd vs α on a log-scale Y-axis
+      - cl_alpha : Cl vs Î± with stall_alpha marker and Cl_max annotation
+      - cd_alpha : Cd vs Î± on a log-scale Y-axis
       - cp_dist  : Cp distribution at *design_alpha* (upper/lower surfaces,
                    filled between).  Requires XFOIL; null on failure.
 
@@ -1607,7 +1910,7 @@ async def annotate_step_with_pmi(body: PMIRequest, request: Request):
         }
 
     # Attach PMI to STEP
-    output_path = str(_WORK_DIR / (uuid.uuid4().hex + "_pmi.step"))
+    output_path = _work_path(uuid.uuid4().hex + "_pmi.step")
     success, result_path = attach_pmi_to_step(str(step_resolved), [pmi], output_path)
 
     if not success:
