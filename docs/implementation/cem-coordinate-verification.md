@@ -1,5 +1,8 @@
 # Coordinate-family verification after A/C integration
 
+Follow-up: [bounded coordinate windows and clean combined regression](cem-coordinate-windows.md).
+The results below remain the historical `e1f540d` receipt.
+
 This continuation closes the three software verification gaps identified in
 [cem-a-c-integration.md](cem-a-c-integration.md). It does not qualify additional
 aircraft families or construction methods.
