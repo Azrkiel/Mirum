@@ -14,6 +14,12 @@ Raw task archives and checksum manifests are now committed under
 docs/testing/artifacts/cem-panel-distribution/. These are fresh task evidence,
 not recovered historical archives. Verify their checksums before reuse.
 
+Read docs/implementation/cem-remaining-section-work.md first. Complete its
+in-scope numerical and validation backlog; do not redefine unresolved work as
+out of scope. Whole-aircraft and construction qualification are separate future
+projects. Keep their gates closed. Environment publication/restoration is a
+separate outstanding onboarding follow-up.
+
 Read current records:
 - docs/implementation/cem-aircraft-dynamics-control.md
 - docs/testing/cem-aircraft-dynamics-control-results.json

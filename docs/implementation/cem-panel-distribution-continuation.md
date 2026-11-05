@@ -1,5 +1,10 @@
 # Explicit panel-distribution continuation
 
+The [remaining-work checklist and scope boundary](cem-remaining-section-work.md)
+is authoritative for this continuation: numerical section qualification remains
+in scope and incomplete; whole-aircraft and construction qualification are
+separate future projects whose admission gates stay closed.
+
 Raw evidence is now [published in GitHub with checksum manifests](../testing/artifacts/cem-panel-distribution/README.md).
 The local-retention statements below describe the original validation/delivery
 snapshot; the subsequent artifact delivery adds remote copies without changing
