@@ -2,8 +2,8 @@
 
 Generate one sharp, planar wedge body from explicit JSON using CadQuery. This
 trusted local CLI does not use the application, providers, generated Python,
-API keys, a browser, or shared artifacts. STEP imports as a solid; it does not
-preserve native CAD feature history.
+API keys, or shared artifacts. A separate local Streamlit form is described below.
+STEP imports as a solid; it does not preserve native CAD feature history.
 
 ## Run and edit
 
@@ -78,7 +78,7 @@ between bores and pocket. Dimensions outside that envelope are rejected.
 
 ## Saved files and checks
 
-Each accepted directory contains exactly:
+Each CLI accepted directory contains exactly:
 
 - `body.step`: the exported body that was reimported and measured.
 - `spec.json`: canonical resolved JSON, with every explicit field preserved.
@@ -160,6 +160,95 @@ The example dimensions demonstrate the prototype; they specify no verified
 cartridge fit or competition preset. Analytic wall/separation constraints apply
 only to this wedge and these cylinders; they do not certify whole-body thickness,
 manufacturing safety, cartridge/pressure standards, strength, compliance, or
-performance. There are no wheels, assemblies, fillets, extra styles, UI, GLB,
+performance. There are no wheels, assemblies, fillets, extra styles,
 API integration, or model calls. This is trusted local code, not a hostile-input
 execution service.
+
+
+## Local parameter form and STEP-derived preview
+
+From the repository root, use the native CAD environment above and install the
+additional local UI dependencies:
+
+```sh
+python -m pip install -r requirements-dragster-ui.txt
+python -m streamlit run backend/dragsters/app.py \
+  --server.address 127.0.0.1 --server.port 8517 \
+  --server.headless true --browser.gatherUsageStats false
+```
+
+Open `http://127.0.0.1:8517`. The form starts with the committed demonstration
+JSON. Edit any of the 13 dimensions, or expand **Load strict versioned JSON**
+and upload/paste a complete saved spec. Loading validates the entire contract
+before changing any controls. Invalid files leave both the editor and accepted
+result unchanged. Version/style/units remain fixed at `1`/`wedge`/`mm`.
+
+The parameter form uses reactive number inputs with an explicit **Generate
+accepted preview** button. Edits update draft validity and the draft/result
+comparison without building CAD. This deliberately avoids Streamlit's batched
+`st.form` behavior, which would hide unsubmitted edits from the comparison.
+**Save edited parameters JSON** saves a valid draft without generating geometry.
+**Download accepted parameters** always saves the parameters of the displayed
+result. The displayed result's complete JSON is also available in its own
+expander; it is never inferred from the editor's current values.
+
+Generate invokes the existing deterministic builder and `verify_step` in private
+staging. Only after verification passes does a fresh STEP import feed CadQuery's
+native assembly GLTF exporter, following the same STEP-to-assembly export
+approach used by `backend/verification/acceptance_worker.py`. No worker/API,
+provider, shared artifact store, or source execution service is invoked.
+The imported solid is explicitly scaled from mm to metres before export because
+CadQuery 2.6.1's exporter retains numeric CAD coordinates. Meshing uses 0.05 mm
+linear and 0.1 rad angular tolerances. No synthetic rendering fallback is used.
+
+The saved GLB is decoded with trimesh and shown as an interactive Plotly triangle
+mesh (orbit/zoom), converted back to CAD mm/Z-up for the axis labels. Plotly ships
+with Streamlit's local frontend; the viewer loads no CDN scripts. The preview is
+a tessellated visualization, not a second source of geometric verification.
+
+Each UI success publishes a fresh `dragster-<uuid>` directory under
+`output/dragster-previews/` containing `body.step`, `spec.json`, `report.json`,
+and `preview.glb`. Set `MIRUM_DRAGSTER_OUTPUT_ROOT` to choose another local root.
+The report retains the STEP checks and adds preview source/GLB SHA-256 digests,
+units, and tessellation tolerances. Downloads expose all four saved files.
+The CLI and its exact three-file output contract are unchanged.
+
+Bad parameters, STEP verification failures, preview failures, and storage failures
+leave the last accepted path and its bytes unchanged. Each failed attempt cleans
+only its own staging directory. Edited parameters remain visible, with errors and
+an explicit message when they differ from the displayed result. Successful runs
+are never overwritten. Session state lasts for the current Streamlit session;
+restarting/reloading the session resets the editor/result selection, while files
+remain on disk. There is no shared catalog or session persistence service.
+
+### Verification of the local interaction layer — 2026-11-05
+
+Started at exact baseline `6df245513fdd226b961352c981fb6c7c424f26b3`, fetched from
+`origin/feat/co2-dragster-wedge`, in isolated worktree
+`/workspace/Mirum-local-preview`, branch `feat/co2-dragster-local-preview`.
+No applicable `AGENTS.md` was found. Native execution used Python 3.12.14,
+CadQuery 2.6.1, CadQuery-OCP package 7.8.1.1.post1, Pydantic 2.9.2, pytest 8.3.3,
+Streamlit 1.39.0, trimesh 4.4.3, and Plotly 5.24.1. This reused the installed native
+kernel dependencies; it was not a full lockfile installation or Docker build.
+
+```sh
+python -m pytest -q backend/tests/test_dragster_spec.py \
+  backend/tests/test_dragster_geometry.py backend/tests/test_dragster_cli.py \
+  backend/tests/test_dragster_local.py backend/tests/test_dragster_ui.py
+```
+
+Result: **178 passed, zero skipped** (164 existing native cases plus 14 new native
+and Streamlit AppTest cases). Tests cover real STEP-to-GLB geometry and units,
+preview provenance, JSON reload/regeneration, changed dimensions, failure cleanup,
+accepted file/state preservation, strict atomic JSON loading, UI generation,
+invalid edits, and recovery. A different STEP box verifies that preview export
+reads the file rather than rebuilding the wedge.
+
+A real Chromium/Playwright session at `http://127.0.0.1:8517` generated the example,
+displayed the WebGL mesh, downloaded accepted JSON, and changed only
+`pocket_center_z_mm` to 40.0. Generation showed the pocket-height error while the
+accepted mesh and downloads remained visible. SHA-256 snapshots of every accepted
+file before/after were identical; no browser JavaScript errors occurred.
+Local screenshots and machine-readable evidence are under `work/ui-evidence/`;
+the exercise script is `work/exercise_ui.py` and the combined test log is
+`work/all-tests.log`. These generated files are not committed.
