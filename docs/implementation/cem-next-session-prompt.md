@@ -10,6 +10,10 @@ Continue Azrkiel/Mirum on cem-integration-verification.
 Read repository instructions and the cloud runtime skill first.
 If present, source /workspace/mirum-env.sh in every shell.
 
+Raw task archives and checksum manifests are now committed under
+docs/testing/artifacts/cem-panel-distribution/. These are fresh task evidence,
+not recovered historical archives. Verify their checksums before reuse.
+
 Read current records:
 - docs/implementation/cem-aircraft-physics.md
 - docs/testing/cem-aircraft-physics-results.json

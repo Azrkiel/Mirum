@@ -1,5 +1,10 @@
 # Explicit panel-distribution continuation
 
+Raw evidence is now [published in GitHub with checksum manifests](../testing/artifacts/cem-panel-distribution/README.md).
+The local-retention statements below describe the original validation/delivery
+snapshot; the subsequent artifact delivery adds remote copies without changing
+the evidence bytes or qualification outcomes.
+
 Continues `50279906d857bfbb6a362ab78e984cd5e9f581a6` on
 `cem-integration-verification`, in the existing isolated checkout. No worktree
 was created. All whole-aircraft, physical-construction, production-admission and

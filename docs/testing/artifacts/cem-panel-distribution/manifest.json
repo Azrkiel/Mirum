@@ -1,0 +1,19 @@
+{
+  "source_commit": "7121188c32b5b3b776bd616edb414c2ea482b9b7",
+  "artifacts": [
+    {
+      "file": "mirum-panel-distribution-evidence.tar.gz",
+      "sha256": "ecb07fafa8dd417c6dfee75cd8fb9911e2404dcde9b0e808a008fbf2b115d001",
+      "bytes": 67288405,
+      "source_receipt_field": "pre_integration_raw_evidence",
+      "verified_member_files": 3073
+    },
+    {
+      "file": "mirum-panel-distribution-integrated-evidence.tar.gz",
+      "sha256": "3daf521593dcb49f889dfb97bcecec9cce8ffb744ec0d1d1d69d9ffdbdfbcf99",
+      "bytes": 67444451,
+      "source_receipt_field": "raw_evidence",
+      "verified_member_files": 3109
+    }
+  ]
+}
