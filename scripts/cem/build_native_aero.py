@@ -31,6 +31,9 @@ def main():
     parser.add_argument('--fortran-link-flags',default='')
     parser.add_argument('--x11-include',default='/usr/include')
     parser.add_argument('--x11-library',default='-lX11')
+    # Alternative package-pool mirror for networks that block deb.debian.org.
+    # The pinned SHA-256 of every downloaded archive is still enforced.
+    parser.add_argument('--source-mirror',default='https://deb.debian.org/debian/pool/main/x/xfoil/')
     args=parser.parse_args();root=args.directory.resolve();root.mkdir(parents=True,exist_ok=True)
     if (root/'Xfoil').exists() or (root/'avl').exists():
         raise SystemExit('Choose an empty build directory; existing native sources are preserved.')
@@ -40,7 +43,7 @@ def main():
             subprocess.run(argv,cwd=cwd,stdout=log,stderr=subprocess.STDOUT,check=True)
         for name,expected in SOURCES.items():
             target=root/name
-            run(['curl','--fail','--location','https://deb.debian.org/debian/pool/main/x/xfoil/'+name,'-o',str(target)])
+            run(['curl','--fail','--location',args.source_mirror.rstrip('/')+'/'+name,'-o',str(target)])
             if sha(target)!=expected: raise ValueError('Native source archive hash mismatch')
             with tarfile.open(target) as archive: archive.extractall(root,filter='data')
         for name in (root/'debian/patches/series').read_text().splitlines():
@@ -63,7 +66,7 @@ def main():
         run([args.cmake,'-S',str(root/'avl'),'-B',str(root/'avl-build'),*options])
         run([args.cmake,'--build',str(root/'avl-build'),'-j2'])
     binaries=dict(xfoil=root/'Xfoil/bin/xfoil',avl=root/'avl-build/src/avl')
-    manifest=dict(source_archives=SOURCES,avl_revision=AVL_REVISION,xfoil_flags=FLAGS,
+    manifest=dict(source_archives=SOURCES,source_mirror=args.source_mirror,avl_revision=AVL_REVISION,xfoil_flags=FLAGS,
         headless_patch_sha256=sha(patch),compiler=args.fc,compiler_version=subprocess.check_output([args.fc,'--version'],text=True),
         fortran_link_flags=args.fortran_link_flags,x11_include=args.x11_include,x11_library=args.x11_library,
         binaries={k:dict(path=str(p),sha256=sha(p)) for k,p in binaries.items()})

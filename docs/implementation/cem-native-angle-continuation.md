@@ -1,5 +1,7 @@
 # Native-angle coverage continuation
 
+Superseded as the latest continuation by [aircraft physics](cem-aircraft-physics.md).
+
 Continues `127c8cfaa6cab5208e5eb167471154fdcb31b0fc` on
 `cem-integration-verification`, using the existing isolated checkout. No worktree
 was created. Production admission/search/comparison/archive/worker/API/UI gates

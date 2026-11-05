@@ -1,5 +1,10 @@
 # Task C implementation and qualification handoff
 
+Latest aircraft-physics continuation: [force/moment ledger, full-inertia mass
+properties, bounded trim, dynamics and missing-input interfaces](cem-aircraft-physics.md),
+with its [continuation prompt](cem-aircraft-physics-continuation.md). Machinery
+is analytically validated; no actual aircraft is trimmed or qualified.
+
 Latest shared integration: [A into C aerodynamic integration](cem-a-c-integration.md)
 merges A's `aae2b7e` and `26cd528` after C's `f921387` continuation. See that
 record for merged-runtime validation and the coordinate-family work still open.

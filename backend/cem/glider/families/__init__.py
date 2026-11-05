@@ -22,6 +22,9 @@ def capabilities():
         native_development_workflow='search_compare_export_with_reconstruction',
         native_control_response='fixed_operating_point_central_difference',
         qualified_control_authority=False,
+        aircraft_physics='force_moment_ledger_full_inertia_trim_dynamics_machinery',
+        aircraft_equilibrium='unsupported_missing_body_junction_hardware_contributions',
+        mass_properties='calculated_screening_full_tensor_not_measured',
         independent_numerical_performance=False, physical_construction=False,
         missing=['A: family-scoped native qualification and reflex/control support',
                  'B: family-scoped construction and load-path qualification'])
