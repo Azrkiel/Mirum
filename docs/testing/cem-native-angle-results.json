@@ -1213,5 +1213,6 @@
   "publication": "unperformed",
   "fresh_task_restoration": "unperformed",
   "provider_generation": "unperformed",
-  "interactive_browser": "unperformed"
+  "interactive_browser": "unperformed",
+  "follow_up_receipt": "docs/testing/cem-panel-distribution-results.json"
 }

@@ -20,7 +20,9 @@ def main():
     parser.add_argument('--angles', type=float, nargs='+', default=[-4., -2., 0., 2., 4., 6., 8.])
     parser.add_argument('--replay', action='store_true')
     parser.add_argument('--vaccel', type=float, default=None, help='Explicit XFOIL acceleration, 0 through .01; omitted retains native default')
+    parser.add_argument('--panel-distribution', type=Path, help='JSON object of explicit PPAR settings')
     args = parser.parse_args()
+    settings = json.loads(args.panel_distribution.read_text()) if args.panel_distribution else None
     installed = freeze(json.loads(args.archive.read_text()), json.loads(args.controls.read_text()))
     plane = validate(installed)
     foils = {digest(coordinates_payload(s.airfoil.coordinates)): coordinates_payload(s.airfoil.coordinates)
@@ -34,11 +36,11 @@ def main():
         if args.replay:
             result = json.loads((root/key/'coordinate-audit.json').read_text())
             if result['inputs'] != dict(coordinates=points, reynolds=args.reynolds,
-                                       angles=args.angles, transition=None, vaccel=args.vaccel):
+                                       angles=args.angles, transition=None, vaccel=args.vaccel, panel_distribution=settings):
                 raise ValueError('Installed coordinate audit inputs changed')
             replay_audit(result, root/key)
         else:
-            result = audit(points, args.reynolds, args.angles, root/key, vaccel=args.vaccel)
+            result = audit(points, args.reynolds, args.angles, root/key, vaccel=args.vaccel, panel_distribution=settings)
         results[key] = result
     receipt = dict(installed_sha256=installed['installed_sha256'], foils=results,
                    production_admission=False, verified_gain=False)

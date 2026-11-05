@@ -38,8 +38,31 @@ def check_vaccel(vaccel):
         raise ValueError('Unsupported XFOIL VACCEL (expected 0 through .01 or None)')
 
 
-def query(coordinates, reynolds, angles, directory, *, transition=None, panels=160, sequence="ascending", vaccel=None):
+def check_panel_distribution(settings):
+    """Explicit PPAR subset; None preserves XFOIL's native distribution.
+
+    R is the refined-area/leading-edge density ratio. XT/XB delimit the
+    refined region on each surface. Restrict this development interface to
+    ratios from .01 through 10 and nonempty normalized chord intervals.
+    """
+    if settings is None:
+        return
+    if (type(settings) is not dict or not settings or
+            set(settings) - {'refined_density_ratio', 'top_refined_x', 'bottom_refined_x'}):
+        raise ValueError('Invalid panel distribution settings')
+    for key, value in settings.items():
+        if key == 'refined_density_ratio':
+            if type(value) not in (int, float) or not math.isfinite(value) or not .01 <= value <= 10:
+                raise ValueError('Invalid panel distribution density ratio')
+        elif (type(value) is not list or len(value) != 2 or
+              any(type(v) not in (int, float) or not math.isfinite(v) for v in value) or
+              not 0 <= value[0] < value[1] <= 1):
+            raise ValueError('Invalid panel distribution chord interval')
+
+
+def query(coordinates, reynolds, angles, directory, *, transition=None, panels=160, sequence="ascending", vaccel=None, panel_distribution=None):
     check_vaccel(vaccel)
+    check_panel_distribution(panel_distribution)
     if sequence not in SEQUENCES:
         raise ValueError('Unknown coordinate initialization sequence')
     points = coordinates_payload(coordinates)
@@ -63,6 +86,14 @@ def query(coordinates, reynolds, angles, directory, *, transition=None, panels=1
         'PANE', 'OPER', f'VISC {reynolds:.12g}', 'MACH 0', 'VPAR',
         f'N {t.n_crit:.12g}', f'XTR {t.top_xtr:.12g} {t.bottom_xtr:.12g}', '',
         'ITER 150', 'ALFA 0', 'PACC', 'polar.out', '']
+    if panel_distribution is not None:
+        panel_commands = []
+        for key, command in [('refined_density_ratio', 'R'), ('top_refined_x', 'XT'), ('bottom_refined_x', 'XB')]:
+            if key in panel_distribution:
+                value = panel_distribution[key]
+                values = value if isinstance(value, list) else [value]
+                panel_commands.append(command + ' ' + ' '.join(f'{v:.17g}' for v in values))
+        commands[commands.index(f'N {panels}')+1:commands.index(f'N {panels}')+1] = panel_commands
     if vaccel is not None:
         # Set before the first ALFA, inside VPAR, then leave VPAR normally.
         commands[commands.index('ITER 150'):commands.index('ITER 150')] = [
@@ -82,7 +113,7 @@ def query(coordinates, reynolds, angles, directory, *, transition=None, panels=1
         evidence = dict(scope='interrupted_coordinate_query', inputs=dict(
             coordinates=points, reynolds=reynolds, angles=list(angles),
             transition=t.model_dump(mode='json'), panels=panels, sequence=sequence,
-            vaccel=vaccel), native=exc.evidence, reason=str(exc),
+            vaccel=vaccel, panel_distribution=panel_distribution), native=exc.evidence, reason=str(exc),
             timeout_s=native_runner.TIMEOUT_S,
             implementation_sha256=digest({name: Path(inspect.getfile(module)).read_text()
                 for name, module in [('query', inspect.getmodule(query)), ('native', native_runner)]}),
@@ -104,7 +135,9 @@ def query(coordinates, reynolds, angles, directory, *, transition=None, panels=1
     missing = [float(a) for a in angles if not any(abs(row['alpha_deg']-a) <= .001 for row in rows)]
     return dict(scope='exact_coordinate_section_polar_development', coordinates=points,
         coordinates_sha256=digest(points), reynolds=float(reynolds),
-        sequence=sequence, vaccel=vaccel, reported_controls=observed, requested_angles_deg=list(angles), transition=t.model_dump(mode='json'), panels=panels,
+        implementation_sha256=digest({name: Path(inspect.getfile(module)).read_text()
+            for name, module in [('query', inspect.getmodule(query)), ('native', native_runner)]}),
+        sequence=sequence, vaccel=vaccel, panel_distribution=panel_distribution, reported_controls=observed, requested_angles_deg=list(angles), transition=t.model_dump(mode='json'), panels=panels,
         state='incomplete' if missing else 'complete', missing_angles_deg=missing,
         rows=rows, native=native, qualified_aircraft_stall=False)
 
@@ -130,7 +163,7 @@ def validate(report, directory):
             raise ValueError('Coordinate polar artifact differs from retained identity')
     with tempfile.TemporaryDirectory(prefix='mirum-coordinate-polar-') as tmp:
         expected = query(report['coordinates'], report['reynolds'], report['requested_angles_deg'], tmp,
-            transition=report['transition'], panels=report['panels'], sequence=report['sequence'], vaccel=report['vaccel'])
+            transition=report['transition'], panels=report['panels'], sequence=report['sequence'], vaccel=report['vaccel'], panel_distribution=report['panel_distribution'])
     # Bind declared numerical controls to the retained deterministic commands,
     # even when two settings happen to yield identical rounded polar rows.
     for name in ('polar.in', 'foil.dat'):
@@ -183,6 +216,7 @@ class CoordinateBank:
         self.groups = {}
         for r in reports:
             check_vaccel(r.get('vaccel'))
+            check_panel_distribution(r.get('panel_distribution'))
             if (r['state'] != 'complete' or r['missing_angles_deg'] or
                     digest(coordinates_payload(r['coordinates'])) != r['coordinates_sha256']):
                 raise ValueError('Incomplete or altered coordinate polar')
@@ -203,8 +237,8 @@ class CoordinateBank:
             group.sort(key=lambda r:r['reynolds'])
             if len(group) < 2 or len({r['reynolds'] for r in group}) != len(group):
                 raise ValueError('Missing or duplicate coordinate Reynolds coverage')
-            if any((r['requested_angles_deg'],r['transition'],r['panels'],r.get('vaccel')) !=
-                   (group[0]['requested_angles_deg'],group[0]['transition'],group[0]['panels'],group[0].get('vaccel')) for r in group):
+            if any((r['requested_angles_deg'],r['transition'],r['panels'],r.get('vaccel'),r.get('panel_distribution')) !=
+                   (group[0]['requested_angles_deg'],group[0]['transition'],group[0]['panels'],group[0].get('vaccel'),group[0].get('panel_distribution')) for r in group):
                 raise ValueError('Inconsistent coordinate polar grid')
             if any([row['alpha_deg'] for row in r['rows']] !=
                    [row['alpha_deg'] for row in group[0]['rows']] for r in group):

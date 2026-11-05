@@ -8,13 +8,15 @@ import aerosandbox as asb
 
 
 @pytest.mark.parametrize('failure', [None, 'missing', 'initialization', 'panels', 'midpoint', 'mixed'])
+@pytest.mark.parametrize('settings', [None, dict(refined_density_ratio=1., top_refined_x=[.4, .77])])
 @pytest.mark.parametrize('vaccel', [None, 0.])
-def test_audit_checks_actual_coordinate_state_and_retains_failure(tmp_path, monkeypatch, failure, vaccel):
+def test_audit_checks_actual_coordinate_state_and_retains_failure(tmp_path, monkeypatch, failure, vaccel, settings):
     calls = []
     points = coordinates_payload(asb.Airfoil('naca0012').coordinates)
 
-    def query(coords, re, angles, folder, *, transition, panels, sequence, vaccel):
+    def query(coords, re, angles, folder, *, transition, panels, sequence, vaccel, panel_distribution):
         assert coords == points
+        assert panel_distribution == settings
         calls.append((re, list(angles), panels, sequence))
         folder.mkdir(parents=True)
         rows = [dict(alpha_deg=a, cl=.1*a, cd=.01, cm=0.) for a in angles]
@@ -27,13 +29,13 @@ def test_audit_checks_actual_coordinate_state_and_retains_failure(tmp_path, monk
         missing = [angles[1]] if failure == 'missing' or (failure == 'mixed' and sequence == 'reset_each') else []
         rows = [row for row in rows if row['alpha_deg'] not in missing]
         return dict(coordinates=coords, reynolds=re, requested_angles_deg=list(angles),
-                    panels=panels, sequence=sequence, vaccel=vaccel, transition=audit.polars.Transition().model_dump(),
+                    panels=panels, sequence=sequence, vaccel=vaccel, panel_distribution=panel_distribution, transition=audit.polars.Transition().model_dump(),
                     state='incomplete' if missing else 'complete', missing_angles_deg=missing,
                     coordinates_sha256=audit.digest(coords), rows=rows)
 
     monkeypatch.setattr(audit.polars, 'query', query)
     monkeypatch.setattr(audit.polars, 'validate', lambda *args: False)
-    result = audit.audit(points, [100000., 200000.], [-2., 0., 2.], tmp_path, vaccel=vaccel)
+    result = audit.audit(points, [100000., 200000.], [-2., 0., 2.], tmp_path, vaccel=vaccel, panel_distribution=settings)
     assert result['inputs']['vaccel'] == vaccel
     assert result['state'] == ('passed' if failure is None else 'failed')
     assert result['production_admission'] is False
@@ -72,9 +74,11 @@ def test_audit_checks_actual_coordinate_state_and_retains_failure(tmp_path, monk
             audit.validate(bad, tmp_path)
 
 
-def test_native_coordinate_audit_replays_without_promoting_qualification(tmp_path):
+@pytest.mark.parametrize('settings', [None, dict(refined_density_ratio=1., top_refined_x=[.4, .77])])
+def test_native_coordinate_audit_replays_without_promoting_qualification(tmp_path, settings):
     points = asb.Airfoil('naca0012').coordinates
-    report = audit.audit(points, [900000., 1000000.], [-1., 0., 1.], tmp_path)
+    angles = [-1., 0., 1.] if settings is None else [2., 3., 4.]
+    report = audit.audit(points, [900000., 1000000.], angles, tmp_path, panel_distribution=settings)
     assert len(report['queries']) == 11
     assert report['state'] == 'passed', report.get('failure')
     assert report['interpolation_queries_checked'] == 1
@@ -85,7 +89,7 @@ def test_native_coordinate_audit_replays_without_promoting_qualification(tmp_pat
         audit.validate(bad, tmp_path)
 
 
-@pytest.mark.parametrize('tamper', ['none', 'inputs', 'artifact', 'missing', 'binary', 'promoted', 'forged', 'success'])
+@pytest.mark.parametrize('tamper', ['none', 'inputs', 'panels', 'artifact', 'missing', 'binary', 'promoted', 'forged', 'success'])
 def test_interrupted_audit_reconstructs_and_rejects_forgery(tmp_path, monkeypatch, tamper):
     from cem.aero.native import NativeFailure, artifact
     from cem.core import canonical_json
@@ -112,6 +116,8 @@ def test_interrupted_audit_reconstructs_and_rejects_forgery(tmp_path, monkeypatc
         return
     if tamper == 'inputs':
         failure['inputs']['vaccel'] = 0.
+    elif tamper == 'panels':
+        failure['inputs']['panel_distribution'] = {'refined_density_ratio': 1.}
     elif tamper == 'artifact':
         (failure_path.parent/'polar.log').write_text('altered')
     elif tamper == 'missing':

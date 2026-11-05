@@ -134,6 +134,7 @@ def test_native_reflex_and_deflected_coordinates_are_not_replaced_by_naca(tmp_pa
 def test_native_missing_rows_are_explicit_and_unusable(tmp_path, monkeypatch):
     from cem.glider.families import coordinate_polars as p
     def fake_native(name,commands,folder,stem,outputs):
+        assert 'PPAR\nN 160\n\n\nPANE\n' in commands
         (folder/'polar.out').write_text('Calculated polar for: mirum_exact_coordinates\n Mach = 0.000 Re = 0.100 e 6 Ncrit = 9.000 9.000\n xtrf = 1.000 (top) 1.000 (bottom)\n -------\n -2.0 -.2 .01 .0 .0\n 2.0 .2 .01 .0 .0\n')
         return dict(artifacts=[])
     monkeypatch.setattr(p,'run',fake_native)
@@ -188,3 +189,52 @@ def test_coordinate_domain_drives_damped_solver_and_failure_diagnostics():
         return [x[0]-3.]
     with pytest.raises(NumericalConvergenceError, match='covered'):
         bounded_newton(no_covered_root, [0.])
+
+
+@pytest.mark.parametrize('settings', [{}, True, {'unknown': 1}, {'refined_density_ratio': True},
+    {'refined_density_ratio': 0}, {'refined_density_ratio': 10.01},
+    {'refined_density_ratio': float('nan')}, {'top_refined_x': [0.8, 0.4]},
+    {'top_refined_x': [0, float('inf')]}, {'bottom_refined_x': [-.1, .8]},
+    {'bottom_refined_x': [False, 1]}, {'top_refined_x': '0.4 0.77\nQUIT'}])
+def test_panel_settings_rejected_before_artifacts(tmp_path, settings):
+    with pytest.raises(ValueError, match='panel distribution'):
+        query(asb.Airfoil('naca0012').coordinates, 60000., [-1., 0., 1.],
+              tmp_path/'invalid', panel_distribution=settings)
+    assert not (tmp_path/'invalid').exists()
+
+
+def test_bank_rejects_mixed_panel_distribution():
+    reports = fixture_reports()
+    reports[0]['panel_distribution'] = {'refined_density_ratio': 1.}
+    with pytest.raises(ValueError, match='Inconsistent'):
+        CoordinateBank(reports)
+
+
+def test_native_panel_settings_bound_to_commands_and_reconstruction(tmp_path):
+    from cem.glider.families import coordinate_polars as p
+    settings = dict(refined_density_ratio=1., top_refined_x=[.4, .77], bottom_refined_x=[.3, .8])
+    report = query(asb.Airfoil('naca0012').coordinates, 1000000., [2., 3., 4.],
+                   tmp_path/'explicit', panel_distribution=settings)
+    assert report['state'] == 'complete'
+    script = (tmp_path/'explicit/polar.in').read_text()
+    assert script.index('R 1\n') < script.index('PANE\n')
+    assert 'XT 0.40000000000000002 0.77000000000000002\n' in script
+    assert 'XB ' in script
+    assert validate(report, tmp_path/'explicit') is False
+    bad = deepcopy(report)
+    bad['panel_distribution']['top_refined_x'] = [.41, .77]
+    with pytest.raises(ValueError, match='reconstruction'):
+        validate(bad, tmp_path/'explicit')
+    bad = deepcopy(report)
+    bad['implementation_sha256'] = 'forged-source'
+    with pytest.raises(ValueError, match='reconstruction'):
+        validate(bad, tmp_path/'explicit')
+    # Rehashing a forged command artifact cannot pass native reconstruction.
+    from cem.aero.native import artifact
+    path = tmp_path/'explicit/polar.in'
+    path.write_text(script.replace('R 1\n', 'R 0.5\n'))
+    bad = deepcopy(report)
+    bad['native']['artifacts'] = [artifact(path, path.parent) if a['file']=='polar.in' else a
+                                for a in bad['native']['artifacts']]
+    with pytest.raises(ValueError, match='reconstruction'):
+        validate(bad, tmp_path/'explicit')
