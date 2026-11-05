@@ -1,0 +1,588 @@
+{
+ "actual_family_native": {
+  "archive": "/home/user/mirum-evidence/family-physics.tar.gz",
+  "archive_sha256": "bd9f4082d74ae0ce052370e54adb35932f55a1efd4e73c6a0f3ce3281e65d1bb",
+  "audits": {
+   "deflected": {
+    "evidence_sha256": "08aa15c3ccf5898542deb9db55a762e058f25160ed7cbc153e1ef5eeaef40fd3",
+    "failure": null,
+    "interpolation_worst": {
+     "cd": {
+      "absolute_error": 0.000295359999999998,
+      "alpha_deg": 3.812,
+      "directory": "midpoint_0",
+      "observed": 0.02066,
+      "predicted": 0.02095536,
+      "reynolds": 52383.20341483518
+     },
+     "cl": {
+      "absolute_error": 0.014278266666666595,
+      "alpha_deg": 2.688,
+      "directory": "midpoint_1",
+      "observed": 0.3695,
+      "predicted": 0.3552217333333334,
+      "reynolds": 59866.51818838306
+     },
+     "cm": {
+      "absolute_error": 0.002616533333333327,
+      "alpha_deg": 2.688,
+      "directory": "midpoint_1",
+      "observed": -0.0315,
+      "predicted": -0.028883466666666673,
+      "reynolds": 59866.51818838306
+     }
+    },
+    "query_count": 17,
+    "replay": "matched",
+    "state": "passed"
+   },
+   "neutral": {
+    "evidence_sha256": "9a9a3cb8b97f86d6073d9d12a1999ea1ba33966b9459577d469e4fbfcf7e6279",
+    "failure": null,
+    "interpolation_worst": {
+     "cd": {
+      "absolute_error": 0.0007025000000000017,
+      "alpha_deg": 3.75,
+      "directory": "midpoint_0",
+      "observed": 0.01953,
+      "predicted": 0.0202325,
+      "reynolds": 60216.27686929839
+     },
+     "cl": {
+      "absolute_error": 0.013899999999999968,
+      "alpha_deg": 3.0,
+      "directory": "midpoint_0",
+      "observed": 0.3615,
+      "predicted": 0.3476,
+      "reynolds": 60216.27686929839
+     },
+     "cm": {
+      "absolute_error": 0.0015000000000000013,
+      "alpha_deg": 3.0,
+      "directory": "midpoint_0",
+      "observed": -0.0233,
+      "predicted": -0.0218,
+      "reynolds": 60216.27686929839
+     }
+    },
+    "query_count": 11,
+    "replay": "matched",
+    "state": "passed"
+   }
+  },
+  "bank": "passed_and_replayed (deflected 3-Re x 0.375-deg grid; neutral 2-Re grid), declared before native work",
+  "controls": {
+   "elevon_pitch": 3.0,
+   "elevon_roll": 0.0
+  },
+  "directory": "/home/user/mirum-evidence/family-physics",
+  "dynamics": "not_attempted",
+  "family": "tailless_swept",
+  "ledger_state": "unsupported",
+  "lifting_contribution": {
+   "evidence": "numerical_model",
+   "force_n": [
+    -0.019389691006512864,
+    -1.734723475976807e-18,
+    1.9007158464897835
+   ],
+   "moment_nm": [
+    -1.734723475976807e-17,
+    -0.04337569375140648,
+    -1.1926223897340549e-18
+   ],
+   "reference_point_m": [
+    0.2823746180691183,
+    0.0,
+    0.006406483141174639
+   ]
+  },
+  "mass_properties": {
+   "cg_m": [
+    0.2823746180691183,
+    0.0,
+    0.006406483141174639
+   ],
+   "inertia_cg_kg_m2": [
+    [
+     0.006713655682348002,
+     0.0,
+     -7.82211740215658e-05
+    ],
+    [
+     0.0,
+     0.0009193429341055316,
+     0.0
+    ],
+    [
+     -7.82211740215658e-05,
+     0.0,
+     0.007607882096035288
+    ]
+   ],
+   "mass_kg": 0.14245559321989032,
+   "mass_properties_sha256": "e9a59183e1dfe81088263286c4f4324c11ae447dd47e1b36a5591c494d87459c",
+   "omitted_self_inertia": [
+    "body",
+    "equipment"
+   ],
+   "principal_kg_m2": [
+    0.0009193429341055317,
+    0.006706864965657909,
+    0.00761467281272538
+   ],
+   "products_of_inertia_kg_m2": {
+    "Jxy": -0.0,
+    "Jxz": 7.82211740215658e-05,
+    "Jyz": -0.0
+   },
+   "state": "calculated_screening"
+  },
+  "matches_previous_receipt": "interpolation worst errors and lifting-only force/moment identical to cem-native-angle-results.json",
+  "retention": "local_container_only",
+  "trim": "not_attempted_incomplete_ledger",
+  "unsupported": [
+   {
+    "kind": "aerodynamic_body",
+    "name": "body",
+    "reason": "Missing revision-bound installed body OML (mirum-aero-1 stations)"
+   },
+   {
+    "kind": "aerodynamic_junction",
+    "name": "junction:main_wing",
+    "reason": "Missing junction evidence: JunctionEvidence table bound to this geometry revision"
+   },
+   {
+    "kind": "control_hardware",
+    "name": "control_hardware_drag",
+    "reason": "Control hardware undeclared"
+   }
+  ]
+ },
+ "aircraft_cases_qualified": [],
+ "aircraft_equilibrium": "unsupported_missing_body_junction_hardware_contributions",
+ "analytic_validation": {
+  "analytic_trim": {
+   "closed_form_alpha_deg": 3.580986219567645,
+   "flight_path_angle_deg": -3.6207383778854965,
+   "max_residual": 1.7717684054584141e-12,
+   "solution": {
+    "alpha_deg": 3.580986219566997,
+    "pitch_deg": -0.03975215831849965,
+    "speed_m_s": 6.593936287822728
+   },
+   "state": "trimmed"
+  },
+  "canard_complete_fixture_ledger": {
+   "evidence": [
+    "development_fixture",
+    "numerical_model"
+   ],
+   "ledger": "complete",
+   "qualified_aircraft": false,
+   "state": "trim_no_equilibrium_established",
+   "trim": {
+    "diagnosis": "grid_not_fully_covered",
+    "grid_uncovered": 15,
+    "solver_failure": "No improving covered root step; no equilibrium established",
+    "state": "no_equilibrium_established",
+    "trace": {
+     "evaluations": 139,
+     "rejected_states": 0
+    }
+   }
+  },
+  "dynamics_reference": {
+   "Jxz_kg_m2": -0.001797775962395037,
+   "max_abs_A_minus_textbook": 4.695038427371401e-06,
+   "modes": {
+    "dutch_roll": {
+     "imag_rad_s": 6.224027994609588,
+     "real_per_s": -2.260139113111473
+    },
+    "phugoid": {
+     "imag_rad_s": 0.7756851398835538,
+     "real_per_s": -0.10364584696476625
+    },
+    "roll": {
+     "imag_rad_s": 0.0,
+     "real_per_s": -23.03812234347428
+    },
+    "short_period": {
+     "imag_rad_s": 7.17502541771642,
+     "real_per_s": -29.801801710052793
+    },
+    "spiral": {
+     "imag_rad_s": 0.0,
+     "real_per_s": -0.059480753494884187
+    }
+   },
+   "stability": "all_modes_stable",
+   "state": "computed",
+   "step_convergence_excess": -1e-07
+  },
+  "dynamics_unstable_reference": [
+   "longitudinal_real"
+  ],
+  "family_mass_and_ledger_without_bank": {
+   "canard": {
+    "aircraft_revision": "9a4fb99eff8877be0edbe87f27cf95dcb792125c30651c503d6d02efafea9d12",
+    "cg_m": [
+     0.37365927983243263,
+     0.0,
+     0.009964964041849865
+    ],
+    "inertia_cg_kg_m2": [
+     [
+      0.006959973276073206,
+      0.0,
+      0.00010344304117730308
+     ],
+     [
+      0.0,
+      0.0020158908271050943,
+      0.0
+     ],
+     [
+      0.00010344304117730308,
+      0.0,
+      0.008910604634069988
+     ]
+    ],
+    "ledger_state": "unsupported",
+    "mass_kg": 0.15665004622441087,
+    "products_of_inertia_kg_m2": {
+     "Jxy": -0.0,
+     "Jxz": -0.00010344304117730308,
+     "Jyz": -0.0
+    },
+    "state": "calculated_screening",
+    "unsupported": [
+     "lifting_surfaces",
+     "body",
+     "junction:foreplane",
+     "junction:main_wing",
+     "control_hardware_drag"
+    ]
+   },
+   "tailless_swept": {
+    "aircraft_revision": "3b24b59d67836916067bf35bf8d4b02854e2d7dc452725b3d6615024c667ef8f",
+    "cg_m": [
+     0.2823746180691183,
+     0.0,
+     0.006406483141174639
+    ],
+    "inertia_cg_kg_m2": [
+     [
+      0.006713655682348002,
+      0.0,
+      -7.82211740215658e-05
+     ],
+     [
+      0.0,
+      0.0009193429341055316,
+      0.0
+     ],
+     [
+      -7.82211740215658e-05,
+      0.0,
+      0.007607882096035288
+     ]
+    ],
+    "ledger_state": "unsupported",
+    "mass_kg": 0.14245559321989032,
+    "products_of_inertia_kg_m2": {
+     "Jxy": -0.0,
+     "Jxz": 7.82211740215658e-05,
+     "Jyz": -0.0
+    },
+    "state": "calculated_screening",
+    "unsupported": [
+     "lifting_surfaces",
+     "body",
+     "junction:main_wing",
+     "control_hardware_drag"
+    ]
+   },
+   "tandem": {
+    "aircraft_revision": "57d38f45cbc22ad1d81ef040c4d89ceefe6aab1886f6ee07a91102e2cac44fe0",
+    "cg_m": [
+     0.30760490874510865,
+     0.0,
+     0.02278889092808923
+    ],
+    "inertia_cg_kg_m2": [
+     [
+      0.005967165587508393,
+      0.0,
+      -0.0005316711041650825
+     ],
+     [
+      0.0,
+      0.003497021298691757,
+      0.0
+     ],
+     [
+      -0.0005316711041650825,
+      0.0,
+      0.009135697986473403
+     ]
+    ],
+    "ledger_state": "unsupported",
+    "mass_kg": 0.1652981481475354,
+    "products_of_inertia_kg_m2": {
+     "Jxy": -0.0,
+     "Jxz": 0.0005316711041650825,
+     "Jyz": -0.0
+    },
+    "state": "calculated_screening",
+    "unsupported": [
+     "lifting_surfaces",
+     "body",
+     "junction:front_wing",
+     "junction:rear_wing",
+     "control_hardware_drag"
+    ]
+   }
+  },
+  "trim_rejections": {
+   "missing_body": "unsupported",
+   "nonfinite": "nonfinite_or_invalid",
+   "out_of_coverage": "out_of_coverage",
+   "unbalanced_aileron_5deg": "unbalanced_unsolved_residuals",
+   "untrimmable": "untrimmable_on_declared_grid"
+  }
+ },
+ "api_restart": [
+  {
+   "cycle": 0,
+   "family_prototypes": {
+    "canard": {
+     "independent_numerical_performance": false,
+     "physical_construction": false,
+     "production_search": false
+    },
+    "tailless_swept": {
+     "independent_numerical_performance": false,
+     "physical_construction": false,
+     "production_search": false
+    },
+    "tandem": {
+     "independent_numerical_performance": false,
+     "physical_construction": false,
+     "production_search": false
+    }
+   },
+   "feasibility": {
+    "implementation_sha256": "b31eab82e85b921d41f8f064d2fb77edf101905dc37c8db4ebc596b31f8f3f0d",
+    "status": 200,
+    "verdict": "infeasible"
+   },
+   "metadata": 200,
+   "metadata_keys": [
+    "calibration_version",
+    "capabilities",
+    "cem_version",
+    "family_prototypes",
+    "processes",
+    "requirements_schema",
+    "supported_families"
+   ],
+   "rejections": {
+    "canard": {
+     "body": {
+      "detail": "Selected calibration, family or process is unavailable"
+     },
+     "status": 422
+    },
+    "tailless_swept": {
+     "body": {
+      "detail": "Selected calibration, family or process is unavailable"
+     },
+     "status": 422
+    },
+    "tandem": {
+     "body": {
+      "detail": "Selected calibration, family or process is unavailable"
+     },
+     "status": 422
+    }
+   },
+   "stop_exit": 0
+  },
+  {
+   "cycle": 1,
+   "family_prototypes": {
+    "canard": {
+     "independent_numerical_performance": false,
+     "physical_construction": false,
+     "production_search": false
+    },
+    "tailless_swept": {
+     "independent_numerical_performance": false,
+     "physical_construction": false,
+     "production_search": false
+    },
+    "tandem": {
+     "independent_numerical_performance": false,
+     "physical_construction": false,
+     "production_search": false
+    }
+   },
+   "feasibility": {
+    "implementation_sha256": "b31eab82e85b921d41f8f064d2fb77edf101905dc37c8db4ebc596b31f8f3f0d",
+    "status": 200,
+    "verdict": "infeasible"
+   },
+   "metadata": 200,
+   "metadata_keys": [
+    "calibration_version",
+    "capabilities",
+    "cem_version",
+    "family_prototypes",
+    "processes",
+    "requirements_schema",
+    "supported_families"
+   ],
+   "rejections": {
+    "canard": {
+     "body": {
+      "detail": "Selected calibration, family or process is unavailable"
+     },
+     "status": 422
+    },
+    "tailless_swept": {
+     "body": {
+      "detail": "Selected calibration, family or process is unavailable"
+     },
+     "status": 422
+    },
+    "tandem": {
+     "body": {
+      "detail": "Selected calibration, family or process is unavailable"
+     },
+     "status": 422
+    }
+   },
+   "stop_exit": 0
+  }
+ ],
+ "base_commit": "50279906d857bfbb6a362ab78e984cd5e9f581a6",
+ "branch": "cem-integration-verification",
+ "control_authority": "machinery_only; requirements_and_hardware_absent",
+ "delivery_branch": "claude/busy-mendel-t04s6p",
+ "focused": {
+  "files": [
+   "backend/tests/test_cem_family_physics.py",
+   "backend/tests/test_cem_family_physics_integration.py"
+  ],
+  "passed": 34
+ },
+ "fresh_task_restoration": "unperformed",
+ "full_inertia": "calculated_screening_full_tensor; measured_delivered_absent",
+ "historical_limits_preserved": [
+  "A low-Re interpolation/missing-row failures",
+  "real paired-arm spiral rejection",
+  "failed coarse and 0.75-degree deflected audits",
+  "aborted oversized refinement",
+  "interrupted-audit 567 passed/1 failed historical receipt"
+ ],
+ "interactive_browser": "unperformed",
+ "merge_gate_schema_tests": "passed (test_prompts_schema, test_runner_filters, test_md_report)",
+ "native_build": {
+  "avl_revision": "b67837fa737afdf7a56655b044242619246b3ada",
+  "binaries": {
+   "avl": {
+    "path": "/home/user/mirum-native/avl-build/src/avl",
+    "sha256": "228ac10493f2363d25a1395d98cf0bdb5112deb620ad4840fd612e55c984855c"
+   },
+   "xfoil": {
+    "path": "/home/user/mirum-native/Xfoil/bin/xfoil",
+    "sha256": "0633e30b81c709396b0413a5437a207dde0d72aab4464e1b0eeebcb31ae27e2b"
+   }
+  },
+  "compiler_version": "GNU Fortran (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "headless_patch_sha256": "8e5df7f0731081c0066b7e3b6fd9dd31e3e1c910db9539c5faab6beedb22142a",
+  "native_binaries_match_historical": false,
+  "source_archives": {
+   "xfoil_6.99.dfsg+1-3.debian.tar.xz": "b6688dc60a8437fbabb0da80fdceb623bcdd6c4f35ca8afbe130f817c6140837",
+   "xfoil_6.99.dfsg+1.orig.tar.gz": "f5ece350981f35f7b5b4cef540c921ffad877b0942591efb88bad76cc08b597a"
+  },
+  "source_mirror": "http://archive.ubuntu.com/ubuntu/pool/universe/x/xfoil/",
+  "source_mirror_reason": "deb.debian.org CONNECT refused (HTTP 403) by environment network policy; pinned SHA-256 matched",
+  "xfoil_flags": "-O0 -g -fbacktrace -fbounds-check -finit-real=inf -ffpe-trap=invalid,zero -fdefault-real-8 -fallow-argument-mismatch"
+ },
+ "native_limits": {
+  "changed": false,
+  "max_audit_artifacts": 150,
+  "max_file_bytes": 1048576,
+  "timeout_s": 20
+ },
+ "physical_construction": false,
+ "production_admission": false,
+ "provider_generation": "unperformed",
+ "publication": "unperformed",
+ "regression": {
+  "api_tests_socket": "local sockets available; no restriction encountered",
+  "command": "python -m pytest backend/tests/test_cem* backend/tests/test_glider* frontend/test_cem_ui.py analysis/tests/test_avl.py analysis/tests/test_airfoil.py -q",
+  "new_tests": 34,
+  "previous_receipt_passed": 572,
+  "runs": [
+   {
+    "failed": 0,
+    "passed": 606,
+    "skipped": 0,
+    "source": "before capability metadata fields",
+    "summary": "606 passed, 2 warnings in 725.55s"
+   },
+   {
+    "failed": 0,
+    "passed": 606,
+    "skipped": 0,
+    "source": "final",
+    "summary": "606 passed, 2 warnings in 704.94s"
+   }
+  ]
+ },
+ "runtime": {
+  "activation": "/home/user/mirum-env.sh (session-local, not committed)",
+  "installed_from": "docs/testing/cem-native-angle-results.json runtime.packages",
+  "lock_sha256": "ebc1c87a0b457e6e15cb4afe9824b7c832587e9da9c278e306444fd7a8c6a971",
+  "package_count": 118,
+  "platform": "Linux-6.18.44-fc-v236-x86_64-with-glibc2.39",
+  "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "workspace_previous_runtime": "absent"
+ },
+ "scope": "aircraft_physics_machinery_and_independent_validation_not_qualification",
+ "source_sha256": {
+  "backend/cem/glider/families/__init__.py": "dbce05be1f45d2a69a367176c6b950cc9da0030b83bf4844f8024c799ca47e9f",
+  "backend/cem/glider/families/physics/__init__.py": "7e1377d2ff7adf3f47284baf4af34d321fd3f9bd2958b021389b2ae556f764ab",
+  "backend/cem/glider/families/physics/assessment.py": "8b0d5f7d54dbebb1d015c1d0b3a17129d2fcc811babf3010a0660c688eda1418",
+  "backend/cem/glider/families/physics/dynamics.py": "85dd6f57a37bc61faf7c22ff22b7936707ff4c42a0c311078351358af888e5db",
+  "backend/cem/glider/families/physics/fixtures.py": "e3122a225bb1601f5dd767ade31483bbc1db4f119d05c0ae13770277ed7bab56",
+  "backend/cem/glider/families/physics/frames.py": "6c85f85b5fa6b29096e1998b264d4d4ac3b7ea96e001947d8d64ee21ca7759e5",
+  "backend/cem/glider/families/physics/interfaces.py": "f41a4d2182b6bf7f92180e8f62f5a4028868507386a1dd0e676d39c41669bda0",
+  "backend/cem/glider/families/physics/mass.py": "c8eaf1d3de9280694ba23883c3fb977c79bd9cee6a7593e659b91eb2e83e8d07",
+  "backend/cem/glider/families/physics/trim.py": "e43084bf3c4932ae3b6b646ad439190bb56e13ac278a75f3683bb786f6ca2be5",
+  "backend/cem/glider/families/physics/wrench.py": "c4734cc42fde5a09e0bb88f3a4ce2b98b3c0c6389a0591585ab9304319880155",
+  "backend/tests/test_cem_family_physics.py": "e821bf4cb5dfe145271759f49c14ab9686ae3499bc8a36e18a592da0c82e21ae",
+  "backend/tests/test_cem_family_physics_integration.py": "9ebe2b3fb6806c09bf695f3ef318d200c120770eafd289d4e368aa03af1d0a96",
+  "scripts/cem/assess_family_physics.py": "2234f7d740d9c8c6688b89fc9037cc8483623e88f1881fac966fc5dbe7029faa",
+  "scripts/cem/build_native_aero.py": "17df1c0b75bc6110bc3d7863ca86c8d1a48f3c0c2b77ac30e54bf1614e160968"
+ },
+ "stall_sequencing": "unsupported_attached_flow_only",
+ "tolerances": {
+  "cd": 0.001,
+  "cl": 0.025,
+  "cm": 0.005
+ },
+ "upstream": {
+  "A": "6b4df7a38a5e5eaf700686ff21fde9acd62683d3",
+  "B": "5f5fc120163e18d37daf765e5956635a63bb1911",
+  "C": "40fa44aa5e9d34097249295dfad660a6e23711b8",
+  "branches_modified": false,
+  "integration_newer_commits": false,
+  "new_implementation_available": false
+ },
+ "verified_gain": false
+}
