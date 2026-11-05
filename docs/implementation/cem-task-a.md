@@ -26,6 +26,11 @@ is insufficient.
   airfoil, Reynolds number and command sequence. Distinguish runtime defects
   from genuine nonconvergence. Qualify bounded station-polar queries, transition
   settings, interpolation coverage and unsupported conditions.
+  *Re-scoped 2026-11-05 by the [low-Re method decision](cem-low-re-method-decision.md):*
+  sections below Re 50,000 are unsupported by rule, not to be qualified.
+  NeuralFoil with its confidence gate is the primary section source, and XFOIL
+  provides single-point spot checks rather than interpolation coverage.
+  Accuracy comes from measured UIUC polars.
 - Qualify AVL surface export, camber/twist/symmetry, loads, local operating
   conditions, derivatives, axis conversions and numerical convergence. Check
   force/moment conservation. Investigate the existing spiral-stability rejection;
