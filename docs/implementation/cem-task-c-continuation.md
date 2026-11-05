@@ -94,6 +94,12 @@ reconstruction returns `False` for production admission by design.
 
 ## Qualification boundaries retained
 
+- **Section evidence policy (2026-11-05):** the
+  [low-Re decision](cem-low-re-method-decision.md) governs. No section below
+  Re 50,000 at the lowest speed is admissible. The canard/tandem development
+  geometries must be resized before their section evidence can apply, and
+  complete XFOIL banks are replaced by NeuralFoil plus spot checks.
+
 - Inviscid results omit profile/body drag, nonlinear interaction/stall envelopes,
   dynamic modes, and full force/moment/trajectory equilibrium. A converged
   pitch/lift diagnostic does not establish glide performance or stability.

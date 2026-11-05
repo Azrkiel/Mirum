@@ -14,11 +14,20 @@ Raw task archives and checksum manifests are now committed under
 docs/testing/artifacts/cem-panel-distribution/. These are fresh task evidence,
 not recovered historical archives. Verify their checksums before reuse.
 
-Read docs/implementation/cem-remaining-section-work.md first. Complete its
-in-scope numerical and validation backlog; do not redefine unresolved work as
-out of scope. Whole-aircraft and construction qualification are separate future
-projects. Keep their gates closed. Environment publication/restoration is a
-separate outstanding onboarding follow-up.
+Read docs/implementation/cem-low-re-method-decision.md first. It is an owner
+decision (2026-11-05) and governs any conflicting text below or in older
+handoffs. In short: a hard section Re floor of 50,000 at the lowest declared
+speed, with a degraded band from 50,000 to 70,000; NeuralFoil with
+analysis_confidence >= 0.8 as the primary section source; XFOIL only as
+single-point spot checks on selected designs at Re >= 50,000; and accuracy
+anchored to measured UIUC wind-tunnel polars. The Re 33,000 canard/tandem
+windows are withdrawn. Do not resume XFOIL tuning (panel distribution, VACCEL,
+initialization) below Re 50,000.
+
+Then read docs/implementation/cem-remaining-section-work.md and complete its
+in-scope backlog in order. Whole-aircraft and construction qualification are
+separate future projects. Keep their gates closed. Environment
+publication/restoration is a separate outstanding onboarding follow-up.
 
 Read current records:
 - docs/implementation/cem-aircraft-dynamics-control.md
@@ -69,8 +78,14 @@ binary identities and retained artifacts. Mixed distributions within a foil's
 bank are rejected. Use --panel-distribution settings.json on the installed CLI.
 Changed query/audit sources require fresh receipts; do not rewrite fingerprints.
 
-Required development rectangles are declared before native execution. Do not
-silently shrink them, use only favorable endpoints or union disjoint cells.
+HISTORICAL CONTEXT (superseded by the low-Re decision; kept so the receipts
+remain interpretable). These were the rectangles declared before that decision.
+The swept banks remain valid evidence. The canard/tandem 6 m/s rectangles are
+withdrawn as below the method-validity floor, and the 14 m/s canard/tandem bank
+requirement is replaced by NeuralFoil plus spot checks. Any new operating
+domain must still be declared on disk before native execution. Do not shrink a
+declared domain after seeing results, use only favorable endpoints or union
+disjoint cells.
 - Swept neutral/reflexed: Re 49,000–74,000, alpha 3–6 degrees.
 - Swept +3 pitch foil: Re 49,000/56,000/64,000, alpha 2.5–5.5 by .375 degrees.
 - Canard/tandem neutral: Re 33,000–73,000, alpha 4–8 degrees.
@@ -119,23 +134,31 @@ in the same package; every actual-family envelope is blocked by the inputs liste
 in cem-aircraft-dynamics-control.md. Use physics.envelope and
 physics.qualification rather than reimplementing them.
 
-Next work, in dependency order:
+Next work, in dependency order (see cem-low-re-method-decision.md):
 1. Inspect current source/runtime/binaries and retained artifact identities.
    Do not infer restoration from a Git commit or recreate absent historical rows.
-2. Retain the exact foil/control identities and declared required rectangles.
-   Use the checked-in declaration drivers and current receipt's full grids.
-3. Resolve the demonstrated low-Re spatial-resolution/initialization coupling
-   and missing interior rows. The tested constant-distribution settings and
-   refinements were insufficient; do not claim impossibility of every future
-   numerical method. The checksum-verified manual and fresh dumps are required
-   evidence for further distribution/initialization choices, not a magic setting.
-4. Run whole fresh initialization/repeat, 160/240-panel and independent midpoint
-   audits and full replay for each bank. A successful ALFA-0-to-target point,
-   favorable gradient or fewer coarse missing rows cannot repair a failed sweep.
-5. Use only complete passed/replayed fresh banks to trace required initialization,
-   trial and converged solver conditions. Distinguish interpolated coverage from
-   individual native checks. Keep the untested remainder of the 15 m/s mission
-   and missing family control/disturbance requirements explicit.
+2. P1: raise the station Re floor in backend/cem/glider/model.py from 30,000 to
+   50,000 for every lifting/control surface at the lowest declared speed. Add
+   the 50,000-70,000 degraded band, the explicit fail reason, a provenance
+   version bump and boundary tests. Never lower it to make a search return a
+   design.
+3. Check the frozen swept states against P1 (their banks start at Re 49,000).
+   Resize the canard/tandem development geometries, or raise the declared
+   minimum speed, so every station clears 50,000. Declare the new domains on
+   disk first, then rerun the family diagnostics on NeuralFoil. If a family
+   cannot meet P1, record an explicit no-design result.
+4. P2: keep analysis_confidence >= 0.8 as a hard station gate and expose it as
+   an optimizer constraint.
+5. P3: build a single-point XFOIL spot-check runner for selected designs from
+   the existing query/audit/replay code: 160/240 panels, native headers,
+   raw-artifact binding, independent replay and unchanged tolerances. A
+   non-converged point is "no XFOIL evidence" and is never filled.
+6. P4: add a measured UIUC low-speed-airfoil reference test (Re 60,000-100,000)
+   and feed the measured error into the degraded-band and uncertainty bands.
+   NeuralFoil/XFOIL agreement is consistency, not accuracy (NeuralFoil is
+   trained on XFOIL).
+Keep the untested remainder of the 15 m/s mission and the missing family
+control/disturbance requirements explicit.
 
 Run all native jobs sequentially with no competing regression/qualification.
 Preserve the 20-second invocation, 1 MiB native-file and 150-artifact audit caps;

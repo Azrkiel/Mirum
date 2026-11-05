@@ -1,5 +1,12 @@
 # Whole-aircraft aerodynamic qualification: continuation status
 
+> **Historical record — superseded scope (2026-11-05).** The results here are
+> unchanged and remain valid evidence of what was run. The
+> [low-Re method decision](cem-low-re-method-decision.md) now governs section
+> work: no section below Re 50,000 is admissible, and further XFOIL tuning below
+> that floor (panel distribution, VACCEL, initialization) is closed. Use
+> [cem-remaining-section-work.md](cem-remaining-section-work.md) for current tasks.
+
 This continuation extends the native development workflow after the
 [control-response handoff](cem-task-c-control-response.md). **Whole-aircraft
 qualification is incomplete.** It does not enable a production family.

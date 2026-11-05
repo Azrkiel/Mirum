@@ -54,8 +54,11 @@ geometry. In particular:
    checks adapted to actual coordinate foils. A's NACA-name check cannot simply
    be copied to a reflexed/deflected airfoil.
 3. C's complete sampled Re 30,000/300,000 grids do not establish intermediate
-   interpolation coverage. Apply initialization, 160/240-panel and midpoint
-   audits to each actual coordinate foil/control state before qualification.
+   interpolation coverage. Since 2026-11-05 the
+   [low-Re decision](cem-low-re-method-decision.md) governs this: no section
+   below Re 50,000 is admissible, and each actual coordinate foil/control state
+   is checked with NeuralFoil plus single-point XFOIL spot checks (160/240-panel,
+   header and replay discipline unchanged), not complete banks.
    The NACA 0006 failure does not establish failure of C's different foils;
    those require their own evidence.
 4. Installed body/junction effects, full force/moment equilibrium, nonlinear

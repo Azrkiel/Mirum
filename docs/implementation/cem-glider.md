@@ -22,7 +22,7 @@ The reference goal never stops maximization. An optional
 | Phase | Implemented | Remaining qualification/work |
 | --- | --- | --- |
 | G0 | CEM protocol, strict mission models, concrete stage adapter, canonical JSON, content identities, source/runtime provenance | More domains |
-| G1 | Launch energy, atmosphere, versioned offline Re-indexed NeuralFoil envelope, gap/levers, sub-second analytic screen | XFOIL cross-validation; universal infeasibility is not established by sampled polars |
+| G1 | Launch energy, atmosphere, versioned offline Re-indexed NeuralFoil envelope, gap/levers, sub-second analytic screen | XFOIL spot checks on selected designs and a measured UIUC polar anchor, per the [low-Re decision](cem-low-re-method-decision.md); the station floor in code is still to be raised to Re 50,000; universal infeasibility is not established by sampled polars |
 | G2 | Distance and duration objectives, process mass assumptions, catalogue carbon-rod launch bending, process admission, auto comparison, wind speed-to-fly and uniform uplift semantics | Qualified material data; local spar taper, joints/torsion, detailed FDM wall/bed/overhang checks |
 | G3 | Closed OML meshes, independent volume/area/CG/inertia measurements, measured-mass re-trim, 5% mass gate, measured spar bending, bounded rebuild loop, seeded 200-sample bands | Physical shell/rib/cavity geometry; independent reconstruction of aerodynamic shape from meshes; full Monte Carlo re-trim ensemble |
 | G4 | MAP-Elites over conventional, T-tail and V-tail layouts; existing random/local sampler; station Re/confidence guards | Tailless/canard/tandem/box/blended families; B-splines/CST; Opti/CMA-ES; independent XFOIL+AVL recheck; validated novelty claims |

@@ -1,5 +1,12 @@
 # Coordinate-family verification after A/C integration
 
+> **Historical record — superseded scope (2026-11-05).** The results here are
+> unchanged and remain valid evidence of what was run. The
+> [low-Re method decision](cem-low-re-method-decision.md) now governs section
+> work: no section below Re 50,000 is admissible, and further XFOIL tuning below
+> that floor (panel distribution, VACCEL, initialization) is closed. Use
+> [cem-remaining-section-work.md](cem-remaining-section-work.md) for current tasks.
+
 Follow-up: [bounded coordinate windows and clean combined regression](cem-coordinate-windows.md).
 The results below remain the historical `e1f540d` receipt.
 

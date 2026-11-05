@@ -124,7 +124,10 @@ membership only. It neither replays historical audits nor grants admission.
 - **A/section numerics:** qualify exact installed foils at actual local Re/alpha
   and every required control state, initialization/trial point and converged
   state. Include independent initialization, panel and midpoint checks at the
-  existing tolerances. Low-Re and near-zero-alpha failures remain unresolved.
+  existing tolerances. Low-Re and near-zero-alpha failures remain unresolved as
+  recorded. Since 2026-11-05 the [low-Re decision](cem-low-re-method-decision.md)
+  governs: sections below Re 50,000 are out of scope, and bank completeness is
+  replaced by NeuralFoil plus single-point XFOIL spot checks.
   Do not splice grids or reinterpret the high-Re positive-angle window as
   low-Re coverage. A's paired-comparison/body-error acceptance remains open.
 - **C/aircraft model:** archives provide lifting OML and screening inventory,
