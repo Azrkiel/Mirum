@@ -1,6 +1,15 @@
 # Task C implementation and qualification handoff
 
-Latest aircraft-physics continuation: [force/moment ledger, full-inertia mass
+Latest dynamics-and-controls continuation: [full-inertia linearization with
+unsteady terms, step-studied derivatives, mode requirements, physical-surface
+control authority and declared-envelope qualification](cem-aircraft-dynamics-control.md),
+with its [continuation prompt](cem-aircraft-dynamics-control-continuation.md).
+Validated against analytical limits and a published 747 reference; **no family
+revision or envelope is numerically qualified** (body, junction, hardware,
+hinge-moment, rate/unsteady aerodynamic and requirement inputs are missing; no
+yaw control is declared).
+
+Previous aircraft-physics continuation: [force/moment ledger, full-inertia mass
 properties, bounded trim, dynamics and missing-input interfaces](cem-aircraft-physics.md),
 with its [continuation prompt](cem-aircraft-physics-continuation.md). Machinery
 is analytically validated; no actual aircraft is trimmed or qualified.

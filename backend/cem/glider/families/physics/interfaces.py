@@ -159,6 +159,50 @@ def validate_hardware(aircraft, hardware, *, tolerance_m=1e-3):
     return items
 
 
+class HingeMomentEvidence(StrictModel):
+    """Required form of revision-bound hinge-moment coefficients for one control.
+
+    Ch(alpha, delta) rows on a rectangular sampled grid; hinge moment
+    H = Ch q S_c c_c (N m, positive trailing-edge-down). Bilinear interpolation
+    only inside the sampled grid and speed range; never extrapolated.
+    """
+    control: str = Field(min_length=1, max_length=80)
+    geometry_revision_sha256: str = SHA
+    artifact_sha256: str = SHA
+    method: str = Field(min_length=1, max_length=120)
+    evidence: Literal['numerical_model', 'measured', 'development_fixture']
+    control_area_m2: float = Field(gt=0)
+    control_chord_m: float = Field(gt=0)
+    speed_range_m_s: tuple[float, float]
+    alpha_deg: tuple[float, ...] = Field(min_length=2, max_length=41)
+    deflection_deg: tuple[float, ...] = Field(min_length=2, max_length=41)
+    hinge_coefficient: tuple[tuple[float, ...], ...]
+
+    @model_validator(mode='after')
+    def grid(self):
+        for axis in (self.alpha_deg, self.deflection_deg):
+            if any(b <= a for a, b in zip(axis, axis[1:])):
+                raise ValueError('Hinge-moment grid must strictly increase')
+        if len(self.hinge_coefficient) != len(self.alpha_deg) or any(
+                len(row) != len(self.deflection_deg) for row in self.hinge_coefficient):
+            raise ValueError('Incomplete hinge-moment table')
+        if not np.isfinite(np.asarray(self.hinge_coefficient)).all():
+            raise ValueError('Finite hinge-moment coefficients required')
+        if not 0 < self.speed_range_m_s[0] < self.speed_range_m_s[1]:
+            raise ValueError('Invalid hinge-moment speed range')
+        return self
+
+    def hinge_moment_nm(self, *, alpha_deg, deflection_deg, speed_m_s, density_kg_m3):
+        if not (self.alpha_deg[0] <= alpha_deg <= self.alpha_deg[-1]
+                and self.deflection_deg[0] <= deflection_deg <= self.deflection_deg[-1]
+                and self.speed_range_m_s[0] <= speed_m_s <= self.speed_range_m_s[1]):
+            return None
+        table = np.asarray(self.hinge_coefficient)
+        along = np.array([np.interp(deflection_deg, self.deflection_deg, row) for row in table])
+        ch = float(np.interp(alpha_deg, self.alpha_deg, along))
+        return ch*.5*density_kg_m3*speed_m_s**2*self.control_area_m2*self.control_chord_m
+
+
 class AuthorityRequirement(StrictModel):
     """Required body-axis control moments (N m) and their derivation."""
     derivation: Literal['mission_manoeuvre', 'disturbance_rejection', 'mission_and_disturbance']

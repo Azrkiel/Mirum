@@ -162,3 +162,36 @@ def summary(report):
 
 
 
+
+
+def envelope_provider(record, *, controls, hinge_moments=None, **inputs):
+    """Frozen inputs of one actual family revision for ``envelope.run``."""
+    from . import authority
+    prepared = prepare(record, controls=controls, **inputs)
+    aircraft = prepared['aircraft']
+    wing = aircraft.airplane()
+    hardware = prepared['hardware']
+    bank = inputs.get('bank')
+
+    def reynolds(equilibrium):
+        """Strip Reynolds range of the coupled lifting solution at the trim state."""
+        s = equilibrium['flight_state']
+        solved = coupled_aero.solve(record, controls, bank, speed_m_s=float(s['speed_m_s']),
+            alpha_deg=float(s['alpha_deg']), altitude_m=inputs.get('altitude_m', 0.),
+            spanwise=inputs.get('spanwise', 4))
+        values = [strip['reynolds'] for strip in solved['strips']]
+        return min(values), max(values)
+
+    return dict(model=prepared['model'], mass=prepared['mass'], required=prepared['required'],
+        revision=prepared['revision'], topology=authority.topology(aircraft, hardware),
+        reynolds=None if bank is None else reynolds,
+        hardware=hardware, hinge_moments=hinge_moments, gravity_m_s2=9.80665,
+        reference=dict(area_m2=float(wing.s_ref), span_m=float(wing.b_ref), chord_m=float(wing.c_ref),
+                       density_kg_m3=prepared['air']['density_kg_m3']),
+        bindings=dict(family=aircraft.family, aircraft_revision=aircraft.revision,
+            builder_revision=aircraft.builder_revision, controls_deg=dict(controls),
+            section_bank_class=prepared['bank_class'],
+            section_bank_sha256=None if bank is None else digest(bank.reports),
+            body=None if inputs.get('body_geometry') is None else 'supplied',
+            junctions=sorted((inputs.get('junctions') or {})), atmosphere=dict(
+                altitude_m=inputs.get('altitude_m', 0.), **prepared['air'])))
