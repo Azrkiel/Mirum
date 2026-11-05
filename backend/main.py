@@ -169,13 +169,15 @@ def _verification_warning(cert: dict | None) -> str:
 async def _lifespan(application: FastAPI):
     cleanup_tmp_parts()
     logger.info("Startup: cleared stale tmp_parts")
-    try:
-        yield
-    finally:
-        from gliders.api import jobs as glider_jobs
-        await glider_jobs.close()
-        from cem.api import jobs as cem_jobs
-        await cem_jobs.close()
+    from engineering.regen_web import regen_lifespan
+    async with regen_lifespan(application):
+        try:
+            yield
+        finally:
+            from gliders.api import jobs as glider_jobs
+            await glider_jobs.close()
+            from cem.api import jobs as cem_jobs
+            await cem_jobs.close()
 
 
 limiter = Limiter(key_func=get_remote_address)

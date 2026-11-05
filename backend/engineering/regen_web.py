@@ -26,9 +26,11 @@ from pydantic import Field, ValidationError
 
 from .regen_cli import MAX_SPEC_BYTES, RUNTIME_SO, SAFETY_NOTICE
 from .regen_spec import RegenChamberSpec, canonical_spec
+from .regen_presets import EXAMPLES
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[2]
+BACKEND = Path(__file__).resolve().parents[1]
 FILES = {'stl': 'cleaned.stl', 'report': 'report.json', 'spec': 'spec.canonical.json'}
 
 
@@ -48,6 +50,12 @@ def _ready() -> bool:
 
 def _worker_command(spec: Path, out: Path) -> list[str]:
     return [sys.executable, '-m', 'engineering.regen_web', '--worker', str(spec), str(out)]
+
+
+def _cross_origin(request: Request) -> bool:
+    origin = request.headers.get('origin')
+    return bool((origin and urlsplit(origin).netloc != request.headers.get('host'))
+                or request.headers.get('sec-fetch-site') == 'cross-site')
 
 
 class JobRunner:
@@ -112,7 +120,7 @@ class JobRunner:
         out.mkdir()
         self._update(job_id, status='running', message='Building and checking geometry')
         # Do not pass provider credentials or unrelated process variables to the worker.
-        env = dict(PATH=os.environ.get('PATH', '/usr/bin:/bin'), PYTHONPATH=str(ROOT / 'backend'),
+        env = dict(PATH=os.environ.get('PATH', '/usr/bin:/bin'), PYTHONPATH=str(BACKEND),
                    PYTHONDONTWRITEBYTECODE='1', OPENBLAS_NUM_THREADS='2', OMP_NUM_THREADS='2',
                    DOTNET_GCHeapHardLimit='0x10000000',
                    REGEN_BUILDER=str(_builder()),
@@ -122,7 +130,7 @@ class JobRunner:
                 with self.lock:
                     if self.closed:
                         return
-                    proc = subprocess.Popen(_worker_command(folder / 'input.json', out), cwd=ROOT,
+                    proc = subprocess.Popen(_worker_command(folder / 'input.json', out), cwd=folder,
                                             env=env, stdout=output, stderr=subprocess.STDOUT,
                                             start_new_session=True)
                     self.process = proc
@@ -219,26 +227,80 @@ class JobRunner:
         self.process = None
 
 
+@asynccontextmanager
+async def regen_lifespan(app, runner: JobRunner | None = None):
+    """Own one serial runner for either the main API or the standalone app."""
+    app.state.regen_runner = runner or JobRunner()
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(app.state.regen_runner.close)
+
+
+def attach_regen_routes(app, *, prefix='/engineering/regen', limiter=None):
+    """Share the same bounded generation and acceptance path across both UIs."""
+    def limited(rate):
+        return limiter.limit(rate) if limiter else lambda function: function
+
+    def public_job(job):
+        return dict(job, artifacts={name: f'{prefix}/jobs/{job["id"]}/artifacts/{name}'
+                                   for name in job['artifacts']})
+
+    @app.get(f'{prefix}/config')
+    @limited('120/minute')
+    def config(request: Request):
+        return dict(ready=_ready(), examples=EXAMPLES, notice=SAFETY_NOTICE,
+                    schema=BrowserSpec.model_json_schema())
+
+    @app.post(f'{prefix}/jobs', status_code=202)
+    @limited('2/minute')
+    async def generate(request: Request):
+        if _cross_origin(request):
+            raise HTTPException(403, 'Cross-origin generation is not allowed')
+        raw = bytearray()
+        async for chunk in request.stream():
+            if len(raw) + len(chunk) > MAX_SPEC_BYTES:
+                raise HTTPException(413, 'Specification is too large')
+            raw.extend(chunk)
+        try:
+            spec = BrowserSpec.model_validate_json(raw)
+        except ValidationError as exc:
+            return JSONResponse({'detail': exc.errors(include_url=False, include_context=False, include_input=False)}, status_code=422)
+        if not _ready():
+            raise HTTPException(503, 'PicoGK runtime is not installed. Run the repository setup script first.')
+        return public_job(request.app.state.regen_runner.submit(spec))
+
+    @app.get(f'{prefix}/jobs/{{job_id}}')
+    @limited('120/minute')
+    def status(job_id: str, request: Request):
+        return public_job(request.app.state.regen_runner.get(job_id))
+
+    @app.get(f'{prefix}/jobs/{{job_id}}/artifacts/{{name}}')
+    @limited('30/minute')
+    def artifact(job_id: str, name: str, request: Request):
+        runner = request.app.state.regen_runner
+        job = runner.get(job_id)
+        if name not in FILES:
+            raise HTTPException(404, 'Artifact not found')
+        if job['status'] != 'accepted':
+            raise HTTPException(409, 'Only accepted results have downloadable artifacts')
+        path = runner.root / job_id / 'output' / FILES[name]
+        return FileResponse(path, filename=FILES[name], media_type='model/stl' if name == 'stl' else 'application/json')
+
+
 def create_app(runner: JobRunner | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
-        app.state.runner = runner or JobRunner()
-        try:
+        async with regen_lifespan(app, runner):
             yield
-        finally:
-            await asyncio.to_thread(app.state.runner.close)
 
     app = FastAPI(title='Mirum PicoGK', lifespan=lifespan, docs_url=None, redoc_url=None)
 
     @app.middleware('http')
     async def headers(request, call_next):
         # Same-origin mutations prevent another website from submitting local builds.
-        if request.method == 'POST':
-            origin = request.headers.get('origin')
-            if origin and urlsplit(origin).netloc != request.headers.get('host'):
-                return JSONResponse({'detail': 'Cross-origin generation is not allowed'}, status_code=403)
-            if request.headers.get('sec-fetch-site') == 'cross-site':
-                return JSONResponse({'detail': 'Cross-origin generation is not allowed'}, status_code=403)
+        if request.method == 'POST' and _cross_origin(request):
+            return JSONResponse({'detail': 'Cross-origin generation is not allowed'}, status_code=403)
         response = await call_next(request)
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
@@ -247,43 +309,7 @@ def create_app(runner: JobRunner | None = None) -> FastAPI:
                                                        "connect-src 'self'; img-src 'self' blob: data:; frame-ancestors 'none'")
         return response
 
-    @app.get('/api/config')
-    def config():
-        examples = {}
-        for name in ('small', 'reference'):
-            examples[name] = json.loads((ROOT / 'picogk-builder' / 'examples' / f'{name}.json').read_text())
-        return dict(ready=_ready(), examples=examples, notice=SAFETY_NOTICE,
-                    schema=BrowserSpec.model_json_schema())
-
-    @app.post('/api/jobs', status_code=202)
-    async def generate(request: Request):
-        raw = bytearray()
-        async for chunk in request.stream():
-            raw.extend(chunk)
-            if len(raw) > MAX_SPEC_BYTES:
-                raise HTTPException(413, 'Specification is too large')
-        try:
-            spec = BrowserSpec.model_validate_json(raw)
-        except ValidationError as exc:
-            return JSONResponse({'detail': exc.errors(include_url=False, include_context=False, include_input=False)}, status_code=422)
-        if not _ready():
-            raise HTTPException(503, 'PicoGK runtime is not installed. Run the repository setup script first.')
-        return request.app.state.runner.submit(spec)
-
-    @app.get('/api/jobs/{job_id}')
-    def status(job_id: str, request: Request):
-        return request.app.state.runner.get(job_id)
-
-    @app.get('/api/jobs/{job_id}/artifacts/{name}')
-    def artifact(job_id: str, name: str, request: Request):
-        job = request.app.state.runner.get(job_id)
-        if name not in FILES:
-            raise HTTPException(404, 'Artifact not found')
-        if job['status'] != 'accepted':
-            raise HTTPException(409, 'Only accepted results have downloadable artifacts')
-        path = request.app.state.runner.root / job_id / 'output' / FILES[name]
-        return FileResponse(path, filename=FILES[name], media_type='model/stl' if name == 'stl' else 'application/json')
-
+    attach_regen_routes(app, prefix='/api')
     app.mount('/', StaticFiles(directory=ROOT / 'frontend' / 'regen', html=True), name='browser')
     return app
 

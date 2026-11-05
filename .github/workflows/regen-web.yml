@@ -6,8 +6,13 @@ on:
     paths:
       [
         "backend/engineering/regen*",
+        "backend/engineering/api.py",
+        "backend/main.py",
         "backend/tests/test_regen*",
         "frontend/regen/**",
+        "frontend/regen_ui.py",
+        "frontend/test_regen_ui.py",
+        "frontend/app.py",
         "codex-cloud/**",
         ".github/workflows/regen-web.yml",
       ]
@@ -15,8 +20,13 @@ on:
     paths:
       [
         "backend/engineering/regen*",
+        "backend/engineering/api.py",
+        "backend/main.py",
         "backend/tests/test_regen*",
         "frontend/regen/**",
+        "frontend/regen_ui.py",
+        "frontend/test_regen_ui.py",
+        "frontend/app.py",
         "codex-cloud/**",
         ".github/workflows/regen-web.yml",
       ]
@@ -30,12 +40,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: python -m pip install -r codex-cloud/requirements.txt
+      - run: python -m pip install -r codex-cloud/requirements.txt -r frontend/requirements.txt slowapi
       - name: Focused verifier and fixture browser API tests (no native builder)
         working-directory: backend
         env:
           OMP_NUM_THREADS: "2"
           OPENBLAS_NUM_THREADS: "2"
-        run: python -m pytest tests/test_regen_spec.py tests/test_regen_mesh.py tests/test_regen_cli.py tests/test_regen_budget.py tests/test_regen_web.py -q -k 'not adv' -p no:cacheprovider
+        run: python -m pytest tests/test_regen_spec.py tests/test_regen_mesh.py tests/test_regen_cli.py tests/test_regen_budget.py tests/test_regen_web.py tests/test_regen_integration.py ../frontend/test_regen_ui.py -q -k 'not adv' -p no:cacheprovider
       - name: Validate shell entry points
         run: bash -n codex-cloud/setup.sh codex-cloud/regen.sh codex-cloud/web.sh

@@ -24,6 +24,8 @@ services:
     volumes:
       - ./frontend/app.py:/app/app.py:ro
       - ./frontend/glider_ui.py:/app/glider_ui.py:ro
+      - ./frontend/regen_ui.py:/app/regen_ui.py:ro
+      - ./frontend/regen:/app/regen:ro
       - ./frontend/glider_explorer.py:/app/glider_explorer.py:ro
       - ./frontend/vn_diagram.py:/app/vn_diagram.py:ro
     depends_on:

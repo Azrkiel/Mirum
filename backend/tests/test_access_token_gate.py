@@ -31,7 +31,11 @@ def test_missing_or_wrong_token_is_rejected_before_any_route(client, monkeypatch
     for method, path in [('get', '/auth/check'), ('post', '/run'), ('post', '/generate'),
                          ('get', '/stats'), ('get', '/openapi.json'), ('post', '/gliders/search'),
                          ('get', '/gliders/search/missing'),
-                         ('get', '/gliders/search/missing/geometry/missing')]:
+                         ('get', '/gliders/search/missing/geometry/missing'),
+                         ('get', '/engineering/regen/config'),
+                         ('post', '/engineering/regen/jobs'),
+                         ('get', '/engineering/regen/jobs/missing'),
+                         ('get', '/engineering/regen/jobs/missing/artifacts/stl')]:
         kwargs = {'json': {}} if method == 'post' else {}
         response = getattr(client, method)(path, headers=headers, **kwargs)
         assert response.status_code == 401, (path, response.text)
@@ -44,3 +48,5 @@ def test_correct_token_reaches_the_route(client, monkeypatch):
     assert client.get('/auth/check', headers=headers).json() == {'ok': True}
     # Past the gate, ordinary request validation applies.
     assert client.post('/run', headers=headers, json={}).status_code == 422
+    assert client.get('/engineering/regen/config', headers=headers).status_code == 200
+    assert client.post('/engineering/regen/jobs', headers=headers, json={}).status_code == 422

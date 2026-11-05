@@ -57,6 +57,7 @@ def test_browser_serves_offline_assets_and_schema(browser):
     assert 'PicoGK' in client.get('/').text
     assert client.get('/app.js').status_code == 200
     assert client.get('/styles.css').status_code == 200
+    assert client.get('/viewer.js').status_code == 200
     assert client.get('/api/config').json()['ready'] is True
     assert client.get('/api/config').json()['examples']['small']['family'] == 'regen_chamber'
 
@@ -90,6 +91,20 @@ def test_failure_or_untrusted_report_never_exposes_mesh(browser, monkeypatch, ex
     assert job['status'] in ('rejected', 'unavailable')
     assert not job['artifacts']
     assert client.get(f"/api/jobs/{job['id']}/artifacts/stl").status_code == 409
+
+
+def test_worker_imports_backend_without_repository_layout(browser, monkeypatch, tmp_path):
+    client, _ = browser
+    fixture_worker(monkeypatch)
+    command = web._worker_command
+    def importing_worker(spec, out):
+        args = command(spec, out)
+        args[2] = 'import engineering.regen_spec\n' + args[2]
+        return args
+    monkeypatch.setattr(web, '_worker_command', importing_worker)
+    monkeypatch.setattr(web, 'ROOT', tmp_path)
+    job = wait_done(client, client.post('/api/jobs', json=spec_data()).json()['id'])
+    assert job['status'] == 'accepted', job
 
 
 def test_busy_runner_rejects_second_job_and_shutdown_kills_worker(browser, monkeypatch):

@@ -89,6 +89,14 @@ For the deterministic **PicoGK regen chamber browser app**, see
 inputs, a 3D mesh preview, and STL/report downloads without an LLM key. After
 `bash codex-cloud/setup.sh`, start it with `bash codex-cloud/web.sh`.
 
+The main Streamlit workflow selector also includes **Deterministic rocket nozzle**:
+edit the chamber/nozzle and cooling-channel parameters, generate without model
+calls, preview the accepted mesh, and download its STL, geometry report and
+canonical parameters. This reuses the existing PicoGK builder and verifier through
+`/engineering/regen/*`. The backend must have the Linux PicoGK runtime installed;
+otherwise the form explains the missing runtime and disables generation. See
+[main-app setup](docs/implementation/regen-browser.md#main-mirum-workflow).
+
 You need Docker, Docker Compose, and a Gemini API key.
 
 Create a `.env` file in the repository root:
@@ -137,6 +145,10 @@ and rendered, not a second execution of the script. Files are kept for 6 hours.
 |----------|--------|---------|
 | `/generate` | POST | Full pipeline, streamed |
 | `/engineering/generate` | POST | Deterministic typed cantilever CAD + measured STEP checks + bounded beam FEA; no LLM (API only) |
+| `/engineering/regen/config` | GET | Deterministic nozzle presets, parameter schema and runtime readiness |
+| `/engineering/regen/jobs` | POST | Submit a typed regenerative cooling chamber/nozzle mesh job; no LLM |
+| `/engineering/regen/jobs/{id}` | GET | Poll nozzle generation and geometry acceptance |
+| `/engineering/regen/jobs/{id}/artifacts/{name}` | GET | Download accepted `stl`, `report` or `spec` |
 | `/plan` | POST | Planner only, returns the manifest |
 | `/requirements` | POST | Requirements extraction only |
 | `/clarify` | POST | Returns clarifying questions for a vague prompt |
