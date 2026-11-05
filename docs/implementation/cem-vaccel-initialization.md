@@ -1,5 +1,12 @@
 # Exact-foil initialization and acceleration continuation
 
+> **Historical record — superseded scope (2026-11-05).** The results here are
+> unchanged and remain valid evidence of what was run. The
+> [low-Re method decision](cem-low-re-method-decision.md) now governs section
+> work: no section below Re 50,000 is admissible, and further XFOIL tuning below
+> that floor (panel distribution, VACCEL, initialization) is closed. Use
+> [cem-remaining-section-work.md](cem-remaining-section-work.md) for current tasks.
+
 Follow-up: [interrupted-audit reconstruction and fresh swept trials](cem-interrupted-audit-continuation.md). The results below remain the historical run; the follow-up does not repair its absent raw replay.
 
 Continuation from `3fe617c95968fc7a3a7928c64012f6f77be03fbc` on

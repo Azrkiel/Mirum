@@ -95,6 +95,11 @@ Requirements for the A handoff:
 - Effective local angle, local velocity and Reynolds coverage, station polars
   and loads, plus induced-angle evidence in both directions between lifting
   surfaces. A zero interaction must be supported rather than assumed.
+  Since 2026-11-05 the [low-Re decision](cem-low-re-method-decision.md) applies:
+  every surface station must be at Re ≥ 50,000 at the lowest speed. Station
+  polars come from NeuralFoil with its confidence gate, and XFOIL is used as
+  single-point spot checks. The current canard and fore surfaces (about Re 33,000
+  at 6 m/s) must be resized to clear the floor.
 - Force/moment closure, stable/unstable native reference cases, numerical
   convergence, control authority and dynamic eigenmodes in explicit axes/units.
 - Family-specific stall evidence: root-first with retained elevon authority for

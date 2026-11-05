@@ -51,7 +51,10 @@ Aerodynamic domain actually available (from the current section record and the
 fresh audits below): swept F1 (neutral) Re 49k–74k, native α 3–6°, and F2 (+3°
 pitch region) Re 49k–64k, α 2.5–5.5°, both only for the frozen +3° installed
 state, β = 0, zero rates, attached flow. Canard/tandem F3/F4 have **no** passed
-bank. No body, junction, rate, sideslip, unsteady or stall evidence exists.
+bank. Under the [low-Re decision](cem-low-re-method-decision.md), their 6 m/s
+sections (Re 33,000) are below the Re 50,000 floor, so those families need
+resized surfaces before section evidence can apply. No body, junction, rate,
+sideslip, unsteady or stall evidence exists.
 
 ## 2. Dynamics formulation (`dynamics.py`, `trim.py`, `mass.py`)
 
@@ -242,7 +245,7 @@ Each blocks the named qualification; none is defaulted.
 
 | Missing input (required form) | Unblocks |
 | --- | --- |
-| Passed/replayed section banks for every installed and deflected foil over the trim, derivative-step and authority-limit domain (canard/tandem F3/F4 currently fail; swept banks cover only 6 m/s near 4°) | Lifting contribution away from one point; trim variation of controls; derivatives and authority at limits |
+| Section data for every installed and deflected foil over the trim, derivative-step and authority-limit domain, per the [low-Re decision](cem-low-re-method-decision.md): every station at Re ≥ 50,000 at the lowest speed (P1), NeuralFoil with confidence ≥ 0.8 (P2), and XFOIL spot checks at the actual converged/derivative/authority points (P3). The F3/F4 6 m/s banks are withdrawn because their sections are below the floor, so the canard/tandem geometry must be resized first. Passed swept banks remain usable | Lifting contribution away from one point; trim variation of controls; derivatives and authority at limits |
 | Revision-bound body OML (or separately qualified body model) | Body force/moment; whole-aircraft drag |
 | `JunctionEvidence` per lifting member | Complete ledger → trim |
 | `ControlHardware` per control (hinge line, travel, actuator torque/rate, linkage, backlash, masses, exposed drag) | Hardware mass/inertia, control-hardware drag, rate and travel checks |

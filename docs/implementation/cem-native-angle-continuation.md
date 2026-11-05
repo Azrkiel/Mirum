@@ -1,5 +1,12 @@
 # Native-angle coverage continuation
 
+> **Historical record — superseded scope (2026-11-05).** The results here are
+> unchanged and remain valid evidence of what was run. The
+> [low-Re method decision](cem-low-re-method-decision.md) now governs section
+> work: no section below Re 50,000 is admissible, and further XFOIL tuning below
+> that floor (panel distribution, VACCEL, initialization) is closed. Use
+> [cem-remaining-section-work.md](cem-remaining-section-work.md) for current tasks.
+
 Follow-up: [explicit panel-distribution qualification](cem-panel-distribution-continuation.md).
 Related machinery: [aircraft physics](cem-aircraft-physics.md). Neither follow-up
 qualifies the missing aircraft or construction evidence. The native-angle

@@ -340,6 +340,10 @@ is bounded explicitly; altered or missing native controls invalidate evidence
 even when the input command text matches. Station queries and initialization
 audits enforce this in execution and replay.
 
+> **2026-11-05:** the Re 30,000–50,000 portion of the reference below is withdrawn
+> as a requirement by the [low-Re method decision](cem-low-re-method-decision.md).
+> The recorded failure stands as history.
+
 The pinned `aero-low-re-section-reference-v1.json` attempts a narrower numerical
 window: NACA 0006, Re 30,000/40,000/50,000/60,000, alpha −3° to 3° by 0.25°,
 160/240 panels, and the same transition controls. These sampled grids are

@@ -57,9 +57,12 @@ venv, `MIRUM_XFOIL_BIN`, `MIRUM_AVL_BIN` and single-thread BLAS. If
    `AuthorityRequirementSet`, a complete `StabilityRequirement`, unsteady terms,
    a directional-control declaration or artifact-backed exemption, and
    `MeasuredAircraftProperties`.
-2. With A: passed/replayed banks covering the trim, derivative-step and
-   authority-limit domains (and canard/tandem F3/F4, which currently fail), plus
-   rate and sideslip aerodynamics (a candidate is extending `coupled_aero` with
+2. With A: section data covering the trim, derivative-step and authority-limit
+   domains under the [low-Re decision](cem-low-re-method-decision.md). That means
+   Re ≥ 50,000 at the lowest speed, NeuralFoil with its confidence gate, and
+   XFOIL spot checks at the actual points. Canard/tandem surfaces must first be
+   resized to clear the floor, because the F3/F4 6 m/s banks are withdrawn. Also
+   needed: rate and sideslip aerodynamics (a candidate is extending `coupled_aero` with
    rotational/sideslip local velocity and qualifying it independently, e.g.
    against native AVL derivatives, before use).
 3. Re-run `scripts/cem/assess_family_dynamics.py` with those inputs in a new

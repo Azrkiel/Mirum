@@ -1,5 +1,11 @@
 # Family whole-aircraft aerodynamics continuation
 
+> **Update 2026-11-05:** step 1's native XFOIL polars are now single-point spot
+> checks on selected designs, not the primary section source. NeuralFoil with
+> its confidence gate is primary, and every station must be at Re ≥ 50,000 at
+> the lowest speed. See
+> [the low-Re decision](../implementation/cem-low-re-method-decision.md).
+
 Continue the existing checkout and preserve the prior uncommitted control-response work.
 
 1. Add native XFOIL coordinate-polar queries bound to exact installed foils,

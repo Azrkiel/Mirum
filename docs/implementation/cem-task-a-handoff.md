@@ -60,6 +60,14 @@ the raw files without executing a native solver.
 
 ## Low-Re result: qualification remains blocked
 
+> **Superseded scope (2026-11-05).** Under the
+> [low-Re method decision](cem-low-re-method-decision.md), the Re 30,000–50,000
+> part of this reference is below the method-validity floor and is withdrawn as
+> a requirement. The failure below remains an accurate historical record. If a
+> numerical low-Re reference is still wanted, declare a new window at
+> Re 50,000–100,000 before running. The accuracy role moves to measured UIUC
+> wind-tunnel polars (decision P4).
+
 The original wide NACA 0006/Re 30,000 sweep still lacks converged rows. At Ncrit
 9, ascending/repeated sweeps miss −4°, 4°, 7.5° and 8°; zero-centered continuation
 misses −4°, 4° and 7°; per-point initialization misses 7°. The 8° coefficient is
@@ -102,9 +110,12 @@ on port 8000 was left alone.
 
 ## Next qualification work
 
-1. Resolve low-Re missing-row and interpolation coverage using a justified
-   numerical/physical method and explicit transition/stall scope. Coarse-grid
-   agreement does not justify interpolation through missing evidence.
+1. ~~Resolve low-Re missing-row and interpolation coverage.~~ Replaced by the
+   [low-Re decision](cem-low-re-method-decision.md): enforce the Re 50,000 floor
+   (P1), use NeuralFoil with its confidence gate as the primary source (P2), run
+   XFOIL as single-point spot checks on selected designs (P3), and quantify
+   accuracy against measured UIUC polars (P4). Coarse-grid agreement still does
+   not justify interpolation through missing evidence.
 2. Extend each existing family's reference only through separately declared
    positive and rejected cases over the intended geometry/operating envelope.
    The three frozen cases do not qualify junction flow, stall or all T/V designs.

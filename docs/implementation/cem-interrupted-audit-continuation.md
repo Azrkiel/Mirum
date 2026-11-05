@@ -1,5 +1,12 @@
 # Interrupted native audit and swept trial continuation
 
+> **Historical record — superseded scope (2026-11-05).** The results here are
+> unchanged and remain valid evidence of what was run. The
+> [low-Re method decision](cem-low-re-method-decision.md) now governs section
+> work: no section below Re 50,000 is admissible, and further XFOIL tuning below
+> that floor (panel distribution, VACCEL, initialization) is closed. Use
+> [cem-remaining-section-work.md](cem-remaining-section-work.md) for current tasks.
+
 Continues `3485598c3a31fce341f0ae6245d1a466688fe03f` in the existing isolated checkout on `cem-integration-verification`. No worktree was created. Production gates remain closed.
 
 Fetched and inspected A at `6b4df7a38a5e5eaf700686ff21fde9acd62683d3` and B at `5f5fc120163e18d37daf765e5956635a63bb1911`. A's remaining acceptance-documentation commit is already incorporated in the receiving handoff; B is an ancestor. No new published implementation was available. Neither branch was modified; unpublished work remains unknown.

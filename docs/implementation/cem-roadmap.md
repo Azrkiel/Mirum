@@ -79,7 +79,7 @@ These three trade-offs are where shape discovery can find real gains. Realistic 
 
 Known model limits to carry forward as stated uncertainty:
 
-- NeuralFoil and XFOIL are weak below Re of about 30k, especially with laminar bubbles.
+- NeuralFoil and XFOIL are weak below Re of about 30k, especially with laminar bubbles. *Correction (2026-11-05):* the literature puts the unreliable regime higher. Lissaman (1983) gives a critical Re of about 70,000, and XFOIL disagrees with DNS and wind-tunnel data well above 30k. The CEM now uses a hard floor of Re 50,000 and a degraded band to 70,000; see [cem-low-re-method-decision.md](cem-low-re-method-decision.md).
 - Stability comes from a VLM screen, with Ixz neglected.
 - There is no structural model.
 
@@ -266,7 +266,7 @@ Two builders, picked by `process`:
 
 1. **Validity envelope.** Reject or penalize evaluations outside the model's trusted range:
    - NeuralFoil `analysis_confidence` below a threshold;
-   - Re below the calibrated floor;
+   - Re below the calibrated floor (now Re 50,000 at the lowest speed, with a degraded band to 70,000, per [the low-Re decision](cem-low-re-method-decision.md));
    - CL near CLmax;
    - sweep or nonplanarity beyond VLM assumptions.
 2. **Independent re-check of the top designs.** Before reporting, re-run each top-K elite on higher-fidelity paths:

@@ -1,5 +1,12 @@
 # Explicit panel-distribution continuation
 
+> **Historical record — superseded scope (2026-11-05).** The results here are
+> unchanged and remain valid evidence of what was run. The
+> [low-Re method decision](cem-low-re-method-decision.md) now governs section
+> work: no section below Re 50,000 is admissible, and further XFOIL tuning below
+> that floor (panel distribution, VACCEL, initialization) is closed. Use
+> [cem-remaining-section-work.md](cem-remaining-section-work.md) for current tasks.
+
 The [remaining-work checklist and scope boundary](cem-remaining-section-work.md)
 is authoritative for this continuation: numerical section qualification remains
 in scope and incomplete; whole-aircraft and construction qualification are
