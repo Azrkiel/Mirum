@@ -5,7 +5,7 @@ import os
 
 import streamlit as st
 
-from backend.dragsters.local import PreviewState, preview_mesh
+from backend.dragsters.local import PreviewState, render_preview
 from backend.dragsters.spec import DragsterSpec, canonical_spec
 
 
@@ -76,24 +76,7 @@ def main() -> None:
     st.code(str(accepted))
     with st.expander('Parameters belonging to displayed result'):
         st.json(json.loads(accepted_json))
-    import plotly.graph_objects as go
-    mesh = preview_mesh((accepted / 'preview.glb').read_bytes())
-    # The saved GLB is metres/Y-up; show its decoded mesh in CAD mm/Z-up.
-    vertices = mesh.vertices * 1000
-    x, y, z = vertices[:, 0], -vertices[:, 2], vertices[:, 1]
-    i, j, k = mesh.faces.T
-    figure = go.Figure(go.Mesh3d(x=x, y=y, z=z, i=i, j=j, k=k,
-                               color='lightsteelblue', flatshading=True))
-    span = max(mesh.extents)
-    figure.update_layout(
-        scene=dict(aspectmode='manual',
-                   aspectratio=dict(x=mesh.extents[0] / span,
-                                    y=mesh.extents[2] / span,
-                                    z=mesh.extents[1] / span),
-                   camera=dict(eye=dict(x=1.1, y=1.1, z=0.8)),
-                   xaxis_title='X (mm)', yaxis_title='Y (mm)', zaxis_title='Z (mm)'),
-        margin=dict(l=0, r=0, t=0, b=0), height=500)
-    st.plotly_chart(figure, use_container_width=True)
+    render_preview((accepted / 'preview.glb').read_bytes())
     for label, filename, mime in [('STEP', 'body.step', 'application/step'),
                                   ('accepted parameters', 'spec.json', 'application/json'),
                                   ('report', 'report.json', 'application/json'),

@@ -18,6 +18,11 @@ RUN python -m pip install --no-cache-dir -r /tmp/requirements-linux.lock
 COPY requirements-mirum-verification.lock /tmp/mirum-verification.lock
 RUN python -m pip install --no-cache-dir -r /tmp/mirum-verification.lock \
     && python -m pip check
+# Both wedge forms reuse the offline STEP-derived mesh viewer.
+COPY requirements-dragster-ui.txt /tmp/requirements-dragster-ui.txt
+RUN python -m pip install --no-cache-dir -c /tmp/requirements-linux.lock \
+    -c /tmp/mirum-verification.lock -r /tmp/requirements-dragster-ui.txt \
+    && python -m pip check
 RUN apt-get update && apt-get install -y --no-install-recommends xfoil libosmesa6 libgles2 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace

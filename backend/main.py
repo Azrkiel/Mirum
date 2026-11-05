@@ -75,13 +75,6 @@ def _work_path(name: str) -> str:
     return str(_WORK_DIR / name).replace("\\", "/")
 
 _GEMINI_KEY_HEAVY = os.environ.get("GEMINI_API_KEY_HEAVY")
-if not _GEMINI_KEY_HEAVY:
-    raise RuntimeError(
-        "GEMINI_API_KEY_HEAVY must be set. The orchestrator uses this key for "
-        "Machinist (gemini-3.5-flash), Critic, Refiner, and Lite-tier calls. "
-        "Set GEMINI_API_KEY_PRO separately if your Pro key differs from Heavy."
-    )
-
 # Pro key is optional — falls back to the Heavy key if not set.
 # Used by Planner and REA (gemini-3.1-pro-preview). If your Google Cloud
 # project exposes all model tiers under one API key, leave PRO unset.
@@ -91,7 +84,8 @@ _GEMINI_KEY_PRO = os.environ.get("GEMINI_API_KEY_PRO") or _GEMINI_KEY_HEAVY
 # that the heavier Pro quota bucket is charged for Planner/REA calls.
 # The Heavy key is still active for Machinist/Critic/Refiner via the same
 # global client — both keys must belong to the same Google Cloud project.
-genai.configure(api_key=_GEMINI_KEY_PRO)
+if _GEMINI_KEY_PRO:
+    genai.configure(api_key=_GEMINI_KEY_PRO)
 
 
 def _safe_error(detail: str | Exception) -> str:
@@ -167,11 +161,14 @@ def _verification_warning(cert: dict | None) -> str:
 
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
+    from process_runner import ProcessRunner
+    application.state.dragster_runner = ProcessRunner(max_processes=3, timeout=30, memory_mb=1536)
     cleanup_tmp_parts()
     logger.info("Startup: cleared stale tmp_parts")
     try:
         yield
     finally:
+        await application.state.dragster_runner.close()
         from gliders.api import jobs as glider_jobs
         await glider_jobs.close()
         from cem.api import jobs as cem_jobs
@@ -1546,6 +1543,20 @@ async def _execute_accepted(script: str, output_path: str, output_variable: str 
         return {"status": "success", "acceptance": delivery}
     except AcceptanceError as exc:
         return {"status": "error", "traceback": str(exc)}
+
+
+# A dedicated fixed worker consumes only the strict spec, never Python source.
+from dragsters.spec import DragsterSpec
+from dragsters.api import stream as dragster_stream
+
+
+@app.post("/dragsters/generate")
+@limiter.limit("5/minute")
+async def generate_dragster(body: DragsterSpec, request: Request):
+    request.state.dragster_attempt_id = uuid.uuid4().hex
+    return StreamingResponse(dragster_stream(body, request, _safe_error, request.app.state.dragster_runner),
+                             media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
 @app.post("/generate")

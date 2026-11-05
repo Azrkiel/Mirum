@@ -252,3 +252,12 @@ file before/after were identical; no browser JavaScript errors occurred.
 Local screenshots and machine-readable evidence are under `work/ui-evidence/`;
 the exercise script is `work/exercise_ui.py` and the combined test log is
 `work/all-tests.log`. These generated files are not committed.
+
+
+## Main Mirum integration
+
+The main application now includes a provider-free **CO2 dragster** workflow.
+See [integrated setup, endpoint, lifecycle and session guide](integrated-workflow.md).
+The trusted local CLI and standalone form above remain supported with their
+existing contracts. Historical verification sections describe their original
+baselines; the integrated session adds bounded API execution and shared artifacts.

@@ -91,3 +91,26 @@ class PreviewState:
         self.accepted = result
         self.error = None
         return True
+
+
+def render_preview(data: bytes) -> None:
+    """Offline orbit viewer shared by standalone and integrated parameter forms."""
+    import streamlit as st
+    import plotly.graph_objects as go
+    mesh = preview_mesh(data)
+    # The saved GLB is metres/Y-up; show its decoded mesh in CAD mm/Z-up.
+    vertices = mesh.vertices * 1000
+    x, y, z = vertices[:, 0], -vertices[:, 2], vertices[:, 1]
+    i, j, k = mesh.faces.T
+    figure = go.Figure(go.Mesh3d(x=x, y=y, z=z, i=i, j=j, k=k,
+                               color='lightsteelblue', flatshading=True))
+    span = max(mesh.extents)
+    figure.update_layout(
+        scene=dict(aspectmode='manual',
+                   aspectratio=dict(x=mesh.extents[0] / span,
+                                    y=mesh.extents[2] / span,
+                                    z=mesh.extents[1] / span),
+                   camera=dict(eye=dict(x=1.1, y=1.1, z=0.8)),
+                   xaxis_title='X (mm)', yaxis_title='Y (mm)', zaxis_title='Z (mm)'),
+        margin=dict(l=0, r=0, t=0, b=0), height=500)
+    st.plotly_chart(figure, use_container_width=True)
