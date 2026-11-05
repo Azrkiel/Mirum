@@ -1,5 +1,7 @@
 # Continuation prompt: aircraft physics after the machinery delivery
 
+Superseded as the latest Task C continuation by [cem-aircraft-dynamics-control-continuation.md](cem-aircraft-dynamics-control-continuation.md).
+
 Continue Azrkiel/Mirum from the commit that adds
 [`cem-aircraft-physics.md`](cem-aircraft-physics.md) (based on
 `cem-integration-verification` at `50279906d857bfbb6a362ab78e984cd5e9f581a6`).

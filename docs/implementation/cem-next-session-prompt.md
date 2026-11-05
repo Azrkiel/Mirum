@@ -15,6 +15,8 @@ docs/testing/artifacts/cem-panel-distribution/. These are fresh task evidence,
 not recovered historical archives. Verify their checksums before reuse.
 
 Read current records:
+- docs/implementation/cem-aircraft-dynamics-control.md
+- docs/testing/cem-aircraft-dynamics-control-results.json
 - docs/implementation/cem-aircraft-physics.md
 - docs/testing/cem-aircraft-physics-results.json
 - docs/implementation/cem-panel-distribution-continuation.md
@@ -105,6 +107,11 @@ machinery and explicit required-input contracts. These are not actual-aircraft
 qualification. Use the existing physics.assessment and interfaces.REQUIRED_INPUTS;
 do not reimplement them or treat calculated screening inertia as measured. The
 published physics raw archive was unavailable locally, not restored/replayed.
+Dynamics and controls (unsteady terms, derivatives, mode requirements,
+physical-surface authority, declared envelopes with replay) are now implemented
+in the same package; every actual-family envelope is blocked by the inputs listed
+in cem-aircraft-dynamics-control.md. Use physics.envelope and
+physics.qualification rather than reimplementing them.
 
 Next work, in dependency order:
 1. Inspect current source/runtime/binaries and retained artifact identities.

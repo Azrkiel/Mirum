@@ -1,5 +1,7 @@
 # Task C aircraft-physics machinery and independent validation
 
+Superseded as the latest Task C continuation by [cem-aircraft-dynamics-control.md](cem-aircraft-dynamics-control.md).
+
 Continues `50279906d857bfbb6a362ab78e984cd5e9f581a6` on
 `cem-integration-verification` (delivered on `claude/busy-mendel-t04s6p`, based
 exactly on that commit). Published inputs were re-fetched first: the

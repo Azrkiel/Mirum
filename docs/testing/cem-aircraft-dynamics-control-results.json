@@ -1,0 +1,1000 @@
+{
+  "aircraft_cases_numerically_qualified": [],
+  "analytic_validation": [
+    "torque-free |H| and energy conservation with Jxz",
+    "roll-yaw product-of-inertia coupling",
+    "free-fall body-axis gravity",
+    "Euler rates vs DCM identity",
+    "unsteady chain rule",
+    "body-as-geometry frame error -> not_an_equilibrium",
+    "moment pseudovector sign error -> divergent lateral root",
+    "flipped Jxz sign moves Dutch roll",
+    "inconsistent gravity -> not_an_equilibrium",
+    "derivatives recover declared fixture coefficients; central-difference error ratio 4"
+  ],
+  "api_restart": [
+    {
+      "cycle": 0,
+      "family_prototypes": {
+        "canard": {
+          "aircraft_dynamics": "full_inertia_linearization_unsteady_terms_derivative_step_study_mode_requirements_machinery",
+          "directional_control": "absent_no_declared_yaw_hardware",
+          "independent_numerical_performance": false,
+          "physical_construction": false,
+          "production_search": false,
+          "qualified_control_authority": false,
+          "qualified_dynamics": false,
+          "qualified_envelopes": []
+        },
+        "tailless_swept": {
+          "aircraft_dynamics": "full_inertia_linearization_unsteady_terms_derivative_step_study_mode_requirements_machinery",
+          "directional_control": "absent_no_declared_yaw_hardware",
+          "independent_numerical_performance": false,
+          "physical_construction": false,
+          "production_search": false,
+          "qualified_control_authority": false,
+          "qualified_dynamics": false,
+          "qualified_envelopes": []
+        },
+        "tandem": {
+          "aircraft_dynamics": "full_inertia_linearization_unsteady_terms_derivative_step_study_mode_requirements_machinery",
+          "directional_control": "absent_no_declared_yaw_hardware",
+          "independent_numerical_performance": false,
+          "physical_construction": false,
+          "production_search": false,
+          "qualified_control_authority": false,
+          "qualified_dynamics": false,
+          "qualified_envelopes": []
+        }
+      },
+      "feasibility": {
+        "implementation_sha256": "0d1168ba1532f20ffdc350ac3345bc746fe1ec189d308ee8b41fa323ed4f02ba",
+        "status": 200,
+        "verdict": "infeasible"
+      },
+      "metadata": 200,
+      "metadata_keys": [
+        "calibration_version",
+        "capabilities",
+        "cem_version",
+        "family_prototypes",
+        "processes",
+        "requirements_schema",
+        "supported_families"
+      ],
+      "rejections": {
+        "canard": {
+          "body": {
+            "detail": "Selected calibration, family or process is unavailable"
+          },
+          "status": 422
+        },
+        "tailless_swept": {
+          "body": {
+            "detail": "Selected calibration, family or process is unavailable"
+          },
+          "status": 422
+        },
+        "tandem": {
+          "body": {
+            "detail": "Selected calibration, family or process is unavailable"
+          },
+          "status": 422
+        }
+      },
+      "stop_exit": 0
+    },
+    {
+      "cycle": 1,
+      "family_prototypes": {
+        "canard": {
+          "aircraft_dynamics": "full_inertia_linearization_unsteady_terms_derivative_step_study_mode_requirements_machinery",
+          "directional_control": "absent_no_declared_yaw_hardware",
+          "independent_numerical_performance": false,
+          "physical_construction": false,
+          "production_search": false,
+          "qualified_control_authority": false,
+          "qualified_dynamics": false,
+          "qualified_envelopes": []
+        },
+        "tailless_swept": {
+          "aircraft_dynamics": "full_inertia_linearization_unsteady_terms_derivative_step_study_mode_requirements_machinery",
+          "directional_control": "absent_no_declared_yaw_hardware",
+          "independent_numerical_performance": false,
+          "physical_construction": false,
+          "production_search": false,
+          "qualified_control_authority": false,
+          "qualified_dynamics": false,
+          "qualified_envelopes": []
+        },
+        "tandem": {
+          "aircraft_dynamics": "full_inertia_linearization_unsteady_terms_derivative_step_study_mode_requirements_machinery",
+          "directional_control": "absent_no_declared_yaw_hardware",
+          "independent_numerical_performance": false,
+          "physical_construction": false,
+          "production_search": false,
+          "qualified_control_authority": false,
+          "qualified_dynamics": false,
+          "qualified_envelopes": []
+        }
+      },
+      "feasibility": {
+        "implementation_sha256": "0d1168ba1532f20ffdc350ac3345bc746fe1ec189d308ee8b41fa323ed4f02ba",
+        "status": 200,
+        "verdict": "infeasible"
+      },
+      "metadata": 200,
+      "metadata_keys": [
+        "calibration_version",
+        "capabilities",
+        "cem_version",
+        "family_prototypes",
+        "processes",
+        "requirements_schema",
+        "supported_families"
+      ],
+      "rejections": {
+        "canard": {
+          "body": {
+            "detail": "Selected calibration, family or process is unavailable"
+          },
+          "status": 422
+        },
+        "tailless_swept": {
+          "body": {
+            "detail": "Selected calibration, family or process is unavailable"
+          },
+          "status": 422
+        },
+        "tandem": {
+          "body": {
+            "detail": "Selected calibration, family or process is unavailable"
+          },
+          "status": 422
+        }
+      },
+      "stop_exit": 0
+    }
+  ],
+  "base_advanced_during_session": {
+    "action": "fetched, inspected, fast-forwarded under uncommitted work before evidence regeneration",
+    "commits": [
+      "7121188",
+      "b2b70cb"
+    ],
+    "from": "f1b193f",
+    "to": "b2b70cb"
+  },
+  "base_commit": "b2b70cb0670a4bf13ab5bb5dea1de410b21ad41d",
+  "branch": "cem-integration-verification",
+  "delivery_branch": "claude/eloquent-tesla-1qlbz2",
+  "envelopes_numerically_qualified": [],
+  "evidence_classes": {
+    "fixture": "analytic_fixture, never qualifying",
+    "numerical_model": "tailless +3 deg lifting loads only",
+    "physical_validation": "none",
+    "published_reference": "747 equations check only",
+    "tested_software": "new and existing tests"
+  },
+  "families": {
+    "canard": {
+      "aircraft_revision": "9a4fb99eff8877be0edbe87f27cf95dcb792125c30651c503d6d02efafea9d12",
+      "builder_revision": "canard-screening-v1+f9174e01e0439bda0badf92d42c425ed0e50092c4c44611a7790b0d047797bd6",
+      "control_channels": [
+        [
+          "foreplane_elevator",
+          "pitch",
+          20.0
+        ],
+        [
+          "aileron",
+          "roll",
+          20.0
+        ]
+      ],
+      "directional_control": "absent",
+      "envelopes": {
+        "neutral": {
+          "declaration_sha256": "f81c7b75215ae6016c365397e7d5aa05fd62d1266ca104b49e5536174c422dba",
+          "numerically_qualified": false,
+          "replay": "matched",
+          "report_sha256": "1ebfbe6b3418a21f8a264391a3505d35d64b6450ddf5cb0793a1a5dd562ef23a",
+          "state": "blocked",
+          "summary": {
+            "blocked": 4,
+            "points": 4,
+            "qualified": 0,
+            "rejected": 0
+          },
+          "trim_unsupported": [
+            "body",
+            "control_hardware_drag",
+            "junction:foreplane",
+            "junction:main_wing",
+            "lifting_surfaces"
+          ]
+        }
+      },
+      "equilibrium": "unsupported",
+      "exclusive_overlapping_flap_segments": 0,
+      "inputs_record_sha256": "01d43d57f5feb22bded5445d5fff2fd2de8dce9444225df97820846805bf6310",
+      "ledger_revision_sha256": "554a397953431ee89503b82a6ce52b6a0657969666973d2cdcdc61ed6ab18d18",
+      "mass_properties": {
+        "cg_m": [
+          0.37365927983243263,
+          0.0,
+          0.009964964041849865
+        ],
+        "inertia_body_axes_kg_m2": [
+          [
+            0.006959973276073206,
+            0.0,
+            0.00010344304117730308
+          ],
+          [
+            0.0,
+            0.0020158908271050943,
+            0.0
+          ],
+          [
+            0.00010344304117730308,
+            0.0,
+            0.008910604634069988
+          ]
+        ],
+        "inertia_cg_kg_m2": [
+          [
+            0.006959973276073206,
+            0.0,
+            0.00010344304117730308
+          ],
+          [
+            0.0,
+            0.0020158908271050943,
+            0.0
+          ],
+          [
+            0.00010344304117730308,
+            0.0,
+            0.008910604634069988
+          ]
+        ],
+        "mass_kg": 0.15665004622441087,
+        "mass_properties_sha256": "82de5144d0c3ff6613dad53ad5041c8cb77c40929054ed89b55508940fc2f070",
+        "measured_aircraft": false,
+        "omitted_self_inertia": [
+          "body",
+          "equipment"
+        ],
+        "products_of_inertia_kg_m2": {
+          "Jxy": -0.0,
+          "Jxz": -0.00010344304117730308,
+          "Jyz": -0.0
+        },
+        "state": "calculated_screening"
+      },
+      "missing_inputs": [
+        "authority_requirement",
+        "body_oml",
+        "control_hardware",
+        "directional_control_hardware",
+        "hinge_moments",
+        "junctions",
+        "measured_mass_properties",
+        "rate_and_sideslip_aerodynamics",
+        "section_bank",
+        "stability_requirement",
+        "stall_envelope",
+        "unsteady_derivatives"
+      ],
+      "physical_segments": 4,
+      "required_contributions": [
+        "lifting_surfaces",
+        "body",
+        "junction:foreplane",
+        "junction:main_wing",
+        "control_hardware_drag"
+      ],
+      "shared_segments": 0
+    },
+    "tailless_swept": {
+      "aircraft_revision": "3b24b59d67836916067bf35bf8d4b02854e2d7dc452725b3d6615024c667ef8f",
+      "banked_plus3_state": {
+        "aerodynamic_domain": {
+          "bank": {
+            "beta_deg": [
+              0.0,
+              0.0
+            ],
+            "body_rates_rad_s": "zero_only",
+            "controls": "frozen_installed_state",
+            "foils": {
+              "d8e3b2bda89b9977d81a456e93fa17f14d245d01e5116eade8e14428325c95bd": {
+                "native_alpha_deg": [
+                  2.5,
+                  5.5
+                ],
+                "reynolds": [
+                  49000.0,
+                  56000.0,
+                  64000.0
+                ],
+                "rows": 9
+              },
+              "e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca": {
+                "native_alpha_deg": [
+                  3.0,
+                  6.0
+                ],
+                "reynolds": [
+                  49000.0,
+                  74000.0
+                ],
+                "rows": 3
+              }
+            },
+            "interpolation": "inside sampled native rows and Reynolds bracket only; no extrapolation"
+          },
+          "body": "absent",
+          "junctions": [],
+          "section_bank_class": "numerical_model",
+          "stall": "unsupported_attached_flow_only"
+        },
+        "bank": "passed_and_replayed",
+        "controls_deg": {
+          "elevon_pitch": 3.0,
+          "elevon_roll": 0.0
+        },
+        "envelope": {
+          "declaration_sha256": "76e2179d8832d808f3f72afd7fc0181ffaf09fb85a307dacc9125c86c844482f",
+          "replay": "matched",
+          "report_sha256": "361795e9033e84944d7110d4367b5981daa742cf5e5051485cb641914feeb71d",
+          "state": "blocked",
+          "summary": {
+            "blocked": 3,
+            "points": 3,
+            "qualified": 0,
+            "rejected": 0
+          },
+          "trim_unsupported": [
+            "body",
+            "control_hardware_drag",
+            "junction:main_wing"
+          ]
+        },
+        "lifting_only": {
+          "force_n": [
+            -0.019389691006512864,
+            -1.734723475976807e-18,
+            1.9007158464897835
+          ],
+          "label": "circulation_root_lifting_only_not_trim",
+          "moment_nm": [
+            -1.734723475976807e-17,
+            -0.04337569375140648,
+            -1.1926223897340549e-18
+          ]
+        },
+        "missing_inputs": [
+          "authority_requirement",
+          "body_oml",
+          "control_hardware",
+          "directional_control_hardware",
+          "hinge_moments",
+          "junctions",
+          "measured_mass_properties",
+          "rate_and_sideslip_aerodynamics",
+          "stability_requirement",
+          "stall_envelope",
+          "unsteady_derivatives"
+        ],
+        "points": [
+          {
+            "reason": "No covered coupled lifting solution: Initial root residual has no covered evaluation: Local Reynolds number outside coordinate polar coverage",
+            "speed_m_s": 5.5,
+            "trim": "out_of_coverage",
+            "unsupported": [],
+            "verdict": "blocked"
+          },
+          {
+            "reason": "",
+            "speed_m_s": 6.0,
+            "trim": "unsupported",
+            "unsupported": [
+              "body",
+              "junction:main_wing",
+              "control_hardware_drag"
+            ],
+            "verdict": "blocked"
+          },
+          {
+            "reason": "No covered coupled lifting solution: Initial root residual has no covered evaluation: Local Reynolds number outside coordinate polar coverage",
+            "speed_m_s": 6.5,
+            "trim": "out_of_coverage",
+            "unsupported": [],
+            "verdict": "blocked"
+          }
+        ]
+      },
+      "builder_revision": "tailless-swept-screening-v1+0c697d71047d7ce9c2cc4588985c19d90325869d2d4a361f2fd9bfdedaed93f3",
+      "control_channels": [
+        [
+          "elevon_pitch",
+          "pitch",
+          20.0
+        ],
+        [
+          "elevon_roll",
+          "roll",
+          20.0
+        ]
+      ],
+      "directional_control": "absent",
+      "envelopes": {
+        "neutral": {
+          "declaration_sha256": "5d69a16ecd74cec1de3cff9b22d228306b7f6587b52cdd549f4dd1d0a28ea821",
+          "numerically_qualified": false,
+          "replay": "matched",
+          "report_sha256": "b9d74ee70d3595f230bfc3fb24baf06b8fd1417cd0c234f9d572be37a709195f",
+          "state": "blocked",
+          "summary": {
+            "blocked": 4,
+            "points": 4,
+            "qualified": 0,
+            "rejected": 0
+          },
+          "trim_unsupported": [
+            "body",
+            "control_hardware_drag",
+            "junction:main_wing",
+            "lifting_surfaces"
+          ]
+        }
+      },
+      "equilibrium": "unsupported",
+      "exclusive_overlapping_flap_segments": 0,
+      "inputs_record_sha256": "e629752dd4e67ece55d2e9c53334cdfcb02db68167140b399f1361cb329cb6ad",
+      "ledger_revision_sha256": "ee79408e830a2b9a962d0b3b34512ffc566dfaa0f943ca57a97b6fa6dfe73d0d",
+      "mass_properties": {
+        "cg_m": [
+          0.2823746180691183,
+          0.0,
+          0.006406483141174639
+        ],
+        "inertia_body_axes_kg_m2": [
+          [
+            0.006713655682348002,
+            0.0,
+            -7.82211740215658e-05
+          ],
+          [
+            0.0,
+            0.0009193429341055316,
+            0.0
+          ],
+          [
+            -7.82211740215658e-05,
+            0.0,
+            0.007607882096035288
+          ]
+        ],
+        "inertia_cg_kg_m2": [
+          [
+            0.006713655682348002,
+            0.0,
+            -7.82211740215658e-05
+          ],
+          [
+            0.0,
+            0.0009193429341055316,
+            0.0
+          ],
+          [
+            -7.82211740215658e-05,
+            0.0,
+            0.007607882096035288
+          ]
+        ],
+        "mass_kg": 0.14245559321989032,
+        "mass_properties_sha256": "e9a59183e1dfe81088263286c4f4324c11ae447dd47e1b36a5591c494d87459c",
+        "measured_aircraft": false,
+        "omitted_self_inertia": [
+          "body",
+          "equipment"
+        ],
+        "products_of_inertia_kg_m2": {
+          "Jxy": -0.0,
+          "Jxz": 7.82211740215658e-05,
+          "Jyz": -0.0
+        },
+        "state": "calculated_screening"
+      },
+      "missing_inputs": [
+        "authority_requirement",
+        "body_oml",
+        "control_hardware",
+        "directional_control_hardware",
+        "hinge_moments",
+        "junctions",
+        "measured_mass_properties",
+        "rate_and_sideslip_aerodynamics",
+        "section_bank",
+        "stability_requirement",
+        "stall_envelope",
+        "unsteady_derivatives"
+      ],
+      "physical_segments": 2,
+      "required_contributions": [
+        "lifting_surfaces",
+        "body",
+        "junction:main_wing",
+        "control_hardware_drag"
+      ],
+      "shared_segments": 2
+    },
+    "tandem": {
+      "aircraft_revision": "57d38f45cbc22ad1d81ef040c4d89ceefe6aab1886f6ee07a91102e2cac44fe0",
+      "builder_revision": "tandem-screening-v1+6eac7cef982888e7f51af1dede83a6e4ffe8ca0ba5f474435db0d7df5582daab",
+      "control_channels": [
+        [
+          "front_elevator",
+          "pitch",
+          20.0
+        ],
+        [
+          "rear_elevator",
+          "pitch",
+          20.0
+        ],
+        [
+          "aileron",
+          "roll",
+          20.0
+        ]
+      ],
+      "directional_control": "absent",
+      "envelopes": {
+        "neutral": {
+          "declaration_sha256": "fac279f248d0caf0b111c57a49880c90bd09c89d8eb66fe952c8cbd530528ff1",
+          "numerically_qualified": false,
+          "replay": "matched",
+          "report_sha256": "ebd32629c4cd5c920fe9e9c5ea778ed0e8aad8743dad41f1f92650a53930fb3e",
+          "state": "blocked",
+          "summary": {
+            "blocked": 4,
+            "points": 4,
+            "qualified": 0,
+            "rejected": 0
+          },
+          "trim_unsupported": [
+            "body",
+            "control_hardware_drag",
+            "junction:front_wing",
+            "junction:rear_wing",
+            "lifting_surfaces"
+          ]
+        }
+      },
+      "equilibrium": "unsupported",
+      "exclusive_overlapping_flap_segments": 2,
+      "inputs_record_sha256": "5c271938b72fd843245259f16a6303280a089971634cd1dd8b2b3cd45a8d76f6",
+      "ledger_revision_sha256": "859be553042c24c02bf3f40cb53b21013219cddcb09615c82fbc45626a823aba",
+      "mass_properties": {
+        "cg_m": [
+          0.30760490874510865,
+          0.0,
+          0.02278889092808923
+        ],
+        "inertia_body_axes_kg_m2": [
+          [
+            0.005967165587508393,
+            0.0,
+            -0.0005316711041650825
+          ],
+          [
+            0.0,
+            0.003497021298691757,
+            0.0
+          ],
+          [
+            -0.0005316711041650825,
+            0.0,
+            0.009135697986473403
+          ]
+        ],
+        "inertia_cg_kg_m2": [
+          [
+            0.005967165587508393,
+            0.0,
+            -0.0005316711041650825
+          ],
+          [
+            0.0,
+            0.003497021298691757,
+            0.0
+          ],
+          [
+            -0.0005316711041650825,
+            0.0,
+            0.009135697986473403
+          ]
+        ],
+        "mass_kg": 0.1652981481475354,
+        "mass_properties_sha256": "7604cd012acc6a604dc43bd24dbc2761a161a4e520aba55d3a23b8e880d3f50e",
+        "measured_aircraft": false,
+        "omitted_self_inertia": [
+          "body",
+          "equipment"
+        ],
+        "products_of_inertia_kg_m2": {
+          "Jxy": -0.0,
+          "Jxz": 0.0005316711041650825,
+          "Jyz": -0.0
+        },
+        "state": "calculated_screening"
+      },
+      "missing_inputs": [
+        "authority_requirement",
+        "body_oml",
+        "control_hardware",
+        "directional_control_hardware",
+        "hinge_moments",
+        "junctions",
+        "measured_mass_properties",
+        "rate_and_sideslip_aerodynamics",
+        "section_bank",
+        "stability_requirement",
+        "stall_envelope",
+        "unsteady_derivatives"
+      ],
+      "physical_segments": 6,
+      "required_contributions": [
+        "lifting_surfaces",
+        "body",
+        "junction:front_wing",
+        "junction:rear_wing",
+        "control_hardware_drag"
+      ],
+      "shared_segments": 2
+    }
+  },
+  "fixes": [
+    "linearize/control_authority used standard gravity regardless of the trim problem gravity",
+    "control_authority reported requirement_met when axes were unlisted (favourable default)",
+    "mode classifier labelled an overdamped short period / multiple lateral pairs instead of refusing"
+  ],
+  "fixture_envelopes": {
+    "blocked": [
+      "45 m/s out of fixture aerodynamic coverage",
+      "missing control hardware",
+      "missing unsteady terms"
+    ],
+    "boundary_rejected": "7 m/s: spiral real > 0 (time to double ~73 s) meets mission 8 s limit, rejected by family rule",
+    "positive": "9/10.5/12 m/s all qualified_point -> fixture_machinery_only (never qualified)",
+    "rejected": [
+      "positive Cm_alpha configuration"
+    ]
+  },
+  "focused": {
+    "files": [
+      "backend/tests/test_cem_family_dynamics_control.py",
+      "backend/tests/test_cem_family_physics.py",
+      "backend/tests/test_cem_family_physics_integration.py",
+      "backend/tests/test_cem_aircraft_families.py"
+    ],
+    "passed": 128
+  },
+  "fresh_task_restoration": "unperformed",
+  "historical_limits_preserved": [
+    "A low-Re interpolation/missing-row failures",
+    "real paired-arm spiral rejection",
+    "failed coarse and 0.75-degree deflected audits",
+    "aborted oversized refinement",
+    "canard/tandem F3/F4 section banks failed (panel-distribution record)",
+    "interrupted-audit 567 passed/1 failed historical receipt"
+  ],
+  "implementation_identity": {
+    "files": {
+      "../../../aero/body.py": "81feb6d64d879ddd7a425f2198d640fe0c3d77bea6af90c93c6d8805f68f0908",
+      "../../../aero/numerics.py": "bbf0dc6bfbad015cbd84a3aed26158689e2da4ed97535d861bdcfd31fd067c90",
+      "../../../aero/polars.py": "ed535544361a68f5395f9040aaba7cff8ff790ce317bc94fc07c832e3a79086b",
+      "../coordinate_polars.py": "a3530206dc817193f563d9084619be6f5b30b49eae64fa14eef6860042059a3f",
+      "../coupled_aero.py": "463429eda27db6fe85e51fc9ec3a017ae9ff7e0c4eef29bebccb0804ae1b4b1e",
+      "../installed.py": "7ad4c4fe59b2c7cfaca7325dcdd13dc2e517666cb3d5fa285e3bf3beecd7b294",
+      "assessment.py": "089901661605b3adabcbe8dccea0439407b375e5e3692d5c73b4f235293ff0bd",
+      "authority.py": "509ddfcf017d528ac5f3beac0089cbe4103ca801b09cb63a3264e48479169a60",
+      "derivatives.py": "de017172330dfe81aad7da2bd23ec7b129259f089917bd6b5e741251dedbd696",
+      "dynamics.py": "fa93ae0ab01a6620550d9f817601ef3797e5a191efcb42232fae926b806e32b3",
+      "envelope.py": "60df16118670def7339fe5ad3fe4c5b2af8dff31221c0e7ab53be35b914f666d",
+      "fixtures.py": "17301c1dd5de0df9ea57dfbc084065dfcd30c3f501bf4b9fe66630c55ccde25d",
+      "frames.py": "6c85f85b5fa6b29096e1998b264d4d4ac3b7ea96e001947d8d64ee21ca7759e5",
+      "interfaces.py": "202600dcb3f4e679a1bda9d66b808f378e2008506d4d1cd1a05d3475473e6d3e",
+      "mass.py": "19fb82004ce56a74251f3201725b1f05ed800901d434986f357e37a9a0eab3a5",
+      "qualification.py": "af1355c73b802957c37edf8c491d2252773507342db96199ac08d8f815eeefdb",
+      "stability.py": "a184d71ef3bffeb822a8aed70f5c02fdb093f9498c53f2ca177599e4513c0fd3",
+      "trim.py": "8675c189ae559b5e0d74301981daf7402642270b241f200dd52fdc3616d5c68e",
+      "wrench.py": "c4734cc42fde5a09e0bb88f3a4ce2b98b3c0c6389a0591585ab9304319880155"
+    },
+    "implementation_sha256": "a0b89093123b89fb56737047c077ec38135ae5f53bbb146eecf18f9dc86677ff"
+  },
+  "interactive_browser": "unperformed",
+  "merge_gate_schema_tests": "passed (test_prompts_schema 9/9, test_runner_filters 10/10, test_md_report 11/11)",
+  "native_build": {
+    "avl_sha256": "228ac10493f2363d25a1395d98cf0bdb5112deb620ad4840fd612e55c984855c",
+    "compiler": "GNU Fortran (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "matches_previous_receipt": true,
+    "source_mirror": "http://archive.ubuntu.com/ubuntu/pool/universe/x/xfoil/",
+    "xfoil_sha256": "0633e30b81c709396b0413a5437a207dde0d72aab4464e1b0eeebcb31ae27e2b"
+  },
+  "native_limits": {
+    "changed": false,
+    "execution": "sequential, no competing native job",
+    "max_audit_artifacts": 150,
+    "max_file_bytes": 1048576,
+    "timeout_s": 20
+  },
+  "physical_construction": false,
+  "physical_validation": false,
+  "production_admission": false,
+  "provider_generation": "unperformed",
+  "publication": "unperformed",
+  "published_reference": {
+    "acceptance_sources": [
+      "J. How, MIT 16.61 Aerospace Dynamics (2003) Lecture AC-2 (longitudinal A, eigenvalues)",
+      "J. How, MIT 16.61 Aerospace Dynamics (2003) Lecture AC-3 (lateral eigenvalues)"
+    ],
+    "computed_modes": {
+      "dutch_roll": {
+        "damping_ratio": 0.03491247556319175,
+        "imag": 0.9469795748246328,
+        "natural_frequency": 0.9475572306304193,
+        "real": -0.03308156865911016
+      },
+      "phugoid": {
+        "damping_ratio": 0.04888186206470991,
+        "imag": 0.06720196006005277,
+        "natural_frequency": 0.06728239163445614,
+        "real": -0.003288888587259277
+      },
+      "roll": {
+        "damping_ratio": 1.0,
+        "imag": 0.0,
+        "natural_frequency": 0.56325905975902,
+        "real": -0.56325905975902
+      },
+      "short_period": {
+        "damping_ratio": 0.3865034220547651,
+        "imag": 0.8869236333637269,
+        "natural_frequency": 0.9616558597067607,
+        "real": -0.3716832806156801
+      },
+      "spiral": {
+        "damping_ratio": 1.0,
+        "imag": 0.0,
+        "natural_frequency": 0.007261172725347022,
+        "real": -0.007261172725347022
+      }
+    },
+    "decoupled": true,
+    "derivative_source": "Etkin & Reid, Dynamics of Flight 3rd ed. (1996) 747 cruise example",
+    "max_A_longitudinal_abs_error": 4.3713450292396164e-05,
+    "max_real_part_abs_error": {
+      "dutch_roll": 1.84313408898365e-05,
+      "phugoid": 1.1111412740722956e-05,
+      "roll": 4.094024098000304e-05,
+      "short_period": 1.6719384319852093e-05,
+      "spiral": 3.882727465297827e-05
+    },
+    "published": {
+      "A_longitudinal": [
+        [
+          -0.0069,
+          0.0139,
+          0.0,
+          -9.81
+        ],
+        [
+          -0.0905,
+          -0.3149,
+          235.8928,
+          0.0
+        ],
+        [
+          0.0004,
+          -0.0034,
+          -0.4282,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ]
+      ],
+      "dutch_roll": {
+        "imag": 0.947,
+        "real": -0.0331
+      },
+      "lateral_states": [
+        "v",
+        "p",
+        "r",
+        "phi"
+      ],
+      "longitudinal_states": [
+        "u",
+        "w",
+        "q",
+        "theta"
+      ],
+      "phugoid": {
+        "damping_ratio": 0.049,
+        "imag": 0.0672,
+        "natural_frequency": 0.067,
+        "real": -0.0033
+      },
+      "roll": {
+        "real": -0.5633
+      },
+      "short_period": {
+        "damping_ratio": 0.387,
+        "imag": 0.8869,
+        "natural_frequency": 0.962,
+        "real": -0.3717
+      },
+      "spiral": {
+        "real": -0.0073
+      }
+    },
+    "source": "Etkin & Reid (1996) 747 cruise derivatives; How, MIT 16.61 (2003) AC-2/AC-3 published A and eigenvalues",
+    "unsteady": "included",
+    "within_printed_precision": true
+  },
+  "qualified_control_authority": false,
+  "qualified_dynamics": false,
+  "qualified_trim": false,
+  "raw_evidence": {
+    "bytes": 663417,
+    "file": "docs/testing/artifacts/cem-dynamics-control/mirum-dynamics-control-evidence.tar.gz",
+    "members": 226,
+    "sha256": "f8f26849cbf45e7a8e0963915b76f2246e7c478a625bed417f9fd7563869cd4d"
+  },
+  "regression": {
+    "api_tests_socket": "real local sockets; no restriction encountered",
+    "command": "python -m pytest backend/tests/test_cem* backend/tests/test_glider* frontend/test_cem_ui.py analysis/tests/test_avl.py analysis/tests/test_airfoil.py -q",
+    "new_tests": 31,
+    "previous_receipt_passed": 635,
+    "runs": [
+      {
+        "log": "regression-final.log",
+        "log_sha256": "01a1967e59b4bb6073621c63f522e91550c8d4c817c48217929192766b01ae7b",
+        "passed": 666,
+        "summary": "666 passed, 2 warnings in 748.82s (0:12:28)",
+        "wall": "12m29.811s"
+      }
+    ]
+  },
+  "runtime": {
+    "activation": "/home/user/mirum-env.sh (session-local, not committed)",
+    "installed_from": "docs/testing/cem-native-angle-results.json runtime.packages (118 pins)",
+    "packages": {
+      "aerosandbox": "4.2.10",
+      "numpy": "2.2.6",
+      "pydantic": "2.9.2",
+      "scipy": "1.15.3"
+    },
+    "python": "3.12.3"
+  },
+  "scope": "dynamics_and_controls_machinery_validation_and_actual_family_qualification_attempt",
+  "section_audits_fresh": {
+    "audits": {
+      "deflected": {
+        "evidence_sha256": "bd2aad15d3651bd732eac67e6f3dcd6c6793cf7d59d080a503007429a78f9340",
+        "failure": null,
+        "interpolation_worst": {
+          "cd": {
+            "absolute_error": 0.000295359999999998,
+            "alpha_deg": 3.812,
+            "directory": "midpoint_0",
+            "observed": 0.02066,
+            "predicted": 0.02095536,
+            "reynolds": 52383.20341483518
+          },
+          "cl": {
+            "absolute_error": 0.014278266666666595,
+            "alpha_deg": 2.688,
+            "directory": "midpoint_1",
+            "observed": 0.3695,
+            "predicted": 0.3552217333333334,
+            "reynolds": 59866.51818838306
+          },
+          "cm": {
+            "absolute_error": 0.002616533333333327,
+            "alpha_deg": 2.688,
+            "directory": "midpoint_1",
+            "observed": -0.0315,
+            "predicted": -0.028883466666666673,
+            "reynolds": 59866.51818838306
+          }
+        },
+        "query_count": 17,
+        "replay": "matched",
+        "state": "passed"
+      },
+      "neutral": {
+        "evidence_sha256": "6e781b6f983ba64ca3d4dec4a2a03c33526300b63d070ae04d04966a73350137",
+        "failure": null,
+        "interpolation_worst": {
+          "cd": {
+            "absolute_error": 0.0007025000000000017,
+            "alpha_deg": 3.75,
+            "directory": "midpoint_0",
+            "observed": 0.01953,
+            "predicted": 0.0202325,
+            "reynolds": 60216.27686929839
+          },
+          "cl": {
+            "absolute_error": 0.013899999999999968,
+            "alpha_deg": 3.0,
+            "directory": "midpoint_0",
+            "observed": 0.3615,
+            "predicted": 0.3476,
+            "reynolds": 60216.27686929839
+          },
+          "cm": {
+            "absolute_error": 0.0015000000000000013,
+            "alpha_deg": 3.0,
+            "directory": "midpoint_0",
+            "observed": -0.0233,
+            "predicted": -0.0218,
+            "reynolds": 60216.27686929839
+          }
+        },
+        "query_count": 11,
+        "replay": "matched",
+        "state": "passed"
+      }
+    },
+    "directory": "family-physics-b2b70cb (in evidence archive)",
+    "matches_previous_numbers": true,
+    "note": "evidence digests differ from the f1b193f-era receipt because the b2b70cb audit code binds panel distributions and additional sources; worst errors and lifting result identical"
+  },
+  "security_review_surfaces_touched": false,
+  "source_sha256": {
+    "backend/cem/glider/families/__init__.py": "fa8faae588053ce10ae20fdf2afde6332fc51acd244c9c95cafb987774cd6f24",
+    "backend/cem/glider/families/physics/__init__.py": "bfffea520d01b491822e83f6e1d6abc7ae685a4f10472e2b266f46884571004a",
+    "backend/cem/glider/families/physics/assessment.py": "089901661605b3adabcbe8dccea0439407b375e5e3692d5c73b4f235293ff0bd",
+    "backend/cem/glider/families/physics/authority.py": "509ddfcf017d528ac5f3beac0089cbe4103ca801b09cb63a3264e48479169a60",
+    "backend/cem/glider/families/physics/derivatives.py": "de017172330dfe81aad7da2bd23ec7b129259f089917bd6b5e741251dedbd696",
+    "backend/cem/glider/families/physics/dynamics.py": "fa93ae0ab01a6620550d9f817601ef3797e5a191efcb42232fae926b806e32b3",
+    "backend/cem/glider/families/physics/envelope.py": "60df16118670def7339fe5ad3fe4c5b2af8dff31221c0e7ab53be35b914f666d",
+    "backend/cem/glider/families/physics/fixtures.py": "17301c1dd5de0df9ea57dfbc084065dfcd30c3f501bf4b9fe66630c55ccde25d",
+    "backend/cem/glider/families/physics/frames.py": "6c85f85b5fa6b29096e1998b264d4d4ac3b7ea96e001947d8d64ee21ca7759e5",
+    "backend/cem/glider/families/physics/interfaces.py": "202600dcb3f4e679a1bda9d66b808f378e2008506d4d1cd1a05d3475473e6d3e",
+    "backend/cem/glider/families/physics/mass.py": "19fb82004ce56a74251f3201725b1f05ed800901d434986f357e37a9a0eab3a5",
+    "backend/cem/glider/families/physics/qualification.py": "af1355c73b802957c37edf8c491d2252773507342db96199ac08d8f815eeefdb",
+    "backend/cem/glider/families/physics/stability.py": "a184d71ef3bffeb822a8aed70f5c02fdb093f9498c53f2ca177599e4513c0fd3",
+    "backend/cem/glider/families/physics/trim.py": "8675c189ae559b5e0d74301981daf7402642270b241f200dd52fdc3616d5c68e",
+    "backend/cem/glider/families/physics/wrench.py": "c4734cc42fde5a09e0bb88f3a4ce2b98b3c0c6389a0591585ab9304319880155",
+    "backend/tests/test_cem_family_dynamics_control.py": "340f4f84d32182c1073c83a6b7d980edc9dfe692784e65307741f745a71c789d",
+    "backend/tests/test_cem_family_physics.py": "416a7818a414779348a1a68d4a87a63a39527aa00835e62a5dd5f6b87043d295",
+    "frontend/cem_ui.py": "bc23561b38bd45341e0dc56dc6dfed23b40badcc769f6b8a7e7fa3a28a757b60",
+    "scripts/cem/assess_family_dynamics.py": "384bd9b04a9874cd60347cf25c955f4e0e5b8c33fa40d67961f00e2e559ef794"
+  },
+  "stall_sequencing": "unsupported_attached_flow_only",
+  "started_from": "f1b193f245ba418bae31f2cefe5c8b4be0cbb9bf",
+  "tolerances": {
+    "cd": 0.001,
+    "changed": false,
+    "cl": 0.025,
+    "cm": 0.005
+  },
+  "upstream": {
+    "A": "6b4df7a38a5e5eaf700686ff21fde9acd62683d3",
+    "B": "5f5fc120163e18d37daf765e5956635a63bb1911",
+    "C": "40fa44aa5e9d34097249295dfad660a6e23711b8",
+    "branches_modified": false
+  },
+  "verified_gain": false
+}

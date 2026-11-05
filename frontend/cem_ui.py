@@ -60,7 +60,10 @@ def render_cem(backend, headers):
         families = st.multiselect('Layout families', ['conventional', 't_tail', 'v_tail'], default=['conventional', 't_tail', 'v_tail'],
                                   format_func=lambda v: {'conventional':'Conventional', 't_tail':'T-tail', 'v_tail':'V-tail'}[v])
         st.caption('Tailless swept, canard and tandem geometry prototypes are not available for search. '
-                   'Their family-specific aerodynamic and construction qualification is still required.')
+                   'Their family-specific aerodynamic and construction qualification is still required. '
+                   'Trim, dynamic-mode and control-authority checks are implemented but no envelope is '
+                   'qualified: body, junction, control-hardware/hinge-moment, rate/unsteady aerodynamic and '
+                   'requirement inputs are missing, and no yaw control is declared.')
         hard = st.checkbox('Also enforce a hard minimum at P10',
                            help='The lower 10th percentile of the model uncertainty band must meet this value.')
         minimum = st.number_input('Hard minimum (m or s)', .001, 1000000., 100.)

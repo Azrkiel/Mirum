@@ -484,7 +484,11 @@ def test_control_authority_is_evaluated_at_limits_with_explicit_requirement():
     qb = .5*fx.density_kg_m3*V*V
     roll = unassessed['channels']['aileron']['moment_increment_body_nm']['+'][0]
     assert roll == pytest.approx(qb*fx.area_m2*fx.span_m*fx.controls['aileron']['Cl']*math.radians(20))
-    assert dynamics.control_authority(trimmed, requirement=dict(L=roll*.9), **kw)['state'] == \
+    # Axes the requirement does not list stay unassessed; they are never met by default.
+    partial = dynamics.control_authority(trimmed, requirement=dict(L=roll*.9), **kw)
+    assert partial['state'] == 'listed_axes_met_other_axes_unassessed'
+    assert partial['unassessed_axes'] == ['M', 'N']
+    assert dynamics.control_authority(trimmed, requirement=dict(L=roll*.9, M=1e-3, N=1e-6), **kw)['state'] == \
         'requirement_met_at_fixed_state'
     short = dynamics.control_authority(trimmed, requirement=dict(L=roll*1.1, N=1e-6), **kw)
     assert short['state'] == 'insufficient_authority' and short['shortfall'] == ['L']

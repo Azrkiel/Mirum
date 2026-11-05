@@ -264,3 +264,24 @@ def family_screening_properties(aircraft):
         binding_sha256=digest(dict(aircraft_revision=aircraft.revision,
                                    mass=record['mass_properties_sha256'],
                                    inventory=[asdict(p) for p in aircraft.inventory])))
+
+
+def reference_rigid_body(mass_kg, cg_m, inertia_body_axes_kg_m2, *, source):
+    """Declared rigid body for analytical/published reference checks only.
+
+    Not an aircraft mass model: it carries no components and can never satisfy
+    a family qualification. The body-axes tensor is validated like any other.
+    """
+    if not (math.isfinite(mass_kg) and mass_kg > 0):
+        raise ValueError('Positive finite reference mass required')
+    body = check_tensor(inertia_body_axes_kg_m2)
+    tensor = frames.tensor_body_to_geometry(body)
+    record = dict(axes=frames.AXES['geometry'], units='kg, m, kg m^2', mass_kg=float(mass_kg),
+        cg_m=frames.vector(cg_m).tolist(), inertia_cg_kg_m2=tensor.tolist(),
+        products_of_inertia_kg_m2=dict(Jxy=float(-tensor[0, 1]), Jxz=float(-tensor[0, 2]),
+                                       Jyz=float(-tensor[1, 2])),
+        inertia_body_axes_kg_m2=np.asarray(body, dtype=float).tolist(), component_count=0,
+        component_evidence=['reference'], omitted_self_inertia=[], state='reference_rigid_body_not_aircraft',
+        measured_aircraft=False, source=source)
+    record['mass_properties_sha256'] = digest(record)
+    return record

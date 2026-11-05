@@ -143,7 +143,11 @@ def _residual(problem, model, mass, state):
 
 
 def _mass_evidence(mass):
-    return 'measured' if mass.get('state') == 'measured_delivered_components' else 'calculated_screening'
+    if mass.get('state') == 'measured_delivered_components':
+        return 'measured'
+    if mass.get('state') == 'reference_rigid_body_not_aircraft':
+        return 'analytic_fixture'
+    return 'calculated_screening'
 
 
 def solve(problem, model, mass):
@@ -247,3 +251,40 @@ def _diagnose(p, model, mass, lower, upper, index):
         diagnosis='sign_definite_residual_on_full_declared_grid', sign_definite_equations=definite,
         grid_points=p.grid_points, grid_samples=len(samples),
         limitation='Grid sign evidence, not a proof between samples; bounds and limits were not exceeded.')
+
+
+def verify_equilibrium(*, revision_sha256, required, model, mass, flight_state, controls, reference_span_m,
+                       reference_chord_m, gravity_m_s2=frames.STANDARD_GRAVITY_M_S2, tolerance=1e-8,
+                       source='declared'):
+    """Check a declared steady equilibrium instead of solving for one.
+
+    Used for published reference states (whose speed may lie outside the glider
+    trim envelope) and for replaying a recorded trim. All six scaled residuals
+    must close; a label alone never establishes equilibrium. The returned
+    record has the same shape as a ``solve`` result.
+    """
+    state = {k: float(flight_state[k]) for k in STATE}
+    state.update(p_rad_s=0., q_rad_s=0., r_rad_s=0., controls={k: float(v) for k, v in controls.items()})
+    problem = dict(revision_sha256=revision_sha256, required=list(required), gravity_m_s2=gravity_m_s2,
+                   reference_chord_m=reference_chord_m, reference_span_m=reference_span_m,
+                   closure_tolerance=tolerance)
+    shim = type('Declared', (), dict(revision_sha256=revision_sha256, required=tuple(required),
+        gravity_m_s2=gravity_m_s2, reference_span_m=reference_span_m, reference_chord_m=reference_chord_m))
+    base = dict(scope='declared_steady_equilibrium_check', source=source, revision_sha256=revision_sha256,
+        mass_properties_sha256=digest(mass), problem=problem, axes=frames.AXES, production_admission=False,
+        qualified_aircraft=False, verified_gain=False, physical_construction=False)
+    try:
+        residual, total, contributions = _residual(shim, model, mass, state)
+    except UnsupportedContribution as exc:
+        return dict(base, state='unsupported', resultant=exc.record)
+    except PolarCoverageError as exc:
+        return dict(base, state='out_of_coverage', reason=str(exc))
+    worst = float(np.max(np.abs(residual)))
+    if worst > tolerance:
+        return dict(base, state='not_an_equilibrium', residual=dict(zip(EQUATIONS, residual.tolist())))
+    return dict(base, state='trimmed', flight_state=state, residual=dict(zip(EQUATIONS, residual.tolist())),
+        unsolved_residuals={}, flight_path_angle_deg=frames.flight_path_angle_deg(
+            state['alpha_deg'], state['beta_deg'], state['bank_deg'], state['pitch_deg']),
+        controls={k: dict(deflection_deg=v) for k, v in state['controls'].items()}, saturated_controls=[],
+        authority='unassessed_missing_requirement', resultant=total,
+        contributions=[c.model_dump(mode='json') for c in contributions])
