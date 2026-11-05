@@ -36,6 +36,38 @@ def test_coordinate_bank_rejects_gaps_extrapolation_and_postpeak():
             CoordinateBank(bad).coefficients(key,150000.,1.)
 
 
+def test_coordinate_bank_uses_native_angles_without_relabelling_rows():
+    reports = fixture_reports()
+    for r in reports:
+        r['requested_angles_deg'] = [-1.9996, .0004, 2.0004]
+    bank = CoordinateBank(reports)
+    key = reports[0]['coordinates_sha256']
+    # Values belong to native output angles, not the higher precision request.
+    assert bank.coefficients(key, 150000., 1.)[0] == pytest.approx(.1, abs=1e-14)
+    from cem.aero.polars import PolarCoverageError
+    # Neither the declared domain nor the actual sampled domain may expand.
+    for alpha in (-1.9998, 2.0002):
+        with pytest.raises(PolarCoverageError, match='angle'):
+            bank.coefficients(key, 150000., alpha)
+
+
+@pytest.mark.parametrize('kind', ['duplicate', 'reversed', 'inconsistent'])
+def test_coordinate_bank_rejects_ambiguous_native_angle_grid(kind):
+    reports = fixture_reports()
+    for r in reports:
+        r['requested_angles_deg'] = [0., .0004, .0008]
+        for row, alpha in zip(r['rows'], (0., .0004, .0008)):
+            row['alpha_deg'] = alpha
+    if kind == 'duplicate':
+        reports[0]['rows'][1]['alpha_deg'] = 0.
+    elif kind == 'reversed':
+        reports[0]['rows'][1]['alpha_deg'] = -.0001
+    else:
+        reports[1]['rows'][1]['alpha_deg'] = .0005
+    with pytest.raises(ValueError, match='native angle'):
+        CoordinateBank(reports)
+
+
 def test_native_exact_coordinate_reference_and_parent_replay(tmp_path):
     points=asb.Airfoil('naca0012').coordinates
     report=query(points,1000000.,[0.,2.,4.],tmp_path/'polar')

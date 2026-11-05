@@ -1,0 +1,1217 @@
+{
+  "scope": "fresh_native_angle_coverage_and_low_re_diagnostics_not_aircraft_qualification",
+  "base_commit": "127c8cfaa6cab5208e5eb167471154fdcb31b0fc",
+  "branch": "cem-integration-verification",
+  "upstream": {
+    "A": "6b4df7a38a5e5eaf700686ff21fde9acd62683d3",
+    "B": "5f5fc120163e18d37daf765e5956635a63bb1911",
+    "new_implementation_available": false,
+    "branches_modified": false
+  },
+  "historical_regression": {
+    "receipt": "docs/testing/cem-interrupted-audit-results.json",
+    "passed": 567,
+    "failed": 1,
+    "unchanged": true
+  },
+  "historical_raw_artifacts": "absent_not_restored_or_replayed",
+  "historical_coordinate_drift_cause": "unresolved_previous_runtime_artifacts_insufficient",
+  "installed_identity_comparison": [
+    {
+      "family": "tailless_swept",
+      "controls": {
+        "elevon_pitch": 0.0,
+        "elevon_roll": 0.0
+      },
+      "historical_installed": "9ab5d8049091ac2651082b95edda1a59a8b35b12dafad28f68c3d3be6f4bee8d",
+      "fresh_installed": "9ab5d8049091ac2651082b95edda1a59a8b35b12dafad28f68c3d3be6f4bee8d",
+      "historical_foils": [
+        "e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca"
+      ],
+      "fresh_foils": [
+        "e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca"
+      ],
+      "byte_identity_match": true
+    },
+    {
+      "family": "tailless_swept",
+      "controls": {
+        "elevon_pitch": 3.0,
+        "elevon_roll": 0.0
+      },
+      "historical_installed": "8edfe8e883ee04d86e3a66789196614eeb72d8084a225d4c4f81b62bac998665",
+      "fresh_installed": "8edfe8e883ee04d86e3a66789196614eeb72d8084a225d4c4f81b62bac998665",
+      "historical_foils": [
+        "d8e3b2bda89b9977d81a456e93fa17f14d245d01e5116eade8e14428325c95bd",
+        "e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca"
+      ],
+      "fresh_foils": [
+        "d8e3b2bda89b9977d81a456e93fa17f14d245d01e5116eade8e14428325c95bd",
+        "e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca"
+      ],
+      "byte_identity_match": true
+    },
+    {
+      "family": "canard",
+      "controls": {
+        "foreplane_elevator": 0.0,
+        "aileron": 0.0
+      },
+      "historical_installed": "dd7dacff8c35326058139e8f1fc6414e7a6ed9d2f69e675eb17731a3f2ddf75e",
+      "fresh_installed": "dd7dacff8c35326058139e8f1fc6414e7a6ed9d2f69e675eb17731a3f2ddf75e",
+      "historical_foils": [
+        "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97"
+      ],
+      "fresh_foils": [
+        "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97"
+      ],
+      "byte_identity_match": true
+    },
+    {
+      "family": "canard",
+      "controls": {
+        "foreplane_elevator": 3.0,
+        "aileron": 0.0
+      },
+      "historical_installed": "3a1b771288f1fe5fb3b4ac6c754ddd89d16023846539fc73a69346a0ffd660b1",
+      "fresh_installed": "3a1b771288f1fe5fb3b4ac6c754ddd89d16023846539fc73a69346a0ffd660b1",
+      "historical_foils": [
+        "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97",
+        "f925aa8eb7278e37bf672436156955aaf51d4a37c4e72859213dfd2650f04f0d"
+      ],
+      "fresh_foils": [
+        "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97",
+        "f925aa8eb7278e37bf672436156955aaf51d4a37c4e72859213dfd2650f04f0d"
+      ],
+      "byte_identity_match": true
+    },
+    {
+      "family": "tandem",
+      "controls": {
+        "front_elevator": 0.0,
+        "rear_elevator": 0.0,
+        "aileron": 0.0
+      },
+      "historical_installed": "e3d18af47bd5d9afcf349af56da21df64ed88a6a027323756f0c4bd949d56b98",
+      "fresh_installed": "e3d18af47bd5d9afcf349af56da21df64ed88a6a027323756f0c4bd949d56b98",
+      "historical_foils": [
+        "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97"
+      ],
+      "fresh_foils": [
+        "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97"
+      ],
+      "byte_identity_match": true
+    },
+    {
+      "family": "tandem",
+      "controls": {
+        "front_elevator": 3.0,
+        "rear_elevator": 0.0,
+        "aileron": 0.0
+      },
+      "historical_installed": "4829c82bbad044835745e4785f80c21a28c09fb94e8e502b9010e237c83c8a11",
+      "fresh_installed": "4829c82bbad044835745e4785f80c21a28c09fb94e8e502b9010e237c83c8a11",
+      "historical_foils": [
+        "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97",
+        "f925aa8eb7278e37bf672436156955aaf51d4a37c4e72859213dfd2650f04f0d"
+      ],
+      "fresh_foils": [
+        "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97",
+        "f925aa8eb7278e37bf672436156955aaf51d4a37c4e72859213dfd2650f04f0d"
+      ],
+      "byte_identity_match": true
+    }
+  ],
+  "runtime": {
+    "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "machine": "x86_64",
+    "packages": {
+      "google-auth": "2.62.1",
+      "google-auth-httplib2": "0.4.4",
+      "kiwisolver": "1.5.1",
+      "starlette": "0.38.6",
+      "pycparser": "3.12",
+      "gitdb": "4.0.12",
+      "trame-common": "1.2.9",
+      "NeuralFoil": "0.3.3",
+      "frozenlist": "1.8.0",
+      "charset-normalizer": "3.5.2",
+      "tornado": "6.6",
+      "scipy": "1.15.3",
+      "multimethod": "1.12",
+      "slowapi": "0.1.9",
+      "pytz": "2026.6",
+      "propcache": "0.5.4",
+      "cadquery": "2.6.1",
+      "cycler": "0.12.1",
+      "contourpy": "1.4.0",
+      "nlopt": "2.11.0",
+      "altair": "5.5.0",
+      "trame-vtk": "2.11.17",
+      "pytest-asyncio": "0.24.0",
+      "idna": "3.20",
+      "uvicorn": "0.30.6",
+      "path": "17.1.1",
+      "google-api-python-client": "2.201.0",
+      "cadquery-ocp": "7.8.1.1.post1",
+      "tzdata": "2026.6",
+      "fastapi": "0.115.0",
+      "pyasn1": "0.6.5",
+      "Jinja2": "3.1.6",
+      "google-generativeai": "0.8.3",
+      "grpcio-status": "1.71.2",
+      "markdown-it-py": "4.2.0",
+      "certifi": "2026.10.23",
+      "protobuf": "5.29.6",
+      "pillow": "10.4.0",
+      "pydantic": "2.9.2",
+      "dill": "0.4.1",
+      "GitPython": "3.2.1",
+      "multidict": "7.2.1",
+      "sortedcontainers": "2.4.0",
+      "yarl": "1.25.1",
+      "trame": "4.0.0",
+      "networkx": "3.4.2",
+      "typing_extensions": "4.16.0",
+      "Deprecated": "3.0.1",
+      "cachetools": "5.5.2",
+      "blinker": "1.9.0",
+      "rich": "13.9.4",
+      "httpcore": "1.0.9",
+      "packaging": "24.2",
+      "aiosignal": "1.4.0",
+      "cffi": "2.1.1",
+      "streamlit": "1.39.0",
+      "jsonschema": "4.26.0",
+      "wrapt": "2.5.2",
+      "watchdog": "5.0.3",
+      "casadi": "3.8.2",
+      "googleapis-common-protos": "1.75.0",
+      "google-ai-generativelanguage": "0.6.10",
+      "pyasn1_modules": "0.4.2",
+      "cryptography": "50.0.2",
+      "aiohttp": "3.14.5",
+      "python-dateutil": "4.0.0",
+      "limits": "5.8.0",
+      "more-itertools": "11.2.1",
+      "uritemplate": "4.2.0",
+      "trame-client": "4.1.4",
+      "AeroSandbox": "4.2.10",
+      "seaborn": "0.13.2",
+      "trimesh": "4.4.3",
+      "MarkupSafe": "3.0.4",
+      "tenacity": "9.2.1",
+      "urllib3": "2.8.0",
+      "pytest": "8.3.3",
+      "pandas": "2.3.3",
+      "toml": "0.10.2",
+      "PyYAML": "6.0.3",
+      "jsonschema-specifications": "2025.9.1",
+      "pluggy": "1.7.0",
+      "tqdm": "4.70.1",
+      "iniconfig": "2.3.1",
+      "attrs": "26.1.0",
+      "numpy": "2.2.6",
+      "ezdxf": "1.4.5",
+      "httpx": "0.27.2",
+      "Pygments": "2.21.0",
+      "click": "8.5.0",
+      "h11": "0.16.0",
+      "referencing": "0.37.0",
+      "pydeck": "0.9.3",
+      "narwhals": "2.28.0",
+      "pydantic_core": "2.23.4",
+      "matplotlib": "3.11.2",
+      "fpdf2": "2.8.9",
+      "aiohappyeyeballs": "2.7.1",
+      "wslink": "2.6.0",
+      "proto-plus": "1.28.2",
+      "defusedxml": "0.7.1",
+      "httplib2": "0.32.1",
+      "rpds-py": "2026.9.1",
+      "requests": "2.34.2",
+      "grpcio": "1.85.1",
+      "pyarrow": "26.0.1",
+      "anyio": "4.16.0",
+      "pyparsing": "3.3.3",
+      "mdurl": "0.1.2",
+      "smmap": "5.0.3",
+      "annotated-types": "0.8.0",
+      "fonttools": "4.68.0",
+      "trame-server": "4.1.0",
+      "google-api-core": "2.33.0",
+      "typish": "1.9.3",
+      "msgpack": "1.2.4",
+      "sniffio": "1.3.1",
+      "vtk": "9.3.1"
+    },
+    "numpy_core_sha256": "e6241082eaab01d0f68b2b661522ecb9d5d2160915104df8b112cc161dfa18b4"
+  },
+  "runtime_lock_sha256": "0827cdf58797c51cf487037f7ab70c67b3d0f041d12c17f6b1dfbe2dc0d0b314",
+  "native_build": {
+    "source_archives": {
+      "xfoil_6.99.dfsg+1.orig.tar.gz": "f5ece350981f35f7b5b4cef540c921ffad877b0942591efb88bad76cc08b597a",
+      "xfoil_6.99.dfsg+1-3.debian.tar.xz": "b6688dc60a8437fbabb0da80fdceb623bcdd6c4f35ca8afbe130f817c6140837"
+    },
+    "avl_revision": "b67837fa737afdf7a56655b044242619246b3ada",
+    "xfoil_flags": "-O0 -g -fbacktrace -fbounds-check -finit-real=inf -ffpe-trap=invalid,zero -fdefault-real-8 -fallow-argument-mismatch",
+    "headless_patch_sha256": "8e5df7f0731081c0066b7e3b6fd9dd31e3e1c910db9539c5faab6beedb22142a",
+    "compiler": "/workspace/mirum-tools/fc",
+    "compiler_version": "GNU Fortran (Debian 14.2.0-19) 14.2.0\nCopyright (C) 2024 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+    "fortran_link_flags": "",
+    "x11_include": "/workspace/mirum-tools/root/usr/include",
+    "x11_library": "/usr/lib/x86_64-linux-gnu/libX11.so.6",
+    "binaries": {
+      "xfoil": {
+        "path": "/workspace/mirum-native/Xfoil/bin/xfoil",
+        "sha256": "3faf545ff335b8727e96e02d2c6b532abe8b6cf5cce68ece9411181582b92da5"
+      },
+      "avl": {
+        "path": "/workspace/mirum-native/avl-build/src/avl",
+        "sha256": "a42b13345ea95b169917d0bff30fcddb3907659d782e1be405dd360989c2b196"
+      }
+    }
+  },
+  "native_binaries_match_historical": false,
+  "native_limits": {
+    "timeout_s": 20,
+    "max_file_bytes": 1048576,
+    "max_audit_artifacts": 150,
+    "changed": false
+  },
+  "tolerances": {
+    "cl": 0.025,
+    "cd": 0.001,
+    "cm": 0.005
+  },
+  "source_sha256": {
+    "backend/cem/glider/families/coordinate_polars.py": "9249f4267217fea273f4939980855a3df147ecdc6ca1c552beeb538ca9efb375",
+    "backend/tests/test_cem_family_coordinate_polars.py": "d85b304640754a3b5bce1f9b61936018ac6ab97120fe4c5b50a79f8469de0a2b",
+    "scripts/cem/qualify_coordinate_rounding.py": "838872d254df781b722a5736fc2c4fb08716ca6e2e47936abf068fe4ca2b4c80",
+    "backend/cem/glider/families/coordinate_audit.py": "bf09008cad2e5d14702e18c545c4b1cebd93be9ce4ddf39b8a01e00e5a45dc95",
+    "backend/cem/aero/native.py": "0428c3657cfe4110eb7fb89b32fc1f5bc394164d806d83dbe7bb647429d514fb",
+    "backend/cem/glider/families/coupled_aero.py": "463429eda27db6fe85e51fc9ec3a017ae9ff7e0c4eef29bebccb0804ae1b4b1e"
+  },
+  "helper_sha256": {
+    "/workspace/mirum-onboarding/boundary-layer.py": "be9d283a3f096c24e1bc128d52db91165d8ea2f2a07e9f9213d9321650c84b03",
+    "/workspace/mirum-onboarding/boundary-layer-bunched.py": "21564c3cce9d1c020291fbace5b0079ebec3405549e71ba9bbd8f78bb3c52146",
+    "/workspace/mirum-onboarding/quarter-grid.py": "64a8f2750056a61f7eb8c9f90c6bb849e7dfbce71968561fb490c5e3bee73200",
+    "/workspace/mirum-onboarding/quarter-grid-bounded.py": "1299f02a44cfc11d4ec4ad1cc1e49d0718d813f0599d2665a634cce2b2c6ba9a",
+    "/workspace/mirum-onboarding/replay-coupled.py": "5af90b29a1ea07e250137c9bc4f8d527df2e04fd38fde0198d76c8c591213073",
+    "/workspace/mirum-onboarding/smoke-api.py": "80124807ce28b11534d3cce69bfbe4c67e8847c05716338dd72b563a20bc000b",
+    "/workspace/mirum-onboarding/install.sh": "2922a853a207061d075efa18e7c8b06d5c5ed4b5bffd90ea8554795b1edb4f13",
+    "/workspace/mirum-onboarding/saved-install.sh": "36ae5250ae8ecf7c3f14e96ff68a9e15bac0420d33f62eecd089ee2fcc7d9742"
+  },
+  "regression": {
+    "command": "python -m pytest backend/tests/test_cem* backend/tests/test_glider* frontend/test_cem_ui.py analysis/tests/test_avl.py analysis/tests/test_airfoil.py -q",
+    "summary": "572 passed, 2 warnings in 731.84s (0:12:11)",
+    "exit_code": 0,
+    "passed": 572,
+    "failed": 0,
+    "skipped": 0,
+    "warnings": 2,
+    "log_sha256": "57b67f9ec974ae96717844784816ceeb711bb87104514959d5cb1310c3173a9c"
+  },
+  "focused": {
+    "passed": 21,
+    "deselected": 3,
+    "reason": "native cases then executed in complete combined suite",
+    "new_tests_initially_failed": 4
+  },
+  "deflected_audits": [
+    {
+      "evidence_sha256": "6e31c34f8c966c9eb8034e416039696999f7730ed5783416873a36b6680490d7",
+      "failure": {
+        "reason": "Coordinate midpoint interpolation exceeds tolerance",
+        "type": "ValueError"
+      },
+      "interpolation_worst": {
+        "cd": {
+          "absolute_error": 0.0007524999999999997,
+          "alpha_deg": 3.25,
+          "directory": "midpoint_0",
+          "observed": 0.02069,
+          "predicted": 0.0214425,
+          "reynolds": 56000.0
+        },
+        "cl": {
+          "absolute_error": 0.05080000000000001,
+          "alpha_deg": 3.25,
+          "directory": "midpoint_0",
+          "observed": 0.4531,
+          "predicted": 0.4023,
+          "reynolds": 56000.0
+        },
+        "cm": {
+          "absolute_error": 0.009325000000000003,
+          "alpha_deg": 3.25,
+          "directory": "midpoint_0",
+          "observed": -0.0323,
+          "predicted": -0.022975,
+          "reynolds": 56000.0
+        }
+      },
+      "name": "coarse",
+      "replay": "matched",
+      "state": "failed"
+    },
+    {
+      "evidence_sha256": "0c4c860798079bbf08b5e2157a8111f0861ab8c8a8d8e2a3eab4d5d7b3007d7a",
+      "failure": {
+        "reason": "Coordinate midpoint interpolation exceeds tolerance",
+        "type": "ValueError"
+      },
+      "interpolation_worst": {
+        "cd": {
+          "absolute_error": 0.0006150000000000044,
+          "alpha_deg": 3.625,
+          "directory": "midpoint_1",
+          "observed": 0.01869,
+          "predicted": 0.019305000000000003,
+          "reynolds": 59866.51818838306
+        },
+        "cl": {
+          "absolute_error": 0.023199999999999943,
+          "alpha_deg": 2.875,
+          "directory": "midpoint_0",
+          "observed": 0.3614,
+          "predicted": 0.33820000000000006,
+          "reynolds": 52383.20341483518
+        },
+        "cm": {
+          "absolute_error": 0.005124999999999994,
+          "alpha_deg": 2.875,
+          "directory": "midpoint_0",
+          "observed": -0.0292,
+          "predicted": -0.024075000000000006,
+          "reynolds": 52383.20341483518
+        }
+      },
+      "name": "refined",
+      "replay": "matched",
+      "state": "failed"
+    }
+  ],
+  "rounding": {
+    "native_angles": [
+      3.024,
+      4.0,
+      5.5
+    ],
+    "production_admission": false,
+    "replay": "matched",
+    "requested_angles": [
+      3.02376103536733,
+      4.0,
+      5.5
+    ],
+    "requested_endpoint": {
+      "reason": "Local angle outside coordinate polar coverage",
+      "state": "rejected"
+    }
+  },
+  "oversized_refinement": {
+    "reynolds": [
+      49000.0,
+      52383.20341483518,
+      56000.0,
+      59866.51818838306,
+      64000.0
+    ],
+    "angles": [
+      2.5,
+      2.875,
+      3.25,
+      3.625,
+      4.0,
+      4.375,
+      4.75,
+      5.125,
+      5.5
+    ],
+    "state": "aborted_artifact_budget",
+    "completed_query_files": 29,
+    "inventory_files": 174,
+    "whole_audit_report": false,
+    "whole_audit_replay": "unperformed",
+    "supplies_bank": false,
+    "log_sha256": "88c80c6c54de9120c1d203e05b6534b382024e1736226f48e835d3c6e041fbd4"
+  },
+  "bounded_refinement": {
+    "declaration": {
+      "angles": [
+        2.5,
+        2.875,
+        3.25,
+        3.625,
+        4.0,
+        4.375,
+        4.75,
+        5.125,
+        5.5
+      ],
+      "foil_sha256": "d8e3b2bda89b9977d81a456e93fa17f14d245d01e5116eade8e14428325c95bd",
+      "neutral_angles": [
+        3.0,
+        4.5,
+        6.0
+      ],
+      "neutral_reynolds": [
+        49000.0,
+        74000.0
+      ],
+      "production_admission": false,
+      "reynolds": [
+        49000.0,
+        56000.0,
+        64000.0
+      ],
+      "transition": {},
+      "vaccel": null
+    },
+    "summary": {
+      "failure": null,
+      "interpolation_worst": {
+        "cd": {
+          "absolute_error": 0.000295359999999998,
+          "alpha_deg": 3.812,
+          "directory": "midpoint_0",
+          "observed": 0.02066,
+          "predicted": 0.02095536,
+          "reynolds": 52383.20341483518
+        },
+        "cl": {
+          "absolute_error": 0.014278266666666595,
+          "alpha_deg": 2.688,
+          "directory": "midpoint_1",
+          "observed": 0.3695,
+          "predicted": 0.3552217333333334,
+          "reynolds": 59866.51818838306
+        },
+        "cm": {
+          "absolute_error": 0.002616533333333327,
+          "alpha_deg": 2.688,
+          "directory": "midpoint_1",
+          "observed": -0.0315,
+          "predicted": -0.028883466666666673,
+          "reynolds": 59866.51818838306
+        }
+      },
+      "neutral": {
+        "failure": null,
+        "replay": "matched",
+        "state": "passed"
+      },
+      "production_admission": false,
+      "rejections": 0,
+      "replay": "matched",
+      "requests": 1848,
+      "solver_state": "circulation_solution_only",
+      "state": "passed"
+    },
+    "deflected_audit_sha256": "d8339a0fb71a5bcf78fd8a119712243d2a1dbfe84f9976240817f12ba73761ca",
+    "neutral_audit_sha256": "15a371d56a6de13c915f1db93a67246d284e966468a98f57068d2efe8c3055dd"
+  },
+  "coupled": {
+    "state": "circulation_only_not_aircraft_equilibrium",
+    "replay": {
+      "instrumented_scientific_payload": "matched_except_expected_instrumentation_source_fingerprint",
+      "production_admission": false,
+      "standard_bank_full_replay": "matched"
+    },
+    "report_sha256": "3be837a64d7fc24320001d32724d9564a059ba397cf6d2af31d0bb93edae22f0",
+    "trace_sha256": "fd8ea0383d146e14e331febb353a3c0ab16afa3ad0c7c899be18b7bea9e1bcc7",
+    "conditions": {
+      "alpha_deg": 4.0,
+      "altitude_m": 0.0,
+      "initial_circulation_m2_s": null,
+      "spanwise": 4,
+      "speed_m_s": 6.0
+    },
+    "solver_diagnostics": {
+      "iterations": 3,
+      "rejected_domain_trials": 0,
+      "residual_norm": 7.468649762438921e-12
+    },
+    "circulation_residual": 7.468649762438921e-12,
+    "force_n": [
+      -0.019389691006512864,
+      -1.734723475976807e-18,
+      1.9007158464897835
+    ],
+    "moment_cg_nm": [
+      -1.734723475976807e-17,
+      -0.04337569375140648,
+      -1.1926223897340549e-18
+    ],
+    "requests": 1848,
+    "rejections": 0,
+    "strip_reynolds": [
+      49037.59732377723,
+      73027.89314974357
+    ],
+    "strip_alpha_deg": [
+      3.189540682020019,
+      4.5596902429720325
+    ],
+    "independent_native_at_every_converged_strip": false
+  },
+  "boundary_layer": [
+    {
+      "directory": "/workspace/mirum-boundary-layer",
+      "declaration_sha256": "a3434be6754e5aef8fbadc67e4e99b257b571cd24ffcf9337df56a49ac6600cc",
+      "cases": [
+        {
+          "case": {
+            "alpha": 6.0,
+            "bottom_xtr": 1.0,
+            "initialization": "ALFA 0 then target",
+            "ncrit": 9.0,
+            "panels": 160,
+            "reynolds": 33000.0,
+            "top_xtr": 1.0,
+            "vaccel": null
+          },
+          "independent_repeat": "matched",
+          "native_state": "completed",
+          "production_admission": false,
+          "qualified_aircraft_stall": false,
+          "target_polar_row": [
+            6.0,
+            0.6073,
+            0.06009,
+            0.04164,
+            -0.0535,
+            0.6888,
+            0.9999,
+            21.3208,
+            160.0
+          ],
+          "post_transition_gradients": [
+            {
+              "side": "top",
+              "transition_x": 0.6888,
+              "eligible_pairs": 19,
+              "exceedances": 4,
+              "max_hk_drop": 5.011000000000001,
+              "max_ue_change": 0.021440000000000126
+            },
+            {
+              "side": "bottom",
+              "transition_x": 0.9999,
+              "eligible_pairs": 0,
+              "exceedances": 0,
+              "max_hk_drop": null,
+              "max_ue_change": null
+            }
+          ]
+        },
+        {
+          "case": {
+            "alpha": 8.0,
+            "bottom_xtr": 1.0,
+            "initialization": "ALFA 0 then target",
+            "ncrit": 9.0,
+            "panels": 160,
+            "reynolds": 33000.0,
+            "top_xtr": 1.0,
+            "vaccel": null
+          },
+          "independent_repeat": "matched",
+          "native_state": "completed",
+          "production_admission": false,
+          "qualified_aircraft_stall": false,
+          "target_polar_row": [
+            8.0,
+            0.9526,
+            0.05179,
+            0.03238,
+            -0.0346,
+            0.4127,
+            0.9999,
+            38.1968,
+            160.0
+          ],
+          "post_transition_gradients": [
+            {
+              "side": "top",
+              "transition_x": 0.4127,
+              "eligible_pairs": 36,
+              "exceedances": 3,
+              "max_hk_drop": 2.9611,
+              "max_ue_change": 0.03933000000000009
+            },
+            {
+              "side": "bottom",
+              "transition_x": 0.9999,
+              "eligible_pairs": 0,
+              "exceedances": 0,
+              "max_hk_drop": null,
+              "max_ue_change": null
+            }
+          ]
+        },
+        {
+          "case": {
+            "alpha": 6.0,
+            "bottom_xtr": 1.0,
+            "initialization": "ALFA 0 then target",
+            "ncrit": 9.0,
+            "panels": 240,
+            "reynolds": 33000.0,
+            "top_xtr": 1.0,
+            "vaccel": null
+          },
+          "independent_repeat": "matched",
+          "native_state": "completed",
+          "production_admission": false,
+          "qualified_aircraft_stall": false,
+          "target_polar_row": [
+            6.0,
+            0.6083,
+            0.06002,
+            0.0417,
+            -0.0536,
+            0.6894,
+            0.9999,
+            31.4402,
+            240.0
+          ],
+          "post_transition_gradients": [
+            {
+              "side": "top",
+              "transition_x": 0.6894,
+              "eligible_pairs": 29,
+              "exceedances": 4,
+              "max_hk_drop": 3.799899999999999,
+              "max_ue_change": 0.014929999999999888
+            },
+            {
+              "side": "bottom",
+              "transition_x": 0.9999,
+              "eligible_pairs": 0,
+              "exceedances": 0,
+              "max_hk_drop": null,
+              "max_ue_change": null
+            }
+          ]
+        },
+        {
+          "case": {
+            "alpha": 8.0,
+            "bottom_xtr": 1.0,
+            "initialization": "ALFA 0 then target",
+            "ncrit": 9.0,
+            "panels": 240,
+            "reynolds": 33000.0,
+            "top_xtr": 1.0,
+            "vaccel": null
+          },
+          "independent_repeat": "matched",
+          "native_state": "completed",
+          "production_admission": false,
+          "qualified_aircraft_stall": false,
+          "target_polar_row": [
+            8.0,
+            0.9627,
+            0.05073,
+            0.03143,
+            -0.0345,
+            0.4097,
+            0.9999,
+            57.1613,
+            240.0
+          ],
+          "post_transition_gradients": [
+            {
+              "side": "top",
+              "transition_x": 0.4097,
+              "eligible_pairs": 55,
+              "exceedances": 3,
+              "max_hk_drop": 2.2577999999999996,
+              "max_ue_change": 0.028059999999999974
+            },
+            {
+              "side": "bottom",
+              "transition_x": 0.9999,
+              "eligible_pairs": 0,
+              "exceedances": 0,
+              "max_hk_drop": null,
+              "max_ue_change": null
+            }
+          ]
+        }
+      ],
+      "full_audit_qualification": false
+    },
+    {
+      "directory": "/workspace/mirum-boundary-layer-bunched",
+      "declaration_sha256": "b6b3e68639005596705d155e8c952e2ad10d4511e4a7b53ef40f84c6e9df3339",
+      "cases": [
+        {
+          "case": {
+            "alpha": 6.0,
+            "bottom_xtr": 1.0,
+            "initialization": "ALFA 0 then target",
+            "ncrit": 9.0,
+            "panels": 160,
+            "refined_density_ratio": 1.0,
+            "reynolds": 33000.0,
+            "top_refined_x": [
+              0.4,
+              0.77
+            ],
+            "top_xtr": 1.0,
+            "vaccel": null
+          },
+          "independent_repeat": "matched",
+          "native_state": "completed",
+          "production_admission": false,
+          "qualified_aircraft_stall": false,
+          "target_polar_row": [
+            6.0,
+            0.6295,
+            0.05923,
+            0.04049,
+            -0.0549,
+            0.6808,
+            0.9999,
+            31.1282,
+            160.0
+          ],
+          "post_transition_gradients": [
+            {
+              "side": "top",
+              "transition_x": 0.6808,
+              "eligible_pairs": 29,
+              "exceedances": 4,
+              "max_hk_drop": 2.6621000000000024,
+              "max_ue_change": 0.015560000000000018
+            },
+            {
+              "side": "bottom",
+              "transition_x": 0.9999,
+              "eligible_pairs": 0,
+              "exceedances": 0,
+              "max_hk_drop": null,
+              "max_ue_change": null
+            }
+          ]
+        },
+        {
+          "case": {
+            "alpha": 8.0,
+            "bottom_xtr": 1.0,
+            "initialization": "ALFA 0 then target",
+            "ncrit": 9.0,
+            "panels": 160,
+            "refined_density_ratio": 1.0,
+            "reynolds": 33000.0,
+            "top_refined_x": [
+              0.4,
+              0.77
+            ],
+            "top_xtr": 1.0,
+            "vaccel": null
+          },
+          "independent_repeat": "matched",
+          "native_state": "completed",
+          "production_admission": false,
+          "qualified_aircraft_stall": false,
+          "target_polar_row": [
+            8.0,
+            0.9753,
+            0.0493,
+            0.02929,
+            -0.0343,
+            0.4012,
+            0.9999,
+            97.3229,
+            160.0
+          ],
+          "post_transition_gradients": [
+            {
+              "side": "top",
+              "transition_x": 0.4012,
+              "eligible_pairs": 95,
+              "exceedances": 0,
+              "max_hk_drop": 0.7977999999999987,
+              "max_ue_change": 0.015600000000000058
+            },
+            {
+              "side": "bottom",
+              "transition_x": 0.9999,
+              "eligible_pairs": 0,
+              "exceedances": 0,
+              "max_hk_drop": null,
+              "max_ue_change": null
+            }
+          ]
+        },
+        {
+          "case": {
+            "alpha": 6.0,
+            "bottom_xtr": 1.0,
+            "initialization": "ALFA 0 then target",
+            "ncrit": 9.0,
+            "panels": 240,
+            "refined_density_ratio": 1.0,
+            "reynolds": 33000.0,
+            "top_refined_x": [
+              0.4,
+              0.77
+            ],
+            "top_xtr": 1.0,
+            "vaccel": null
+          },
+          "independent_repeat": "matched",
+          "native_state": "completed",
+          "production_admission": false,
+          "qualified_aircraft_stall": false,
+          "target_polar_row": [
+            6.0,
+            0.6227,
+            0.05953,
+            0.0411,
+            -0.0546,
+            0.6854,
+            0.9999,
+            44.8239,
+            240.0
+          ],
+          "post_transition_gradients": [
+            {
+              "side": "top",
+              "transition_x": 0.6854,
+              "eligible_pairs": 42,
+              "exceedances": 3,
+              "max_hk_drop": 1.6511999999999993,
+              "max_ue_change": 0.010320000000000107
+            },
+            {
+              "side": "bottom",
+              "transition_x": 0.9999,
+              "eligible_pairs": 0,
+              "exceedances": 0,
+              "max_hk_drop": null,
+              "max_ue_change": null
+            }
+          ]
+        },
+        {
+          "case": {
+            "alpha": 8.0,
+            "bottom_xtr": 1.0,
+            "initialization": "ALFA 0 then target",
+            "ncrit": 9.0,
+            "panels": 240,
+            "refined_density_ratio": 1.0,
+            "reynolds": 33000.0,
+            "top_refined_x": [
+              0.4,
+              0.77
+            ],
+            "top_xtr": 1.0,
+            "vaccel": null
+          },
+          "independent_repeat": "matched",
+          "native_state": "completed",
+          "production_admission": false,
+          "qualified_aircraft_stall": false,
+          "target_polar_row": [
+            8.0,
+            0.9747,
+            0.04941,
+            0.02983,
+            -0.0344,
+            0.4035,
+            0.9999,
+            144.4079,
+            240.0
+          ],
+          "post_transition_gradients": [
+            {
+              "side": "top",
+              "transition_x": 0.4035,
+              "eligible_pairs": 142,
+              "exceedances": 0,
+              "max_hk_drop": 0.5602999999999998,
+              "max_ue_change": 0.010420000000000096
+            },
+            {
+              "side": "bottom",
+              "transition_x": 0.9999,
+              "eligible_pairs": 0,
+              "exceedances": 0,
+              "max_hk_drop": null,
+              "max_ue_change": null
+            }
+          ]
+        }
+      ],
+      "full_audit_qualification": false
+    }
+  ],
+  "low_re_sweep_coverage_repaired": false,
+  "manual_sha256": "c36482e92f6cab424e965ccb48d0d81ebc030204ebf44a4205b366b9d7db3bea",
+  "api_restart": [
+    {
+      "cycle": 0,
+      "metadata": 200,
+      "feasibility": {
+        "status": 200,
+        "body": {
+          "output_id": "a461416ad663",
+          "cem_version": "mirum-cem-glider-0.1.0+4eb54e5a595c",
+          "implementation_sha256": "4eb54e5a595cb4b77163a2e1c76b2f70b5d0a3914672a70118ee217ade69757d",
+          "calibration_version": "b1fa2cf84e57e195ef6ec77a66612aefb6d2a60dc7e1f2dc1de6b73576fa87b7",
+          "requirements_sha256": "8b63031ad4cf1ae75d3dfecdba65d4896ffe3358baddd810721564708a15b25b",
+          "verdict": "infeasible",
+          "verdict_scope": "sampled_model_envelope",
+          "continue_search": true,
+          "objective": "distance_m",
+          "reference_target": 1200.0,
+          "optimistic_bound": 496.0498572969427,
+          "reference_gap": 703.9501427030573,
+          "required_lift_to_drag": 120.0,
+          "required_sink_m_s": null,
+          "optimistic_lift_to_drag": 49.60498572969427,
+          "optimistic_cl_1_5_over_cd": 34.76593006497145,
+          "optimistic_sink_m_s": 0.05179682334785268,
+          "wing_loading_lower_bound_n_m2": 1.9862064935064938,
+          "bound_state": "sampled_initial_model",
+          "binding_constraint": "aerodynamic efficiency / launch energy",
+          "launch": {
+            "effective_height_m": 10.0,
+            "speed_m_s": 0.0,
+            "eta": 0.0,
+            "assumptions": [
+              "drop release speed assumed 0 m/s",
+              "Launch zoom efficiency 0 is a calibration prior; release height includes tow climb."
+            ]
+          },
+          "atmosphere": {
+            "density_kg_m3": 1.2250122659906946,
+            "dynamic_viscosity_pa_s": 1.7892976260350732e-05
+          },
+          "levers": [
+            {
+              "change": "relax_reference_target",
+              "value": 496.0498572969427,
+              "unit": "distance_m"
+            },
+            {
+              "change": "effective_launch_height",
+              "value": 24.191116726431442,
+              "unit": "m"
+            },
+            {
+              "change": "mean_uplift",
+              "value": 0.030385317656071623,
+              "unit": "m/s"
+            },
+            {
+              "change": "wing_loading_for_duration",
+              "value": 0.3394005668857967,
+              "unit": "N/m2"
+            }
+          ],
+          "bounds_version": "neuralfoil-envelope-1",
+          "bounds_source": {
+            "aerosandbox": "4.2.10",
+            "airfoils": [
+              "sd7037",
+              "ag24",
+              "ag25",
+              "s1223",
+              "naca2408",
+              "naca2412"
+            ],
+            "alpha_deg": [
+              -2,
+              14,
+              65
+            ],
+            "confidence_floor": 0.8,
+            "max_aspect_ratio": 14.0,
+            "model_size": "large",
+            "neuralfoil": "0.3.3",
+            "oswald_upper": 1.0,
+            "profile_drag_divisor": 1.25,
+            "xfoil": "not_cross_validated"
+          },
+          "assumptions": [
+            "drop release speed assumed 0 m/s",
+            "Launch zoom efficiency 0 is a calibration prior; release height includes tow climb.",
+            "Optimistic maximum area; tail, spar and pod mass omitted.",
+            "Finite-wing envelope assumes AR=14, e=1, profile drag divided by 1.25; body/tail drag omitted.",
+            "Infeasible means outside this sampled-model envelope, not a universal physical proof.",
+            "NeuralFoil envelope lacks independent XFOIL cross-validation and physical calibration."
+          ]
+        }
+      },
+      "rejections": {
+        "tailless_swept": {
+          "status": 422,
+          "body": {
+            "detail": "Selected calibration, family or process is unavailable"
+          }
+        },
+        "canard": {
+          "status": 422,
+          "body": {
+            "detail": "Selected calibration, family or process is unavailable"
+          }
+        },
+        "tandem": {
+          "status": 422,
+          "body": {
+            "detail": "Selected calibration, family or process is unavailable"
+          }
+        }
+      }
+    },
+    {
+      "cycle": 1,
+      "metadata": 200,
+      "feasibility": {
+        "status": 200,
+        "body": {
+          "output_id": "a461416ad663",
+          "cem_version": "mirum-cem-glider-0.1.0+4eb54e5a595c",
+          "implementation_sha256": "4eb54e5a595cb4b77163a2e1c76b2f70b5d0a3914672a70118ee217ade69757d",
+          "calibration_version": "b1fa2cf84e57e195ef6ec77a66612aefb6d2a60dc7e1f2dc1de6b73576fa87b7",
+          "requirements_sha256": "8b63031ad4cf1ae75d3dfecdba65d4896ffe3358baddd810721564708a15b25b",
+          "verdict": "infeasible",
+          "verdict_scope": "sampled_model_envelope",
+          "continue_search": true,
+          "objective": "distance_m",
+          "reference_target": 1200.0,
+          "optimistic_bound": 496.0498572969427,
+          "reference_gap": 703.9501427030573,
+          "required_lift_to_drag": 120.0,
+          "required_sink_m_s": null,
+          "optimistic_lift_to_drag": 49.60498572969427,
+          "optimistic_cl_1_5_over_cd": 34.76593006497145,
+          "optimistic_sink_m_s": 0.05179682334785268,
+          "wing_loading_lower_bound_n_m2": 1.9862064935064938,
+          "bound_state": "sampled_initial_model",
+          "binding_constraint": "aerodynamic efficiency / launch energy",
+          "launch": {
+            "effective_height_m": 10.0,
+            "speed_m_s": 0.0,
+            "eta": 0.0,
+            "assumptions": [
+              "drop release speed assumed 0 m/s",
+              "Launch zoom efficiency 0 is a calibration prior; release height includes tow climb."
+            ]
+          },
+          "atmosphere": {
+            "density_kg_m3": 1.2250122659906946,
+            "dynamic_viscosity_pa_s": 1.7892976260350732e-05
+          },
+          "levers": [
+            {
+              "change": "relax_reference_target",
+              "value": 496.0498572969427,
+              "unit": "distance_m"
+            },
+            {
+              "change": "effective_launch_height",
+              "value": 24.191116726431442,
+              "unit": "m"
+            },
+            {
+              "change": "mean_uplift",
+              "value": 0.030385317656071623,
+              "unit": "m/s"
+            },
+            {
+              "change": "wing_loading_for_duration",
+              "value": 0.3394005668857967,
+              "unit": "N/m2"
+            }
+          ],
+          "bounds_version": "neuralfoil-envelope-1",
+          "bounds_source": {
+            "aerosandbox": "4.2.10",
+            "airfoils": [
+              "sd7037",
+              "ag24",
+              "ag25",
+              "s1223",
+              "naca2408",
+              "naca2412"
+            ],
+            "alpha_deg": [
+              -2,
+              14,
+              65
+            ],
+            "confidence_floor": 0.8,
+            "max_aspect_ratio": 14.0,
+            "model_size": "large",
+            "neuralfoil": "0.3.3",
+            "oswald_upper": 1.0,
+            "profile_drag_divisor": 1.25,
+            "xfoil": "not_cross_validated"
+          },
+          "assumptions": [
+            "drop release speed assumed 0 m/s",
+            "Launch zoom efficiency 0 is a calibration prior; release height includes tow climb.",
+            "Optimistic maximum area; tail, spar and pod mass omitted.",
+            "Finite-wing envelope assumes AR=14, e=1, profile drag divided by 1.25; body/tail drag omitted.",
+            "Infeasible means outside this sampled-model envelope, not a universal physical proof.",
+            "NeuralFoil envelope lacks independent XFOIL cross-validation and physical calibration."
+          ]
+        }
+      },
+      "rejections": {
+        "tailless_swept": {
+          "status": 422,
+          "body": {
+            "detail": "Selected calibration, family or process is unavailable"
+          }
+        },
+        "canard": {
+          "status": 422,
+          "body": {
+            "detail": "Selected calibration, family or process is unavailable"
+          }
+        },
+        "tandem": {
+          "status": 422,
+          "body": {
+            "detail": "Selected calibration, family or process is unavailable"
+          }
+        }
+      }
+    }
+  ],
+  "repeat_install": "passed",
+  "exact_saved_install": "read_back_and_executed_successfully",
+  "setup_manifest_sha256": "0bfd27572497a93642bfce114e0e95d94559207b94e8b3560e7c24e42d616b15",
+  "configuration": {
+    "install_script": "saved",
+    "start_skill": "saved",
+    "requires_publish": true
+  },
+  "raw_evidence": {
+    "path": "/workspace/mirum-native-angle-evidence.tar.gz",
+    "sha256": "11480d9ab12ae704eebf027b5608dfbd0b1214c99b0118699d67952cdbfec82c",
+    "verified_member_files": 1763,
+    "retention": "local_workspace_only"
+  },
+  "production_admission": false,
+  "physical_construction": false,
+  "verified_gain": false,
+  "aircraft_equilibrium": "unestablished",
+  "body_junction_nonlinear_stall": "unsupported_missing_revision_specific_models",
+  "full_inertia_dynamics_authority": "unsupported_missing_measurements_hardware_requirements",
+  "construction": "unsupported_missing_geometry_correspondence_full_load_paths_material_process_evidence",
+  "publication": "unperformed",
+  "fresh_task_restoration": "unperformed",
+  "provider_generation": "unperformed",
+  "interactive_browser": "unperformed"
+}

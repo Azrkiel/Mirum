@@ -196,6 +196,8 @@ class CoordinateBank:
                     abs(row['alpha_deg']-a) > .001 for row,a in zip(rows,r['requested_angles_deg']))
                     or any(not all(math.isfinite(v) for v in row.values()) or row['cd'] <= 0 for row in rows)):
                 raise ValueError('Incomplete or invalid coordinate polar rows')
+            if any(b['alpha_deg'] <= a['alpha_deg'] for a, b in zip(rows, rows[1:])):
+                raise ValueError('Non-increasing native angle grid')
             self.groups.setdefault(r['coordinates_sha256'], []).append(r)
         for group in self.groups.values():
             group.sort(key=lambda r:r['reynolds'])
@@ -204,14 +206,21 @@ class CoordinateBank:
             if any((r['requested_angles_deg'],r['transition'],r['panels'],r.get('vaccel')) !=
                    (group[0]['requested_angles_deg'],group[0]['transition'],group[0]['panels'],group[0].get('vaccel')) for r in group):
                 raise ValueError('Inconsistent coordinate polar grid')
+            if any([row['alpha_deg'] for row in r['rows']] !=
+                   [row['alpha_deg'] for row in group[0]['rows']] for r in group):
+                raise ValueError('Inconsistent native angle grid')
 
     def coefficients(self, foil, reynolds, alpha):
         group = self.groups.get(foil, ())
         if (not math.isfinite(reynolds) or not math.isfinite(alpha) or not group
                 or not group[0]['reynolds'] <= reynolds <= group[-1]['reynolds']):
             raise PolarCoverageError('Local Reynolds number outside coordinate polar coverage')
-        angles = group[0]['requested_angles_deg']
-        if not angles[0] <= alpha <= angles[-1]:
+        declared = group[0]['requested_angles_deg']
+        angles = [row['alpha_deg'] for row in group[0]['rows']]
+        # XFOIL rounds output angles. Never relabel its coefficients with the
+        # unrounded request or let np.interp clamp beyond actual sampled rows.
+        # Both the declared window and the native sampled window must cover it.
+        if not max(declared[0], angles[0]) <= alpha <= min(declared[-1], angles[-1]):
             raise PolarCoverageError('Local angle outside coordinate polar coverage')
         i = max(0,min(len(group)-2,int(np.searchsorted([r['reynolds'] for r in group],reynolds))-1))
         a,b = group[i:i+2]
