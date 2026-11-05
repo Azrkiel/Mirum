@@ -1,0 +1,11 @@
+{
+  "receipt": "docs/testing/cem-aircraft-dynamics-control-results.json",
+  "artifacts": [
+    {
+      "file": "mirum-dynamics-control-evidence.tar.gz",
+      "sha256": "f8f26849cbf45e7a8e0963915b76f2246e7c478a625bed417f9fd7563869cd4d",
+      "bytes": 663417,
+      "members": 226
+    }
+  ]
+}

@@ -256,6 +256,20 @@ Each blocks the named qualification; none is defaulted.
 | Qualified nonlinear post-peak/interaction evidence | Stall sequencing (still `unsupported_attached_flow_only`) |
 | Bench and flight evidence; B's family construction | Physical validation and construction (not claimed) |
 
+## Validation performed
+
+- Combined regression (command in the continuation prompt): **666 passed**, no
+  failures or skips (635 previous + 31 new), native XFOIL/AVL cases included,
+  748.82 s, run alone after the final source change.
+- Focused dynamics/physics/family suites: 128 passed. Merge-gate schema tests
+  passed (9/9, 10/10, 11/11). `git diff --check` clean.
+- Provider-free `cem.app` on real local sockets, started/stopped/restarted twice:
+  metadata 200 (new dynamics capability fields, all unqualified), computed
+  feasibility 200 (`infeasible`), HTTP 422 for each of the three
+  unqualified-family-only searches; clean stop both cycles. No socket restriction.
+- No security-review surface (`main.py` endpoints, `compiler.py`, `schemas.py`,
+  `cad_utils.py`, Gemini keys) was changed.
+
 ## Reproduce
 
 ```sh
