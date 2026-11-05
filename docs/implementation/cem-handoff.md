@@ -4,6 +4,8 @@ Date: 2026-11-03. This document describes the implementation left in the workspa
 
 ## Start here
 
+**Read first:** [low-Re research handoff](cem-low-re-research-handoff.md). The branch is mid-change (code floor 50,000, owner decision 30,000).
+
 **Governing decision (2026-11-05):** [low-Re method validity and section-evidence
 policy](cem-low-re-method-decision.md). Every lifting/control section must be at
 Re ≥ 50,000 at the lowest declared speed, with a degraded band from 50,000 to
@@ -303,7 +305,7 @@ Preserve these as historical source/runtime-bound results. A changed implementat
 - Missing/nonfinite/stale/incomplete evidence must fail closed. Keep parent validation as well as worker-side checks.
 - Preserve strict schemas, compute caps, rate limits, credential-free worker environments, shared solver admission and cancellation cleanup.
 - Keep exact archive/elite membership, parameter revisions, per-part measurements, ZIP report equality and download hash validation. A plausible identity/status alone is not evidence.
-- Do not lower Re/confidence/stall/structural gates to make search return something. The station floor in code is still Re 30,000 with confidence 0.8. The [low-Re decision](cem-low-re-method-decision.md) raises the required floor to **Re 50,000**, with a degraded band to 70,000. That code change is pending, so treat 50,000 as the rule now and never go below it.
+- Do not lower Re/confidence/stall/structural gates to make search return something. The station floor is **Re 50,000** with confidence 0.8 and a degraded band to 70,000, per the [low-Re decision](cem-low-re-method-decision.md) (`backend/cem/glider/validity.py`). Never go below it.
 - The original legacy glider export had open/inconsistently oriented meshes unsuitable for volume measurement. Reuse the closed CEM construction/measurement path or independently prove a replacement; do not quietly repair missing geometry inside the verifier.
 - STL units are millimetres; aerodynamic calculations and measured properties use SI. Preserve the explicit 0.001 import scale.
 - Use fresh job/output directories. Reusing a completed directory can contaminate packaging with stale files.

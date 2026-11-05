@@ -1,5 +1,7 @@
 # Decision: low-Reynolds method validity and section-evidence policy
 
+**Read [cem-low-re-research-handoff.md](cem-low-re-research-handoff.md) first.** The owner later chose a hard floor of Re 30,000 with the degraded-band penalty from 30,000 to 70,000. Where this record or the code says 50,000, that handoff governs until the change is applied.
+
 Status: **adopted 2026-11-05 by the project owner.** This record supersedes every
 earlier handoff, backlog item or prompt that requires complete XFOIL section
 banks below Re 50,000, or that treats XFOIL bank completeness as the gate for
@@ -62,10 +64,14 @@ recorded as failed. They are not relabelled as passed.
   - the report states that the design operates in the degraded band;
   - a `verified_gain` claim may not rest on a station in this band unless P3
     spot checks pass there.
-- Replace the current `reynolds_floor=30000.` in `backend/cem/glider/model.py`
-  (`validity_envelope`). Version the change in provenance so old IDs are
-  preserved, and add positive and countercase tests at 49,999 / 50,000 and
-  69,999 / 70,000.
+- **Implemented** in `backend/cem/glider/validity.py`, used by the evaluator
+  (`model.py`), the parent evidence validators (`evidence.py`, `comparison.py`)
+  and the uncertainty propagation (`uncertainty.py`). `VERSION` is now
+  `mirum-cem-glider-0.2.0`. Boundary tests are in
+  `backend/tests/test_cem_low_re_validity.py`. The gate checks Re at the trim
+  glide speed, which is the only declared flight speed of the passive-glider
+  mission. Families still in development must apply the same rule at their own
+  trim and authority-limit states when they are wired into admission.
 - Never lower this floor to make a search return a design. Raising it per
   airfoil from measured data (P4) is allowed.
 
@@ -147,7 +153,7 @@ That is a valid engineering result: report it as an explicit no-design outcome.
 | Low-Re Hk-gradient / panel-distribution / VACCEL investigation at Re 33,000 | Open backlog | **Closed: outside method validity.** Do not continue tuning |
 | Swept F1/F2 banks, Re 49,000–74,000 | Passed / replayed | **Still valid evidence.** Note: the 49,000 lower edge is just below the P1 floor. The frozen swept states need ≥ 2% more chord or speed for their lowest stations to clear 50,000, or they are rejected by P1 |
 | Task A NACA 0006 low-Re reference, Re 30,000–60,000 | Failed at the Re ≈ 34,641 midpoint | **Withdrawn below 50,000.** If a low-Re numerical reference is still wanted, declare a new window at Re 50,000–100,000. Replace the "accuracy" role with P4 |
-| Model-wide station floor `reynolds_floor=30000` | In code | **Raise to 50,000** (P1, code change pending) |
+| Model-wide station floor `reynolds_floor=30000` | In code | **Raised to 50,000** with the degraded band (P1, implemented) |
 
 ## Implementation order
 
