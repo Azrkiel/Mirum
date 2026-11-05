@@ -9,6 +9,7 @@ import zipfile
 from cem.core import digest
 from cem.core import canonical_json
 from cem.glider.shapes import wing_from_parameters
+from cem.glider.validity import DEGRADED_CD_LOG_SIGMA, check_envelope
 
 
 def file_digest(path, maximum=64*1024*1024):
@@ -219,8 +220,7 @@ def validate(report, payload, expected, directory):
                 raise ValueError('Archive contains failed evidence')
             for key in ('mass_kg', 'CL_trim', 'CD_trim', 'CLmax_est', 'glide_speed_m_s', 'objective_value'):
                 number(result.get(key), 0.)
-            number(result['validity_envelope']['min_confidence'], .8, 1.)
-            number(result['validity_envelope']['min_station_reynolds'], 30000.)
+            check_envelope(result['validity_envelope'], number)
             if result['manufacturability']['state'] != 'passed':
                 raise ValueError('Missing process admission')
             if elite.get('novelty_state') != 'not_claimed' or elite.get('verification_state') != 'screened_existing_layout':
@@ -264,9 +264,12 @@ def validate(report, payload, expected, directory):
     number(closure.get('measured_spar_root_inertia_m4'), 1e-16)
     for key in ('CL_trim', 'CD_trim', 'CLmax_est', 'glide_speed_m_s', 'objective_value', 'static_margin'):
         number(aero.get(key), 0.)
-    number(aero['validity_envelope']['min_confidence'], .8, 1.)
-    number(aero['validity_envelope']['min_station_reynolds'], 30000.)
+    check_envelope(aero['validity_envelope'], number)
     bands = report['uncertainty']
+    degraded = bands.get('low_re_degraded_prior') or {}
+    if (degraded.get('applied') is not aero['validity_envelope']['low_re_degraded']
+            or degraded.get('applied') and degraded.get('log_sigma') != DEGRADED_CD_LOG_SIGMA):
+        raise ValueError('Uncertainty bands omit the low-Re degraded-band prior')
     if bands.get('samples') != 200 or bands.get('sustained_samples') != 0:
         raise ValueError('Missing unconditional uncertainty evidence')
     for key in ('duration_s', 'distance_m'):

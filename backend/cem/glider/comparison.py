@@ -9,6 +9,7 @@ from gliders.model.assembly import Glider
 from gliders.search import finite_json
 from .model import configuration, SizedGlider, evaluate_candidate
 from .shapes import ShapedWing, wing_from_parameters
+from .validity import check_envelope
 
 LIMITS = [
     'Paired screening equilibrium; only chord factors change. No hardware rebalancing or tail adjustment.',
@@ -123,8 +124,7 @@ def validate_comparison(report, payload, directory):
             for key in ('objective_value', 'mass_kg', 'CL_trim', 'CD_trim', 'glide_speed_m_s'):
                 number(result.get(key), 0.)
             number(result.get('Cm_trim'), -.01, .01)
-            number(result['validity_envelope']['min_confidence'], .8, 1.)
-            number(result['validity_envelope']['min_station_reynolds'], 30000.)
+            check_envelope(result['validity_envelope'], number)
             if result['manufacturability']['state'] != 'passed':
                 raise ValueError('Missing comparison process screen')
             frozen = placement(gl)

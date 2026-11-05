@@ -37,14 +37,15 @@ reinterpretation of results.
   binaries, installed identities and the archive checksums in
   `docs/testing/artifacts/cem-panel-distribution/manifest.json`. Keep absent
   historical raw archives explicitly unavailable.
-- [ ] **P1, Re floor in code.** Raise `reynolds_floor` in
-  `backend/cem/glider/model.py` from 30,000 to 50,000. Apply it to every lifting
-  and control surface station at the lowest declared speed, including trim and
-  authority-limit states. Add the 50,000–70,000 degraded band (initial +30% Cd
-  at P10, labelled as a placeholder) and the
-  `section Re below method validity floor` fail reason. Bump the provenance
-  version. Add positive tests and countercases at 49,999/50,000 and
-  69,999/70,000.
+- [x] **P1, Re floor in code (production glider path).** Done in
+  `backend/cem/glider/validity.py`: floor 50,000, degraded band to 70,000 with
+  the +30%-at-P90 profile-drag placeholder in the uncertainty propagation, the
+  `section Re below method validity floor` fail reason, matching parent-side
+  checks, `VERSION` 0.2.0 and boundary tests in `test_cem_low_re_validity.py`.
+- [ ] **P1 for families in development.** Apply `station_validity` at each
+  family's trim and authority-limit states when canard, tandem and tailless are
+  wired into admission. The XFOIL tool input ranges (30,000–1,000,000) are left
+  unchanged so historical evidence still replays.
 - [ ] **Check the frozen swept states against P1.** Their passed F1/F2 banks
   start at Re 49,000. Either declare ≥ 2% more chord or speed so the lowest
   station clears 50,000, or record their rejection under P1. Do not lower the

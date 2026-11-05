@@ -14,7 +14,9 @@ Raw task archives and checksum manifests are now committed under
 docs/testing/artifacts/cem-panel-distribution/. These are fresh task evidence,
 not recovered historical archives. Verify their checksums before reuse.
 
-Read docs/implementation/cem-low-re-method-decision.md first. It is an owner
+Read docs/implementation/cem-low-re-research-handoff.md first: the code is
+mid-change and the owner's latest choice (floor 30,000, penalty to 70,000) is
+not applied yet. Then read docs/implementation/cem-low-re-method-decision.md. It is an owner
 decision (2026-11-05) and governs any conflicting text below or in older
 handoffs. In short: a hard section Re floor of 50,000 at the lowest declared
 speed, with a degraded band from 50,000 to 70,000; NeuralFoil with
@@ -137,11 +139,11 @@ physics.qualification rather than reimplementing them.
 Next work, in dependency order (see cem-low-re-method-decision.md):
 1. Inspect current source/runtime/binaries and retained artifact identities.
    Do not infer restoration from a Git commit or recreate absent historical rows.
-2. P1: raise the station Re floor in backend/cem/glider/model.py from 30,000 to
-   50,000 for every lifting/control surface at the lowest declared speed. Add
-   the 50,000-70,000 degraded band, the explicit fail reason, a provenance
-   version bump and boundary tests. Never lower it to make a search return a
-   design.
+2. P1 is implemented for the production glider path
+   (backend/cem/glider/validity.py, VERSION 0.2.0). Apply the same
+   station_validity rule at each development family's trim and authority-limit
+   states when wiring it into admission. Never lower the floor to make a search
+   return a design.
 3. Check the frozen swept states against P1 (their banks start at Re 49,000).
    Resize the canard/tandem development geometries, or raise the declared
    minimum speed, so every station clears 50,000. Declare the new domains on

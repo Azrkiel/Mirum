@@ -106,7 +106,7 @@ def test_discovery_explores_shapes_within_budget_and_binds_archive_revisions(mon
         return dict(valid=True, fail_reasons='', tail_kind=gl.tail.kind,
                     aspect_ratio=gl.wing_ref()['AR'], wing_loading_g_dm2=5.,
                     mass_kg=.2, CL_trim=.6, CD_trim=.05, CLmax_est=1., glide_speed_m_s=5.,
-                    validity_envelope={'min_confidence': .9, 'min_station_reynolds': 40000.},
+                    validity_envelope={'min_confidence': .9, 'min_station_reynolds': 60000., 'low_re_degraded': True},
                     manufacturability={'state': 'passed'},
                     objective_value=gl.wing_surface().true_area())
     monkeypatch.setattr(discovery, 'evaluate_candidate', evaluate)

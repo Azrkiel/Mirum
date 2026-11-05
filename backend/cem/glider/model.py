@@ -10,6 +10,7 @@ from gliders.model.analysis import evaluate, _aero
 from .physics import atmosphere, launch_state, trajectory
 from .processes import materials, manufacturing_checks
 from .structure import converged_spar
+from .validity import station_validity
 
 SUPPORTED_FAMILIES = {'conventional': 'conventional', 't_tail': 'T', 'v_tail': 'V'}
 
@@ -137,10 +138,12 @@ def evaluate_candidate(gl, request, mission, calibration, process, *, fixed_geom
                     alpha=result['alpha_trim_deg'] + section.twist, Re=re, model_size='large')
                 confidence.extend(np.asarray(polar['analysis_confidence']).reshape(-1).tolist())
                 reynolds.append(re)
-        result['validity_envelope'] = dict(min_confidence=min(confidence), min_station_reynolds=min(reynolds),
-                                         confidence_floor=.8, reynolds_floor=30000.)
-        if min(confidence) < .8 or min(reynolds) < 30000 or not all(math.isfinite(c) for c in confidence):
-            result.update(valid=False, fail_reasons='station polar outside confidence/Reynolds envelope')
+        # Re at the trim glide speed: the only declared flight speed of this
+        # passive-glider mission. See cem-low-re-method-decision.md (P1).
+        envelope, reason = station_validity(confidence, reynolds)
+        result['validity_envelope'] = envelope
+        if reason:
+            result.update(valid=False, fail_reasons=reason)
         aero = _aero(gl.airplane(gl.mass_summary()['cg']), result['glide_speed_m_s'], result['alpha_trim_deg'])
         # Profile fraction of calibrated total drag is used in Monte Carlo and
         # identifiable flight-test updates; no guessed profile/induced split.
