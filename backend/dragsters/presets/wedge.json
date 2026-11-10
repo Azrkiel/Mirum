@@ -1,0 +1,25 @@
+{
+  "schema_version": 2,
+  "style": "wedge",
+  "units": "mm",
+  "length_mm": 200.0,
+  "width_mm": 42.0,
+  "height_mm": 32.0,
+  "nose_height_mm": 12.0,
+  "ground_clearance_mm": 3.0,
+  "front_axle_x_mm": 40.0,
+  "rear_axle_x_mm": 175.0,
+  "axle_bore_diameter_mm": 3.0,
+  "pocket_diameter_mm": 20.0,
+  "pocket_depth_mm": 52.0,
+  "pocket_center_z_mm": 23.0,
+  "min_wall_mm": 2.0,
+  "wheels": {
+    "front_diameter_mm": 18.0,
+    "rear_diameter_mm": 18.0,
+    "width_mm": 6.0,
+    "side_clearance_mm": 1.5
+  },
+  "stock": null,
+  "material": null
+}
