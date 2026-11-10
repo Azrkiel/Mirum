@@ -189,7 +189,7 @@ any sampled check), `provenance{field: 'supplied'|'preset:<name>'|'migrated_from
 
 | ID | Subplan | Agent type | Depends on | Wave | Branch | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| D0 | [Baseline & live smoke](D0-baseline.md) | general-purpose (ops) | — | 0 | `chore/co2-dragster-d0-baseline` | in review |
+| D0 | [Baseline & live smoke](D0-baseline.md) | general-purpose (ops) | — | 0 | `chore/co2-dragster-d0-baseline` | in review (PR #20) |
 | D1 | [Spec v2 + registry + v1 compat](D1-spec-v2.md) | general-purpose (implementation) | D0 | 1 | `feat/co2-dragster-d1-spec-v2` | not started |
 | D2 | [Lofted-body kernel + spike + wedge v2](D2-lofted-kernel.md) | general-purpose (implementation, CAD) | D0, D1 first commit (`profiles.py`) | 1 | `feat/co2-dragster-d2-kernel` | not started |
 | D3 | [Teardrop style](D3-style-teardrop.md) | general-purpose (CAD) | D1, D2 | 2 | `feat/co2-dragster-d3-teardrop` | not started |
