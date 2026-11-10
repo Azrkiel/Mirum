@@ -41,9 +41,9 @@ Must not touch any code, Fly secrets, or Fly config.
 
 ## Exit criteria
 
-- [ ] Evidence doc lists: main SHA, CI run id + native gate counts, local image build result, dragster test counts (0 skips), worker median/max seconds and peak MiB, Fly machine sizes (or blocked note), live smoke result (or blocked note), PR #19 state.
-- [ ] No code changes in the diff.
-- [ ] Master § 7 D0 status updated.
+- [x] Evidence doc lists: main SHA, CI run id + native gate counts, local image build result, dragster test counts (0 skips), worker median/max seconds and peak MiB, Fly machine sizes (or blocked note), live smoke result (or blocked note), PR #19 state.
+- [x] No code changes in the diff.
+- [x] Master § 7 D0 status updated.
 
 ## Done report
 

@@ -20,6 +20,7 @@ implement the v2 wedge builder.
 - `backend/dragsters/local.py` (`export_preview`, STEP export/reimport pattern)
 - `docs/plans/co2-dragster/D1-spec-v2.md` § 1–3 (profile laws and ranges)
 - CadQuery docs for `cq.Solid.makeLoft(listOfWire, ruled)`, `cq.Wire.makePolygon`, `cq.Edge.makeSpline`
+- [D0 evidence](evidence/D0-baseline.md) § 2 (local verify-image CA workaround) and § 4 F1: on a 16-CPU host the worker's VmPeak (~1.55-1.6 GiB) already exceeds the 1536 MiB `RLIMIT_AS`, so service-level dragster tests flake locally (TIMEOUT/SIGSEGV). Record VmPeak as well as RSS in the spike; do not raise limits (invariant 7)
 
 ## Owns (create)
 

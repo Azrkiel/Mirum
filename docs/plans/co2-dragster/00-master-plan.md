@@ -36,7 +36,7 @@ renders it (same pattern as `backend/engineering/service.py` and `backend/cem/ex
 | Service/API | `service.py` + `worker.py` + `api.py`: `POST /dragsters/generate` SSE, `ProcessRunner` (3 workers, 30 s, 1536 MiB), atomic 4-file publish |
 | UI | `frontend/dragster_ui.py` + `dragster_state.py`; "CO2 dragster" option in `frontend/app.py:963` |
 | Tests | 9 dragster test files (207 passed 2026-11-05); CI "Native CAD and offline API regression gate" green on `01f889e` |
-| Deploy | Fly `mirum`/`mirum-api` built from `deploy/open-access` (894a654 = 01f889e + open-access config, PR #19 open). Dragster never smoke-tested live |
+| Deploy | Fly `mirum`/`mirum-api` built from `deploy/open-access` (894a654 = 01f889e + open-access config, PR #19 open). Live smoke passed 2026-11-09 ([D0 evidence](evidence/D0-baseline.md)) |
 | Text path | Old LLM rule `rule_co2_dragster` in `backend/strategies.py:913` (keywords incl. "derby car", "race car"); classifier lists dragsters under Domain C. Text prompts **do not** reach the deterministic builder |
 
 ## 3. Remaining scope (what "done" means)
@@ -189,7 +189,7 @@ any sampled check), `provenance{field: 'supplied'|'preset:<name>'|'migrated_from
 
 | ID | Subplan | Agent type | Depends on | Wave | Branch | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| D0 | [Baseline & live smoke](D0-baseline.md) | general-purpose (ops) | — | 0 | `chore/co2-dragster-d0-baseline` | in review (PR #20) |
+| D0 | [Baseline & live smoke](D0-baseline.md) | general-purpose (ops) | — | 0 | `chore/co2-dragster-d0-baseline` | merged (PR #20) |
 | D1 | [Spec v2 + registry + v1 compat](D1-spec-v2.md) | general-purpose (implementation) | D0 | 1 | `feat/co2-dragster-d1-spec-v2` | not started |
 | D2 | [Lofted-body kernel + spike + wedge v2](D2-lofted-kernel.md) | general-purpose (implementation, CAD) | D0, D1 first commit (`profiles.py`) | 1 | `feat/co2-dragster-d2-kernel` | not started |
 | D3 | [Teardrop style](D3-style-teardrop.md) | general-purpose (CAD) | D1, D2 | 2 | `feat/co2-dragster-d3-teardrop` | not started |
