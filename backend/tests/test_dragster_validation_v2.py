@@ -27,6 +27,8 @@ GENERIC_IDS = {'single_valid_solid', 'absolute_bounds', 'symmetry', 'reference_v
                'spec_revalidation'}
 V1_KEYS = {'schema_version', 'spec_sha256', 'step_sha256', 'generator_version', 'cadquery_version',
            'solid_count', 'bounds_mm', 'volume_mm3', 'checks', 'passed', 'engineering_certified'}
+# Ids D6's real hardware.cad_checks may legitimately add (the D1 stub adds none).
+HARDWARE_IDS = {'wheel_clearance_front', 'wheel_clearance_rear', 'body_above_ground', 'stock_containment'}
 REPORT_V2_KEYS = {'style', 'hardware', 'mass', 'method_limits'}
 
 
@@ -225,7 +227,7 @@ def test_mutant_is_rejected_with_the_expected_ids(style, name, tmp_path):
         assert failed & {'pocket_void', 'pocket_wall'}
     else:
         assert required <= failed, (required - failed, failed)
-    assert failed <= allowed | required, failed - allowed
+    assert failed <= allowed | required | HARDWARE_IDS, failed - allowed - HARDWARE_IDS
 
 
 @pytest.mark.parametrize('style', STYLES)
@@ -241,7 +243,7 @@ def test_body_shifted_in_y_fails_symmetry_and_bounds(style, tmp_path):
     failed = failing_ids(style, tmp_path, spec, body.translate(cq.Vector(0, 0.5, 0)))
     assert {'symmetry', 'absolute_bounds'} <= failed
     assert failed <= {'symmetry', 'absolute_bounds', 'pocket_void', 'pocket_wall', 'front_bore_wall',
-                      'rear_bore_wall'}
+                      'rear_bore_wall'} | HARDWARE_IDS    # a 0.5 mm shift can break 1.5 mm side clearance
 
 
 @pytest.mark.parametrize('style', STYLES)
