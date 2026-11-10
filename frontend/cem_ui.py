@@ -3,13 +3,18 @@ import json
 import requests
 import streamlit as st
 
+try:
+    from workspace import section_header, empty_state
+except ModuleNotFoundError:
+    from frontend.workspace import section_header, empty_state
+
 
 def render_cem(backend, headers):
-    st.title('Physics-based glider engineering')
-    st.write('Maximize distance or duration, compare manufacturing processes, and inspect the physics behind each design.')
-    st.caption('Screening models with engineering uncertainty priors. Current layouts: conventional, T-tail and V-tail. '
-               'Bundles contain analysis geometry and templates; manufactured parts and novel layouts are pending qualification.')
-    with st.expander('Describe the mission in words'):
+    st.caption('Define the mission, compare processes, and inspect the best screened designs.')
+    with st.expander('Model scope'):
+        st.caption('Screening models with engineering uncertainty priors. Current layouts: conventional, T-tail and V-tail. '
+                   'Bundles contain analysis geometry and templates; manufactured parts and novel layouts are pending qualification.')
+    with st.expander('Import mission from text'):
         text = st.text_area('Mission', placeholder='Maximize distance from a 10 m drop; 1200 m reference target; compare all processes.')
         if st.button('Translate to requirements') and text.strip():
             try:
@@ -27,46 +32,60 @@ def render_cem(backend, headers):
             st.code(st.session_state.cem_extracted, language='json')
             st.caption('Review these translated requirements. Paste into the advanced mission input below to use them.')
     with st.form('cem_mission'):
-        left, middle, right = st.columns(3)
-        objective = left.selectbox('Maximize', ['distance_m', 'duration_s'],
-                                   format_func=lambda v: 'Distance (m)' if v == 'distance_m' else 'Duration (s)')
-        reference = left.number_input('Reference stretch goal (m or s)', 0., 1000000., 1200.)
-        height = left.number_input('Release height (m)', 0., 100., 10.)
-        method = left.selectbox('Launch method', ['drop', 'hand_toss', 'discus', 'catapult', 'hi_start'],
-                               format_func=lambda v: v.replace('_', ' ').capitalize())
-        explicit_speed = left.checkbox('Specify release speed')
-        speed = left.number_input('Release speed (m/s)', 0., 60., 8.)
-        process = middle.selectbox('Process', ['auto', 'sheet_foam', 'balsa', 'fdm_lwpla', 'fdm_pla', 'hybrid'],
-            format_func=lambda v: {'auto':'Compare all', 'sheet_foam':'Sheet foam', 'balsa':'Balsa',
-                                  'fdm_lwpla':'FDM LW-PLA', 'fdm_pla':'FDM PLA', 'hybrid':'Hybrid'}[v])
-        span = middle.number_input('Maximum span (m)', .6, 1.4, 1.4)
-        length = middle.number_input('Maximum length (m)', .45, .95, .95)
-        mass = middle.number_input('Maximum mass (g)', 1., 500., 500.)
-        payload = middle.number_input('Payload mass (g)', 0., 300., 60.)
-        diameter = middle.number_input('Payload diameter (mm)', 1., 100., 45.)
-        payload_length = middle.number_input('Payload length (mm)', 1., 300., 60.)
-        environment = right.selectbox('Environment', ['still_air', 'wind', 'uniform_uplift'],
+        left, middle, right = st.columns(3, gap='medium')
+        with left:
+            with st.container(border=True):
+                section_header('Mission & launch')
+                objective = st.selectbox('Maximize', ['distance_m', 'duration_s'],
+                                        format_func=lambda v: 'Distance (m)' if v == 'distance_m' else 'Duration (s)')
+                reference = st.number_input('Reference stretch goal (m or s)', 0., 1000000., 1200.)
+                height = st.number_input('Release height (m)', 0., 100., 10.)
+                method = st.selectbox('Launch method', ['drop', 'hand_toss', 'discus', 'catapult', 'hi_start'],
                                       format_func=lambda v: v.replace('_', ' ').capitalize())
-        wind = right.number_input('Along-path wind (m/s; positive = tailwind)', -15., 15., 0.)
-        uplift = right.number_input('Mean uplift (m/s)', 0., 5., 0.)
-        altitude = right.number_input('Altitude above sea level (m)', 0., 5000., 0.)
-        temperature = right.number_input('Ambient temperature (°C)', -30., 45., 15.)
-        budget = right.number_input('Evaluations per process', 8, 120, 40)
-        seed = right.number_input('Seed', 0, 2147483647, 42)
-        wing_shape = st.selectbox('Wing planform search', ['baseline', 'multi_station'],
-            format_func=lambda v: {'baseline': 'Existing wing templates',
-                                   'multi_station': 'Five-station chord shapes (screening only)'}[v],
-            help='Varies three interior chords by up to 15%. Existing tail families; no independently verified novelty or manufacturing claim.')
-        families = st.multiselect('Layout families', ['conventional', 't_tail', 'v_tail'], default=['conventional', 't_tail', 'v_tail'],
-                                  format_func=lambda v: {'conventional':'Conventional', 't_tail':'T-tail', 'v_tail':'V-tail'}[v])
-        hard = st.checkbox('Also enforce a hard minimum at P10',
-                           help='The lower 10th percentile of the model uncertainty band must meet this value.')
-        minimum = st.number_input('Hard minimum (m or s)', .001, 1000000., 100.)
+                explicit_speed = st.checkbox('Specify release speed')
+                speed = st.number_input('Release speed (m/s)', 0., 60., 8.)
+        with middle:
+            with st.container(border=True):
+                section_header('Airframe & payload')
+                span = st.number_input('Maximum span (m)', .6, 1.4, 1.4)
+                length = st.number_input('Maximum length (m)', .45, .95, .95)
+                mass = st.number_input('Maximum mass (g)', 1., 500., 500.)
+                payload = st.number_input('Payload mass (g)', 0., 300., 60.)
+                diameter = st.number_input('Payload diameter (mm)', 1., 100., 45.)
+                payload_length = st.number_input('Payload length (mm)', 1., 300., 60.)
+        with right:
+            with st.container(border=True):
+                section_header('Design search')
+                process = st.selectbox('Process', ['auto', 'sheet_foam', 'balsa', 'fdm_lwpla', 'fdm_pla', 'hybrid'],
+                    format_func=lambda v: {'auto':'Compare all', 'sheet_foam':'Sheet foam', 'balsa':'Balsa',
+                                          'fdm_lwpla':'FDM LW-PLA', 'fdm_pla':'FDM PLA', 'hybrid':'Hybrid'}[v])
+                wing_shape = st.selectbox('Wing planform search', ['baseline', 'multi_station'],
+                    format_func=lambda v: {'baseline': 'Existing wing templates',
+                                           'multi_station': 'Five-station chord shapes (screening only)'}[v],
+                    help='Varies three interior chords by up to 15%. Existing tail families; no independently verified novelty or manufacturing claim.')
+                families = st.multiselect('Layout families', ['conventional', 't_tail', 'v_tail'],
+                                          default=['conventional', 't_tail', 'v_tail'],
+                                          format_func=lambda v: {'conventional':'Conventional', 't_tail':'T-tail', 'v_tail':'V-tail'}[v])
+                budget = st.number_input('Evaluations per process', 8, 120, 40)
+                seed = st.number_input('Seed', 0, 2147483647, 42)
+        with st.expander('Environment & performance limits'):
+            air, weather, limits = st.columns(3, gap='medium')
+            environment = air.selectbox('Environment', ['still_air', 'wind', 'uniform_uplift'],
+                                        format_func=lambda v: v.replace('_', ' ').capitalize())
+            wind = air.number_input('Along-path wind (m/s; positive = tailwind)', -15., 15., 0.)
+            uplift = air.number_input('Mean uplift (m/s)', 0., 5., 0.)
+            altitude = weather.number_input('Altitude above sea level (m)', 0., 5000., 0.)
+            temperature = weather.number_input('Ambient temperature (°C)', -30., 45., 15.)
+            hard = limits.checkbox('Also enforce a hard minimum at P10',
+                                   help='The lower 10th percentile of the model uncertainty band must meet this value.')
+            minimum = limits.number_input('Hard minimum (m or s)', .001, 1000000., 100.)
         with st.expander('Advanced typed mission JSON and pinned calibration'):
             advanced = st.text_area('Mission JSON (overrides the form when filled)', height=160)
             cal_version = st.text_input('Calibration content hash (empty = initial engineering priors)')
-        screen = st.form_submit_button('Check feasibility')
-        search = st.form_submit_button('Discover best designs', disabled=st.session_state.get('cem_status') == 'running')
+        check_col, search_col = st.columns(2)
+        screen = check_col.form_submit_button('Check feasibility', use_container_width=True)
+        search = search_col.form_submit_button('Discover best designs', type='primary',
+            disabled=st.session_state.get('cem_status') == 'running', use_container_width=True)
     if screen or search:
         try:
             req = json.loads(advanced) if advanced.strip() else dict(objective=objective, mode='maximize',
@@ -89,6 +108,7 @@ def render_cem(backend, headers):
         except (requests.RequestException, ValueError) as exc:
             st.error(f'Could not submit mission: {exc}')
     if 'cem_feasibility' in st.session_state:
+        section_header('Feasibility')
         f = st.session_state.cem_feasibility
         st.write(f"Reference goal: **{f['verdict']} within the sampled model envelope**. Search continues to maximize performance.")
         if f['required_lift_to_drag'] is not None and f['optimistic_lift_to_drag'] is not None:
@@ -97,7 +117,7 @@ def render_cem(backend, headers):
             st.info('This calibration needs a regenerated feasibility envelope. Continue with physics sizing; no infeasibility claim is made.')
         if f.get('bound_state') == 'rebuild_required_for_shape':
             st.info('The existing feasibility bound does not cover this wing shape search. Candidate screening continues without an infeasibility claim.')
-        st.dataframe(f['levers'], hide_index=True)
+        st.dataframe(f['levers'], hide_index=True, use_container_width=True)
         with st.expander('Feasibility evidence and assumptions'):
             st.json(f)
     _results(backend, headers)
@@ -107,7 +127,10 @@ def render_cem(backend, headers):
 def _results(backend, headers):
     key = st.session_state.get('cem_job')
     if not key:
+        if 'cem_feasibility' not in st.session_state:
+            empty_state('No engineering results', 'Check feasibility or discover designs for this mission.')
         return
+    section_header('Design results')
     try:
         response = requests.get(f'{backend}/cem/glider/jobs/{key}', headers=headers(), timeout=10)
         response.raise_for_status()
@@ -115,7 +138,8 @@ def _results(backend, headers):
         st.session_state.cem_status = job['status']
         if job['status'] == 'running':
             st.info(f"Running bounded CEM {st.session_state.get('cem_kind', 'job')}")
-            st.json(job.get('progress', {}))
+            with st.expander('Search progress', expanded=True):
+                st.json(job.get('progress', {}))
             return
         if job['status'] == 'failed':
             st.error(job['detail'])
@@ -128,13 +152,14 @@ def _results(backend, headers):
             rows = [dict(arm=label, admitted=result[label]['result']['valid'],
                          objective=result[label]['result'].get('objective_value'),
                          failures=result[label]['result']['fail_reasons']) for label in ('baseline', 'shaped')]
-            st.dataframe(rows, hide_index=True)
+            st.dataframe(rows, hide_index=True, use_container_width=True)
             if result['objective_delta'] is not None:
                 st.write(f"Paired screening change (shaped − unity control): **{result['objective_delta']:+.3f}**.")
             st.write(f"Independent XFOIL/AVL diagnostics: **{result['independent_recheck']['state']}**.")
             st.download_button('Download paired comparison evidence', json.dumps(result, indent=2),
                 file_name=f"mirum-shape-comparison-{result['comparison_sha256'][:12]}.json", mime='application/json')
-            st.json(result)
+            with st.expander('Comparison evidence'):
+                st.json(result)
             if st.session_state.get('cem_discovery_job') and st.button('Return to discovery archive'):
                 st.session_state.update(cem_job=st.session_state.cem_discovery_job, cem_kind='discovery')
                 st.rerun()
@@ -146,7 +171,8 @@ def _results(backend, headers):
                 r.raise_for_status()
                 st.download_button('Download screening geometry, templates and evidence', r.content,
                     file_name=f"mirum-cem-{result['output_id']}.zip", mime='application/zip')
-            st.json(result)
+            with st.expander('Closure evidence'):
+                st.json(result)
             return
         rows = []
         elites = []
@@ -155,7 +181,9 @@ def _results(backend, headers):
             rows.append(dict(process=process, best=best['result']['objective_value'] if best else None,
                              occupied_cells=len(data['archive']), state='screened' if best else 'no admitted design'))
             elites.extend(data['archive'])
-        st.dataframe(rows, hide_index=True)
+        st.dataframe(rows, hide_index=True, use_container_width=True,
+                     column_config={'process': 'Process', 'best': 'Best performance',
+                                    'occupied_cells': 'Archive cells', 'state': 'State'})
         # Categorical family/AR/wing-loading cells form a compact archive map.
         if elites:
             import pandas as pd
@@ -164,7 +192,11 @@ def _results(backend, headers):
                           process=e['process'], elite_id=e['elite_id']) for e in elites]
             import altair as alt
             chart = alt.Chart(pd.DataFrame(cells)).mark_circle(size=120).encode(
-                x='aspect_ratio:Q', y='wing_loading:Q', color='performance:Q', shape='family:N',
+                x=alt.X('aspect_ratio:Q', title='Aspect ratio'),
+                y=alt.Y('wing_loading:Q', title='Wing loading (g/dm²)'),
+                color=alt.Color('performance:Q', title='Performance',
+                                scale=alt.Scale(range=['#344b82', '#6893ff'])),
+                shape=alt.Shape('family:N', title='Layout'),
                 tooltip=['family', 'process', 'elite_id', 'performance']).interactive()
             st.altair_chart(chart, use_container_width=True)
             chosen = st.selectbox('Inspect an archive elite', elites,

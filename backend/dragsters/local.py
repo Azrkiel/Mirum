@@ -103,13 +103,16 @@ def render_preview(data: bytes) -> None:
     x, y, z = vertices[:, 0], -vertices[:, 2], vertices[:, 1]
     i, j, k = mesh.faces.T
     figure = go.Figure(go.Mesh3d(x=x, y=y, z=z, i=i, j=j, k=k,
-                               color='lightsteelblue', flatshading=True))
+                               color='#98b7f5', flatshading=True))
     span = max(mesh.extents)
     figure.update_layout(
+        template='plotly_dark', paper_bgcolor='#0e1725', plot_bgcolor='#0e1725',
+        font=dict(color='#a0aec2', family='Arial, sans-serif', size=11),
         scene=dict(aspectmode='manual',
                    aspectratio=dict(x=mesh.extents[0] / span,
                                     y=mesh.extents[2] / span,
                                     z=mesh.extents[1] / span),
+                   bgcolor='#0e1725',
                    camera=dict(eye=dict(x=1.1, y=1.1, z=0.8)),
                    xaxis_title='X (mm)', yaxis_title='Y (mm)', zaxis_title='Z (mm)'),
         margin=dict(l=0, r=0, t=0, b=0), height=500)

@@ -13,13 +13,10 @@ import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_ace import st_ace
 
-st.set_page_config(page_title="Text-to-CAD", page_icon="\U0001f529", layout="wide")
+from workspace import apply_workspace, empty_state, page_header, render_navigation, section_header
 
-# Reduce top padding for a tighter layout
-st.markdown(
-    "<style>.block-container{padding-top:1.5rem;}</style>",
-    unsafe_allow_html=True,
-)
+st.set_page_config(page_title="Mirum", layout="wide", initial_sidebar_state="expanded")
+apply_workspace()
 
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
 # Public deployments set MIRUM_ACCESS_GATE=1 and the backend MIRUM_ACCESS_TOKEN.
@@ -82,14 +79,14 @@ def _step_label(step: str) -> str:
 
 
 def _icon(status: str) -> str:
-    return {"running": "\u23f3", "done": "\u2705", "error": "\u274c"}.get(status, "\u2b1c")
+    return {"running": "[Running]", "done": "[Done]", "error": "[Failed]"}.get(status, "[Pending]")
 
 
 _VIEWER_TEMPLATE = """<!doctype html>
 <html><head>
 <meta charset="utf-8">
 <style>
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0e1725; }
   #renderCanvas { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
 </style>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
@@ -123,8 +120,8 @@ _VIEWER_TEMPLATE = """<!doctype html>
     m.majorUnitFrequency = 10;
     m.minorUnitVisibility = 0.45;
     m.gridRatio = 1;
-    m.mainColor = new BABYLON.Color3(0.10, 0.10, 0.18);
-    m.lineColor = new BABYLON.Color3(0.40, 0.40, 0.55);
+    m.mainColor = new BABYLON.Color3(0.06, 0.09, 0.15);
+    m.lineColor = new BABYLON.Color3(0.18, 0.26, 0.38);
     m.opacity = 0.98;
     g.material = m;
     return [g, m];
@@ -132,7 +129,7 @@ _VIEWER_TEMPLATE = """<!doctype html>
 
   function buildScene() {
     const s = new BABYLON.Scene(engine);
-    s.clearColor = BABYLON.Color4.FromHexString("#1a1a2eff");
+    s.clearColor = BABYLON.Color4.FromHexString("#0e1725ff");
     camera = new BABYLON.ArcRotateCamera(
       "cam", -Math.PI / 3, Math.PI / 3, 10, BABYLON.Vector3.Zero(), s
     );
@@ -176,7 +173,7 @@ _VIEWER_TEMPLATE = """<!doctype html>
     }
     for (const m of loadedMeshes) {
       const pbr = new BABYLON.PBRMaterial("pbr_" + m.name, scene);
-      pbr.albedoColor = new BABYLON.Color3(0.78, 0.78, 0.82);
+      pbr.albedoColor = new BABYLON.Color3(0.65, 0.76, 0.96);
       // A fully metallic surface is nearly black without an environment map.
       pbr.metallic = 0.05;
       pbr.roughness = 0.55;
@@ -498,7 +495,7 @@ def fetch_plan(prompt: str) -> dict | None:
 
 def render_plan_review(plan: dict) -> bool:
     """Show the assembly plan for user review. Returns True if user approves."""
-    st.subheader(f"📋 Assembly Plan — {plan['assembly_name']}")
+    st.subheader(f"Assembly plan — {plan['assembly_name']}")
     st.caption(f"{plan['part_count']} part(s) · {'Single part' if plan['is_single_part'] else 'Assembly'}")
 
     if not plan["is_single_part"]:
@@ -517,10 +514,10 @@ def render_plan_review(plan: dict) -> bool:
 
     col_ok, col_cancel = st.columns([1, 1])
     with col_ok:
-        if st.button("✅ Generate", type="primary", use_container_width=True, key="plan_approve"):
+        if st.button("Generate assembly", type="primary", use_container_width=True, key="plan_approve"):
             return True
     with col_cancel:
-        if st.button("✗ Cancel", use_container_width=True, key="plan_cancel"):
+        if st.button("Cancel", use_container_width=True, key="plan_cancel"):
             st.session_state.show_plan = False
             st.rerun()
     return False
@@ -741,8 +738,7 @@ def _render_geometry_cert_card(cert: dict) -> None:
     and per-check details in a Streamlit expander.
     """
     passed = cert.get("passed") is True
-    icon = "✅" if passed else "❌"
-    label = f"{icon} Structural Geometry Checks — {'PASSED' if passed else 'FAILED'}"
+    label = f"Structural Geometry Checks — {'Passed' if passed else 'Failed'}"
 
     with st.expander(label, expanded=not passed):
         st.caption("Kernel/topology checks only — not engineering certification, GD&T, manufacturing tolerance or physical-safety verification.")
@@ -785,7 +781,7 @@ def _render_geometry_cert_card(cert: dict) -> None:
             rows = []
             for key, value in checks.items():
                 label_text = check_labels.get(key, key.replace("_", " ").capitalize())
-                rows.append(f"{'✅' if value is True else '❌'} {label_text}")
+                rows.append(f"- {'Passed' if value is True else 'Failed'}: {label_text}")
             st.markdown("\n".join(rows))
 
         # Failures
@@ -804,7 +800,7 @@ def _render_structural_card(report: dict) -> None:
     Sources every value from the StructuralReport dict shipped on the /generate
     `complete` event (Phase 6); renders nothing extra when fields are absent.
     """
-    st.markdown("### 🛩️ Flight Envelope")
+    st.markdown("### Flight envelope")
     try:
         from vn_diagram import vn_diagram_figure
         fig = vn_diagram_figure(report)
@@ -814,9 +810,9 @@ def _render_structural_card(report: dict) -> None:
     except Exception:
         st.caption("_V-n diagram unavailable_")
 
-    st.markdown("### 🧱 Structural Margins")
+    st.markdown("### Structural margins")
     passed = bool(report.get("passed"))
-    st.markdown(("✅ **PASS**" if passed else "❌ **FAIL**")
+    st.markdown(("**PASS**" if passed else "**FAIL**")
                 + f" — material **{report.get('material', '—')}**")
 
     bms = report.get("bending_margin_of_safety")
@@ -841,7 +837,7 @@ def _render_structural_card(report: dict) -> None:
 
     warnings = report.get("warnings") or []
     if warnings:
-        st.caption("⚠ " + "; ".join(str(w) for w in warnings))
+        st.caption("Warnings: " + "; ".join(str(w) for w in warnings))
 
 
 def _render_performance_card(report: dict) -> None:
@@ -855,7 +851,7 @@ def _render_performance_card(report: dict) -> None:
     Cl_max = report.get("Cl_max")
     stall_alpha = report.get("stall_alpha")
 
-    st.markdown("### ✈️ Aero Performance")
+    st.markdown("### Aerodynamic performance")
 
     m1, m2 = st.columns(2)
     m1.metric("Airfoil", f"NACA {naca}")
@@ -909,7 +905,7 @@ def _render_performance_card(report: dict) -> None:
             "L/D": report.get("L_D", []),
         }).set_index("α (deg)")
         st.download_button(
-            "⬇ Download polar CSV",
+            "Download polar CSV",
             polar_df.to_csv().encode("utf-8"),
             f"polar_naca{naca}.csv",
             "text/csv",
@@ -926,7 +922,7 @@ def _render_performance_card(report: dict) -> None:
             st.session_state.xfoil_pdf_bytes = None
             st.rerun()
     elif pdf_cached is None:
-        if st.button("📄 Generate PDF Report", key="xfoil_pdf_generate"):
+        if st.button("Generate PDF report", key="xfoil_pdf_generate"):
             with st.spinner("Building PDF report… (~10s)"):
                 pdf_bytes = _fetch_xfoil_pdf(report)
                 # Store False as failure sentinel so we don't retry on every rerun
@@ -934,7 +930,7 @@ def _render_performance_card(report: dict) -> None:
             st.rerun()
     else:
         st.download_button(
-            "⬇ Download XFOIL Simulation Results",
+            "Download XFOIL report",
             pdf_cached,
             f"mirum_naca{naca}_{re_val:.0e}.pdf",
             "application/pdf",
@@ -959,275 +955,276 @@ if ACCESS_GATE and not st.session_state.get("access_token"):
         st.error("Invalid access token, or the backend is still starting. Try again in a moment.")
     st.stop()
 
-# ── Page Layout ─────────────────────────────────────────────
-workflow = st.radio('Design workflow', ['Text to CAD', 'CO2 dragster', 'Passive glider distance search', 'Physics-based glider CEM'], horizontal=True)
-if workflow == 'CO2 dragster':
+# ── Workspace ───────────────────────────────────────────────
+workflow = render_navigation()
+page_header(workflow)
+if workflow == 'dragster':
     from dragster_ui import render_dragster
     render_dragster(BACKEND_URL, _auth_headers)
     st.stop()
-if workflow == 'Physics-based glider CEM':
+if workflow == 'engineering':
     from cem_ui import render_cem
     render_cem(BACKEND_URL, _auth_headers)
     st.stop()
-if workflow == 'Passive glider distance search':
+if workflow == 'glider':
     from glider_ui import render_glider
     render_glider(BACKEND_URL, _auth_headers)
     st.stop()
 
-# 1) Prompt
-st.markdown("**Describe your 3D model**")
-prompt = st.text_area(
-    "prompt",
-    placeholder="A smooth, ergonomic shell for a computer mouse, roughly 120mm long and 60mm wide.",
-    label_visibility="collapsed",
-    height=80,
-)
-
-# 2) Options + Generate button
-st.checkbox(
-    "Run aerodynamic analysis (Domain D wings only — adds ~30s)",
-    key="run_aero",
-    help=(
-        "Opt-in. When the assembly is classified as Domain D (aerospace) and "
-        "has a NACA airfoil + chord + span, the backend slices the wing STEP "
-        "at mid-span and runs XFOIL for Cl/Cd/Cm vs angle of attack. Failure "
-        "is non-blocking — the GLB is delivered either way."
-    ),
-)
-st.checkbox(
-    "Run structural estimates (Domain D wings only)",
-    key="run_struct",
-    help="Simplified wing-box and flight-envelope estimates, not engineering certification.",
-)
-generate = st.button(
-    "Generate (Ctrl+Enter)", type="primary", use_container_width=True
-)
-
-# 3) Progress area (populated during streaming)
-progress_ph = st.empty()
-
-if generate and prompt.strip():
-    p = prompt.strip()
-    # Step 1: Clarification (optional, fast)
-    ambs = fetch_clarifications(p)
-    if ambs:
-        st.session_state.pending_clarifications = ambs
-        st.session_state.clarification_prompt = p
-        st.session_state.show_clarification = True
-        st.rerun()
-    else:
-        # No ambiguities — go straight to plan/generate
-        plan = fetch_plan(p)
-        if plan:
-            if plan["is_single_part"]:
-                # Single part — skip review, generate immediately
-                stream_pipeline(p, progress_ph)
-            else:
-                st.session_state.show_plan = True
-                st.session_state.pending_plan = plan
-                st.session_state.pending_prompt = p
-                st.rerun()
-
-# Show clarification form if pending
-if st.session_state.get("show_clarification") and st.session_state.get("pending_clarifications"):
-    st.info("**Optional: Answer these to improve accuracy** _(or click Skip)_")
-    answers = {}
-    for q in st.session_state.pending_clarifications:
-        answers[q] = st.text_input(q, key=f"clarify_{hash(q)}", placeholder="Optional")
-
-    col_skip, col_cont = st.columns([1, 2])
-    with col_skip:
-        if st.button("Skip", key="clarify_skip"):
-            st.session_state.show_clarification = False
-            plan = fetch_plan(st.session_state.clarification_prompt)
-            if plan:
-                if plan["is_single_part"]:
-                    stream_pipeline(st.session_state.clarification_prompt, progress_ph)
-                else:
-                    st.session_state.show_plan = True
-                    st.session_state.pending_plan = plan
-                    st.session_state.pending_prompt = st.session_state.clarification_prompt
-                    st.rerun()
-    with col_cont:
-        if st.button("Continue with answers", type="primary", key="clarify_cont"):
-            # Append answers to prompt
-            enriched = st.session_state.clarification_prompt
-            filled = [f"{q}: {a}" for q, a in answers.items() if a.strip()]
-            if filled:
-                enriched += "\n\nAdditional context:\n" + "\n".join(filled)
-            st.session_state.show_clarification = False
-            plan = fetch_plan(enriched)
-            if plan:
-                if plan["is_single_part"]:
-                    stream_pipeline(enriched, progress_ph)
-                else:
-                    st.session_state.show_plan = True
-                    st.session_state.pending_plan = plan
-                    st.session_state.pending_prompt = enriched
-                    st.rerun()
-
-if st.session_state.show_plan and st.session_state.pending_plan:
-    approved = render_plan_review(st.session_state.pending_plan)
-    if approved:
-        st.session_state.show_plan = False
-        stream_pipeline(st.session_state.pending_prompt, progress_ph)
-
-# 4) 3D viewer + PerformanceCard (T2-16: side-by-side when aero_report present)
-if st.session_state.glb_bytes:
-    aero_report = st.session_state.get("aero_report")
-    if aero_report:
-        # Side-by-side: viewer ~60 %, performance card ~40 %
-        viewer_col, card_col = st.columns([3, 2], gap="medium")
-        with viewer_col:
-            render_glb_viewer(st.session_state.glb_bytes, height=460)
-            _render_download_row("1")
-        with card_col:
-            _render_performance_card(aero_report)
-    else:
-        # No aero report — full-width viewer
-        render_glb_viewer(st.session_state.glb_bytes)
-        _render_download_row("2")
-
-    _render_verification_card(st.session_state.get("verification"))
-    _render_bom(st.session_state.get("bom"))
-
-    # G-06: geometry certificate collapsible card (shown below viewer always)
-    geo_cert = st.session_state.get("geometry_certificate")
-    if geo_cert:
-        _render_geometry_cert_card(geo_cert)
-    else:
-        st.caption("Unverified preview — no current structural acceptance evidence is attached.")
-
-    # Phase 6: structural & flight-envelope cards (Domain D, opt-in run_struct)
-    struct_report = st.session_state.get("struct_report")
-    if struct_report:
-        with st.expander("🛩️ Flight Envelope & Structural Margins", expanded=True):
-            _render_structural_card(struct_report)
-
-# Parameter editor sidebar (T1-06)
-if st.session_state.parameters:
-    st.sidebar.subheader("⚙️ Parameters")
-    st.sidebar.caption("Edit and click Run to update model")
-    updated_params = {}
-    for name, value in st.session_state.parameters.items():
-        updated_params[name] = st.sidebar.number_input(
-            name,
-            value=float(value),
-            step=0.5,
-            format="%.1f",
-            key=f"param_{name}",
+inputs_col, result_col = st.columns([0.38, 0.62], gap="large")
+with inputs_col:
+    with st.container(border=True):
+        # 1) Prompt
+        section_header("Design brief", "Include dimensions, material and features.")
+        prompt = st.text_area(
+            "prompt",
+            placeholder="A 100 × 60 mm aluminium plate, 5 mm thick, with four 6 mm mounting holes.",
+            label_visibility="collapsed",
+            height=150,
         )
-    if st.sidebar.button("Apply Parameters", key="apply_params"):
-        # Substitute values back into the script
-        script = st.session_state.script_code
-        for name, value in updated_params.items():
-            # Replace "NAME = old_value" at top of script
-            import re as _re
-            script = _re.sub(
-                rf"^{name}\s*=\s*[\d.]+",
-                f"{name} = {value:.1f}",
-                script,
-                flags=_re.MULTILINE,
-            )
-        st.session_state.script_code = script
-        st.session_state.script_version += 1
-        run_script(script)
-        st.rerun()
 
-# 5) CadQuery Code header row
-col_label, col_run = st.columns([5, 1])
-with col_label:
-    st.markdown("**CadQuery Code**")
-with col_run:
-    run_clicked = st.button("Run (Ctrl+Enter)")
+        # 2) Options + Generate button
+        st.checkbox(
+            "Aerodynamic analysis",
+            key="run_aero",
+            help=(
+                "Opt-in. When the assembly is classified as Domain D (aerospace) and "
+                "has a NACA airfoil + chord + span, the backend slices the wing STEP "
+                "at mid-span and runs XFOIL for Cl/Cd/Cm vs angle of attack. Failure "
+                "is non-blocking — the GLB is delivered either way."
+            ),
+        )
+        st.checkbox(
+            "Structural estimates",
+            key="run_struct",
+            help="Simplified wing-box and flight-envelope estimates, not engineering certification.",
+        )
+        generate = st.button(
+            "Generate model", key="generate_model", type="primary", use_container_width=True, disabled=not prompt.strip()
+        )
 
-# 6) Editable code editor (always visible)
-edited_code = st_ace(
-    value=st.session_state.script_code or "",
-    language="python",
-    theme="monokai",
-    height=400,
-    key=f"ace_editor_{st.session_state.script_version}",
-    auto_update=True,
-)
-st.session_state.script_code = edited_code
+        # 3) Progress area (populated during streaming)
+        progress_ph = st.empty()
 
-if run_clicked and st.session_state.script_code:
-    run_script(st.session_state.script_code)
-    st.rerun()
+        if generate and prompt.strip():
+            p = prompt.strip()
+            # Step 1: Clarification (optional, fast)
+            ambs = fetch_clarifications(p)
+            if ambs:
+                st.session_state.pending_clarifications = ambs
+                st.session_state.clarification_prompt = p
+                st.session_state.show_clarification = True
+                st.rerun()
+            else:
+                # No ambiguities — go straight to plan/generate
+                plan = fetch_plan(p)
+                if plan:
+                    if plan["is_single_part"]:
+                        # Single part — skip review, generate immediately
+                        stream_pipeline(p, progress_ph)
+                    else:
+                        st.session_state.show_plan = True
+                        st.session_state.pending_plan = plan
+                        st.session_state.pending_prompt = p
+                        st.rerun()
 
-# 7) Status bar
-st.caption(st.session_state.status)
+        # Show clarification form if pending
+        if st.session_state.get("show_clarification") and st.session_state.get("pending_clarifications"):
+            st.info("Add details or skip to continue.")
+            answers = {}
+            for q in st.session_state.pending_clarifications:
+                answers[q] = st.text_input(q, key=f"clarify_{hash(q)}", placeholder="Optional")
 
-# ---------------------------------------------------------------------------
-# T2-08: Multi-turn refinement UI (shown when a model exists)
-# ---------------------------------------------------------------------------
-if st.session_state.glb_bytes and st.session_state.get("last_manifest"):
-    st.markdown("---")
-    st.subheader("✏️ Refine Design")
-    refinement_text = st.text_area(
-        "What would you like to change?",
-        placeholder=(
-            "e.g. 'make the shaft 20% longer', "
-            "'add a chamfer to the top flange', "
-            "'replace the revolute joint with a ball joint'"
-        ),
-        height=80,
-        key="refinement_input",
-    )
-    if st.button("Apply Refinement", key="apply_refinement") and refinement_text.strip():
-        with st.spinner("Refining design…"):
-            try:
-                import requests as _req
-                resp = _req.post(
-                    f"{BACKEND_URL}/refine",
-                    headers=_auth_headers(),
-                    json={
-                        "original_manifest": st.session_state.last_manifest,
-                        "original_scripts": st.session_state.get("last_scripts", {}),
-                        "refinement_prompt": refinement_text.strip(),
-                        "session_id": "",
-                    },
-                    timeout=180,
-                )
-                data = resp.json()
-                if data.get("status") == "ok":
-                    glb_b64 = data.get("glb")
-                    if not glb_b64:
-                        raise ValueError("Refinement returned no geometry — prior result retained.")
-                    import base64 as _b64
-                    refined_glb = _b64.b64decode(glb_b64, validate=True)
-                    if not refined_glb:
-                        raise ValueError("Refinement returned empty geometry — prior result retained.")
-                    certificate = data.get("geometry_certificate")
-                    if certificate is not None:
-                        import hashlib
-                        if (not isinstance(certificate, dict) or certificate.get("passed") is not True
-                                or certificate.get("scope") != "structural_solid_set_v1"
-                                or certificate.get("engineering_certified") is not False
-                                or not isinstance(certificate.get("artifacts"), dict)
-                                or certificate["artifacts"].get("glb_sha256") != hashlib.sha256(refined_glb).hexdigest()):
-                            raise ValueError("Refinement evidence does not match the delivered model")
-                    st.session_state.glb_bytes = refined_glb
-                    # Adopt only current structural evidence; physics remains stale.
-                    st.session_state.geometry_certificate = certificate
-                    st.session_state.struct_report = None
-                    st.session_state.aero_report = None
-                    st.session_state.aero_plots = None
-                    st.session_state.xfoil_pdf_bytes = None
-                    st.session_state.parameters = {}
-                    st.session_state.script_code = data.get("script") or ""
-                    st.session_state.last_manifest = data.get("updated_manifest", st.session_state.last_manifest)
-                    st.session_state.last_scripts = data.get("updated_scripts", {})
-                    regen = data.get("regenerated_parts", [])
-                    reused = data.get("reused_parts", [])
-                    st.success(
-                        f"Refined: regenerated {regen}, reused {reused}"
-                        if regen else "Refinement applied — no parts changed."
+            col_skip, col_cont = st.columns([1, 2])
+            with col_skip:
+                if st.button("Skip", key="clarify_skip"):
+                    st.session_state.show_clarification = False
+                    plan = fetch_plan(st.session_state.clarification_prompt)
+                    if plan:
+                        if plan["is_single_part"]:
+                            stream_pipeline(st.session_state.clarification_prompt, progress_ph)
+                        else:
+                            st.session_state.show_plan = True
+                            st.session_state.pending_plan = plan
+                            st.session_state.pending_prompt = st.session_state.clarification_prompt
+                            st.rerun()
+            with col_cont:
+                if st.button("Continue with answers", type="primary", key="clarify_cont"):
+                    # Append answers to prompt
+                    enriched = st.session_state.clarification_prompt
+                    filled = [f"{q}: {a}" for q, a in answers.items() if a.strip()]
+                    if filled:
+                        enriched += "\n\nAdditional context:\n" + "\n".join(filled)
+                    st.session_state.show_clarification = False
+                    plan = fetch_plan(enriched)
+                    if plan:
+                        if plan["is_single_part"]:
+                            stream_pipeline(enriched, progress_ph)
+                        else:
+                            st.session_state.show_plan = True
+                            st.session_state.pending_plan = plan
+                            st.session_state.pending_prompt = enriched
+                            st.rerun()
+
+        if st.session_state.show_plan and st.session_state.pending_plan:
+            approved = render_plan_review(st.session_state.pending_plan)
+            if approved:
+                st.session_state.show_plan = False
+                stream_pipeline(st.session_state.pending_prompt, progress_ph)
+
+    if st.session_state.parameters or (st.session_state.glb_bytes and st.session_state.get("last_manifest")):
+        with st.container(border=True):
+            # Parameters and refinement belong to the displayed result.
+            if st.session_state.parameters:
+                section_header("Parameters")
+                st.caption("Apply changes to rebuild the model.")
+                updated_params = {}
+                for name, value in st.session_state.parameters.items():
+                    updated_params[name] = st.number_input(
+                        name,
+                        value=float(value),
+                        step=0.5,
+                        format="%.1f",
+                        key=f"param_{name}",
                     )
+                if st.button("Apply Parameters", key="apply_params"):
+                    # Substitute values back into the script
+                    script = st.session_state.script_code
+                    for name, value in updated_params.items():
+                        # Replace "NAME = old_value" at top of script
+                        import re as _re
+                        script = _re.sub(
+                            rf"^{name}\s*=\s*[\d.]+",
+                            f"{name} = {value:.1f}",
+                            script,
+                            flags=_re.MULTILINE,
+                        )
+                    st.session_state.script_code = script
                     st.session_state.script_version += 1
+                    run_script(script)
                     st.rerun()
-                else:
-                    st.error(f"Refinement failed: {data.get('detail', 'Unknown error')}")
-            except Exception as _ref_err:
-                st.error(f"Refinement request failed: {_ref_err}")
+            if st.session_state.glb_bytes and st.session_state.get("last_manifest"):
+                section_header("Refine model")
+                refinement_text = st.text_area(
+                    "Changes",
+                    placeholder=(
+                        "Increase the shaft length by 20% and chamfer the top edge."
+                    ),
+                    height=80,
+                    key="refinement_input",
+                )
+                if st.button("Apply Refinement", key="apply_refinement") and refinement_text.strip():
+                    with st.spinner("Refining design…"):
+                        try:
+                            import requests as _req
+                            resp = _req.post(
+                                f"{BACKEND_URL}/refine",
+                                headers=_auth_headers(),
+                                json={
+                                    "original_manifest": st.session_state.last_manifest,
+                                    "original_scripts": st.session_state.get("last_scripts", {}),
+                                    "refinement_prompt": refinement_text.strip(),
+                                    "session_id": "",
+                                },
+                                timeout=180,
+                            )
+                            data = resp.json()
+                            if data.get("status") == "ok":
+                                glb_b64 = data.get("glb")
+                                if not glb_b64:
+                                    raise ValueError("Refinement returned no geometry — prior result retained.")
+                                import base64 as _b64
+                                refined_glb = _b64.b64decode(glb_b64, validate=True)
+                                if not refined_glb:
+                                    raise ValueError("Refinement returned empty geometry — prior result retained.")
+                                certificate = data.get("geometry_certificate")
+                                if certificate is not None:
+                                    import hashlib
+                                    if (not isinstance(certificate, dict) or certificate.get("passed") is not True
+                                            or certificate.get("scope") != "structural_solid_set_v1"
+                                            or certificate.get("engineering_certified") is not False
+                                            or not isinstance(certificate.get("artifacts"), dict)
+                                            or certificate["artifacts"].get("glb_sha256") != hashlib.sha256(refined_glb).hexdigest()):
+                                        raise ValueError("Refinement evidence does not match the delivered model")
+                                st.session_state.glb_bytes = refined_glb
+                                # Adopt only current structural evidence; physics remains stale.
+                                st.session_state.geometry_certificate = certificate
+                                st.session_state.struct_report = None
+                                st.session_state.aero_report = None
+                                st.session_state.aero_plots = None
+                                st.session_state.xfoil_pdf_bytes = None
+                                st.session_state.parameters = {}
+                                st.session_state.script_code = data.get("script") or ""
+                                st.session_state.last_manifest = data.get("updated_manifest", st.session_state.last_manifest)
+                                st.session_state.last_scripts = data.get("updated_scripts", {})
+                                regen = data.get("regenerated_parts", [])
+                                reused = data.get("reused_parts", [])
+                                st.success(
+                                    f"Refined: regenerated {regen}, reused {reused}"
+                                    if regen else "Refinement applied — no parts changed."
+                                )
+                                st.session_state.script_version += 1
+                                st.rerun()
+                            else:
+                                st.error(f"Refinement failed: {data.get('detail', 'Unknown error')}")
+                        except Exception as _ref_err:
+                            st.error(f"Refinement request failed: {_ref_err}")
+
+with result_col:
+    with st.container(border=True):
+        section_header("Design output")
+        model_tab, analysis_tab, parts_tab, code_tab = st.tabs(["Model", "Analysis", "Parts", "Code"])
+        with model_tab:
+            if st.session_state.glb_bytes:
+                render_glb_viewer(st.session_state.glb_bytes, height=430)
+                st.caption("Drag to orbit · scroll to zoom")
+                _render_download_row("workspace")
+                if not st.session_state.get("geometry_certificate"):
+                    st.caption("Unverified preview — no current structural acceptance evidence is attached.")
+            else:
+                empty_state("No model yet", "Describe a part and select Generate model.")
+            st.caption(st.session_state.status)
+
+        with analysis_tab:
+            geo_cert = st.session_state.get("geometry_certificate")
+            aero_report = st.session_state.get("aero_report")
+            struct_report = st.session_state.get("struct_report")
+            _render_verification_card(st.session_state.get("verification"))
+            if geo_cert:
+                _render_geometry_cert_card(geo_cert)
+            if aero_report:
+                _render_performance_card(aero_report)
+            if struct_report:
+                with st.expander("Flight envelope and structural margins", expanded=True):
+                    _render_structural_card(struct_report)
+            if not any((geo_cert, aero_report, struct_report, st.session_state.get("verification"))):
+                empty_state("No analysis yet", "Generate a model to inspect its checks. Enable analysis for wing estimates.")
+
+        with parts_tab:
+            if st.session_state.get("bom"):
+                _render_bom(st.session_state.bom)
+            else:
+                empty_state("No parts list yet", "Assembly parts and material quantities appear here.")
+
+        with code_tab:
+            # 5) CadQuery Code header row
+            col_label, col_run = st.columns([5, 1])
+            with col_label:
+                section_header("CadQuery source")
+            with col_run:
+                run_clicked = st.button("Run code")
+
+            # 6) Editable code editor (always visible)
+            edited_code = st_ace(
+                value=st.session_state.script_code or "",
+                language="python",
+                theme="tomorrow_night",
+                height=460,
+                key=f"ace_editor_{st.session_state.script_version}",
+                auto_update=True,
+            )
+            st.session_state.script_code = edited_code
+
+            if run_clicked and st.session_state.script_code:
+                run_script(st.session_state.script_code)
+                st.rerun()

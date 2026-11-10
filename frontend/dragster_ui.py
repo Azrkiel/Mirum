@@ -10,6 +10,7 @@ import streamlit as st
 from backend.dragsters.spec import DragsterSpec, canonical_spec
 from backend.dragsters.local import render_preview
 from dragster_state import DragsterState
+from workspace import empty_state, section_header
 
 
 _ROOT = Path(__file__).resolve().parent
@@ -64,68 +65,99 @@ def start_attempt(state, payload, backend, auth):
 
 
 def render_dragster(backend, headers):
-    st.title('CO2 dragster — deterministic wedge')
-    st.caption('Version 1 demonstration geometry in mm. No provider key required. No manufacturing or cartridge-fit certification.')
     if 'dragster_state' not in st.session_state:
         st.session_state.dragster_state = DragsterState()
         load_editor(EXAMPLE.read_text())
     state = st.session_state.dragster_state
-    with st.expander('Load strict versioned JSON'):
-        upload = st.file_uploader('Wedge parameters JSON', type=['json'])
-        pasted = st.text_area('Or paste complete wedge parameters JSON')
-        if st.button('Load wedge parameters'):
-            try:
-                load_editor(upload.getvalue().decode('utf-8') if upload is not None else pasted)
-                state.error = None
-            except (ValueError, UnicodeError) as exc:
-                state.error = str(exc)
-    st.subheader('Edited parameters')
-    st.caption('Edits are a draft. Generate to replace the accepted revision. Heights are above the bottom; axle/pocket Z is above ground.')
     draft = dict(schema_version=1, style='wedge', units='mm')
-    columns = st.columns(3)
-    for index, name in enumerate(DragsterSpec.model_fields):
-        if name not in draft:
-            with columns[index % 3]:
-                draft[name] = st.number_input(name, key='dragster_param_' + name, step=.5, format='%.3f')
-    payload = json.dumps(draft, sort_keys=True, separators=(',', ':'), allow_nan=False)
-    try:
-        spec = DragsterSpec.model_validate_json(payload)
-        st.download_button('Save edited parameters JSON', canonical_spec(spec), 'edited-spec.json', 'application/json')
-    except ValueError as exc:
-        st.warning(f'Edited parameters are invalid: {exc}')
-    job = st.session_state.get('dragster_job')
-    if st.button('Generate accepted wedge', type='primary', disabled=job is not None) and job is None:
-        try:
-            DragsterSpec.model_validate_json(payload)
-            st.session_state.dragster_job = start_attempt(state, payload, backend, headers())
-            st.rerun()
-        except ValueError as exc:
-            state.fail(state.begin(), str(exc))
-    poll_attempt(state)
-    if state.error:
-        st.error(state.error)
-    if state.accepted is None:
-        st.info('No accepted result yet. Correct the parameters and generate again.')
-        return
-    accepted = state.accepted
-    st.subheader('Last accepted result')
-    st.info('Edited parameters match displayed result.' if draft == accepted['spec'] else
-            'Edited parameters differ from displayed result. Preview and downloads retain the accepted revision.')
-    st.caption('Accepted revision: ' + accepted['revision_id'])
-    with st.expander('Parameters belonging to displayed result'):
-        st.json(accepted['spec'])
-    render_preview(state.files['glb'])
-    st.success('Required STEP checks passed; STEP-derived preview and all four artifacts verified.')
-    with st.expander('Accepted verification report'):
-        st.json(accepted['report'])
-    # Downloads use the exact bytes fetched and verified together. The server
-    # buffer may expire; this session retains its accepted snapshot.
-    st.caption('Downloads below are verified copies retained in this session. Server copies expire (default 6 hours, or earlier under storage caps). Reloading loses this session; save parameters to regenerate.')
-    for fmt, label, name, mime in [('step', 'STEP', 'body.step', 'application/step'),
-                                  ('glb', 'GLB', 'preview.glb', 'model/gltf-binary'),
-                                  ('spec', 'accepted parameters', 'spec.json', 'application/json'),
-                                  ('report', 'report', 'report.json', 'application/json')]:
-        st.download_button('Download ' + label, state.files[fmt], name, mime)
+    controls, output = st.columns([.4, .6], gap='large')
+    with controls:
+        # Load before the number widgets are instantiated: Streamlit forbids
+        # mutating a widget's session value after it has rendered in this run.
+        with st.expander('Import parameters'):
+            upload = st.file_uploader('Parameters JSON', type=['json'])
+            pasted = st.text_area('Paste parameters JSON')
+            if st.button('Load parameters'):
+                try:
+                    load_editor(upload.getvalue().decode('utf-8') if upload is not None else pasted)
+                    state.error = None
+                    st.rerun()
+                except (ValueError, UnicodeError) as exc:
+                    state.error = str(exc)
+        with st.container(border=True):
+            section_header('Dimensions', 'Millimetres. Generate to apply draft edits.')
+            groups = {
+                'Body': [('length_mm', 'Length'), ('width_mm', 'Width'),
+                         ('height_mm', 'Rear height'), ('nose_height_mm', 'Nose height'),
+                         ('ground_clearance_mm', 'Ground clearance'), ('min_wall_mm', 'Minimum wall')],
+                'Axles': [('front_axle_x_mm', 'Front position'), ('rear_axle_x_mm', 'Rear position'),
+                          ('axle_z_mm', 'Axle height'), ('axle_bore_diameter_mm', 'Bore diameter')],
+                'Cartridge pocket': [('pocket_diameter_mm', 'Diameter'), ('pocket_depth_mm', 'Depth'),
+                                     ('pocket_center_z_mm', 'Centre height')],
+            }
+            for group, fields in groups.items():
+                with st.expander(group, expanded=group == 'Body'):
+                    if group == 'Axles':
+                        st.caption('Positions from the nose; height above ground.')
+                    elif group == 'Cartridge pocket':
+                        st.caption('Centre height above ground. External holder cavity only.')
+                    columns = st.columns(2)
+                    for index, (name, label) in enumerate(fields):
+                        with columns[index % 2]:
+                            draft[name] = st.number_input(label + ' (mm)', key='dragster_param_' + name,
+                                                          step=.5, format='%.3f')
+            payload = json.dumps(draft, sort_keys=True, separators=(',', ':'), allow_nan=False)
+            try:
+                spec = DragsterSpec.model_validate_json(payload)
+            except ValueError as exc:
+                spec = None
+                st.warning(f'Invalid dimensions: {exc}')
+            job = st.session_state.get('dragster_job')
+            if st.button('Generate body', type='primary', use_container_width=True,
+                         disabled=job is not None) and job is None:
+                try:
+                    DragsterSpec.model_validate_json(payload)
+                    st.session_state.dragster_job = start_attempt(state, payload, backend, headers())
+                    st.rerun()
+                except ValueError as exc:
+                    state.fail(state.begin(), str(exc))
+            poll_attempt(state)
+            if state.error:
+                st.error(state.error)
+            if spec is not None:
+                st.download_button('Save draft JSON', canonical_spec(spec), 'edited-spec.json', 'application/json')
+        st.caption('Demonstration geometry. No manufacturing or cartridge-fit certification.')
+    with output:
+        with st.container(border=True):
+            section_header('Design output')
+            model, evidence = st.tabs(['Model', 'Verification'])
+            with model:
+                if state.accepted is None:
+                    empty_state('No accepted model', 'Set the dimensions and select Generate body.')
+                else:
+                    accepted = state.accepted
+                    st.info('Draft matches the displayed model.' if draft == accepted['spec'] else
+                            'Draft edits differ from the displayed model. Generate to update it.')
+                    render_preview(state.files['glb'])
+                    columns = st.columns(4)
+                    for column, fmt, label, name, mime in zip(columns,
+                            ['step', 'glb', 'spec', 'report'],
+                            ['STEP', 'GLB', 'Parameters', 'Report'],
+                            ['body.step', 'preview.glb', 'spec.json', 'report.json'],
+                            ['application/step', 'model/gltf-binary', 'application/json', 'application/json']):
+                        with column:
+                            st.download_button(label, state.files[fmt], name, mime, use_container_width=True)
+                    st.caption('Accepted revision: ' + accepted['revision_id'])
+                    st.caption('Downloads are retained in this session. Save parameters before reloading; server copies expire.')
+            with evidence:
+                if state.accepted is None:
+                    st.caption('STEP checks appear after a successful generation.')
+                else:
+                    st.success('Required STEP checks passed. Preview and downloads match this revision.')
+                    with st.expander('Accepted parameters'):
+                        st.json(state.accepted['spec'])
+                    with st.expander('Verification report', expanded=True):
+                        st.json(state.accepted['report'])
 
 
 @st.fragment(run_every=.5)
@@ -133,7 +165,7 @@ def poll_attempt(state):
     job = st.session_state.get('dragster_job')
     if job is not None:
         attempt, future, cancelled = job
-        if st.button('Cancel wedge attempt'):
+        if st.button('Cancel generation'):
             cancelled.set()
             state.fail(attempt, 'Attempt cancelled; previous accepted result retained')
             # Invalidate the attempt token so even an already completed response
@@ -149,4 +181,4 @@ def poll_attempt(state):
                 state.fail(attempt, str(exc))
             st.session_state.dragster_job = None
             st.rerun()
-        st.info('Building, verifying STEP, generating preview, and publishing artifacts…')
+        st.info('Generating geometry and checking STEP…')

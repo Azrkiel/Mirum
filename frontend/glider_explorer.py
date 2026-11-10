@@ -7,6 +7,7 @@ from components.glider_explorer import explorer
 
 
 def render_explorer(backend, headers):
+    st.caption('Adjust dimensions in the viewer. Recalculate to update flight estimates; export uses the evaluated revision.')
     if 'explorer_bootstrap' not in st.session_state:
         try:
             r = requests.get(f'{backend}/gliders/metadata', headers=headers(), timeout=15)

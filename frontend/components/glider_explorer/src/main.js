@@ -4,23 +4,23 @@ import {Streamlit} from 'streamlit-component-lib';
 import {meshes,shape} from './model.js';
 import './style.css';
 const $=s=>document.querySelector(s),clone=x=>JSON.parse(JSON.stringify(x));
-document.querySelector('#app').innerHTML=`<div class="toolbar"><strong>Explore one design</strong><button id="reset">Reset design</button><button id="compare">Compare original</button><label><input id="wire" type="checkbox">Wireframe</label></div><div class="layout"><div id="controls"></div><main><div class="views"><button data-view="orbit">Reset camera</button><button data-view="top">Top</button><button data-view="front">Front</button><button data-view="side">Side</button></div><div id="viewport"><canvas></canvas><span id="guide"></span></div><div id="status" role="status">Loading geometry…</div><div class="analysis"><button id="evaluate">Recalculate performance</button><label><input id="auto" type="checkbox">Auto recalculate after pause</label></div><div id="metrics"></div><div id="warnings"></div><small>Metres · x aft, y right, z up. Drag to rotate; scroll to zoom.<br>Distance = launch height × trimmed L/D, in still air. Screening estimates, not flight validation.</small></main></div>`;
+document.querySelector('#app').innerHTML=`<div class="toolbar"><strong>Design explorer</strong><button id="reset">Reset design</button><button id="compare">Compare original</button><label><input id="wire" type="checkbox">Wireframe</label></div><div class="layout"><div id="controls"></div><main><div class="views"><button data-view="orbit">Reset camera</button><button data-view="top">Top</button><button data-view="front">Front</button><button data-view="side">Side</button></div><div id="viewport"><canvas></canvas><span id="guide"></span></div><div id="status" role="status">Loading geometry…</div><div class="analysis"><button id="evaluate">Recalculate performance</button><label><input id="auto" type="checkbox">Auto recalculate</label></div><div id="metrics"></div><div id="warnings"></div><small>Metres · x aft, y right, z up. Drag to rotate; scroll to zoom.<br>Distance = launch height × trimmed L/D, in still air. Screening estimates, not flight validation.</small></main></div>`;
 const renderer=new THREE.WebGLRenderer({canvas:$('canvas'),antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-renderer.setClearColor('#101e30');const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(38,1,.001,50);camera.up.set(0,0,1);
+renderer.setClearColor('#0c111b');const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(38,1,.001,50);camera.up.set(0,0,1);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
 scene.add(new THREE.HemisphereLight(0xd9efff,0x46505c,3));const light=new THREE.DirectionalLight(0xffffff,3);light.position.set(-1,2,3);scene.add(light);
 const axes=new THREE.AxesHelper(.2);scene.add(axes);
 let model=new THREE.Group(),ghost=new THREE.Group();const angleGuide=new THREE.Group();scene.add(model,ghost,angleGuide);
 let state,original,metadata,epoch,seq=0,timer,autoTimer,pollTimer,busy=false,lastReply=-1,lastGeometry,framePending=false,comparing=false,view='orbit',processedReply=null,evaluatedSeq=-1;
 function clear(group){while(group.children.length){const o=group.children[0];o.geometry.dispose();o.material.dispose();group.remove(o);}}
-function draw(geometry,group=model,opacity=1){clear(group);for(const p of geometry.parts){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p.vertices.flat(),3));g.setIndex(p.triangles.flat());g.computeVertexNormals();const color=p.name==='wing'?0x74d7ca:p.name==='fuselage'?0xe8c493:0x7ea8ef;
+function draw(geometry,group=model,opacity=1){clear(group);for(const p of geometry.parts){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(p.vertices.flat(),3));g.setIndex(p.triangles.flat());g.computeVertexNormals();const color=p.name==='wing'?0x5b88ff:p.name==='fuselage'?0xb6c5de:0x95b4ff;
  group.add(new THREE.Mesh(g,new THREE.MeshStandardMaterial({color,side:THREE.DoubleSide,roughness:.65,wireframe:$('#wire').checked,transparent:opacity<1,opacity,depthWrite:opacity===1})));}window.__gliderMeshVersion=(window.__gliderMeshVersion||0)+1;}
 function aim(which){view=which;const L=state.parameters.fuselage.length;orbit.target.set(L/2,0,0);const target=orbit.target;
  const offset=which==='top'?[0,0,2]:which==='front'?[-2,0,0]:which==='side'?[0,2,0]:[-1.1,1.4,.9];camera.position.copy(target).add(new THREE.Vector3(...offset));camera.up.set(...(which==='top'?[1,0,0]:[0,0,1]));orbit.update();guide();}
 function guide(){const w=state?.parameters.wing;if(!w)return;clear(angleGuide);
  if(view==='front'){
   const root=shape(state).surfaces[0].sections[0],r=.18,theta=w.dihedral_deg*Math.PI/180;
-  const makeLine=points=>{const g=new THREE.BufferGeometry().setFromPoints(points.map(([y,z])=>new THREE.Vector3(root.x-.05,y,root.z+z)));angleGuide.add(new THREE.Line(g,new THREE.LineBasicMaterial({color:0xaaf2d7,depthTest:false})));};
+  const makeLine=points=>{const g=new THREE.BufferGeometry().setFromPoints(points.map(([y,z])=>new THREE.Vector3(root.x-.05,y,root.z+z)));angleGuide.add(new THREE.Line(g,new THREE.LineBasicMaterial({color:0x95b4ff,depthTest:false})));};
   makeLine([[0,0],[r,0]]);makeLine([[0,0],[r*Math.cos(theta),r*Math.sin(theta)]]);
   makeLine(Array.from({length:21},(_,i)=>[r*.65*Math.cos(theta*i/20),r*.65*Math.sin(theta*i/20)]));
  }
@@ -78,7 +78,7 @@ function receive(event){const args=event.detail.args;if(epoch!==args.epoch){epoc
 $('#evaluate').onclick=()=>{clearTimeout(autoTimer);send('evaluate');};$('#auto').onchange=()=>{if($('#auto').checked){clearTimeout(autoTimer);autoTimer=setTimeout(()=>send('evaluate'),900);}else clearTimeout(autoTimer);};
 $('#reset').onclick=()=>{state=clone(original);controls();dirty();};$('#compare').onclick=()=>{comparing=!comparing;if(comparing)draw(meshes(original,metadata.airfoils),ghost,.25);else clear(ghost);$('#compare').textContent=comparing?'Hide original':'Compare original';};
 $('#wire').onchange=()=>{if(lastGeometry)draw(lastGeometry);else local();};document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>aim(b.dataset.view));
-new ResizeObserver(()=>{const width=$('#viewport').clientWidth,height=440;renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();Streamlit.setFrameHeight(980);}).observe($('#viewport'));
+const resize=new ResizeObserver(()=>{const width=$('#viewport').clientWidth,height=$('#viewport').clientHeight;renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();Streamlit.setFrameHeight(Math.ceil($('#app').getBoundingClientRect().height)+8);});resize.observe($('#viewport'));resize.observe($('#app'));
 renderer.setAnimationLoop(()=>{orbit.update();renderer.render(scene,camera);});
-window.addEventListener('pagehide',()=>{clearTimeout(timer);clearTimeout(autoTimer);clearTimeout(pollTimer);renderer.setAnimationLoop(null);clear(model);clear(ghost);clear(angleGuide);orbit.dispose();renderer.dispose();});
+window.addEventListener('pagehide',()=>{resize.disconnect();clearTimeout(timer);clearTimeout(autoTimer);clearTimeout(pollTimer);renderer.setAnimationLoop(null);clear(model);clear(ghost);clear(angleGuide);orbit.dispose();renderer.dispose();});
 Streamlit.events.addEventListener(Streamlit.RENDER_EVENT,receive);Streamlit.setComponentReady();Streamlit.setFrameHeight(980);

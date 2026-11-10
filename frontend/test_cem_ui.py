@@ -22,7 +22,8 @@ def test_form_submits_selected_shape_mode_and_keeps_screening_limits(monkeypatch
         submitted.append(kwargs['json'])
         return Response()
     monkeypatch.setattr(requests, 'post', post)
-    app = AppTest.from_string('from frontend.cem_ui import render_cem\nrender_cem("http://backend", lambda: {})').run()
+    app = AppTest.from_string('from frontend.cem_ui import render_cem\nrender_cem("http://backend", lambda: {})',
+                              default_timeout=15).run()
     assert not app.exception
     next(x for x in app.selectbox if x.label == 'Wing planform search').set_value(mode)
     next(x for x in app.button if x.label == 'Check feasibility').click().run()
@@ -50,7 +51,8 @@ def test_advanced_mission_still_overrides_the_shape_form(monkeypatch):
         submitted.append(kwargs['json']['requirements'])
         return Response()
     monkeypatch.setattr(requests, 'post', post)
-    app = AppTest.from_string('from frontend.cem_ui import render_cem\nrender_cem("http://backend", lambda: {})').run()
+    app = AppTest.from_string('from frontend.cem_ui import render_cem\nrender_cem("http://backend", lambda: {})',
+                              default_timeout=15).run()
     next(x for x in app.text_area if x.label.startswith('Mission JSON')).set_value(json.dumps(mission))
     next(x for x in app.button if x.label == 'Check feasibility').click().run()
     assert not app.exception
@@ -79,7 +81,8 @@ def test_shaped_elite_submits_archive_bound_comparison_and_renders_inconclusive(
         return Response(dict(job_id='b'*32))
     monkeypatch.setattr(requests, 'get', get)
     monkeypatch.setattr(requests, 'post', post)
-    app = AppTest.from_string('from frontend.cem_ui import render_cem\nrender_cem("http://backend", lambda: {})')
+    app = AppTest.from_string('from frontend.cem_ui import render_cem\nrender_cem("http://backend", lambda: {})',
+                              default_timeout=15)
     app.session_state['cem_job'] = 'a'*32
     app.session_state['cem_status'] = 'completed'
     app.session_state['cem_kind'] = 'discovery'

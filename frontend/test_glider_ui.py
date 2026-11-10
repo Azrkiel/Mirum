@@ -31,8 +31,8 @@ def test_glider_form_units_submission_and_empty_results(monkeypatch):
     monkeypatch.setattr(requests, 'get', lambda *a, **k: Response(metadata() if a[0].endswith('/metadata') else {
         'status': 'completed', 'result': {'feasible': 0, 'evaluated': 8,
          'assumptions': 'Still-air screening estimate', 'rejections': {'too heavy': 8}, 'candidates': []}}))
-    app = AppTest.from_file(str(Path(__file__).with_name('app.py'))).run()
-    app.radio[0].set_value('Passive glider distance search').run()
+    app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=15).run()
+    app.sidebar.radio(key='workspace_workflow').set_value('glider').run()
     assert not app.exception
     next(x for x in app.button if x.label == 'Search glider designs').click().run()
     assert not app.exception
@@ -55,8 +55,8 @@ def test_empty_configuration_does_not_submit(monkeypatch):
             return metadata()
     monkeypatch.setattr(requests, 'get', lambda *a, **k: MetadataResponse())
     monkeypatch.setattr(requests, 'post', lambda *a, **k: (_ for _ in ()).throw(AssertionError('Unexpected submission')))
-    app = AppTest.from_file(str(Path(__file__).with_name('app.py'))).run()
-    app.radio[0].set_value('Passive glider distance search').run()
+    app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=15).run()
+    app.sidebar.radio(key='workspace_workflow').set_value('glider').run()
     app.multiselect[0].set_value([]).run()
     next(x for x in app.button if x.label == 'Search glider designs').click().run()
     assert not app.exception
@@ -89,8 +89,8 @@ def test_candidate_load_preserves_request_and_placement(monkeypatch):
         return Response(dict(status='completed', result=dict(feasible=1, evaluated=8,
             assumptions='Still air', rejections={}, candidates=[candidate])))
     monkeypatch.setattr(requests, 'get', get)
-    app = AppTest.from_file(str(Path(__file__).with_name('app.py'))).run()
-    app.radio[0].set_value('Passive glider distance search').run()
+    app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=15).run()
+    app.sidebar.radio(key='workspace_workflow').set_value('glider').run()
     app.session_state['glider_job'] = 'fixture'
     app.session_state['glider_downloads'] = {}
     app.run()

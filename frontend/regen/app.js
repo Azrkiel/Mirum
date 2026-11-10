@@ -140,7 +140,7 @@ $("spec-form").addEventListener("submit", async (event) => {
     lastSpec = specification();
     status(
       "running",
-      "Building and checking geometry. This usually takes a few minutes…",
+      "Building and checking geometry. This may take a few minutes.",
     );
     let job = await jsonRequest("/api/jobs", {
       method: "POST",
@@ -155,7 +155,7 @@ $("spec-form").addEventListener("submit", async (event) => {
     showReport(job);
     if (job.status === "accepted") {
       for (const [key, title] of [
-        ["stl", "Download STL ↗"],
+        ["stl", "Download STL"],
         ["report", "Report JSON"],
         ["spec", "Parameters JSON"],
       ]) {
@@ -218,7 +218,7 @@ function makeViewer(canvas) {
     program,
     shader(
       gl.FRAGMENT_SHADER,
-      "precision mediump float;varying vec3 normal;void main(){float d=abs(dot(normalize(normal),normalize(vec3(.4,.8,.6))));vec3 c=mix(vec3(.14,.28,.18),vec3(.69,.88,.50),.25+.75*d);gl_FragColor=vec4(c,1.);}",
+      "precision mediump float;varying vec3 normal;void main(){float d=abs(dot(normalize(normal),normalize(vec3(.4,.8,.6))));vec3 c=mix(vec3(.12,.20,.40),vec3(.48,.65,1.),.25+.75*d);gl_FragColor=vec4(c,1.);}",
     ),
   );
   gl.linkProgram(program);
@@ -240,7 +240,7 @@ function makeViewer(canvas) {
       canvas.height = height;
     }
     gl.viewport(0, 0, width, height);
-    gl.clearColor(0.065, 0.1, 0.075, 1);
+    gl.clearColor(0.047, 0.067, 0.106, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     if (!count) return;
     const cy = Math.cos(yaw),
@@ -412,7 +412,7 @@ jsonRequest("/api/config")
     status(
       data.ready ? "ready" : "unavailable",
       data.ready
-        ? "Generator ready. Choose dimensions to begin."
+        ? "Generator ready."
         : "PicoGK runtime is not installed. Run the repository setup script on the server.",
     );
   })
