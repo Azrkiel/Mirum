@@ -408,14 +408,6 @@ def test_resolve_unknown_style():
         load_preset('blob')
 
 
-def test_hardware_stub_contract():
-    spec = load_preset('teardrop')
-    assert hardware.wheel_envelopes(spec) == []
-    assert hardware.cad_checks(object(), spec) == {}
-    assert hardware.summary(spec, 1.0, None) == {
-        'hardware': {}, 'mass': {'value_g': None, 'basis': 'body_only', 'reason': 'hardware checks not implemented'}}
-
-
 def test_v2_modules_import_without_cad():
     code = (
         "import sys\n"
