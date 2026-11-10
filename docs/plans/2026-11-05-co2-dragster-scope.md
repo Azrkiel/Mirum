@@ -2,6 +2,9 @@
 
 Date: 2026-11-05. Status: draft for user review; implementation has not started.
 
+> **2026-11-09:** the wedge vertical slice is on `main` (`01f889e`). Remaining work is executed from the
+> [CO2 dragster master plan](co2-dragster/00-master-plan.md) and its subplans; this file is background.
+
 ## Goal
 
 Extend Mirum to generate editable CO2 dragster bodies inspired by the supplied showroom photo, with repeatable dimensions, browser previews, and downloadable STEP geometry.
