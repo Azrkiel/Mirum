@@ -394,7 +394,7 @@ def test_resolve_build_returns_callable(style):
 
 
 # Styles still stubbed; each builder workstream drops its style here (wedge landed in D2).
-@pytest.mark.parametrize('style', ['teardrop', 'narrow_waist'])
+@pytest.mark.parametrize('style', ['teardrop'])
 def test_resolve_build_returns_stub(style):
     build = resolve_build(style)
     with pytest.raises(NotImplementedError, match='builder lands in D'):
