@@ -1,10 +1,9 @@
 """Verification v2 (D5): real OpenCASCADE, STEP round trips, negative mutants.
 
-Lofted and wedge test bodies are built here with ``kernel`` / ``profiles`` so the tests do not
-depend on the D3/D4 style builders. ``validation_v2`` itself never imports ``kernel``.
-Hardware is exercised only through the frozen D6 signatures (stub or real): the generic tests
-below never depend on which implementation is installed, and the hardware-merge tests
-monkeypatch ``validation_v2.hardware``.
+Nominal preset bodies come from the real registered style builders (``resolve_build``) with the
+real D6 hardware checks. Mutants (deliberately wrong pockets/bores) are built here from the outer
+body via ``kernel`` / ``profiles``. ``validation_v2`` itself never imports ``kernel`` or a builder.
+The hardware-merge tests monkeypatch ``validation_v2.hardware``.
 """
 import ast
 import json
@@ -16,9 +15,9 @@ import cadquery as cq
 import pytest
 
 from backend.dragsters import profiles, validation_v2 as v2
-from backend.dragsters.kernel import cut_pocket_and_bores, loft_body
+from backend.dragsters.kernel import loft_body
 from backend.dragsters.spec_v2 import canonical_spec_v2, specification_digest_v2
-from backend.dragsters.styles import load_preset
+from backend.dragsters.styles import load_preset, resolve_build
 
 MODULE = Path(v2.__file__)
 STYLES = ('wedge', 'teardrop', 'narrow_waist')
@@ -53,13 +52,9 @@ def _uncut(style):
 
 
 def nominal_body(style):
+    """The preset body from the real registered style builder (D2 wedge, D3 teardrop, D4 narrow waist)."""
     spec = load_preset(style)
-    bores = [(spec.front_axle_x_mm, spec.front_axle_z_mm, spec.axle_bore_diameter_mm),
-             (spec.rear_axle_x_mm, spec.rear_axle_z_mm, spec.axle_bore_diameter_mm)]
-    return spec, cut_pocket_and_bores(
-        _uncut(style), length=spec.length_mm, pocket_diameter=spec.pocket_diameter_mm,
-        pocket_depth=spec.pocket_depth_mm, pocket_center_z=spec.pocket_center_z_mm,
-        bores=bores, y_extent=_ymax(spec))
+    return spec, resolve_build(style)(spec)
 
 
 def mutant_body(style, *, pocket=True, pocket_z=None, pocket_y=0.0, pocket_depth=None,
