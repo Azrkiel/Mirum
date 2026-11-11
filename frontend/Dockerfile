@@ -13,7 +13,6 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY frontend/ /app/
 COPY backend/dragsters/ /app/backend/dragsters/
-COPY backend/__init__.py /app/backend/__init__.py
 COPY --from=explorer-build /build/dist /app/components/glider_explorer/dist
 WORKDIR /app
 
