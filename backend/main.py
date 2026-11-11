@@ -1547,16 +1547,26 @@ async def _execute_accepted(script: str, output_path: str, output_variable: str 
 
 # A dedicated fixed worker consumes only the strict spec, never Python source.
 from dragsters.spec import DragsterSpec
+from dragsters.spec_v2 import DragsterSpecV2
+from dragsters.styles import REGISTRY as DRAGSTER_STYLES, load_preset as dragster_preset
 from dragsters.api import stream as dragster_stream
 
 
 @app.post("/dragsters/generate")
 @limiter.limit("5/minute")
-async def generate_dragster(body: DragsterSpec, request: Request):
+async def generate_dragster(body: DragsterSpec | DragsterSpecV2, request: Request):
     request.state.dragster_attempt_id = uuid.uuid4().hex
     return StreamingResponse(dragster_stream(body, request, _safe_error, request.app.state.dragster_runner),
                              media_type="text/event-stream",
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+@app.get("/dragsters/presets")
+@limiter.limit("30/minute")
+async def dragster_presets(request: Request):
+    return {"styles": [{"name": name, "label": entry.label,
+                        "preset": dragster_preset(name).model_dump(mode='json')}
+                       for name, entry in DRAGSTER_STYLES.items()]}
 
 
 @app.post("/generate")

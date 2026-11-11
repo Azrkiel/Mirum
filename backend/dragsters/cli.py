@@ -12,6 +12,7 @@ import uuid
 from pydantic import ValidationError
 
 from .spec import DragsterSpec, canonical_spec
+from .spec_v2 import parse_any
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -23,8 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         return int(exc.code)
     try:
-        spec = DragsterSpec.model_validate_json(args.spec.read_text(encoding='utf-8'))
-    except (ValidationError, UnicodeError) as exc:
+        spec = parse_any(args.spec.read_text(encoding='utf-8'))
+    except (ValueError, UnicodeError) as exc:
         print(f'Invalid dragster JSON/spec: {exc}', file=sys.stderr)
         return 2
     except OSError as exc:
@@ -33,6 +34,10 @@ def main(argv: list[str] | None = None) -> int:
 
     stage = None
     try:
+        if spec.schema_version == 2:
+            from .local import generate_result_v2
+            print(generate_result_v2(spec, args.output_root))
+            return 0
         # Invalid JSON is rejected before loading any native geometry code.
         import cadquery as cq
         from .geometry import build_body

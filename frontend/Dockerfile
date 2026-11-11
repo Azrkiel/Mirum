@@ -12,9 +12,8 @@ COPY frontend/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY frontend/ /app/
-COPY backend/dragsters/spec.py /app/backend/dragsters/spec.py
-COPY backend/dragsters/local.py /app/backend/dragsters/local.py
-COPY backend/dragsters/examples/wedge.json /app/backend/dragsters/examples/wedge.json
+COPY backend/dragsters/ /app/backend/dragsters/
+COPY backend/__init__.py /app/backend/__init__.py
 COPY --from=explorer-build /build/dist /app/components/glider_explorer/dist
 WORKDIR /app
 
