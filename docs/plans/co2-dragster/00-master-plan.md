@@ -190,12 +190,12 @@ any sampled check), `provenance{field: 'supplied'|'preset:<name>'|'migrated_from
 | ID | Subplan | Agent type | Depends on | Wave | Branch | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | D0 | [Baseline & live smoke](D0-baseline.md) | general-purpose (ops) | — | 0 | `chore/co2-dragster-d0-baseline` | merged (PR #20) |
-| D1 | [Spec v2 + registry + v1 compat](D1-spec-v2.md) | general-purpose (implementation) | D0 | 1 | `feat/co2-dragster-d1-spec-v2` | in review (PR #22) |
-| D2 | [Lofted-body kernel + spike + wedge v2](D2-lofted-kernel.md) | general-purpose (implementation, CAD) | D0, D1 first commit (`profiles.py`) | 1 | `feat/co2-dragster-d2-kernel` | in review (PR #23) |
-| D3 | [Teardrop style](D3-style-teardrop.md) | general-purpose (CAD) | D1, D2 | 2 | `feat/co2-dragster-d3-teardrop` | not started |
-| D4 | [Narrow-waist style](D4-style-narrow-waist.md) | general-purpose (CAD) | D1, D2 | 2 | `feat/co2-dragster-d4-narrow-waist` | not started |
-| D5 | [Verification v2](D5-verification-v2.md) | general-purpose (CAD verification) | D1, D2 | 2 | `feat/co2-dragster-d5-verify-v2` | not started |
-| D6 | [Hardware checks: wheels, stock, mass](D6-hardware-checks.md) | general-purpose | D1, D2 | 2 | `feat/co2-dragster-d6-hardware` | not started |
+| D1 | [Spec v2 + registry + v1 compat](D1-spec-v2.md) | general-purpose (implementation) | D0 | 1 | `feat/co2-dragster-d1-spec-v2` | merged (PR #22) |
+| D2 | [Lofted-body kernel + spike + wedge v2](D2-lofted-kernel.md) | general-purpose (implementation, CAD) | D0, D1 first commit (`profiles.py`) | 1 | `feat/co2-dragster-d2-kernel` | merged (PR #23) |
+| D3 | [Teardrop style](D3-style-teardrop.md) | general-purpose (CAD) | D1, D2 | 2 | `feat/co2-dragster-d3-teardrop` | merged (PR #25) |
+| D4 | [Narrow-waist style](D4-style-narrow-waist.md) | general-purpose (CAD) | D1, D2 | 2 | `feat/co2-dragster-d4-narrow-waist` | merged (PR #27) |
+| D5 | [Verification v2](D5-verification-v2.md) | general-purpose (CAD verification) | D1, D2 | 2 | `feat/co2-dragster-d5-verify-v2` | merged (PR #26) |
+| D6 | [Hardware checks: wheels, stock, mass](D6-hardware-checks.md) | general-purpose | D1, D2 | 2 | `feat/co2-dragster-d6-hardware` | merged (PR #24) |
 | D7 | [Service/API/UI v2](D7-service-ui-v2.md) | general-purpose (full-stack) | D3, D4, D5, D6 | 3 | `feat/co2-dragster-d7-service-ui` | not started |
 | D8 | [Text routing, extraction, refinement](D8-text-routing.md) | general-purpose (backend + LLM) | D1 (backend part), D7 (UI part) | 3 | `feat/co2-dragster-d8-text` | not started |
 | D9 | [Release gate, docs, deploy](D9-release.md) | lead (Opus) + general-purpose | D0–D8 | 4 | `chore/co2-dragster-d9-release` | not started |
