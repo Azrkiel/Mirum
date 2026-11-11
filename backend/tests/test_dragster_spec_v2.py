@@ -393,27 +393,11 @@ def test_resolve_build_returns_callable(style):
     assert callable(resolve_build(style))
 
 
-# Styles still stubbed; each builder workstream drops its style here (wedge landed in D2).
-@pytest.mark.parametrize('style', ['teardrop', 'narrow_waist'])
-def test_resolve_build_returns_stub(style):
-    build = resolve_build(style)
-    with pytest.raises(NotImplementedError, match='builder lands in D'):
-        build(load_preset(style))
-
-
 def test_resolve_unknown_style():
     with pytest.raises(KeyError):
         resolve_build('blob')
     with pytest.raises(KeyError):
         load_preset('blob')
-
-
-def test_hardware_stub_contract():
-    spec = load_preset('teardrop')
-    assert hardware.wheel_envelopes(spec) == []
-    assert hardware.cad_checks(object(), spec) == {}
-    assert hardware.summary(spec, 1.0, None) == {
-        'hardware': {}, 'mass': {'value_g': None, 'basis': 'body_only', 'reason': 'hardware checks not implemented'}}
 
 
 def test_v2_modules_import_without_cad():
