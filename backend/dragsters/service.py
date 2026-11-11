@@ -27,6 +27,20 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def worker_env() -> dict:
+    """Minimal native-worker environment: no secrets, single-threaded math libraries.
+
+    MALLOC_ARENA_MAX=2: glibc sizes its malloc arenas by CPU count, and their reserved address
+    space pushed lofted builds past the 1536 MiB RLIMIT_AS on many-core hosts (CO2 dragster F1).
+    Capping arenas fixes that without raising the worker limits.
+    """
+    env = {key: os.environ[key] for key in ('PATH', 'HOME', 'LANG', 'SYSTEMROOT',
+           'WINDIR', 'TEMP', 'TMP') if key in os.environ}
+    env.update(OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1', MALLOC_ARENA_MAX='2',
+               PYTHONDONTWRITEBYTECODE='1')
+    return env
+
+
 async def generate(spec: DragsterSpec, *, runner=None) -> dict:
     """Retain scratch ownership until worker cleanup and publication settle."""
     spec = DragsterSpec.model_validate_json(canonical_spec(spec))
@@ -37,11 +51,9 @@ async def generate(spec: DragsterSpec, *, runner=None) -> dict:
     try:
         with tempfile.TemporaryDirectory(prefix='dragster-', dir=_WORK_DIR) as temporary:
             stage = Path(temporary)
-            env = {key: os.environ[key] for key in ('PATH', 'HOME', 'LANG', 'SYSTEMROOT',
-                   'WINDIR', 'TEMP', 'TMP') if key in os.environ}
-            env.update(OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1', PYTHONDONTWRITEBYTECODE='1')
             native = await runner.run([sys.executable, str(Path(__file__).with_name('worker.py')),
-                                      str(stage)], input=canonical_spec(spec).encode(), cwd=str(stage), env=env)
+                                      str(stage)], input=canonical_spec(spec).encode(), cwd=str(stage),
+                                      env=worker_env())
             if native.get('code') or native.get('returncode') != 0:
                 reason = native.get('code') or native.get('stderr', '').strip()[-1200:] or 'native generation failed'
                 raise GenerationError(f'Dragster worker: {reason}')
