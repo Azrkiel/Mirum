@@ -23,8 +23,13 @@ for v1 specs.
 - `backend/tests/test_dragster_validation_v2.py`
 
 Allowed imports in `validation_v2.py`: `cadquery`, `OCP`, `dragsters.spec_v2`, `dragsters.profiles`,
-`dragsters.tolerances`, `dragsters.hardware`. **Forbidden:** `kernel`, `styles.*`, `geometry` (a test
-enforces this by AST-scanning the module's imports). Tests may import builders to make inputs.
+`dragsters.tolerances`, `dragsters.hardware`, and `dragsters.styles.REGISTRY` (read-only, for
+`generator_version`; the registry module is stdlib-only and resolves builders lazily by string).
+**Forbidden:** `kernel`, `geometry`, and any style *builder* module (`styles.<style>`); a test
+enforces this by AST-scanning the module's imports (only `from .styles import REGISTRY` is allowed)
+and by checking that importing `validation_v2` loads no `kernel`, `geometry` or `styles.<style>`
+module. Tests may import builders to make inputs. (Amended 2026-11-10, user decision: master § 5.5
+forbids style build code, not the CAD-free registry.)
 
 ## Checks (ids are a contract; D7 UI and D9 matrix use them)
 
