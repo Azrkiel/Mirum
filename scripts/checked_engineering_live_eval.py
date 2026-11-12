@@ -5,6 +5,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import sys
 
 from engineering.briefs import BriefService
@@ -13,6 +15,24 @@ from engineering.proposer import BriefProposer,GeminiProposalProvider
 from engineering.store import SQLiteStore,SQLiteBriefRepository,SQLiteProposalLedger
 
 CORPUS_SHA256='7fb09dcc06626b7fbe31c0e9a2237792ded90ad292651b33e5d4db2ff29bcfea'
+
+
+def load_credential(path):
+    """Read only a single literal Gemini key; no dotenv dependency/evaluation."""
+    values={}
+    for line in Path(path).read_text(encoding='utf-8-sig').splitlines():
+        name,separator,raw=line.strip().removeprefix('export ').partition('=')
+        name=name.strip()
+        if not separator or name not in ('GEMINI_API_KEY_HEAVY','GEMINI_API_KEY'): continue
+        parts=shlex.split(raw,comments=True,posix=True)
+        if len(parts)!=1 or re.fullmatch(r'[A-Za-z0-9_-]+',parts[0]) is None:
+            raise ValueError('Credential must be one literal key; use the process environment for other formats')
+        values[name]=parts[0]
+    for name in ('GEMINI_API_KEY_HEAVY','GEMINI_API_KEY'):
+        if values.get(name):
+            os.environ['GEMINI_API_KEY_HEAVY']=values[name]
+            return name
+    return None
 
 
 class ObservedProvider(GeminiProposalProvider):
@@ -50,14 +70,8 @@ async def main(output,state_root,sha,credentials=None):
     output=Path(output); output.mkdir(parents=True,exist_ok=True)
     credential_variable=None
     if credentials:
-        from dotenv import dotenv_values
-        values=dotenv_values(credentials)
         # One existing Gemini key only. No pool, provider or model substitution.
-        for name in ('GEMINI_API_KEY_HEAVY','GEMINI_API_KEY'):
-            if values.get(name):
-                os.environ['GEMINI_API_KEY_HEAVY']=values[name]
-                credential_variable=name
-                break
+        credential_variable=load_credential(credentials)
     path=Path('backend/tests/fixtures/engineering/ai-corpus-v1.json')
     corpus=path.read_bytes(); assert hashlib.sha256(corpus).hexdigest()==CORPUS_SHA256,'Fixed corpus changed'
     cases=[{k:v for k,v in case.items() if k!='fixture_response'} for case in json.loads(corpus)['cases']]
