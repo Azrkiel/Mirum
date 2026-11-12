@@ -16,7 +16,7 @@ from .admission import AdmissionBusy
 from .briefs import BriefService,RevisionConflict
 from .bundles import BundlePublisher,FORMATS
 from .capabilities import list_capabilities
-from .contracts import ContractModel,ReviewAcknowledgement,Text
+from .contracts import ContractModel,ReviewAcknowledgement,Text,REVIEW_FIELDS
 from .jobs import JobController
 from .proposer import BriefProposer
 from .store import SQLiteStore,SQLiteBriefRepository,SQLiteProposalLedger,ArtifactExpired
@@ -106,6 +106,11 @@ def attach_v1_routes(app,limiter):
     def clean(request):
         value=runtime(request); value.publisher.cleanup(); return value
 
+    def prepared_view(prepared):
+        content=prepared.draft.content
+        return dict(prepared.export(),brief_sha256=content.brief_sha256 if content else None,
+                    fixed_requirements_sha256=content.fixed_requirements_sha256 if content else None)
+
     @router.get('/capabilities')
     @limiter.limit('30/minute')
     async def capabilities(request:Request):
@@ -113,6 +118,7 @@ def attach_v1_routes(app,limiter):
         native=os.name=='posix' and all(importlib.util.find_spec(name) for name in ('cadquery','OCP','numpy'))
         return dict(capabilities=[c.model_dump(mode='json') for c in list_capabilities()],
             native_available=bool(native),ai_available=value.proposer.provider.available,
+            review_fields=list(REVIEW_FIELDS),
             availability_scope='Runtime prerequisites; each execution still requires all native evidence',
             persistent_volume_required=os.environ.get('MIRUM_ENGINEERING_REQUIRE_VOLUME','0')=='1')
 
@@ -122,23 +128,23 @@ def attach_v1_routes(app,limiter):
         value=clean(request)
         if body.mode=='form':
             if body.prompt is not None: raise ValueError('Form input does not take a prompt')
-            return value.briefs.create(body.input).export()
+            return prepared_view(value.briefs.create(body.input))
         if body.input or body.prompt is None: raise ValueError('AI entry requires a prompt and empty initial input')
         prepared=value.briefs.create({})
         result=await value.proposer.propose(prepared.draft.draft_id,expected_revision=1,prompt=body.prompt)
         if result.state in ('unavailable','cancelled'):
-            return JSONResponse(status_code=503,content=dict(state=result.state,reasons=result.reasons,prepared=result.prepared.export()),headers={'Cache-Control':'no-store'})
-        return result.prepared.export()
+            return JSONResponse(status_code=503,content=dict(state=result.state,reasons=result.reasons,prepared=prepared_view(result.prepared)),headers={'Cache-Control':'no-store'})
+        return prepared_view(result.prepared)
 
     @router.get('/drafts/{draft_id}')
     @limiter.limit('30/minute')
     async def read_draft(draft_id:str,request:Request):
-        return clean(request).briefs.export(draft_id)
+        return prepared_view(clean(request).briefs.read(draft_id))
 
     @router.patch('/drafts/{draft_id}')
     @limiter.limit('30/minute')
     async def edit_draft(draft_id:str,body:DraftEdit,request:Request):
-        return clean(request).briefs.edit(draft_id,expected_revision=body.expected_revision,payload=body.input).export()
+        return prepared_view(clean(request).briefs.edit(draft_id,expected_revision=body.expected_revision,payload=body.input))
 
     @router.post('/briefs',status_code=201)
     @limiter.limit('30/minute')

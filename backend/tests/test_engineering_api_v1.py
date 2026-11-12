@@ -23,6 +23,7 @@ def finalized(client,payload=None):
     response=client.post('/engineering/v1/drafts',json={'input':payload or data()['content']})
     assert response.status_code==201,response.text
     prepared=response.json()
+    assert len(prepared['brief_sha256'])==64
     review=review_for(BriefDraft.model_validate_json(json.dumps(prepared['draft'])))
     response=client.post('/engineering/v1/briefs',json=review.model_dump(mode='json'))
     assert response.status_code==201,response.text

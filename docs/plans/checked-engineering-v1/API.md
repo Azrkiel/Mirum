@@ -10,6 +10,8 @@ local/controlled use; IDs are not a multi-tenant authorization boundary.
 2. POST drafts with `{"mode":"form","input":<BriefContent JSON>}`. The provider-free
    service returns draft, input and field-specific issues. The shared reference
    input is fixtures/engineering/brief-draft.json's content object.
+   Responses also expose semantic brief/fixed-requirement SHA-256 values for
+   complete content; capabilities supplies the exact review_fields list.
 3. Alternatively POST drafts with `{"mode":"ai","input":{},"prompt":"..."}`.
    The existing bounded proposer creates an unreviewed revision. A 503 response
    includes the prepared draft ID and visible reasons for typed fallback.
