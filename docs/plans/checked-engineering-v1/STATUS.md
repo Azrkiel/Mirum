@@ -25,3 +25,7 @@ B01 through B11 are complete within their task scopes. B12 is next eligible. Bro
 | [ ] | E05 | [Expand AI across registered capabilities](tasks/E05-broader-design-generation.md) | not_started | E01, E02 | Not produced |
 
 The expansion tasks E01–E05 are separate releases. E03 and E04 have explicit domain/hardware prerequisites in their cards. Scoped baseline/library evidence is tracked in ACCEPTANCE.md; full V01–V15 release checks remain open until their owning tasks.
+
+## Separate follow-on phase
+
+[Phase 3 task status](phase-3-framework-language/STATUS.md) tracks F01–F11 separately. No existing B/E completion state is changed by this planning addition. F01 execution requires B14 and E05; F03 also requires E01/E02. F11 is optional research after F10.

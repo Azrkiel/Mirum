@@ -191,3 +191,7 @@ Work in Azrkiel/Mirum on branch engineering/checked-design-v1. Read the reposito
 
 Task: E05 — Expand AI across registered capabilities. Task card: docs/plans/checked-engineering-v1/tasks/E05-broader-design-generation.md. Prerequisites: E01, E02. Additional gate: E03/E04 are required for any new structural or physical/manufacturing claim that depends on them; geometry-only/screening routing preserves its narrower scope. Start by checking those prerequisites, then carry this task through its stated accepted result.
 ```
+
+## Phase 3 prompts
+
+[Standalone F01–F11 prompts](phase-3-framework-language/PROMPTS.md) cover the AgentCAD-inspired framework, kernel adapters and Mirum language. Read their prerequisites before executing; they follow the existing plan and preserve completed B/E implementations.

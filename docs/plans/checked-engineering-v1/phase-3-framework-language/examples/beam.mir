@@ -1,0 +1,23 @@
+// Proposed MEL v0.1 source fixture. Requires F04/F05 implementation.
+// Illustrative properties only; no certified material or physical test claim.
+language mirum "0.1";
+design reference_beam {
+  capability = "rectangular_cantilever";
+  capability_version = "1.0.0";
+  backend = "occt";
+  numerical_policy = "beam_numerical_v1";
+  resource_policy = "engineering_resources_v1";
+  length = 200 mm;
+  width = 10 mm;
+  dimensional_tolerance = 0.01 mm;
+  tip_force = 50 N;
+  max_tip_deflection = 1 mm;
+  youngs_modulus = 70000 MPa;
+  allowable_stress = 120 MPa;
+  material_reference = "Illustrative user-provided properties; not certified stock values";
+  material_source_kind = "illustrative";
+  assumptions = "ideal_clamp_end_force_linear_elastic";
+  mode = "bounded_thickness";
+  candidate_heights = [5 mm, 10 mm, 15 mm];
+  exports = ["step", "glb"];
+}

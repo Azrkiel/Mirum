@@ -23,7 +23,18 @@
     "E02",
     "E03",
     "E04",
-    "E05"
+    "E05",
+    "F01",
+    "F02",
+    "F03",
+    "F04",
+    "F05",
+    "F06",
+    "F07",
+    "F08",
+    "F09",
+    "F10",
+    "F11"
   ],
   "status_source": "STATUS.md",
   "tasks": [
@@ -384,6 +395,224 @@
         "V15"
       ],
       "handoff_path": "handoffs/E05.md"
+    },
+    {
+      "id": "F01",
+      "title": "Freeze the framework scope and AgentCAD reuse decisions",
+      "phase": "framework_language",
+      "path": "phase-3-framework-language/tasks/F01-scope-and-reuse.md",
+      "prerequisites": [
+        "B14",
+        "E05"
+      ],
+      "conditional_prerequisites": [
+        "E03/E04 evidence is required for any additional structural or physical/manufacturing claim."
+      ],
+      "acceptance_checks": [
+        "P01"
+      ],
+      "handoff_path": "phase-3-framework-language/handoffs/F01.md"
+    },
+    {
+      "id": "F02",
+      "title": "Define Mirum's typed engineering program and operation registry",
+      "phase": "framework_language",
+      "path": "phase-3-framework-language/tasks/F02-typed-ir.md",
+      "prerequisites": [
+        "F01"
+      ],
+      "conditional_prerequisites": [
+        "E03/E04 evidence is required for any additional structural or physical/manufacturing claim."
+      ],
+      "acceptance_checks": [
+        "P02",
+        "P03"
+      ],
+      "handoff_path": "phase-3-framework-language/handoffs/F02.md"
+    },
+    {
+      "id": "F03",
+      "title": "Implement and qualify the kernel adapter framework",
+      "phase": "framework_language",
+      "path": "phase-3-framework-language/tasks/F03-kernel-adapters.md",
+      "prerequisites": [
+        "F02",
+        "E01",
+        "E02"
+      ],
+      "conditional_prerequisites": [
+        "E03/E04 evidence is required for any additional structural or physical/manufacturing claim."
+      ],
+      "acceptance_checks": [
+        "P04",
+        "P05"
+      ],
+      "handoff_path": "phase-3-framework-language/handoffs/F03.md"
+    },
+    {
+      "id": "F04",
+      "title": "Implement Mirum Engineering Language v0.1",
+      "phase": "framework_language",
+      "path": "phase-3-framework-language/tasks/F04-language-frontend.md",
+      "prerequisites": [
+        "F02"
+      ],
+      "conditional_prerequisites": [
+        "E03/E04 evidence is required for any additional structural or physical/manufacturing claim."
+      ],
+      "acceptance_checks": [
+        "P02",
+        "P06"
+      ],
+      "handoff_path": "phase-3-framework-language/handoffs/F04.md"
+    },
+    {
+      "id": "F05",
+      "title": "Compile language programs into reviewed executable engineering plans",
+      "phase": "framework_language",
+      "path": "phase-3-framework-language/tasks/F05-compiler-and-review.md",
+      "prerequisites": [
+        "F03",
+        "F04"
+      ],
+      "conditional_prerequisites": [
+        "E03/E04 evidence is required for any additional structural or physical/manufacturing claim."
+      ],
+      "acceptance_checks": [
+        "P03",
+        "P06",
+        "P07"
+      ],
+      "handoff_path": "phase-3-framework-language/handoffs/F05.md"
+    },
+    {
+      "id": "F06",
+      "title": "Add reversible program revisions and transactional execution",
+      "phase": "framework_language",
+      "path": "phase-3-framework-language/tasks/F06-transactional-revisions.md",
+      "prerequisites": [
+        "F05"
+      ],
+      "conditional_prerequisites": [
+        "E03/E04 evidence is required for any additional structural or physical/manufacturing claim."
+      ],
+      "acceptance_checks": [
+        "P08",
+        "P09"
+      ],
+      "handoff_path": "phase-3-framework-language/handoffs/F06.md"
+    },
+    {
+      "id": "F07",
+      "title": "Bind semantic features and independent checks to delivered geometry",
+      "phase": "framework_language",
+      "path": "phase-3-framework-language/tasks/F07-independent-verification.md",
+      "prerequisites": [
+        "F05",
+        "F06"
+      ],
+      "conditional_prerequisites": [
+        "E03/E04 evidence is required for any additional structural or physical/manufacturing claim."
+      ],
+      "acceptance_checks": [
+        "P05",
+        "P07",
+        "P10"
+      ],
+      "handoff_path": "phase-3-framework-language/handoffs/F07.md"
+    },
+    {
+      "id": "F08",
+      "title": "Expose one runtime through Python CLI HTTP and agent tools",
+      "phase": "framework_language",
+      "path": "phase-3-framework-language/tasks/F08-interfaces.md",
+      "prerequisites": [
+        "F06",
+        "F07"
+      ],
+      "conditional_prerequisites": [
+        "E03/E04 evidence is required for any additional structural or physical/manufacturing claim."
+      ],
+      "acceptance_checks": [
+        "P11",
+        "P12"
+      ],
+      "handoff_path": "phase-3-framework-language/handoffs/F08.md"
+    },
+    {
+      "id": "F09",
+      "title": "Add language editing, AI proposals and visible revision comparison",
+      "phase": "framework_language",
+      "path": "phase-3-framework-language/tasks/F09-editor-and-ai.md",
+      "prerequisites": [
+        "F08"
+      ],
+      "conditional_prerequisites": [
+        "E03/E04 evidence is required for any additional structural or physical/manufacturing claim."
+      ],
+      "acceptance_checks": [
+        "P03",
+        "P08",
+        "P11",
+        "P13"
+      ],
+      "handoff_path": "phase-3-framework-language/handoffs/F09.md"
+    },
+    {
+      "id": "F10",
+      "title": "Qualify and release the language and multi-kernel framework",
+      "phase": "framework_language",
+      "path": "phase-3-framework-language/tasks/F10-phase-release.md",
+      "prerequisites": [
+        "F03",
+        "F04",
+        "F05",
+        "F06",
+        "F07",
+        "F08",
+        "F09"
+      ],
+      "conditional_prerequisites": [
+        "E03/E04 evidence is required for any additional structural or physical/manufacturing claim."
+      ],
+      "acceptance_checks": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12",
+        "P13",
+        "P14"
+      ],
+      "handoff_path": "phase-3-framework-language/handoffs/F10.md"
+    },
+    {
+      "id": "F11",
+      "title": "Decide whether a native Mirum geometry kernel is justified",
+      "phase": "optional_kernel_research",
+      "path": "phase-3-framework-language/tasks/F11-own-kernel-research.md",
+      "prerequisites": [
+        "F10"
+      ],
+      "conditional_prerequisites": [
+        "A production mathematical kernel requires a separately approved scope and qualification program."
+      ],
+      "acceptance_checks": [
+        "P04",
+        "P05"
+      ],
+      "handoff_path": "phase-3-framework-language/handoffs/F11.md"
     }
-  ]
+  ],
+  "phase_status_sources": {
+    "framework_language": "phase-3-framework-language/STATUS.md",
+    "optional_kernel_research": "phase-3-framework-language/STATUS.md"
+  }
 }

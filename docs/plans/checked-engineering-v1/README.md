@@ -3,7 +3,7 @@
 Branch: **engineering/checked-design-v1**  
 Planning baseline: [d4189b6190c9](https://github.com/Azrkiel/Mirum/commit/d4189b6190c94d3069d9f5c364a7a722178dd775)  
 Prepared: November 12, 2026.  
-Current branch contents: B01–B08 are implemented and verified within their task scopes: native baseline, capability/schema contracts, cantilever adapter, offline review service, reviewed search, evidence policy and bounded structured AI preparation. See STATUS.md and handoffs for exact evidence. Durable jobs, publication, versioned API/UI and full release qualification remain pending. AI verification uses offline provider fixtures; live V15 remains open.
+Current progress is tracked in STATUS.md and task handoffs. At this follow-on planning update, STATUS.md reports B01–B11 complete within task scope and B12 next. Full browser/release and live-provider qualification remain separate gates; this documentation update does not revalidate implementation evidence.
 
 ## Goal
 
@@ -23,7 +23,7 @@ Acceptance means the declared digital beam checks passed under their stated assu
 |---|---|
 | [PLAN.md](PLAN.md) | Full reviewed plan and expansion roadmap. |
 | [CONTRACT.md](CONTRACT.md) | Exact V1 behavior, scope, outputs, budgets and API decisions. |
-| [STATUS.md](STATUS.md) | Live checkbox/state tracker; initially all tasks are not started. |
+| [STATUS.md](STATUS.md) | Live checkbox/state tracker and links to implementation evidence. |
 | [tasks/](tasks/) | One execution card per B01–B14 and E01–E05 task. |
 | [ACCEPTANCE.md](ACCEPTANCE.md) | V01–V15 release checks and evidence requirements. |
 | [INTEGRATION.md](INTEGRATION.md) | How to start, verify, commit, hand off and continue safely. |
@@ -32,7 +32,7 @@ Acceptance means the declared digital beam checks passed under their stated assu
 | [REVIEW.md](REVIEW.md) | Planning review findings and explicitly open prerequisites. |
 | [tasks.json](tasks.json) | Machine-readable task/dependency/file index. |
 
-B01–B08 are complete; continue with [B09](tasks/B09-job-lifecycle.md) after reading prerequisite handoffs. Remaining V1 order: **B09 → B10 → B11 → B12 → B13 → B14**. The completed library tasks do not qualify the full application or live-provider extraction accuracy.
+Continue from the next eligible task in STATUS.md (B12 at this planning baseline), after reading prerequisite handoffs. Complete B12 → B13 → B14 before the expansion/language execution gates. Completed library/API tasks alone do not qualify the full application or live-provider extraction accuracy.
 
 ## Scope and document ownership
 
@@ -41,3 +41,9 @@ CONTRACT.md governs common behavior. Each task card governs its implementation s
 If implementation reveals a necessary contract change, update the affected contract, task cards, tests and review record in one change; do not silently loosen acceptance. Changes to physics assumptions, user requirements or capability claims require the corresponding explicit reviewed inputs.
 
 A task is complete only when its output and checks are present in this branch and its handoff records the tested implementation commit. Claims about the overall application must wait for B13/B14. E03/E04 include domain/hardware prerequisites and cannot be completed by invented evidence.
+
+## Phase 3 — engineering framework, kernel adapters and Mirum language
+
+The separate [Phase 3 overview](phase-3-framework-language/README.md) adds AgentCAD-inspired typed operations and transactions, a qualified multi-kernel adapter framework, and Mirum Engineering Language (.mir). See its [task guides](phase-3-framework-language/tasks/), [prompts](phase-3-framework-language/PROMPTS.md), [status](phase-3-framework-language/STATUS.md) and [acceptance gates](phase-3-framework-language/ACCEPTANCE.md).
+
+This follows the existing V1/expansion work; it does not replace completed tasks. F01–F10 implement the runtime/language phase; F11 separately evaluates a future native geometry kernel. Kernel support requires adapters and conformance, not automatic compatibility. For current B/E progress use STATUS.md and the corresponding handoffs.

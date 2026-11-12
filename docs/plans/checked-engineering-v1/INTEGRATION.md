@@ -51,3 +51,7 @@ E01/E02 preserve geometry-only/screening limits. E03 starts with a domain-review
 ## Task-session instruction
 
 The complete prompts in PROMPTS.md authorize that individual task's commits/push to this branch. They do not authorize implementing later tasks automatically. If required domain decisions, credentials, provider budget or physical measurements are unavailable, finish independent work, record the blocker, and request only the missing input.
+
+## Integration with the separate language/framework phase
+
+[Phase 3 integration](phase-3-framework-language/INTEGRATION.md) governs F01–F11. Keep existing B/E interfaces and evidence compatible. The phase adds generic versioned program envelopes through explicit translators rather than weakening existing strict beam models. Its status/P-gates live separately; the parent tasks.json indexes all tasks. Kernel swapping, compilation, migrations and rollback never silently upgrade physical acceptance claims.

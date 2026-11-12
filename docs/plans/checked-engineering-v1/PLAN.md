@@ -285,3 +285,9 @@ Source anchors at the reviewed commit:
 - [Artifact store](https://github.com/Azrkiel/Mirum/blob/d4189b6190c94d3069d9f5c364a7a722178dd775/backend/artifacts.py)
 - [CEM interface](https://github.com/Azrkiel/Mirum/blob/d4189b6190c94d3069d9f5c364a7a722178dd775/backend/cem/core.py)
 - [Existing cantilever acceptance tests](https://github.com/Azrkiel/Mirum/blob/d4189b6190c94d3069d9f5c364a7a722178dd775/backend/tests/test_engineering_service.py)
+
+## Separate follow-on phase: engineering framework and own language
+
+Continue with [Phase 3](phase-3-framework-language/README.md) after the documented B/E prerequisites. Its [framework](phase-3-framework-language/FRAMEWORK.md) defines backend-neutral planning and qualified kernel adapters; its [language specification](phase-3-framework-language/LANGUAGE.md) defines an actual parser/type-checker/compiler project. [AgentCAD adoption decisions](phase-3-framework-language/AGENTCAD-REUSE.md) cover typed commands, transactions, reread validation and revision tools.
+
+F01–F10 have their own task cards, prompts and P01–P14 release gates. F11 is optional own-geometry-kernel feasibility research. Existing V1 scope and V-series acceptance are unchanged. E03/E04 remain required for claims needing new physics or physical/manufacturing qualification.
