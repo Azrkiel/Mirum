@@ -149,13 +149,25 @@ class GeminiProposalProvider:
             max_tokens=min(cfg.max_tokens or 1024, 4096))
 
     async def generate(self, prompt, schema, settings):
+        from functools import partial
+        import ssl
+        import grpc
         from google.ai import generativelanguage_v1beta as glm
+        from google.ai.generativelanguage_v1beta.services.generative_service.transports import GenerativeServiceGrpcAsyncIOTransport
         from google.api_core.client_options import ClientOptions
         key = os.environ.get('GEMINI_API_KEY_HEAVY', '').strip()
         if not key:
             raise RuntimeError('AI preparation credentials unavailable')
+        # gRPC's bundled roots omit locally installed trust anchors. Use the
+        # verified OS trust store per client, without changing process globals.
+        roots = ssl.create_default_context().get_ca_certs(binary_form=True)
+        if not roots:
+            raise RuntimeError('AI preparation trusted roots unavailable')
+        certificates = ''.join(ssl.DER_cert_to_PEM_cert(root) for root in roots).encode('ascii')
+        transport = partial(GenerativeServiceGrpcAsyncIOTransport,
+            ssl_channel_credentials=grpc.ssl_channel_credentials(root_certificates=certificates))
         # Explicit per-call client: never mutate the legacy global genai config.
-        client = glm.GenerativeServiceAsyncClient(client_options=ClientOptions(api_key=key))
+        client = glm.GenerativeServiceAsyncClient(transport=transport, client_options=ClientOptions(api_key=key))
         try:
             request = glm.GenerateContentRequest(model='models/'+settings.model.removeprefix('models/'),
                 contents=[glm.Content(role='user', parts=[glm.Part(text=prompt)])],

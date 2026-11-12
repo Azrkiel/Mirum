@@ -195,6 +195,42 @@ def test_sdk_schema_builds_offline_and_transport_disables_retries(monkeypatch):
     assert captured[-1] == 'closed'
 
 
+def test_gemini_transport_uses_installed_os_trust_without_global_override(monkeypatch):
+    import ssl
+    import grpc
+    from google.ai import generativelanguage_v1beta as glm
+    from google.ai.generativelanguage_v1beta.services.generative_service import transports
+    from engineering.proposer import GeminiProposalProvider, provider_schema
+    captured = {}
+    roots = ssl.create_default_context().get_ca_certs(binary_form=True)
+    expected = ''.join(ssl.DER_cert_to_PEM_cert(root) for root in roots).encode('ascii')
+    sentinel = object()
+    def credentials(*, root_certificates):
+        captured['roots'] = root_certificates
+        return sentinel
+    class Transport:
+        def __init__(self, **kwargs): captured['transport'] = kwargs
+        async def close(self): captured['closed'] = True
+    class Client:
+        def __init__(self, *, transport, client_options):
+            self.transport = transport(host='offline.invalid', credentials='sdk-owned')
+        async def generate_content(self, request, **kwargs):
+            raise RuntimeError('offline provider failure')
+    monkeypatch.delenv('GRPC_DEFAULT_SSL_ROOTS_FILE_PATH', raising=False)
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'offline-placeholder')
+    monkeypatch.setattr(grpc, 'ssl_channel_credentials', credentials)
+    monkeypatch.setattr(transports, 'GenerativeServiceGrpcAsyncIOTransport', Transport)
+    monkeypatch.setattr(glm, 'GenerativeServiceAsyncClient', Client)
+    provider = GeminiProposalProvider()
+    with pytest.raises(RuntimeError, match='offline provider failure'):
+        asyncio.run(provider.generate('fixture', provider_schema(), provider.settings()))
+    assert captured['roots'] == expected and expected
+    assert captured['transport']['ssl_channel_credentials'] is sentinel
+    assert captured['closed'] is True
+    import os
+    assert 'GRPC_DEFAULT_SSL_ROOTS_FILE_PATH' not in os.environ
+
+
 def test_versioned_corpus_has_ten_complete_ten_ambiguous_ten_unsupported():
     from engineering.contracts import BriefContent
     corpus = json.loads((Path(__file__).with_name('fixtures')/'engineering'/'ai-corpus-v1.json').read_text())
