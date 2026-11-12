@@ -93,3 +93,10 @@ loopback HTTP/native accepted, rejected and cancelled results. Exact review,
 idempotency, overload, tamper/expiry, all downloads and auth/rate behavior passed
 (V01/V04/V08/V09/V10/V11/V13). AI parity remains an offline fixture; browser and
 live-provider release gates remain open.
+
+B12 scoped update: [handoff](handoffs/B12.md) and [manifest](evidence/B12.json)
+record 77 final regressions and actual Chromium/native reference, refresh, all ten
+download hashes, edit/two-tab review conflicts, missing-provider fallback,
+unsupported/cancelled/rejected/unavailable/expired views. OS publication failure
+is real; expiry is accelerated and unsupported input is HTTP-seeded. V04/V09/V14
+have browser evidence; full B13 release and live V15 qualification remain open.
