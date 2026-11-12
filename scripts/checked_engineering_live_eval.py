@@ -47,7 +47,11 @@ class ObservedProvider(GeminiProposalProvider):
             except Exception: code=None
             message=str(error).lower()
             self.failures.append(dict(exception=type(error).__name__,code=str(code) if code is not None else None,
-                tls_certificate_failure='certificate verify failed' in message or 'certificate_verify_failed' in message))
+                tls_certificate_failure='certificate verify failed' in message or 'certificate_verify_failed' in message,
+                credential_rejected='api key not valid' in message or 'api_key_invalid' in message,
+                model_unavailable='model' in message and ('not found' in message or 'not supported' in message),
+                schema_rejected='response_schema' in message and 'invalid' in message,
+                incomplete_response='did not return a complete candidate' in message))
             raise
 
 
