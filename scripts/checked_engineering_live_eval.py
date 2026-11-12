@@ -25,7 +25,7 @@ def load_credential(path):
         name=name.strip()
         if not separator or name not in ('GEMINI_API_KEY_HEAVY','GEMINI_API_KEY'): continue
         parts=shlex.split(raw,comments=True,posix=True)
-        if len(parts)!=1 or re.fullmatch(r'[A-Za-z0-9_-]+',parts[0]) is None:
+        if len(parts)!=1 or re.fullmatch(r'[A-Za-z0-9_.-]+',parts[0]) is None:
             raise ValueError('Credential must be one literal key; use the process environment for other formats')
         values[name]=parts[0]
     for name in ('GEMINI_API_KEY_HEAVY','GEMINI_API_KEY'):
