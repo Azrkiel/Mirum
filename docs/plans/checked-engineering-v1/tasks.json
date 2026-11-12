@@ -1,0 +1,389 @@
+{
+  "schema_version": 1,
+  "repository": "Azrkiel/Mirum",
+  "branch": "engineering/checked-design-v1",
+  "base_commit": "d4189b6190c94d3069d9f5c364a7a722178dd775",
+  "docs_root": "docs/plans/checked-engineering-v1",
+  "recommended_order": [
+    "B01",
+    "B02",
+    "B03",
+    "B04",
+    "B05",
+    "B07",
+    "B08",
+    "B09",
+    "B10",
+    "B06",
+    "B11",
+    "B12",
+    "B13",
+    "B14",
+    "E01",
+    "E02",
+    "E03",
+    "E04",
+    "E05"
+  ],
+  "status_source": "STATUS.md",
+  "tasks": [
+    {
+      "id": "B01",
+      "title": "Establish a reproducible baseline",
+      "phase": "v1",
+      "path": "tasks/B01-baseline.md",
+      "prerequisites": [],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V02",
+        "V03",
+        "V06",
+        "V07"
+      ],
+      "handoff_path": "handoffs/B01.md"
+    },
+    {
+      "id": "B02",
+      "title": "Define the bounded beam capability",
+      "phase": "v1",
+      "path": "tasks/B02-capability.md",
+      "prerequisites": [
+        "B01"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V05",
+        "V07",
+        "V13"
+      ],
+      "handoff_path": "handoffs/B02.md"
+    },
+    {
+      "id": "B03",
+      "title": "Create reviewed briefs and evidence schemas",
+      "phase": "v1",
+      "path": "tasks/B03-contracts.md",
+      "prerequisites": [
+        "B02"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V01",
+        "V04",
+        "V08",
+        "V09"
+      ],
+      "handoff_path": "handoffs/B03.md"
+    },
+    {
+      "id": "B04",
+      "title": "Adapt the existing deterministic beam workflow",
+      "phase": "v1",
+      "path": "tasks/B04-cantilever-adapter.md",
+      "prerequisites": [
+        "B03"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V02",
+        "V06",
+        "V07",
+        "V08",
+        "V13"
+      ],
+      "handoff_path": "handoffs/B04.md"
+    },
+    {
+      "id": "B05",
+      "title": "Prepare and finalize briefs without AI",
+      "phase": "v1",
+      "path": "tasks/B05-brief-preparation.md",
+      "prerequisites": [
+        "B03",
+        "B04"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V01",
+        "V04",
+        "V09"
+      ],
+      "handoff_path": "handoffs/B05.md"
+    },
+    {
+      "id": "B06",
+      "title": "Propose structured briefs with AI",
+      "phase": "v1",
+      "path": "tasks/B06-ai-preparation.md",
+      "prerequisites": [
+        "B05"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V04",
+        "V05",
+        "V15"
+      ],
+      "handoff_path": "handoffs/B06.md"
+    },
+    {
+      "id": "B07",
+      "title": "Evaluate the reviewed candidate choices",
+      "phase": "v1",
+      "path": "tasks/B07-candidate-search.md",
+      "prerequisites": [
+        "B04",
+        "B05"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V02",
+        "V03",
+        "V07",
+        "V13"
+      ],
+      "handoff_path": "handoffs/B07.md"
+    },
+    {
+      "id": "B08",
+      "title": "Make acceptance depend on complete evidence",
+      "phase": "v1",
+      "path": "tasks/B08-acceptance-policy.md",
+      "prerequisites": [
+        "B03",
+        "B04",
+        "B07"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V03",
+        "V07",
+        "V08",
+        "V13"
+      ],
+      "handoff_path": "handoffs/B08.md"
+    },
+    {
+      "id": "B09",
+      "title": "Persist and control engineering jobs",
+      "phase": "v1",
+      "path": "tasks/B09-job-lifecycle.md",
+      "prerequisites": [
+        "B07",
+        "B08"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V09",
+        "V10",
+        "V13"
+      ],
+      "handoff_path": "handoffs/B09.md"
+    },
+    {
+      "id": "B10",
+      "title": "Publish complete revision-bound packages",
+      "phase": "v1",
+      "path": "tasks/B10-result-packages.md",
+      "prerequisites": [
+        "B08",
+        "B09"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V08",
+        "V10",
+        "V11",
+        "V12"
+      ],
+      "handoff_path": "handoffs/B10.md"
+    },
+    {
+      "id": "B11",
+      "title": "Expose the common workflow through APIs",
+      "phase": "v1",
+      "path": "tasks/B11-versioned-api.md",
+      "prerequisites": [
+        "B05",
+        "B06",
+        "B09",
+        "B10"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V01",
+        "V04",
+        "V08",
+        "V09",
+        "V10",
+        "V11",
+        "V13"
+      ],
+      "handoff_path": "handoffs/B11.md"
+    },
+    {
+      "id": "B12",
+      "title": "Build the checked beam interface",
+      "phase": "v1",
+      "path": "tasks/B12-user-workflow.md",
+      "prerequisites": [
+        "B11"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V04",
+        "V09",
+        "V14"
+      ],
+      "handoff_path": "handoffs/B12.md"
+    },
+    {
+      "id": "B13",
+      "title": "Qualify the end-to-end behavior",
+      "phase": "v1",
+      "path": "tasks/B13-release-verification.md",
+      "prerequisites": [
+        "B06",
+        "B07",
+        "B08",
+        "B09",
+        "B10",
+        "B11",
+        "B12"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V01",
+        "V02",
+        "V03",
+        "V04",
+        "V05",
+        "V06",
+        "V07",
+        "V08",
+        "V09",
+        "V10",
+        "V11",
+        "V12",
+        "V13",
+        "V14",
+        "V15"
+      ],
+      "handoff_path": "handoffs/B13.md"
+    },
+    {
+      "id": "B14",
+      "title": "Prepare the reproducible first release",
+      "phase": "v1",
+      "path": "tasks/B14-release-handoff.md",
+      "prerequisites": [
+        "B13"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V02",
+        "V10",
+        "V11",
+        "V12",
+        "V13",
+        "V14",
+        "V15"
+      ],
+      "handoff_path": "handoffs/B14.md"
+    },
+    {
+      "id": "E01",
+      "title": "Integrate PicoGK with honest geometry scope",
+      "phase": "expansion",
+      "path": "tasks/E01-picogk-adapter.md",
+      "prerequisites": [
+        "B14"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V05",
+        "V07",
+        "V08",
+        "V10",
+        "V11"
+      ],
+      "handoff_path": "handoffs/E01.md"
+    },
+    {
+      "id": "E02",
+      "title": "Integrate the glider CEM without upgrading its claims",
+      "phase": "expansion",
+      "path": "tasks/E02-glider-adapter.md",
+      "prerequisites": [
+        "B14"
+      ],
+      "conditional_prerequisites": [],
+      "acceptance_checks": [
+        "V05",
+        "V07",
+        "V08",
+        "V13"
+      ],
+      "handoff_path": "handoffs/E02.md"
+    },
+    {
+      "id": "E03",
+      "title": "Define and qualify a second structural family",
+      "phase": "expansion",
+      "path": "tasks/E03-second-structural-family.md",
+      "prerequisites": [
+        "B14"
+      ],
+      "conditional_prerequisites": [
+        "Domain engineer/family decision before dependent implementation."
+      ],
+      "acceptance_checks": [
+        "V05",
+        "V06",
+        "V07",
+        "V08",
+        "V12"
+      ],
+      "handoff_path": "handoffs/E03.md"
+    },
+    {
+      "id": "E04",
+      "title": "Establish physical and manufacturing evidence",
+      "phase": "expansion",
+      "path": "tasks/E04-physical-validation.md",
+      "prerequisites": [
+        "B14"
+      ],
+      "conditional_prerequisites": [
+        "Requires physical specimens, equipment and a responsible operator; a code-only session cannot complete the experimental gate.",
+        "Additional families require their own completed E03-equivalent capability contract."
+      ],
+      "acceptance_checks": [
+        "V08",
+        "V12"
+      ],
+      "handoff_path": "handoffs/E04.md"
+    },
+    {
+      "id": "E05",
+      "title": "Expand AI across registered capabilities",
+      "phase": "expansion",
+      "path": "tasks/E05-broader-design-generation.md",
+      "prerequisites": [
+        "E01",
+        "E02"
+      ],
+      "conditional_prerequisites": [
+        "E03/E04 are required for any new structural or physical/manufacturing claim that depends on them; geometry-only/screening routing preserves its narrower scope."
+      ],
+      "acceptance_checks": [
+        "V01",
+        "V05",
+        "V08",
+        "V13",
+        "V15"
+      ],
+      "handoff_path": "handoffs/E05.md"
+    }
+  ]
+}
