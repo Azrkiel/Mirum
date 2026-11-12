@@ -9,7 +9,7 @@ B01–B03 are complete; B04 is next eligible. Later application tasks remain pen
 | [x] | B03 | [Create reviewed briefs and evidence schemas](tasks/B03-contracts.md) | complete | B02 | [B03 handoff](handoffs/B03.md), [schema/native regression evidence](evidence/B03.json) |
 | [x] | B04 | [Adapt the existing deterministic beam workflow](tasks/B04-cantilever-adapter.md) | complete | B03 | [B04 handoff](handoffs/B04.md), [evidence](evidence/B04.json) |
 | [x] | B05 | [Prepare and finalize briefs without AI](tasks/B05-brief-preparation.md) | complete | B03, B04 | [B05 handoff](handoffs/B05.md), [evidence](evidence/B05.json) |
-| [ ] | B07 | [Evaluate the reviewed candidate choices](tasks/B07-candidate-search.md) | not_started | B04, B05 | Not produced |
+| [ ] | B07 | [Evaluate the reviewed candidate choices](tasks/B07-candidate-search.md) | in_progress | B04, B05 | Reviewed search and cancellation checks underway |
 | [ ] | B08 | [Make acceptance depend on complete evidence](tasks/B08-acceptance-policy.md) | not_started | B03, B04, B07 | Not produced |
 | [ ] | B09 | [Persist and control engineering jobs](tasks/B09-job-lifecycle.md) | not_started | B07, B08 | Not produced |
 | [ ] | B10 | [Publish complete revision-bound packages](tasks/B10-result-packages.md) | not_started | B08, B09 | Not produced |
