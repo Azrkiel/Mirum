@@ -162,12 +162,19 @@ def _verification_warning(cert: dict | None) -> str:
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
     from process_runner import ProcessRunner
+    from engineering.api_v1 import create_runtime
+    application.state.engineering = create_runtime()
     application.state.dragster_runner = ProcessRunner(max_processes=3, timeout=30, memory_mb=1536)
     cleanup_tmp_parts()
     logger.info("Startup: cleared stale tmp_parts")
     try:
         yield
     finally:
+        try:
+            await application.state.engineering.jobs.close()
+        finally:
+            application.state.engineering.store.close()
+            application.state.engineering = None
         await application.state.dragster_runner.close()
         from gliders.api import jobs as glider_jobs
         await glider_jobs.close()
@@ -197,6 +204,8 @@ app.add_middleware(
 async def audit_log(request: Request, call_next):
     start = time.time()
     response = await call_next(request)
+    if request.url.path.startswith('/engineering/v1'):
+        response.headers['Cache-Control'] = 'no-store'
     elapsed = time.time() - start
     logger.info(
         "%s %s %s %d %.3fs",
@@ -220,7 +229,8 @@ async def access_token_gate(request: Request, call_next):
     if expected:
         supplied = request.headers.get("X-Mirum-Access-Token", "")
         if not hmac.compare_digest(supplied.encode(), expected.encode()):
-            return JSONResponse(status_code=401, content={"detail": "Access token required."})
+            return JSONResponse(status_code=401, content={"detail": "Access token required."},
+                                headers={'Cache-Control': 'no-store'})
     return await call_next(request)
 
 
@@ -1626,6 +1636,8 @@ async def auth_check():
 # Explicit typed, no-LLM engineering path; existing routes retain their scope.
 from engineering.api import attach_engineering_routes
 attach_engineering_routes(app, limiter)
+from engineering.api_v1 import attach_v1_routes
+attach_v1_routes(app, limiter)
 from gliders.api import attach_glider_routes
 attach_glider_routes(app, limiter)
 from cem.api import attach_cem_routes

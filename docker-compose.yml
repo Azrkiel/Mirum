@@ -14,6 +14,7 @@ services:
       MIRUM_ENGINEERING_DATA_DIR: /tmp/mirum/engineering
       WEB_CONCURRENCY: "1"
       MIRUM_API_REPLICAS: "1"
+      MIRUM_ENGINEERING_REQUIRE_VOLUME: "1"
     read_only: true
     tmpfs:
       - /tmp:size=256M
