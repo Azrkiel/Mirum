@@ -22,6 +22,14 @@ The full AI-assisted V1 requires B01–B14 plus every V01–V15 check. Tests alr
 
 ## Evidence rules
 
+B07 scoped update: [handoff](handoffs/B07.md) and [manifest](evidence/B07.json)
+record 197 passing tests. Real reviewed search rejects 5/10 mm and selects 15 mm
+(V02), rejects all reviewed choices with a low allowable (V03), stops on required
+evidence failure (V07), and preserves legacy service/API order and outputs (V13).
+Cancellation/deadline controls use labelled seams and retain no accepted bytes;
+durable lifecycle, publication, API/browser integration and full release gates
+remain open.
+
 B05 scoped update: [handoff](handoffs/B05.md) and [manifest](evidence/B05.json)
 record 166 passing offline library tests. Typed service preparation/finalization
 preserves normalized semantic identity (V01), exposes field-specific unresolved
