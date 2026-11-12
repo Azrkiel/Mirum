@@ -113,7 +113,11 @@ async def search(brief: EngineeringBrief, *, adapter: CapabilityAdapter | None =
             result = await _controlled(adapter.evaluate(candidate), cancelled=cancelled, deadline=deadline)
             if result['candidate'] != candidate:
                 raise EngineeringUnavailable('Adapter returned another reviewed candidate')
-            outcome = Outcome(result['outcome'])
+            from .policy import assess
+            decision = assess(candidate, result)
+            if not decision.available:
+                raise EngineeringUnavailable('Required evidence failed V1 policy')
+            outcome = decision.outcome
             if outcome == Outcome.NOT_EVALUATED:
                 raise EngineeringUnavailable('Required candidate evidence unavailable')
             attempt = AttemptRecord(ordinal=ordinal, candidate=candidate, outcome=outcome,

@@ -85,5 +85,10 @@ class CantileverAdapter:
                     raise EngineeringUnavailable('Captured bytes differ from verified artifacts')
             if hashlib.sha256(artifacts['model.step']).hexdigest() != report['step_sha256']:
                 raise EngineeringUnavailable('STEP changed after verification')
-        return dict(candidate=candidate, outcome=Outcome(result['status']), checks=checks,
-                    report=report, step_identity=checks[0].artifacts[0], artifacts=artifacts)
+        from .policy import assess, report_digest
+        evaluation = dict(candidate=candidate, outcome=Outcome(result['status']), checks=checks,
+                          report=report, report_sha256=report_digest(report),
+                          step_identity=checks[0].artifacts[0], artifacts=artifacts)
+        if not assess(candidate, evaluation).available:
+            raise EngineeringUnavailable('Required native evidence failed V1 policy')
+        return evaluation
