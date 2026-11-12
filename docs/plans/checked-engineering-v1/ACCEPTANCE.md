@@ -1,16 +1,16 @@
 # Release acceptance and evidence matrix
 
-The full AI-assisted V1 requires B01–B14 plus every V01–V15 check. Tests already present in the repository are starting points, not fresh proof. This planning branch has not run the application.
+The full AI-assisted V1 requires B01–B14 plus every V01–V15 check. Tests already present in the repository are starting points, not fresh proof. B01 has run the existing native/API path; the full V1 release gates remain open.
 
 | ID | Required behavior | Primary task owners | State | Evidence |
 |---|---|---|---|---|
 | V01 | Form and AI-assisted input produce the same fixed-requirement and brief digests and the same candidate selection when their normalized requirements, choices, and versions match. Their provenance records may differ. | B03, B05, B11, B13 | not_run | Not produced |
-| V02 | The 200 x 10 mm reference example rejects 5 and 10 mm thickness and accepts 15 mm within the existing numerical tolerances. | B01, B04, B07, B13, B14 | not_run | Not produced |
-| V03 | A too-low allowable or too-tight deflection limit rejects every candidate with measured reasons and no accepted STEP/preview. | B01, B07, B08, B13 | not_run | Not produced |
+| V02 | The 200 x 10 mm reference example rejects 5 and 10 mm thickness and accepts 15 mm within the existing numerical tolerances. | B01, B04, B07, B13, B14 | baseline_verified | [B01](handoffs/B01.md); legacy/native scope only; full V1 check pending |
+| V03 | A too-low allowable or too-tight deflection limit rejects every candidate with measured reasons and no accepted STEP/preview. | B01, B07, B08, B13 | baseline_verified | [B01](handoffs/B01.md); legacy/native scope only; full V1 check pending |
 | V04 | Missing load, ambiguous units, kg described as force, contradictory requirements, and unknown material source require clarification. | B03, B05, B06, B11, B12, B13 | not_run | Not produced |
 | V05 | A request for holes, a second load, a different support, or a non-slender section returns unsupported without silently dropping the feature. | B02, B06, B13 | not_run | Not produced |
-| V06 | Native checks reject valid-but-wrong CAD: offset/rotated prism, wrong size, missing material, extra solid, and changed root section. | B01, B04, B13 | not_run | Not produced |
-| V07 | Missing solver, nonfinite solver output, malformed worker report, timeout, or failed required check cannot produce acceptance. | B01, B02, B04, B07, B08, B13 | not_run | Not produced |
+| V06 | Native checks reject valid-but-wrong CAD: offset/rotated prism, wrong size, missing material, extra solid, and changed root section. | B01, B04, B13 | baseline_verified | [B01](handoffs/B01.md); legacy/native scope only; full V1 check pending |
+| V07 | Missing solver, nonfinite solver output, malformed worker report, timeout, or failed required check cannot produce acceptance. | B01, B02, B04, B07, B08, B13 | baseline_verified | [B01](handoffs/B01.md); legacy/native scope only; full V1 check pending |
 | V08 | Changing a finalized brief, candidate, report, STEP, or preview breaks evidence association and prevents acceptance or delivery. | B03, B04, B08, B10, B11, B13 | not_run | Not produced |
 | V09 | Editing input invalidates the old review; concurrent browser tabs and duplicate clicks cannot launch a different unreviewed request. | B03, B05, B09, B11, B12, B13 | not_run | Not produced |
 | V10 | Cancel, restart, deadline, overload, and duplicate-idempotency cases leave no orphan native processes or partial accepted bundle. | B09, B10, B11, B13, B14 | not_run | Not produced |

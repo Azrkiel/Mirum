@@ -1,10 +1,10 @@
 # Task status
 
-Initial state: planning package published; **no application task is complete**. Check a task only after its task-specific evidence is recorded in a handoff and its implementation is present in this branch.
+B01 native baseline is complete; later application tasks remain pending. Check a task only after its task-specific evidence is recorded in a handoff and its implementation is present in this branch.
 
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |
 |---|---|---|---|---|---|
-| [ ] | B01 | [Establish a reproducible baseline](tasks/B01-baseline.md) | not_started | none | Not produced |
+| [x] | B01 | [Establish a reproducible baseline](tasks/B01-baseline.md) | complete | none | [B01 handoff](handoffs/B01.md), [native evidence](evidence/B01.json) |
 | [ ] | B02 | [Define the bounded beam capability](tasks/B02-capability.md) | not_started | B01 | Not produced |
 | [ ] | B03 | [Create reviewed briefs and evidence schemas](tasks/B03-contracts.md) | not_started | B02 | Not produced |
 | [ ] | B04 | [Adapt the existing deterministic beam workflow](tasks/B04-cantilever-adapter.md) | not_started | B03 | Not produced |
