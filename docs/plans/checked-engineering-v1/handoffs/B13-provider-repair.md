@@ -1,6 +1,10 @@
 # B13 provider repair and authorization checkpoint
 
-State: blocked pending separate live evaluation authorization.
+Historical checkpoint, superseded by [the authorized fresh evaluation](B13-live-r2.md).
+Authorization was granted; C01 returned ServiceUnavailable (503), and the new run
+stopped after one initial attempt. B13 remains blocked on provider service/access.
+
+State at this historical checkpoint: blocked pending separate live evaluation authorization.
 Branch: `engineering/checked-design-v1`.
 Starting commit: `a75136119342c3dee59cadac23f4dd19520f86f2`.
 Frozen implementation: `2ce8f217cff8c64c2fa91226b1de67e006a6493c`.

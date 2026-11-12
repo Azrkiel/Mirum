@@ -1,5 +1,10 @@
 # Release acceptance and evidence matrix
 
+Latest B13/V15 result: the separately authorized [fresh evaluation](evidence/B13-live-r2.json)
+stopped on C01 with ServiceUnavailable (503): one initial attempt, no repairs,
+29 unattempted cases, no usable drafts. The old three-call run is unchanged.
+No release gate is promoted; B13 and B14 remain blocked.
+
 November 12 provider-repair checkpoint: implementation
 `2ce8f217cff8c64c2fa91226b1de67e006a6493c` passed 83 targeted offline checks.
 See [supplemental evidence](evidence/B13-provider-repair.json). The old three-call

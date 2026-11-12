@@ -1,6 +1,6 @@
 # Task status
 
-B01 through B12 are complete within task scope. B13 remains blocked pending separately authorized live qualification. The [provider repair checkpoint](handoffs/B13-provider-repair.md) passed 83 offline regressions; GenerateContent deadlines remain unproven. B14 is blocked at its B13 prerequisite gate. Full AI-assisted release is not qualified.
+B01 through B12 are complete within task scope. The separately authorized [fresh live evaluation](handoffs/B13-live-r2.md) stopped on C01 with ServiceUnavailable (503): one initial attempt, no repairs, 29 cases unattempted. B13 remains blocked; the old three-call ledger is preserved. The provider repair passed 83 offline regressions. B14 is blocked at its B13 prerequisite gate. Full AI-assisted release is not qualified.
 
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |
 |---|---|---|---|---|---|

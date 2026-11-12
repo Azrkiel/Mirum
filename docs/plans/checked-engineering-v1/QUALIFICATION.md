@@ -2,13 +2,23 @@
 
 **Full AI-assisted V1: BLOCKED. B14 prerequisite: not satisfied.**
 
+Latest result: the user authorized a distinct fresh 30-case/60-call run at frozen
+implementation `2ce8f217cff8c64c2fa91226b1de67e006a6493c`. C01 returned SDK
+`ServiceUnavailable` (SDK-mapped status 503) in 1.401079 seconds. The run stopped with one
+initial attempt, zero repairs, no usable drafts and 29 cases unattempted. Offline
+restart preserved the same one-call result without another request. The old
+three-call ledger remains unchanged. See [live-r2 handoff](handoffs/B13-live-r2.md)
+and [evidence](evidence/B13-live-r2.json). Authorization is no longer the blocker;
+configured provider service/access remains unresolved. No V-row is promoted.
+
 November 12 follow-up: [provider repair checkpoint](handoffs/B13-provider-repair.md)
 and [supplemental evidence](evidence/B13-provider-repair.json) freeze implementation
 `2ce8f217cff8c64c2fa91226b1de67e006a6493c`. Per-client OS trust repairs a reproduced
 TLS configuration fault; 83 focused offline tests pass. No new live call was made,
 and the later GenerateContent deadlines remain unexplained. Separate fresh-run
-authorization is required. The results below remain historical; V01-V15 and B13
-completion have not been refreshed or promoted.
+authorization was required at that checkpoint and has now been received. The
+results below remain historical; V01-V15 and B13 completion have not been
+refreshed or promoted.
 
 Starting commit: `53408cb4f4b88d35fae3ce5fdc3061144c31bc29`.
 Final tested implementation: `ea721d90109e6a9fe0530fdf95132eeef70bb69d`.

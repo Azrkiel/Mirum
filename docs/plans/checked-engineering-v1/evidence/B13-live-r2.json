@@ -1,0 +1,193 @@
+{
+  "task": "B13",
+  "date": "2026-11-12",
+  "state": "blocked_live_service_unavailable",
+  "tested_implementation_sha": "2ce8f217cff8c64c2fa91226b1de67e006a6493c",
+  "image_id": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "local_evidence": "C:/Users/jiang/mirum-evidence/B13/live-r2-20261112",
+  "authorization": {
+    "id": "user-20261112-r2-60calls",
+    "recorded_at_utc": "2026-11-12 22:12:46 UTC",
+    "user_statement": "can you do the authorizationo f the 30 case eval and the 60 calls? I auth",
+    "authorized": true,
+    "maximum_cases": 30,
+    "maximum_calls": 60,
+    "maximum_calls_per_case": 2,
+    "additional_to_historical_calls": 3,
+    "record_sha256": "1f77182444df2b64b3734532e1e3840f6a3674b05d1980a53ac1eff025311173"
+  },
+  "command": "docker run --rm --name mirum-checked-b13-live-r2 --init --read-only --tmpfs /tmp/mirum:rw,size=256m,uid=10001,gid=10001,mode=0700 --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B13/live-r2-20261112,target=/evidence --mount type=bind,source=<user-supplied-credential-file>,target=/run/existing-provider.env,readonly --mount type=volume,source=mirum-checked-b13-live-20261112-r2,target=/tmp/mirum/v15 sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583 python scripts/checked_engineering_live_eval.py /evidence/evaluation /tmp/mirum/v15 2ce8f217cff8c64c2fa91226b1de67e006a6493c /run/existing-provider.env --run-id b13-v15-20261112-r2 --authorization user-20261112-r2-60calls --previous-run mirum-checked-b13-live --image-id sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "credential_file_path_redacted": true,
+  "exit_code": 2,
+  "live_evaluation": {
+    "tested_implementation_sha": "2ce8f217cff8c64c2fa91226b1de67e006a6493c",
+    "corpus_sha256": "7fb09dcc06626b7fbe31c0e9a2237792ded90ad292651b33e5d4db2ff29bcfea",
+    "run_id": "b13-v15-20261112-r2",
+    "authorization": "user-20261112-r2-60calls",
+    "previous_failed_run": "mirum-checked-b13-live",
+    "image_id": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+    "maximum_calls": 60,
+    "maximum_calls_per_case": 2,
+    "credential_variable": "GEMINI_API_KEY",
+    "cases": [
+      {
+        "case_id": "C01",
+        "kind": "complete",
+        "expected_state": "proposed",
+        "state": "unavailable",
+        "accurate_reviewable_draft": false,
+        "silent_requirement_drop": false,
+        "review_blocked": true,
+        "expected_brief_sha256": "34aee33577a2ce2da90ed9c0e3727c53843cbcca26a4442632cd8d3bdcb5280e",
+        "actual_brief_sha256": null,
+        "audit": {
+          "draft_id": "cea28e7184bf44d8baa275f1bbdec414",
+          "draft_revision": 1,
+          "settings": {
+            "provider": "gemini",
+            "sdk_version": "google-ai-generativelanguage/0.6.10",
+            "model": "gemini-3.5-flash",
+            "temperature": 0.4,
+            "max_tokens": 1024
+          },
+          "prompt_version": "engineering_extraction_v1",
+          "schema_version": "engineering_proposal_v1",
+          "status": "unavailable",
+          "calls": 1,
+          "request_characters": 1958,
+          "request_sha256": "9d60c1975427f56013c493df15266a7afacee49a4fb289a6be9b26723cee46c9",
+          "response_bytes": 0,
+          "prompt_tokens": 0,
+          "output_tokens": 0
+        },
+        "provider_failures": [
+          {
+            "exception": "ServiceUnavailable",
+            "code": "HTTPStatus.SERVICE_UNAVAILABLE",
+            "tls_certificate_failure": false,
+            "credential_rejected": false,
+            "model_unavailable": false,
+            "schema_rejected": false,
+            "incomplete_response": false
+          }
+        ],
+        "elapsed_seconds": 1.401079,
+        "error_classification": "ServiceUnavailable",
+        "native_execution_attempts": 0,
+        "stop_reason": "Configured provider access/runtime failed: ServiceUnavailable"
+      }
+    ],
+    "calls": 1,
+    "unreviewed_executions": 0,
+    "fixture_response_used": false,
+    "qualification": "blocked",
+    "settings": {
+      "provider": "gemini",
+      "sdk_version": "google-ai-generativelanguage/0.6.10",
+      "model": "gemini-3.5-flash",
+      "temperature": 0.4,
+      "max_tokens": 1024
+    },
+    "provider": "gemini",
+    "candidate": {
+      "run_id": "b13-v15-20261112-r2",
+      "authorization": "user-20261112-r2-60calls",
+      "previous_failed_run": "mirum-checked-b13-live",
+      "tested_implementation_sha": "2ce8f217cff8c64c2fa91226b1de67e006a6493c",
+      "image_id": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+      "corpus_sha256": "7fb09dcc06626b7fbe31c0e9a2237792ded90ad292651b33e5d4db2ff29bcfea",
+      "settings": {
+        "provider": "gemini",
+        "sdk_version": "google-ai-generativelanguage/0.6.10",
+        "model": "gemini-3.5-flash",
+        "temperature": 0.4,
+        "max_tokens": 1024
+      },
+      "python": "3.10.22",
+      "packages": {
+        "google-ai-generativelanguage": "0.6.10",
+        "google-api-core": "2.30.3",
+        "grpcio": "1.84.0",
+        "cadquery": "2.6.1",
+        "cadquery-ocp": "7.8.1.1.post1",
+        "numpy": "2.2.6",
+        "pydantic": "2.9.2"
+      },
+      "prompt_version": "engineering_extraction_v1",
+      "schema_version": "engineering_proposal_v1",
+      "capability": "rectangular_cantilever",
+      "capability_version": "1.0.0",
+      "numerical_policy_version": "beam_numerical_v1",
+      "resource_policy_version": "engineering_resources_v1",
+      "maximum_calls": 60,
+      "maximum_calls_per_case": 2,
+      "call_seconds": 45,
+      "prompt_characters": 8000,
+      "response_bytes": 16384
+    },
+    "blocker": "Configured provider access/runtime failed: ServiceUnavailable",
+    "complete_accurate": 0,
+    "silent_requirement_drops": 0
+  },
+  "result_sha256": "eaf15a71ec1fc2227993ee2a2c92f576f83658470b8cf796157a8af0437f5063",
+  "live_log_sha256": "4473768566394549e0dacf26b2c1164f65da60bf16936819f7162e6b3fd24441",
+  "budget": {
+    "volume": "mirum-checked-b13-live-20261112-r2",
+    "consumed_initial_attempts": 1,
+    "repairs": 0,
+    "unused_call_ceiling": 59,
+    "unattempted_cases": 29,
+    "total_attempts_across_two_distinct_runs": 4,
+    "automatic_continuation_prohibited": true
+  },
+  "restart_check": {
+    "network": "none",
+    "exit_code": 2,
+    "output": "restart-check/live.json",
+    "calls_before": 1,
+    "calls_after": 1,
+    "new_calls": 0,
+    "new_cases": 0,
+    "result_identical": true,
+    "result_sha256": "eaf15a71ec1fc2227993ee2a2c92f576f83658470b8cf796157a8af0437f5063",
+    "command_change_from_live": "Add --network none, remove --name/--init, use /evidence/restart-check output. All identity/settings/state arguments unchanged.",
+    "log_sha256": "64cbd73baa007efc5e674ce52fa117c14b177a7962c70154d3b242a3467767cf"
+  },
+  "read_only_ledger_check": {
+    "exit_code": 0,
+    "script": "ledger-check.py",
+    "old_volume": "mirum-checked-b13-live",
+    "old_calls": 3,
+    "old_database_sha256": "fa9908b94c76612b85e10682c625475e88f0ee55444f40a26b6545b44ece6290",
+    "new_calls": 1,
+    "new_cases": 1,
+    "new_database_sha256": "a6fda7bdba436c588e1f3106977ac07d067ee0148d99be6f435215e33c737b2f",
+    "initial_attempt_limitation": "Read-only checker initially lacked writable temporary storage; rerun added a 16 MiB /tmp tmpfs. Both budget volumes remained read-only."
+  },
+  "interpretation": {
+    "observed": "First original C01 request returned SDK ServiceUnavailable / HTTPStatus.SERVICE_UNAVAILABLE after 1.401079 seconds; no usable draft.",
+    "not_established": [
+      "Root cause of 503",
+      "Credential validity",
+      "Configured model accessibility",
+      "Live extraction accuracy",
+      "Provider billing or token use from absent usage fields"
+    ],
+    "safe_classifications": {
+      "tls_certificate_failure": false,
+      "credential_rejected": false,
+      "model_unavailable": false,
+      "schema_rejected": false
+    },
+    "stop_rule_obeyed": true,
+    "unreviewed_executions": 0
+  },
+  "release_gates": {
+    "B13": "blocked",
+    "B14": "blocked_before_release_work",
+    "V15": "blocked_live_service_unavailable",
+    "V01_V14": "No fresh full qualification claimed",
+    "E01_E02": "not_eligible",
+    "main_merge_or_deployment": false
+  }
+}
