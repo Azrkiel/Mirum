@@ -1,6 +1,6 @@
 # Task status
 
-B01–B05 are complete; B07 is in progress. Later application tasks remain pending. Check a task only after its task-specific evidence is recorded in a handoff and its implementation is present in this branch.
+B01–B05, B07 and B08 are complete; B06 is the next requested task. Later application tasks remain pending. Check a task only after its task-specific evidence is recorded in a handoff and its implementation is present in this branch.
 
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |
 |---|---|---|---|---|---|
@@ -10,7 +10,7 @@ B01–B05 are complete; B07 is in progress. Later application tasks remain pendi
 | [x] | B04 | [Adapt the existing deterministic beam workflow](tasks/B04-cantilever-adapter.md) | complete | B03 | [B04 handoff](handoffs/B04.md), [evidence](evidence/B04.json) |
 | [x] | B05 | [Prepare and finalize briefs without AI](tasks/B05-brief-preparation.md) | complete | B03, B04 | [B05 handoff](handoffs/B05.md), [evidence](evidence/B05.json) |
 | [x] | B07 | [Evaluate the reviewed candidate choices](tasks/B07-candidate-search.md) | complete | B04, B05 | [B07 handoff](handoffs/B07.md), [evidence](evidence/B07.json) |
-| [ ] | B08 | [Make acceptance depend on complete evidence](tasks/B08-acceptance-policy.md) | in_progress | B03, B04, B07 | Evidence policy and negative fixtures underway |
+| [x] | B08 | [Make acceptance depend on complete evidence](tasks/B08-acceptance-policy.md) | complete | B03, B04, B07 | [B08 handoff](handoffs/B08.md), [evidence](evidence/B08.json) |
 | [ ] | B09 | [Persist and control engineering jobs](tasks/B09-job-lifecycle.md) | not_started | B07, B08 | Not produced |
 | [ ] | B10 | [Publish complete revision-bound packages](tasks/B10-result-packages.md) | not_started | B08, B09 | Not produced |
 | [ ] | B06 | [Propose structured briefs with AI](tasks/B06-ai-preparation.md) | not_started | B05 | Not produced |

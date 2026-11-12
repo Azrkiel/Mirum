@@ -22,6 +22,15 @@ The full AI-assisted V1 requires B01–B14 plus every V01–V15 check. Tests alr
 
 ## Evidence rules
 
+B08 scoped update: [handoff](handoffs/B08.md) and [manifest](evidence/B08.json)
+record 244 passing tests, including 32 evidence-policy cases. Native measured
+rejections remain distinct from unavailable evidence (V03/V07); stale or mutated
+report/STEP/preview/source and unsupported claims fail closed (V08), with legacy
+outputs unchanged (V13). The separate real probe selected 15 mm, reported
+0.677248677 mm / 26.666666667 MPa, and retained exact artifact hashes plus a
+reproduction script in the manifest. Candidate acceptance is not a committed V1
+run or qualified publication; B09/B10/B13 gates remain open.
+
 B07 scoped update: [handoff](handoffs/B07.md) and [manifest](evidence/B07.json)
 record 197 passing tests. Real reviewed search rejects 5/10 mm and selects 15 mm
 (V02), rejects all reviewed choices with a low allowable (V03), stops on required
