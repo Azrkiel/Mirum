@@ -8,12 +8,12 @@ B01–B03 are complete; B04 is next eligible. Later application tasks remain pen
 | [x] | B02 | [Define the bounded beam capability](tasks/B02-capability.md) | complete | B01 | [B02 handoff](handoffs/B02.md) |
 | [x] | B03 | [Create reviewed briefs and evidence schemas](tasks/B03-contracts.md) | complete | B02 | [B03 handoff](handoffs/B03.md), [schema/native regression evidence](evidence/B03.json) |
 | [x] | B04 | [Adapt the existing deterministic beam workflow](tasks/B04-cantilever-adapter.md) | complete | B03 | [B04 handoff](handoffs/B04.md), [evidence](evidence/B04.json) |
-| [ ] | B05 | [Prepare and finalize briefs without AI](tasks/B05-brief-preparation.md) | in_progress | B03, B04 | Preparation service and revision checks underway |
+| [x] | B05 | [Prepare and finalize briefs without AI](tasks/B05-brief-preparation.md) | complete | B03, B04 | [B05 handoff](handoffs/B05.md), [evidence](evidence/B05.json) |
 | [ ] | B07 | [Evaluate the reviewed candidate choices](tasks/B07-candidate-search.md) | not_started | B04, B05 | Not produced |
 | [ ] | B08 | [Make acceptance depend on complete evidence](tasks/B08-acceptance-policy.md) | not_started | B03, B04, B07 | Not produced |
 | [ ] | B09 | [Persist and control engineering jobs](tasks/B09-job-lifecycle.md) | not_started | B07, B08 | Not produced |
 | [ ] | B10 | [Publish complete revision-bound packages](tasks/B10-result-packages.md) | not_started | B08, B09 | Not produced |
-| [ ] | B06 | [Propose structured briefs with AI](tasks/B06-ai-preparation.md) | not_started | B05 | Not produced |
+| [x] | B06 | [Propose structured briefs with AI](tasks/B06-ai-preparation.md) | complete | B05 | [B05 handoff](handoffs/B05.md), [evidence](evidence/B05.json) |
 | [ ] | B11 | [Expose the common workflow through APIs](tasks/B11-versioned-api.md) | not_started | B05, B06, B09, B10 | Not produced |
 | [ ] | B12 | [Build the checked beam interface](tasks/B12-user-workflow.md) | not_started | B11 | Not produced |
 | [ ] | B13 | [Qualify the end-to-end behavior](tasks/B13-release-verification.md) | not_started | B06, B07, B08, B09, B10, B11, B12 | Not produced |

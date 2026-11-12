@@ -22,6 +22,13 @@ The full AI-assisted V1 requires B01–B14 plus every V01–V15 check. Tests alr
 
 ## Evidence rules
 
+B05 scoped update: [handoff](handoffs/B05.md) and [manifest](evidence/B05.json)
+record 166 passing offline library tests. Typed service preparation/finalization
+preserves normalized semantic identity (V01), exposes field-specific unresolved
+or unsupported inputs (V04), and rejects stale reviews/concurrent edits (V09).
+This is the memory-repository/service seam; durable storage, live AI parity and
+browser confirmation remain open.
+
 B04 scoped update: [handoff](handoffs/B04.md) and [manifest](evidence/B04.json)
 record 178 passing tests at the exact implementation SHA. The real new adapter
 agrees with the legacy path on reference verdicts/measurements (V02); native
