@@ -1,4 +1,4 @@
-# Public Streamlit UI. Visitors must enter the backend access token.
+# Public Streamlit UI. Open access: no token gate (set MIRUM_ACCESS_GATE = "1" to re-enable).
 app = "mirum"
 primary_region = "iad"
 
@@ -7,7 +7,7 @@ primary_region = "iad"
 
 [env]
   BACKEND_URL = "http://mirum-api.flycast"
-  MIRUM_ACCESS_GATE = "1"
+  MIRUM_ACCESS_GATE = "0"
 
 [http_service]
   internal_port = 8501
