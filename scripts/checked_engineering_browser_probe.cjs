@@ -24,6 +24,7 @@ async function run(){
     ...(process.env.PLAYWRIGHT_EXECUTABLE?{executablePath:process.env.PLAYWRIGHT_EXECUTABLE}:{}),
     args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
   const context=await browser.newContext({viewport:{width:1440,height:1100},acceptDownloads:true});
+  context.setDefaultTimeout(60000);
   const observations=[]; const errors=[];
   let ready=false;
   for(let n=0;n<120;n++){
@@ -155,6 +156,16 @@ async function run(){
       provider_calls:0,network:'Browser external requests blocked; local HTTP only',scope:'Real browser/HTTP/native with explicit user-like review clicks; unsupported input seeded via HTTP',observations,page_errors:errors};
     fs.writeFileSync(path.join(out,'browser.json'),JSON.stringify(evidence,null,2)+'\n');
     console.log(JSON.stringify({sha,browser:evidence.browser,cases:observations.map(o=>o.case),page_errors:errors}));
+  }catch(error){
+    let index=0;
+    for(const page of context.pages()){
+      try{
+        fs.writeFileSync(path.join(out,'failure-'+index+'.txt'),await page.locator('body').innerText());
+        await page.screenshot({path:path.join(out,'failure-'+index+'.png'),timeout:10000});
+      }catch{}
+      index++;
+    }
+    throw error;
   }finally{await context.close();await browser.close();}
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});
