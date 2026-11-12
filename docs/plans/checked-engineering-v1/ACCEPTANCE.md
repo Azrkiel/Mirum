@@ -79,3 +79,10 @@ record 322 passed, 18 warnings in 475.63s. Real SQLite CAS/terminal races, durab
 worker cancel/deadline/shutdown/crash recovery and container replacement passed
 (V09/V10). Real legacy HTTP/native reference and rejected behavior passed (V13).
 No publication/browser/live-provider qualification is implied; full V1 gates stay open.
+
+B10 scoped update: [handoff](handoffs/B10.md) and [manifest](evidence/B10.json)
+record 16 passed in 64.98s at the final implementation plus 282 broader regressions.
+Real native publication, exact captured bytes, tamper/write/capacity failures,
+lease/expiry, seven-day records and legacy cleanup boundaries passed (V08/V10/V11).
+ZIP includes replay inputs and pinned native reports; independent numerical replay
+and public HTTP/browser/live-provider qualification remain for B11-B14.
