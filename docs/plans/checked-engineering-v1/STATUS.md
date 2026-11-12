@@ -1,6 +1,6 @@
 # Task status
 
-B01 through B12 are complete within task scope. The separately authorized [fresh live evaluation](handoffs/B13-live-r2.md) stopped on C01 with ServiceUnavailable (503): one initial attempt, no repairs, 29 cases unattempted. B13 remains blocked; the old three-call ledger is preserved. The provider repair passed 83 offline regressions. B14 is blocked at its B13 prerequisite gate. Full AI-assisted release is not qualified.
+B01 through B12 are complete within task scope. Checked preparation now explicitly selects Gemini 3.6 Flash; 84 targeted offline checks pass. The authorized [one-call diagnostic](handoffs/B13-g36-diagnostic.md) hit the 45-second preparation deadline with no draft. Both earlier evaluation ledgers are preserved. B13 remains blocked, and B14 is blocked at its B13 prerequisite gate. Full AI-assisted release is not qualified.
 
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |
 |---|---|---|---|---|---|

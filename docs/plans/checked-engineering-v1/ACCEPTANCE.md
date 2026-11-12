@@ -1,5 +1,10 @@
 # Release acceptance and evidence matrix
 
+Latest candidate: explicit Gemini 3.6 Flash model selection passed 84 targeted
+offline tests. Its [one-call diagnostic](evidence/B13-g36-diagnostic.json) timed
+out at the existing 45-second preparation deadline. No V-row is promoted; the
+changed model remains unqualified and B13/B14 remain blocked.
+
 Latest B13/V15 result: the separately authorized [fresh evaluation](evidence/B13-live-r2.json)
 stopped on C01 with ServiceUnavailable (503): one initial attempt, no repairs,
 29 unattempted cases, no usable drafts. The old three-call run is unchanged.

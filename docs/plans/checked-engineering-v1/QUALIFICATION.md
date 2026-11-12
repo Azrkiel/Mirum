@@ -2,6 +2,14 @@
 
 **Full AI-assisted V1: BLOCKED. B14 prerequisite: not satisfied.**
 
+Latest model diagnostic: at the user's request, checked preparation now selects
+`gemini-3.6-flash`. Implementation `0f1864adb06e548222265e9d8fd6377c47aad509`
+passed 84 targeted offline tests. A separate authorized one-call C01 diagnostic
+hit the outer preparation deadline after 45.037221 seconds, with no draft and
+no repair. Earlier ledgers remain unchanged. See [handoff](handoffs/B13-g36-diagnostic.md)
+and [evidence](evidence/B13-g36-diagnostic.json). No full corpus rerun or release
+gate promotion occurred; the results below describe historical candidates.
+
 Latest result: the user authorized a distinct fresh 30-case/60-call run at frozen
 implementation `2ce8f217cff8c64c2fa91226b1de67e006a6493c`. C01 returned SDK
 `ServiceUnavailable` (SDK-mapped status 503) in 1.401079 seconds. The run stopped with one
