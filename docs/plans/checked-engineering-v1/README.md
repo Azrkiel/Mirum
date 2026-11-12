@@ -3,7 +3,7 @@
 Branch: **engineering/checked-design-v1**  
 Planning baseline: [d4189b6190c9](https://github.com/Azrkiel/Mirum/commit/d4189b6190c94d3069d9f5c364a7a722178dd775)  
 Prepared: November 12, 2026.  
-Current progress is tracked in STATUS.md and task handoffs. At this follow-on planning update, STATUS.md reports B01–B11 complete within task scope and B12 next. Full browser/release and live-provider qualification remain separate gates; this documentation update does not revalidate implementation evidence.
+Current progress is tracked in STATUS.md and handoffs. B01 through B12 are complete within task scope. B13 independent checks pass (443 regressions plus native/HTTP/browser/replay/replacement), but live Gemini RPC failures leave full AI qualification blocked. B14 is blocked before release work. See QUALIFICATION.md; no release candidate, merge or deployment is claimed.
 
 ## Goal
 
