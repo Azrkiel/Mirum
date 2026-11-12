@@ -22,6 +22,14 @@ The full AI-assisted V1 requires B01–B14 plus every V01–V15 check. Tests alr
 
 ## Evidence rules
 
+B04 scoped update: [handoff](handoffs/B04.md) and [manifest](evidence/B04.json)
+record 178 passing tests at the exact implementation SHA. The real new adapter
+agrees with the legacy path on reference verdicts/measurements (V02); native
+wrong-B-rep/changed-root cases reject (V06), mandatory-evidence worker seams stop
+(V07), and captured source/STEP/GLB association is checked (V08). Legacy suites
+and caller ordering remain compatible (V13). These rows retain their open full
+V1 release scope; no API, bundle publication or browser qualification is implied.
+
 For each row record the exercised implementation commit, commands, environment/runtime versions, observed result and limitations. Distinguish native CAD, numerical checks, provider fixtures, live-provider requests and browser/physical observations. Re-run affected checks after relevant changes.
 
 For V15 use the fixed 30-case corpus: 10 complete supported, 10 incomplete/ambiguous and 10 unsupported requests. Require zero silent requirement drops on this corpus, no unreviewed execution and at least 8/10 complete requests producing accurate reviewable drafts. Live access and a bounded provider budget must exist; offline fixtures alone do not satisfy V15. Missing live evidence leaves full AI release qualification blocked.
