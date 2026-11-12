@@ -27,7 +27,8 @@ def main(output,sha):
         observed=[]
         try:
             with httpx.Client(base_url=f'http://127.0.0.1:{port}',headers={'X-Mirum-Access-Token':'verification-access'},timeout=30,trust_env=False) as client:
-                for _ in range(100):
+                for _ in range(450):
+                    if process.poll() is not None: raise RuntimeError('Application exited before readiness')
                     try:
                         if client.get('/openapi.json').status_code==200: break
                     except httpx.TransportError: pass
