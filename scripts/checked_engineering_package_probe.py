@@ -16,6 +16,7 @@ from engineering.store import SQLiteStore,SQLiteBriefRepository
 
 async def main(output,sha):
     output=Path(output); output.mkdir(parents=True,exist_ok=True)
+    Path('/tmp/mirum').mkdir(parents=True,exist_ok=True)
     payload=json.loads(Path('backend/tests/fixtures/engineering/brief-draft.json').read_text())['content']
     with tempfile.TemporaryDirectory(prefix='engineering-package-',dir='/tmp/mirum') as temporary:
         store=SQLiteStore(temporary)
