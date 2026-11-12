@@ -1,6 +1,6 @@
 # Release acceptance and evidence matrix
 
-The full AI-assisted V1 requires B01–B14 plus every V01–V15 check. Tests already present in the repository are starting points, not fresh proof. B01 has run the existing native/API path; the full V1 release gates remain open.
+The full AI-assisted V1 requires B01â€“B14 plus every V01â€“V15 check. Tests already present in the repository are starting points, not fresh proof. B01 has run the existing native/API path; the full V1 release gates remain open.
 
 | ID | Required behavior | Primary task owners | State | Evidence |
 |---|---|---|---|---|
@@ -30,7 +30,7 @@ unsupported proposal fixtures block review (V04/V05); stale/duplicate requests,
 deadline/cancellation and finalization races are covered (V09). The fixed 30-case
 corpus and oracle fixtures are implemented. **V15 remains not_run**: no live
 provider request or extraction-accuracy qualification occurred. Full V1 release
-still requires B09–B14 and all open API/browser/publication/live-provider gates.
+still requires B09â€“B14 and all open API/browser/publication/live-provider gates.
 
 B08 scoped update: [handoff](handoffs/B08.md) and [manifest](evidence/B08.json)
 record 244 passing tests, including 32 evidence-policy cases. Native measured
@@ -72,4 +72,10 @@ For V12 raw byte equality is not the numerical reproducibility criterion. Compar
 
 ## Physical qualification
 
-No V01–V15 row establishes manufactured behavior or standards conformity. E04 supplies a separate predeclared protocol and measured evidence for those claims. Simulated and physical observations must be distinguishable.
+No V01â€“V15 row establishes manufactured behavior or standards conformity. E04 supplies a separate predeclared protocol and measured evidence for those claims. Simulated and physical observations must be distinguishable.
+
+B09 scoped update: [handoff](handoffs/B09.md) and [manifest](evidence/B09.json)
+record 322 passed, 18 warnings in 475.63s. Real SQLite CAS/terminal races, durable proposal budgets,
+worker cancel/deadline/shutdown/crash recovery and container replacement passed
+(V09/V10). Real legacy HTTP/native reference and rejected behavior passed (V13).
+No publication/browser/live-provider qualification is implied; full V1 gates stay open.
