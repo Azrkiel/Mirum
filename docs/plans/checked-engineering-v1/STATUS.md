@@ -1,12 +1,12 @@
 # Task status
 
-B01–B02 are complete; later application tasks remain pending. Check a task only after its task-specific evidence is recorded in a handoff and its implementation is present in this branch.
+B01–B03 are complete; B04 is next eligible. Later application tasks remain pending. Check a task only after its task-specific evidence is recorded in a handoff and its implementation is present in this branch.
 
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |
 |---|---|---|---|---|---|
 | [x] | B01 | [Establish a reproducible baseline](tasks/B01-baseline.md) | complete | none | [B01 handoff](handoffs/B01.md), [native evidence](evidence/B01.json) |
 | [x] | B02 | [Define the bounded beam capability](tasks/B02-capability.md) | complete | B01 | [B02 handoff](handoffs/B02.md) |
-| [ ] | B03 | [Create reviewed briefs and evidence schemas](tasks/B03-contracts.md) | not_started | B02 | Not produced |
+| [x] | B03 | [Create reviewed briefs and evidence schemas](tasks/B03-contracts.md) | complete | B02 | [B03 handoff](handoffs/B03.md), [schema/native regression evidence](evidence/B03.json) |
 | [ ] | B04 | [Adapt the existing deterministic beam workflow](tasks/B04-cantilever-adapter.md) | not_started | B03 | Not produced |
 | [ ] | B05 | [Prepare and finalize briefs without AI](tasks/B05-brief-preparation.md) | not_started | B03, B04 | Not produced |
 | [ ] | B07 | [Evaluate the reviewed candidate choices](tasks/B07-candidate-search.md) | not_started | B04, B05 | Not produced |

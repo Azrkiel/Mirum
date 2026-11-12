@@ -3,7 +3,7 @@
 Branch: **engineering/checked-design-v1**  
 Planning baseline: [d4189b6190c9](https://github.com/Azrkiel/Mirum/commit/d4189b6190c94d3069d9f5c364a7a722178dd775)  
 Prepared: November 12, 2026.  
-Current branch contents: planning documents only. Application tasks have not been implemented or validated by this documentation commit.
+Current branch contents: B01 native baseline, B02 capability metadata and B03 reviewed-brief/evidence schemas are implemented and verified. See STATUS.md and handoffs for exact evidence. B04 is next; the complete V1 workflow is not yet implemented.
 
 ## Goal
 
@@ -32,7 +32,7 @@ Acceptance means the declared digital beam checks passed under their stated assu
 | [REVIEW.md](REVIEW.md) | Planning review findings and explicitly open prerequisites. |
 | [tasks.json](tasks.json) | Machine-readable task/dependency/file index. |
 
-Start with [B01](tasks/B01-baseline.md). Recommended V1 order: **B01 → B02 → B03 → B04 → B05 → B07 → B08 → B09 → B10 → B06 → B11 → B12 → B13 → B14**. Numeric B01–B14 order is also dependency-valid; the recommended order proves the typed core before integrating AI.
+B01–B03 are complete; continue with [B04](tasks/B04-cantilever-adapter.md) after reading their handoffs. Recommended V1 order: **B01 → B02 → B03 → B04 → B05 → B07 → B08 → B09 → B10 → B06 → B11 → B12 → B13 → B14**. Numeric B01–B14 order is also dependency-valid; the recommended order proves the typed core before integrating AI.
 
 ## Scope and document ownership
 

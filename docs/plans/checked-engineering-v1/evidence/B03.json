@@ -1,0 +1,59 @@
+{
+    "source_sha":  "287255e246dbec47b0982dbabef1b11ca3ef0969",
+    "starting_sha":  "d7f762b6cd23ccc32975ed3cbe68ab7028c4066c",
+    "image_id":  "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+    "runtime":  "Linux x86_64; Python 3.10.22; Pydantic 2.9.2; pytest 8.3.3; CadQuery 2.6.1; OCP 7.8.1.1.post1",
+    "network":  "none",
+    "command":  "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly mirum-checked-b01:b9c5565 python -m pytest -q -p no:cacheprovider --tb=short backend/tests/test_engineering_contracts.py backend/tests/test_engineering_capabilities.py backend/tests/test_engineering_spec.py backend/tests/test_engineering_fea.py backend/tests/test_engineering_native.py backend/tests/test_engineering_service.py backend/tests/test_engineering_api.py backend/tests/test_cem_requirements.py",
+    "exit_code":  0,
+    "passed":  174,
+    "warnings":  18,
+    "seconds":  72.52,
+    "log_path":  "C:/Users/jiang/mirum-evidence/B03/verified.log",
+    "log_sha256":  "75e80f4e549e6d3375c5556ddc52409f59d5cc9c14f188142fc7e1a7bead15ee",
+    "provider_calls":  0,
+    "limitations":  [
+                        "Accepted run schema fixtures are synthetic; native reference evidence is in B01.",
+                        "B03 has no new HTTP/UI/persistence or publisher service.",
+                        "Existing API provider seams are fixtures; CAD/physics workers are real.",
+                        "Full V1 acceptance and physical qualification remain pending."
+                    ],
+    "files":  {
+                  "backend/engineering/capabilities.py":  {
+                                                              "bytes":  8510,
+                                                              "sha256":  "ad2afda16b63b8818f4f9ac69ac19818400a679595802d186936b8891cb5b206"
+                                                          },
+                  "backend/engineering/contracts.py":  {
+                                                           "bytes":  21378,
+                                                           "sha256":  "161716cb2ca96c15072f1b94aa9df904f1095628a2fa1675f74be21b5d215366"
+                                                       },
+                  "backend/tests/test_engineering_capabilities.py":  {
+                                                                         "bytes":  6079,
+                                                                         "sha256":  "935bcf50d9a75672f725a6bb4a87f4837da4e13485142508b3648360fc294f99"
+                                                                     },
+                  "backend/tests/test_engineering_contracts.py":  {
+                                                                      "bytes":  21119,
+                                                                      "sha256":  "4ebcd24ba0663535f67e673be0bc7a66ae434a5c71ce1882c1fd29a40c2cd68e"
+                                                                  },
+                  "backend/tests/fixtures/engineering/brief-draft.json":  {
+                                                                              "bytes":  2246,
+                                                                              "sha256":  "9956c2b3d9d9ee1503a1907099660c9772d04599ac3626a26ede47c54930c030"
+                                                                          },
+                  "backend/tests/fixtures/engineering/finalized-brief.json":  {
+                                                                                  "bytes":  4119,
+                                                                                  "sha256":  "acbc7f2d8a99c124474a334b99519b4ad9f56a7d4004c2a55d085df0ffcb4dc8"
+                                                                              },
+                  "backend/tests/fixtures/engineering/candidate-15mm.json":  {
+                                                                                 "bytes":  2303,
+                                                                                 "sha256":  "356bc978fe7a2eba302704ab9df62de6e05d975d0e061f277e86e56cf92879bb"
+                                                                             },
+                  "backend/tests/fixtures/engineering/admitted-run.json":  {
+                                                                               "bytes":  681,
+                                                                               "sha256":  "d2149d49030f8679c6d4df8735e5f275d56ebedbe767f759139134defbeca222"
+                                                                           },
+                  "backend/tests/fixtures/engineering/invalid-briefs.json":  {
+                                                                                 "bytes":  306,
+                                                                                 "sha256":  "027a436e9b204cb72c5a087c43a30fc7b59e771588d3dc97f20890e07ac210b7"
+                                                                             }
+              }
+}
