@@ -18,6 +18,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=256M
+      - /tmp/mirum:size=256M,uid=10001,gid=10001,mode=0700
     env_file:
       - .env
     restart: unless-stopped
@@ -33,6 +34,8 @@ services:
       - ./frontend/glider_ui.py:/app/glider_ui.py:ro
       - ./frontend/glider_explorer.py:/app/glider_explorer.py:ro
       - ./frontend/vn_diagram.py:/app/vn_diagram.py:ro
+      - ./frontend/engineering_ui.py:/app/engineering_ui.py:ro
+      - ./frontend/engineering_state.py:/app/engineering_state.py:ro
     depends_on:
       - backend
     restart: unless-stopped

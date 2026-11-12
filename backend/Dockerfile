@@ -40,8 +40,8 @@ RUN /opt/conda/envs/cadenv/bin/pip install --no-cache-dir -r /tmp/requirements.t
 WORKDIR /tmp
 
 # Home must also be writable — set to /tmp (backed by tmpfs in compose).
-RUN groupadd -r caduser && \
-    useradd -r -g caduser -d /tmp -s /bin/bash caduser
+RUN groupadd --gid 10001 caduser && \
+    useradd --uid 10001 --gid 10001 -d /tmp -s /bin/bash caduser
 
 EXPOSE 8000
 
@@ -59,7 +59,7 @@ ENV HOME=/tmp \
 # If OSMesa packages are not installed (e.g. in CI), set MIRUM_NO_PYRENDER=1
 # to disable pyrender and use the pure-numpy synthetic fallback instead.
 
-RUN mkdir -p /tmp/mirum/engineering && chown caduser:caduser /tmp/mirum/engineering
+RUN mkdir -p /tmp/mirum/engineering && chown -R caduser:caduser /tmp/mirum
 ENV MIRUM_ENGINEERING_DATA_DIR=/tmp/mirum/engineering WEB_CONCURRENCY=1 MIRUM_API_REPLICAS=1
 USER caduser
 
