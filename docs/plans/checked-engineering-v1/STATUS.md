@@ -1,11 +1,11 @@
 # Task status
 
-B01 native baseline is complete; later application tasks remain pending. Check a task only after its task-specific evidence is recorded in a handoff and its implementation is present in this branch.
+B01–B02 are complete; later application tasks remain pending. Check a task only after its task-specific evidence is recorded in a handoff and its implementation is present in this branch.
 
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |
 |---|---|---|---|---|---|
 | [x] | B01 | [Establish a reproducible baseline](tasks/B01-baseline.md) | complete | none | [B01 handoff](handoffs/B01.md), [native evidence](evidence/B01.json) |
-| [ ] | B02 | [Define the bounded beam capability](tasks/B02-capability.md) | not_started | B01 | Not produced |
+| [x] | B02 | [Define the bounded beam capability](tasks/B02-capability.md) | complete | B01 | [B02 handoff](handoffs/B02.md) |
 | [ ] | B03 | [Create reviewed briefs and evidence schemas](tasks/B03-contracts.md) | not_started | B02 | Not produced |
 | [ ] | B04 | [Adapt the existing deterministic beam workflow](tasks/B04-cantilever-adapter.md) | not_started | B03 | Not produced |
 | [ ] | B05 | [Prepare and finalize briefs without AI](tasks/B05-brief-preparation.md) | not_started | B03, B04 | Not produced |
@@ -24,4 +24,4 @@ B01 native baseline is complete; later application tasks remain pending. Check a
 | [ ] | E04 | [Establish physical and manufacturing evidence](tasks/E04-physical-validation.md) | not_started | B14 | Not produced |
 | [ ] | E05 | [Expand AI across registered capabilities](tasks/E05-broader-design-generation.md) | not_started | E01, E02 | Not produced |
 
-The expansion tasks E01–E05 are separate releases. E03 and E04 have explicit domain/hardware prerequisites in their cards. All V01–V15 release checks are initially not_run; track actual evidence in ACCEPTANCE.md and the B13/B14 handoffs.
+The expansion tasks E01–E05 are separate releases. E03 and E04 have explicit domain/hardware prerequisites in their cards. Scoped baseline/library evidence is tracked in ACCEPTANCE.md; full V01–V15 release checks remain open until their owning tasks.
