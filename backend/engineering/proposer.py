@@ -141,11 +141,11 @@ class GeminiProposalProvider:
         return bool(os.environ.get('GEMINI_API_KEY_HEAVY', '').strip())
 
     def settings(self):
-        from config import GEMINI_MODEL_LITE
+        from config import GEMINI_MODEL_ENGINEERING_PREPARATION
         from subagents.model_registry import ModelRegistry
         cfg = ModelRegistry.instance().get('clarifier')
         return ProviderSettings(provider='gemini', sdk_version='google-ai-generativelanguage/'+version('google-ai-generativelanguage'),
-            model=cfg.model_id or GEMINI_MODEL_LITE, temperature=cfg.temperature,
+            model=GEMINI_MODEL_ENGINEERING_PREPARATION, temperature=cfg.temperature,
             max_tokens=min(cfg.max_tokens or 1024, 4096))
 
     async def generate(self, prompt, schema, settings):

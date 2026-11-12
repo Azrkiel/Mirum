@@ -184,6 +184,7 @@ def test_sdk_schema_builds_offline_and_transport_disables_retries(monkeypatch):
         def __init__(self, **kwargs): pass
         async def generate_content(self, request, **kwargs):
             assert kwargs == {'retry': None, 'timeout': 45}
+            assert request.model == 'models/gemini-3.6-flash'
             captured.append(request)
             return glm.GenerateContentResponse(candidates=[dict(finish_reason='STOP', content=dict(parts=[dict(text=response())]))],
                 usage_metadata=dict(prompt_token_count=10, candidates_token_count=20))
@@ -193,6 +194,19 @@ def test_sdk_schema_builds_offline_and_transport_disables_retries(monkeypatch):
     result = asyncio.run(provider.generate('fixture', provider_schema(), provider.settings()))
     assert result.prompt_tokens == 10 and result.output_tokens == 20
     assert captured[-1] == 'closed'
+
+
+def test_checked_preparation_selects_36_flash_without_changing_legacy_models():
+    import config
+    from subagents.model_registry import ModelRegistry
+    from engineering.proposer import GeminiProposalProvider
+    registry = ModelRegistry.instance()
+    legacy = {name: registry.get(name).model_id for name in ('clarifier', 'classifier', 'machinist')}
+    settings = GeminiProposalProvider().settings()
+    assert settings.model == 'gemini-3.6-flash'
+    assert settings.temperature == 0.4 and settings.max_tokens == 1024
+    assert config.GEMINI_MODEL_LITE == config.GEMINI_MODEL_HEAVY == 'gemini-3.5-flash'
+    assert {name: registry.get(name).model_id for name in legacy} == legacy
 
 
 def test_gemini_transport_uses_installed_os_trust_without_global_override(monkeypatch):

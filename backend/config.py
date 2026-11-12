@@ -26,6 +26,9 @@ GEMINI_MODEL_HEAVY: str = "gemini-3.5-flash"
 # migrated to gemini-3.5-flash (same as Heavy) — the cheapest reachable model.
 GEMINI_MODEL_LITE: str = "gemini-3.5-flash"
 
+# Checked beam preparation has its own qualification/configuration boundary.
+GEMINI_MODEL_ENGINEERING_PREPARATION: str = "gemini-3.6-flash"
+
 # ---------------------------------------------------------------------------
 # Pipeline tuning knobs
 # ---------------------------------------------------------------------------
