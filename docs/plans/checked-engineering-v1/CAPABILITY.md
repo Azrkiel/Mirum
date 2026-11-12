@@ -78,3 +78,25 @@ is not a native-availability probe or a promise that later API/package work is
 implemented. Native availability must be checked by the adapter/consumer; an
 unavailable mandatory stage must stop execution, never downgrade to geometry-only
 acceptance. No provider is needed for metadata or typed beam execution.
+
+## Native adapter (B04)
+
+`get_adapter(id, version, **policy_versions)` lazily resolves the fixed
+`CantileverAdapter`. `candidates(finalized_brief)` validates the entire reviewed
+set before native work. `await evaluate(candidate)` delegates to
+`service.generate_verified` and returns `candidate`, `outcome`, `checks`,
+`report`, `step_identity` and `artifacts`. Checks are immutable B03 records;
+the report preserves native measurements, mesh history, runtime versions and
+source hashes. `method_version` hashes the four verifier source identities.
+The native verifier now records actual per-check quantities and comparison
+limits, including rejected prefixes, without changing its numerical conditions.
+
+Accepted `artifacts` contains the captured `model.py`, `model.step` and
+`preview.glb` bytes. Rejections expose only diagnostic report/file identities,
+with later checks marked not_evaluated. Missing/malformed native evidence raises
+`EngineeringUnavailable`; it cannot advance a search as a measured rejection.
+`report_checks(candidate, report)` is the shared validating translation seam.
+B08 must additionally assess numerical evidence and all delivered associations;
+an adapter outcome alone is not permission to publish. B09 owns admission and
+overall job budgets; B10 owns atomic publication. Legacy APIs and order remain
+unchanged. No migration is required.

@@ -143,6 +143,13 @@ def get_capability(capability_id: str, version: str, *,
     return CAPABILITY
 
 
+def get_adapter(capability_id: str, version: str, **policies) -> CapabilityAdapter:
+    """Lazy fixed registration; metadata imports do not initialize native CAD."""
+    get_capability(capability_id, version, **policies)
+    from .cantilever import CantileverAdapter
+    return CantileverAdapter()
+
+
 def validate_beam_request(specification: dict, *, features: tuple[str, ...] = (),
                           support: str = 'ideal_clamp_x0',
                           load: str = 'static_transverse_positive_z_tip_force',
