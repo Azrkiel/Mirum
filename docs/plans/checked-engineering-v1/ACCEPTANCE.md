@@ -1,5 +1,11 @@
 # Release acceptance and evidence matrix
 
+November 12 provider-repair checkpoint: implementation
+`2ce8f217cff8c64c2fa91226b1de67e006a6493c` passed 83 targeted offline checks.
+See [supplemental evidence](evidence/B13-provider-repair.json). The old three-call
+ledger is preserved; fresh live authorization is pending. No V-row state below is
+promoted or refreshed by these focused checks. B13/B14 remain blocked.
+
 The full AI-assisted V1 requires B01–B14 plus every V01–V15 check. Tests already present in the repository are starting points, not fresh proof. B01 has run the existing native/API path; the full V1 release gates remain open.
 
 | ID | Required behavior | Primary task owners | State | Evidence |

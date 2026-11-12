@@ -1,6 +1,6 @@
 # Task status
 
-B01 through B12 are complete within task scope. B13 is blocked by live-provider RPC failures; B14 is blocked at its B13 prerequisite gate. Full AI-assisted release is not qualified.
+B01 through B12 are complete within task scope. B13 remains blocked pending separately authorized live qualification. The [provider repair checkpoint](handoffs/B13-provider-repair.md) passed 83 offline regressions; GenerateContent deadlines remain unproven. B14 is blocked at its B13 prerequisite gate. Full AI-assisted release is not qualified.
 
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |
 |---|---|---|---|---|---|

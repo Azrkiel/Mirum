@@ -2,6 +2,14 @@
 
 **Full AI-assisted V1: BLOCKED. B14 prerequisite: not satisfied.**
 
+November 12 follow-up: [provider repair checkpoint](handoffs/B13-provider-repair.md)
+and [supplemental evidence](evidence/B13-provider-repair.json) freeze implementation
+`2ce8f217cff8c64c2fa91226b1de67e006a6493c`. Per-client OS trust repairs a reproduced
+TLS configuration fault; 83 focused offline tests pass. No new live call was made,
+and the later GenerateContent deadlines remain unexplained. Separate fresh-run
+authorization is required. The results below remain historical; V01-V15 and B13
+completion have not been refreshed or promoted.
+
 Starting commit: `53408cb4f4b88d35fae3ce5fdc3061144c31bc29`.
 Final tested implementation: `ea721d90109e6a9fe0530fdf95132eeef70bb69d`.
 No merge, publication or deployment occurred. No B14 release candidate is claimed.
