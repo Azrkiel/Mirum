@@ -1,0 +1,40 @@
+{
+  "task": "B06",
+  "starting_commit": "425ff000f2504a0992955840d27b70ebad87d36a",
+  "tested_implementation_commit": "8aafee5729d686ecff0da013ee21b21d5b823917",
+  "image": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "runtime": "B01 Linux x86_64, Python 3.10.22, CadQuery 2.6.1, OCP 7.8.1.1.post1, NumPy 2.2.6, Pydantic 2.9.2, pytest 8.3.3; network none; source read-only",
+  "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly mirum-checked-b01:b9c5565 python -m pytest -q -p no:cacheprovider --tb=short backend/tests/test_engineering_proposer.py backend/tests/test_engineering_policy.py backend/tests/test_engineering_search.py backend/tests/test_engineering_cantilever.py backend/tests/test_engineering_briefs.py backend/tests/test_engineering_contracts.py backend/tests/test_engineering_capabilities.py backend/tests/test_engineering_spec.py backend/tests/test_engineering_fea.py backend/tests/test_engineering_native.py backend/tests/test_engineering_service.py backend/tests/test_engineering_api.py backend/tests/test_cem_requirements.py",
+  "exit_code": 0,
+  "result": "307 passed, 18 warnings in 188.07s (0:03:08)",
+  "scope": "Offline provider/SDK transport fixtures and the 30-case oracle corpus; real native execution of a finalized fixture-produced AI brief without further provider calls; all predecessor native/service/API/CEM regressions. Zero live-provider calls and no browser/physical qualification claimed.",
+  "limitations": "No implementation-task blocker. Live Gemini compatibility and V15 extraction accuracy remain not_run for B13; oracle fixtures do not qualify them. B09 must persist budgets/reservations and recover ownership; B10/B11/B12 still own bundles/API/UI. The installed Google SDK warns about B01 Python 3.10 support. bandit, pip-audit and ruff were unavailable; no scanner/dependency-security pass is claimed. Full release and physical/manufacturing qualification remain open.",
+  "source_sha256": {
+    "backend/engineering/briefs.py": "b8f2602fafe3481e89b9a891b3551fff63199fbc9432841e20ccd448ff6174ac",
+    "backend/engineering/proposer.py": "4ee8f785e72bb265561b4be45a5ea690fdfb848bc457b448e5f84e2c9a141166",
+    "backend/tests/fixtures/engineering/ai-corpus-v1.json": "7fb09dcc06626b7fbe31c0e9a2237792ded90ad292651b33e5d4db2ff29bcfea",
+    "backend/tests/test_engineering_proposer.py": "a999805f1d7f925d13b0cc63c2930adedfeec6e7b7bfed4b801e478e44e57694",
+    "docs/plans/checked-engineering-v1/AI_PREPARATION.md": "2483e2e9f833a05a49546961e8a1bf829ee0e5c936e739bed7ca4e21fc786efd",
+    "docs/plans/checked-engineering-v1/STATUS.md": "d1fa89516b6f2313154b693dbb04123c985ad1de409264eb60e56edf0ddd3c92"
+  },
+  "log_sha256": "b31bd2462626a93c4770b9fbad7aa6afb825f8017a1d80ecd08d39754c930894",
+  "focused_security_review": {
+    "source_implementation_sha": "8aafee5729d686ecff0da013ee21b21d5b823917",
+    "scope": "Independent read-only focused repository security checklist; no network, credentials reads or edits",
+    "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly mirum-checked-b01:b9c5565 python -m pytest -q -p no:cacheprovider --tb=short backend/tests/test_engineering_proposer.py -k 'finalization_during_settings or active_proposal_reservation or newer_form_revision or shared_ledger or deadline_and_cancellation or edit_during_provider_call'",
+    "result": "8 passed, 48 deselected in 1.57 s",
+    "exit_code": 0,
+    "finding": "Confirmed same-revision finalization/provider race; fixed with atomic owner-bound reservation and per-call revision checks. Final recheck found no remaining concrete B06 issue.",
+    "coverage": [
+      "lazy explicit key handling",
+      "no raw prompt/exception logging",
+      "strict structured proposal data",
+      "request/response/call/retry bounds",
+      "transport cancellation cleanup",
+      "revision reservation and CAS",
+      "unchanged compiler/native environment, allowlist, memory and time limits"
+    ],
+    "scanner_limitations": "bandit, pip-audit and ruff are absent in host and B01 image; no scanner/dependency-security verdict claimed",
+    "live_provider_calls": 0
+  }
+}

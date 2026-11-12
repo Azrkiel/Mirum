@@ -22,6 +22,16 @@ The full AI-assisted V1 requires B01–B14 plus every V01–V15 check. Tests alr
 
 ## Evidence rules
 
+B06 scoped update: [handoff](handoffs/B06.md) and [manifest](evidence/B06.json)
+record 307 passing final engineering/CEM tests. Fixture-produced AI and form
+briefs share semantic identities and the finalized AI brief runs real native
+search without further provider calls (V01). Ambiguous/contradictory/partial and
+unsupported proposal fixtures block review (V04/V05); stale/duplicate requests,
+deadline/cancellation and finalization races are covered (V09). The fixed 30-case
+corpus and oracle fixtures are implemented. **V15 remains not_run**: no live
+provider request or extraction-accuracy qualification occurred. Full V1 release
+still requires B09–B14 and all open API/browser/publication/live-provider gates.
+
 B08 scoped update: [handoff](handoffs/B08.md) and [manifest](evidence/B08.json)
 record 244 passing tests, including 32 evidence-policy cases. Native measured
 rejections remain distinct from unavailable evidence (V03/V07); stale or mutated

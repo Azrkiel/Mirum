@@ -3,7 +3,7 @@
 Branch: **engineering/checked-design-v1**  
 Planning baseline: [d4189b6190c9](https://github.com/Azrkiel/Mirum/commit/d4189b6190c94d3069d9f5c364a7a722178dd775)  
 Prepared: November 12, 2026.  
-Current branch contents: B01 native baseline, B02 capability metadata and B03 reviewed-brief/evidence schemas are implemented and verified. See STATUS.md and handoffs for exact evidence. B04 is next; the complete V1 workflow is not yet implemented.
+Current branch contents: B01–B08 are implemented and verified within their task scopes: native baseline, capability/schema contracts, cantilever adapter, offline review service, reviewed search, evidence policy and bounded structured AI preparation. See STATUS.md and handoffs for exact evidence. Durable jobs, publication, versioned API/UI and full release qualification remain pending. AI verification uses offline provider fixtures; live V15 remains open.
 
 ## Goal
 
@@ -32,7 +32,7 @@ Acceptance means the declared digital beam checks passed under their stated assu
 | [REVIEW.md](REVIEW.md) | Planning review findings and explicitly open prerequisites. |
 | [tasks.json](tasks.json) | Machine-readable task/dependency/file index. |
 
-B01–B03 are complete; continue with [B04](tasks/B04-cantilever-adapter.md) after reading their handoffs. Recommended V1 order: **B01 → B02 → B03 → B04 → B05 → B07 → B08 → B09 → B10 → B06 → B11 → B12 → B13 → B14**. Numeric B01–B14 order is also dependency-valid; the recommended order proves the typed core before integrating AI.
+B01–B08 are complete; continue with [B09](tasks/B09-job-lifecycle.md) after reading prerequisite handoffs. Remaining V1 order: **B09 → B10 → B11 → B12 → B13 → B14**. The completed library tasks do not qualify the full application or live-provider extraction accuracy.
 
 ## Scope and document ownership
 
