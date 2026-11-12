@@ -85,6 +85,7 @@ def main():
                 scene = trimesh.load(io.BytesIO((destination/'preview.glb').read_bytes()), file_type='glb')
                 mesh = scene.dump(concatenate=True)
                 assert len(mesh.faces) > 0
+                assert all(abs(a-b) < 1e-5 for a, b in zip(sorted(mesh.extents), [10, 15, 200]))
                 # Inspect the actual GLB mesh, retaining a human-viewable image.
                 import matplotlib
                 matplotlib.use('Agg')
@@ -105,6 +106,8 @@ def main():
                     glb_faces=len(mesh.faces), physics=report['physics']['solution']))
             else:
                 assert not result.get('step') and not result.get('glb')
+                if name == 'rejected':
+                    assert [a['status'] for a in result['attempts']] == ['rejected'] * 3
                 records.append(dict(case=name, http=status, seconds=elapsed))
             (destination / f'{name}-response.json').write_text(json.dumps(result, indent=2))
     finally:
@@ -119,12 +122,18 @@ def main():
                    stdout=(destination/'pip-check.txt').open('w'))
     freeze = subprocess.check_output([sys.executable, '-m', 'pip', 'freeze'], text=True)
     (destination/'pip-freeze.txt').write_text(freeze)
-    manifest = dict(source_sha=source_sha, platform=platform.platform(), python=sys.version,
+    evidence_files = ['model.step', 'preview.glb', 'preview.png', 'server.log',
+                      'pip-check.txt', 'pip-freeze.txt'] + [
+        f'{case}-{kind}.json' for case in ('invalid', 'accepted', 'rejected')
+        for kind in ('request', 'response')]
+    manifest = dict(source_sha=source_sha, image_id=os.environ.get('B01_IMAGE_ID'),
+        platform=platform.platform(), python=sys.version,
         provider_calls=0, network='Docker --network none; loopback only', cases=records,
         versions={k: metadata.version(k) for k in (
             'cadquery', 'cadquery-ocp', 'numpy', 'fastapi', 'pydantic', 'pytest', 'httpx', 'uvicorn', 'trimesh')},
-        files={p.name: dict(bytes=p.stat().st_size, sha256=hashlib.sha256(p.read_bytes()).hexdigest())
-               for p in sorted(destination.iterdir()) if p.is_file() and p.name != 'manifest.json'})
+        files={name: dict(bytes=(destination/name).stat().st_size,
+                         sha256=hashlib.sha256((destination/name).read_bytes()).hexdigest())
+               for name in evidence_files})
     (destination/'manifest.json').write_text(json.dumps(manifest, indent=2))
     print(json.dumps(manifest, indent=2))
 
