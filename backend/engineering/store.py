@@ -6,11 +6,16 @@ from contextlib import contextmanager
 import os
 from pathlib import Path
 import sqlite3
+import time
 from threading import RLock
 
 from .briefs import MemoryBriefRepository, PreparedDraft, RevisionConflict, _check_revision
 from .contracts import EngineeringBrief
 from .proposer import ProposalAudit
+
+
+class ArtifactExpired(ValueError):
+    """Known expired record/artifact; transports map this to HTTP 410."""
 
 
 class SQLiteStore:
@@ -41,6 +46,7 @@ class SQLiteStore:
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.execute('PRAGMA synchronous=FULL')
         self.db.execute('PRAGMA foreign_keys=ON')
+        self.db.execute('PRAGMA secure_delete=ON')
         self.db.executescript('''
             CREATE TABLE IF NOT EXISTS drafts(id TEXT PRIMARY KEY, record TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS briefs(id TEXT PRIMARY KEY, draft TEXT NOT NULL,
@@ -54,6 +60,7 @@ class SQLiteStore:
                 deadline REAL NOT NULL, expires REAL, reserved INTEGER NOT NULL,
                 FOREIGN KEY(brief) REFERENCES briefs(id));
             CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS retention(kind TEXT, id TEXT, created REAL NOT NULL, PRIMARY KEY(kind,id));
             PRAGMA user_version=1;
         ''')
 
@@ -83,6 +90,10 @@ class SQLiteStore:
         self.db.close()
         self._owner.close()
 
+    def storage_bytes(self):
+        return sum(path.stat().st_size for path in self.root.rglob('*')
+                   if path.is_file() and not path.is_symlink())
+
 
 class SQLiteBriefRepository:
     def __init__(self, store):
@@ -93,6 +104,8 @@ class SQLiteBriefRepository:
         row = db.execute('SELECT record FROM drafts WHERE id=?', (draft_id,)).fetchone()
         if row is None:
             raise KeyError(draft_id)
+        if row[0] == '{"expired":true}':
+            raise ArtifactExpired('Engineering draft expired')
         return PreparedDraft.model_validate_json(row[0])
 
     def create(self, prepared):
@@ -102,6 +115,7 @@ class SQLiteBriefRepository:
                 raise RevisionConflict('Draft is not an initial revision')
             try:
                 db.execute('INSERT INTO drafts VALUES (?,?)', (prepared.draft.draft_id, prepared.model_dump_json()))
+                db.execute('INSERT INTO retention VALUES (?,?,?)',('draft',prepared.draft.draft_id,time.time()))
             except sqlite3.IntegrityError:
                 raise RevisionConflict('Draft already exists') from None
 
@@ -117,6 +131,7 @@ class SQLiteBriefRepository:
                     or prepared.draft.revision != expected_revision + 1):
                 raise RevisionConflict('Draft revision changed; read and review again')
             db.execute('UPDATE drafts SET record=? WHERE id=?', (prepared.model_dump_json(), prepared.draft.draft_id))
+            db.execute('INSERT OR REPLACE INTO retention VALUES (?,?,?)',('draft',prepared.draft.draft_id,time.time()))
 
     def finalize_if_current(self, brief):
         brief = EngineeringBrief.model_validate(brief.model_dump())
@@ -139,6 +154,7 @@ class SQLiteBriefRepository:
                 try:
                     db.execute('INSERT INTO briefs VALUES (?,?,?,?)',
                         (brief.brief_id, *key, brief.model_dump_json()))
+                    db.execute('INSERT INTO retention VALUES (?,?,?)',('brief',brief.brief_id,time.time()))
                 except sqlite3.IntegrityError:
                     raise RevisionConflict('Brief ID already exists') from None
             return result
@@ -148,6 +164,8 @@ class SQLiteBriefRepository:
             row = db.execute('SELECT record FROM briefs WHERE id=?', (brief_id,)).fetchone()
             if row is None:
                 raise KeyError(brief_id)
+            if row[0] == '{"expired":true}':
+                raise ArtifactExpired('Engineering brief expired')
             return EngineeringBrief.model_validate_json(row[0])
 
     def is_finalized(self, draft_id, revision):
@@ -181,6 +199,7 @@ class SQLiteProposalLedger:
         with self.store.transaction() as db:
             try:
                 db.execute('INSERT INTO audits VALUES (?,?,?)', (audit.draft_id, audit.draft_revision, audit.model_dump_json()))
+                db.execute('INSERT INTO retention VALUES (?,?,?)',('audit',audit.draft_id+':'+str(audit.draft_revision),time.time()))
             except sqlite3.IntegrityError:
                 raise RevisionConflict('AI preparation already claimed for this draft revision') from None
 

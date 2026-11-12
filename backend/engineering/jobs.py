@@ -8,11 +8,37 @@ from uuid import uuid4
 from .admission import AdmissionBusy, native_slot
 from .briefs import RevisionConflict
 from .capabilities import CAPABILITY
-from .contracts import EngineeringRun, Lifecycle, Outcome
+from .contracts import EngineeringRun, Lifecycle, Outcome, ContractModel, Text, Sha256, CapabilityReference
+from pydantic import AwareDatetime
+from typing import Literal
 from .search import search, _controlled, _Stopped
 from .store import SQLiteBriefRepository
 
 TERMINAL = {Lifecycle.COMPLETED, Lifecycle.CANCELLED, Lifecycle.UNAVAILABLE}
+
+
+class ExpiredRun(ContractModel):
+    schema_version: Literal['engineering_expired_run_v1']
+    job_id: Text
+    capability: CapabilityReference
+    brief_sha256: Sha256
+    fixed_requirements_sha256: Sha256
+    lifecycle: Lifecycle
+    outcome: Outcome
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+    expired: Literal[True]
+
+
+def compact_run(record):
+    fields=('job_id','capability','brief_sha256','fixed_requirements_sha256','lifecycle','outcome','created_at','updated_at')
+    return dict({k:record[k] for k in fields},schema_version='engineering_expired_run_v1',expired=True)
+
+
+def parse_run(value):
+    import json
+    model=ExpiredRun if json.loads(value)['schema_version']=='engineering_expired_run_v1' else EngineeringRun
+    return model.model_validate_json(value)
 
 
 def changed(run, **updates):
@@ -38,7 +64,7 @@ class JobController:
         self._recover_workers()
         with store.transaction() as db:
             for row in db.execute('SELECT id,record,cancel FROM jobs').fetchall():
-                run = EngineeringRun.model_validate_json(row['record'])
+                run = parse_run(row['record'])
                 if run.lifecycle not in TERMINAL:
                     run = changed(run, lifecycle=Lifecycle.CANCELLED if row['cancel'] else Lifecycle.UNAVAILABLE,
                                   outcome=Outcome.NOT_EVALUATED, bundle=None,
@@ -57,11 +83,13 @@ class JobController:
             db.execute("INSERT OR REPLACE INTO metadata VALUES ('process_owner',?)", (self.process_owner,))
 
     def read(self, job_id):
+        if self.publisher:
+            self.publisher.cleanup()
         with self.store.transaction() as db:
             row = db.execute('SELECT record FROM jobs WHERE id=?', (job_id,)).fetchone()
             if row is None:
                 raise KeyError(job_id)
-            return EngineeringRun.model_validate_json(row[0])
+            return parse_run(row[0])
 
     def submit(self, brief_id, key):
         if self.closed:
@@ -69,18 +97,25 @@ class JobController:
         self.tasks = {key: task for key, task in self.tasks.items() if not task.done()}
         if type(key) is not str or not key.strip() or len(key) > 128:
             raise ValueError('Idempotency key must contain 1-128 characters')
-        brief = SQLiteBriefRepository(self.store).read_brief(brief_id)
         if self.publisher:
             self.publisher.cleanup()
+        with self.store.transaction() as db:
+            previous=db.execute('SELECT brief,record FROM jobs WHERE key=?',(key,)).fetchone()
+            if previous:
+                if previous['brief'] != brief_id:
+                    raise RevisionConflict('Idempotency key belongs to a different finalized brief')
+                return parse_run(previous['record'])
+        brief = SQLiteBriefRepository(self.store).read_brief(brief_id)
         owner = object()
         with self.store.transaction() as db:
             row = db.execute('SELECT brief,record FROM jobs WHERE key=?', (key,)).fetchone()
             if row:
                 if row['brief'] != brief_id:
                     raise RevisionConflict('Idempotency key belongs to a different finalized brief')
-                return EngineeringRun.model_validate_json(row['record'])
+                return parse_run(row['record'])
             reserved = db.execute('SELECT COALESCE(SUM(reserved),0), COUNT(*) FROM jobs WHERE reserved>0').fetchone()
-            if reserved[0] + CAPABILITY.resources.run_bytes > CAPABILITY.resources.storage_bytes or reserved[1] >= 50:
+            usage=max(reserved[0],self.store.storage_bytes())
+            if usage + CAPABILITY.resources.run_bytes > CAPABILITY.resources.storage_bytes or reserved[1] >= 50:
                 raise AdmissionBusy('Engineering storage capacity exhausted; retry after expiry')
             native_slot.claim(owner)
             try:
@@ -111,7 +146,7 @@ class JobController:
             row = db.execute('SELECT record FROM jobs WHERE id=?', (job_id,)).fetchone()
             if row is None:
                 raise KeyError(job_id)
-            run = EngineeringRun.model_validate_json(row[0])
+            run = parse_run(row[0])
             if run.lifecycle not in TERMINAL:
                 db.execute('UPDATE jobs SET cancel=1 WHERE id=?', (job_id,))
             return run
@@ -119,7 +154,7 @@ class JobController:
     def _update(self, job_id, **updates):
         with self.store.transaction() as db:
             row = db.execute('SELECT record FROM jobs WHERE id=?', (job_id,)).fetchone()
-            run = EngineeringRun.model_validate_json(row[0])
+            run = parse_run(row[0])
             if run.lifecycle in TERMINAL:
                 return run
             run = changed(run, **updates)
@@ -129,7 +164,7 @@ class JobController:
     def _terminal(self, job_id, lifecycle, *, outcome=Outcome.NOT_EVALUATED, failures=(), bundle=None):
         with self.store.transaction() as db:
             row = db.execute('SELECT * FROM jobs WHERE id=?', (job_id,)).fetchone()
-            run = EngineeringRun.model_validate_json(row['record'])
+            run = parse_run(row['record'])
             if run.lifecycle in TERMINAL:
                 return run
             if row['cancel']:
@@ -142,7 +177,7 @@ class JobController:
                 self.publisher.validate(job_id, bundle)
             run = changed(run, lifecycle=lifecycle, outcome=outcome, failures=tuple(failures), bundle=bundle)
             db.execute('UPDATE jobs SET record=?,reserved=?,expires=? WHERE id=?',
-                       (run.model_dump_json(), bundle.stored_bytes if bundle else 0,
+                       (run.model_dump_json(), bundle.stored_bytes if bundle else self.publisher.stored_bytes(job_id) if self.publisher else 0,
                         time.time()+CAPABILITY.resources.bundle_retention_seconds, job_id))
             return run
 
@@ -167,6 +202,9 @@ class JobController:
                     cancelled=lambda: self._cancelled(job.job_id), deadline=deadline-0.5)
                 self._terminal(job.job_id, Lifecycle.COMPLETED, outcome=Outcome.ACCEPTED, bundle=bundle)
             elif result.state == 'rejected':
+                if self.publisher:
+                    await _controlled(self.publisher.publish_diagnostics(job.job_id,brief,result),
+                        cancelled=lambda:self._cancelled(job.job_id),deadline=deadline-.5)
                 self._terminal(job.job_id, Lifecycle.COMPLETED, outcome=Outcome.REJECTED, failures=result.reasons)
             else:
                 self._terminal(job.job_id, Lifecycle.CANCELLED if result.state == 'cancelled' else Lifecycle.UNAVAILABLE,
@@ -180,7 +218,8 @@ class JobController:
             self._terminal(job.job_id, Lifecycle.UNAVAILABLE, failures=('Required execution or publication unavailable',))
         finally:
             try:
-                if self.publisher and self.read(job.job_id).outcome != Outcome.ACCEPTED:
+                terminal=self.read(job.job_id)
+                if self.publisher and terminal.lifecycle != Lifecycle.COMPLETED:
                     self.publisher.discard(job.job_id)
             finally:
                 process_owner.reset(token)
