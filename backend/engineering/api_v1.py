@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Literal,Annotated
@@ -17,7 +18,7 @@ from .briefs import BriefService,RevisionConflict
 from .bundles import BundlePublisher,FORMATS
 from .capabilities import list_capabilities
 from .contracts import ContractModel,ReviewAcknowledgement,Text,REVIEW_FIELDS
-from .jobs import JobController
+from .jobs import JobController,compact_run
 from .proposer import BriefProposer
 from .store import SQLiteStore,SQLiteBriefRepository,SQLiteProposalLedger,ArtifactExpired
 
@@ -159,6 +160,15 @@ def attach_v1_routes(app,limiter):
     def job_view(value,job):
         record=job.model_dump(mode='json')
         if record.get('expired'): return dict(record,delivery='expired',artifacts={})
+        with value.store._lock:
+            row=value.store.db.execute('SELECT expires FROM jobs WHERE id=?',(job.job_id,)).fetchone()
+        expires=row[0] if row else None
+        try:
+            publication_expiry=value.publisher.expires_at(job.job_id)
+            expires=min(expires,publication_expiry) if expires is not None else publication_expiry
+        except KeyError: pass
+        if expires is not None and time.time()>=expires:
+            return dict(compact_run(record),delivery='expired',artifacts={},artifact_expires_at=expires)
         delivery='pending'
         formats={}
         if record['lifecycle'] in ('completed','unavailable','cancelled'):
@@ -169,9 +179,7 @@ def attach_v1_routes(app,limiter):
                 formats={format:(directory/name).is_file() for format,(name,_) in FORMATS.items()}
             except (KeyError,ValueError,OSError):
                 delivery='unavailable'
-        with value.store._lock:
-            row=value.store.db.execute('SELECT expires FROM jobs WHERE id=?',(job.job_id,)).fetchone()
-        return dict(record,delivery=delivery,artifacts=formats,artifact_expires_at=row[0] if row else None)
+        return dict(record,delivery=delivery,artifacts=formats,artifact_expires_at=expires)
 
     @router.post('/jobs',status_code=202)
     @limiter.limit('10/minute')

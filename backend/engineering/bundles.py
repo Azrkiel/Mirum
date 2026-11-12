@@ -292,12 +292,20 @@ class BundlePublisher:
             try: return self._publication(job_id)[0]['stored_bytes']
             except KeyError: return 0
 
+    def expires_at(self,job_id):
+        with self.store._lock:
+            return self._publication(job_id)[1]
+
     def discard(self,job_id):
         with self.store._lock:
             if self.leases.get(job_id): return
             for path in (self.directory(job_id),self.staging/job_id):
                 if path.exists(): shutil.rmtree(path)
-            self.store.db.execute('DELETE FROM publications WHERE job=?',(job_id,))
+            with self.store.transaction() as db:
+                db.execute('DELETE FROM publications WHERE job=?',(job_id,))
+                row=db.execute('SELECT record FROM jobs WHERE id=?',(job_id,)).fetchone()
+                if row and json.loads(row[0])['lifecycle'] in ('cancelled','unavailable'):
+                    db.execute('UPDATE jobs SET reserved=0 WHERE id=?',(job_id,))
 
     def recover(self):
         with self.store._lock:

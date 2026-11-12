@@ -180,6 +180,8 @@ def test_cancellation_after_real_publication_wins_and_removes_bundle(tmp_path,na
         await jobs.wait(job.job_id)
         assert jobs.read(job.job_id).lifecycle=='cancelled'
         assert not pub.directory(job.job_id).exists()
+        with store.transaction() as db:
+            assert db.execute('SELECT reserved FROM jobs WHERE id=?',(job.job_id,)).fetchone()[0]==0
         await jobs.close(); store.close()
     asyncio.run(run())
 

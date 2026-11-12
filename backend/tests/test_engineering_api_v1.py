@@ -62,6 +62,18 @@ def test_real_native_http_contract_and_allowlisted_downloads(client,monkeypatch)
     result=poll(client,job['job_id'])
     assert result['outcome']=='accepted' and result['delivery']=='available',result
     executions=len(calls)
+    pub=main.app.state.engineering.publisher
+    with pub.lease(job['job_id'],'zip') as held:
+        original_expiry=pub._publication(job['job_id'])[1]
+        with main.app.state.engineering.store.transaction() as db:
+            db.execute('UPDATE publications SET expires=? WHERE job=?',(time.time()-1,job['job_id']))
+        try:
+            assert client.get('/engineering/v1/jobs/'+job['job_id']).json()['delivery']=='expired'
+            assert held.file.read(2)==b'PK'
+            assert client.get(f"/engineering/v1/jobs/{job['job_id']}/artifacts/zip").status_code==410
+        finally:
+            with main.app.state.engineering.store.transaction() as db:
+                db.execute('UPDATE publications SET expires=? WHERE job=?',(original_expiry,job['job_id']))
     assert [a['candidate']['specification']['height_mm'] for a in result['attempts']]==[5,10,15]
     from engineering.bundles import FORMATS
     values={}

@@ -16,7 +16,7 @@ B01 through B12 are complete within their task scopes. B13 is next eligible. Ove
 | [x] | B06 | [Propose structured briefs with AI](tasks/B06-ai-preparation.md) | complete | B05 | [B06 handoff](handoffs/B06.md), [evidence](evidence/B06.json) |
 | [x] | B11 | [Expose the common workflow through APIs](tasks/B11-versioned-api.md) | complete | B05, B06, B09, B10 | [B11 handoff](handoffs/B11.md), [evidence](evidence/B11.json) |
 | [x] | B12 | [Build the checked beam interface](tasks/B12-user-workflow.md) | complete | B11 | [B12 handoff](handoffs/B12.md), [evidence](evidence/B12.json) |
-| [ ] | B13 | [Qualify the end-to-end behavior](tasks/B13-release-verification.md) | not_started | B06, B07, B08, B09, B10, B11, B12 | Not produced |
+| [ ] | B13 | [Qualify the end-to-end behavior](tasks/B13-release-verification.md) | in_progress | B06, B07, B08, B09, B10, B11, B12 | Starting SHA: 53408cb4f4b88d35fae3ce5fdc3061144c31bc29 |
 | [ ] | B14 | [Prepare the reproducible first release](tasks/B14-release-handoff.md) | not_started | B13 | Not produced |
 | [ ] | E01 | [Integrate PicoGK with honest geometry scope](tasks/E01-picogk-adapter.md) | not_started | B14 | Not produced |
 | [ ] | E02 | [Integrate the glider CEM without upgrading its claims](tasks/E02-glider-adapter.md) | not_started | B14 | Not produced |
