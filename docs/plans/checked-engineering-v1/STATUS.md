@@ -1,6 +1,6 @@
 # Task status
 
-B01 through B12 are complete within task scope. Checked preparation now explicitly selects Gemini 3.6 Flash; 84 targeted offline checks pass. The authorized [one-call diagnostic](handoffs/B13-g36-diagnostic.md) hit the 45-second preparation deadline with no draft. Both earlier evaluation ledgers are preserved. B13 remains blocked, and B14 is blocked at its B13 prerequisite gate. Full AI-assisted release is not qualified.
+B01 through B12 are complete within task scope. Checked preparation selects Gemini 3.6 Flash; 84 targeted offline checks pass. The latest [transport comparison](handoffs/B13-transport-comparison.md) passed model metadata access over gRPC and REST; one REST generation returned MAX_TOKENS at the 1024-token cap, with no complete draft. Earlier ledgers are preserved. B13 remains blocked, and B14 is blocked at its B13 prerequisite gate. Full AI-assisted release is not qualified.
 
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |
 |---|---|---|---|---|---|

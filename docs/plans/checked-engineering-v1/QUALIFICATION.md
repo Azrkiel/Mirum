@@ -2,6 +2,14 @@
 
 **Full AI-assisted V1: BLOCKED. B14 prerequisite: not satisfied.**
 
+Latest diagnostic: model metadata access succeeded over gRPC and REST. One REST
+C01 generation returned in 5.137554 seconds with `MAX_TOKENS` under the existing
+1024-token cap; it was rejected as incomplete. No accurate draft, full corpus
+rerun or release promotion is claimed. The application remains unchanged at
+`0f1864adb06e548222265e9d8fd6377c47aad509`; REST was diagnostic-only.
+See [handoff](handoffs/B13-transport-comparison.md) and
+[evidence](evidence/B13-transport-comparison.json). Earlier results below are historical.
+
 Latest model diagnostic: at the user's request, checked preparation now selects
 `gemini-3.6-flash`. Implementation `0f1864adb06e548222265e9d8fd6377c47aad509`
 passed 84 targeted offline tests. A separate authorized one-call C01 diagnostic

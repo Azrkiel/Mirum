@@ -1,5 +1,9 @@
 # Release acceptance and evidence matrix
 
+Latest diagnostic: [metadata access passed on both transports](evidence/B13-transport-comparison.json),
+while one REST generation exhausted the 1024-token output cap (`MAX_TOKENS`).
+The incomplete candidate was rejected. No V-row or release state is promoted.
+
 Latest candidate: explicit Gemini 3.6 Flash model selection passed 84 targeted
 offline tests. Its [one-call diagnostic](evidence/B13-g36-diagnostic.json) timed
 out at the existing 45-second preparation deadline. No V-row is promoted; the
