@@ -13,7 +13,7 @@ B01–B05, B07 and B08 are complete; B06 is the next requested task. Later appli
 | [x] | B08 | [Make acceptance depend on complete evidence](tasks/B08-acceptance-policy.md) | complete | B03, B04, B07 | [B08 handoff](handoffs/B08.md), [evidence](evidence/B08.json) |
 | [ ] | B09 | [Persist and control engineering jobs](tasks/B09-job-lifecycle.md) | not_started | B07, B08 | Not produced |
 | [ ] | B10 | [Publish complete revision-bound packages](tasks/B10-result-packages.md) | not_started | B08, B09 | Not produced |
-| [ ] | B06 | [Propose structured briefs with AI](tasks/B06-ai-preparation.md) | not_started | B05 | Not produced |
+| [ ] | B06 | [Propose structured briefs with AI](tasks/B06-ai-preparation.md) | in_progress | B05 | Structured proposal service and provider fixtures underway |
 | [ ] | B11 | [Expose the common workflow through APIs](tasks/B11-versioned-api.md) | not_started | B05, B06, B09, B10 | Not produced |
 | [ ] | B12 | [Build the checked beam interface](tasks/B12-user-workflow.md) | not_started | B11 | Not produced |
 | [ ] | B13 | [Qualify the end-to-end behavior](tasks/B13-release-verification.md) | not_started | B06, B07, B08, B09, B10, B11, B12 | Not produced |
