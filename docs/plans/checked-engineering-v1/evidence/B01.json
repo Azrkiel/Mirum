@@ -1,116 +1,116 @@
 {
-    "source_sha":  "c995fefbd5c4404b65065667ada704809ad112b2",
-    "image_id":  "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
-    "platform":  "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.36",
-    "python":  "3.10.22 (main, Oct  6 2026, 02:06:23) [GCC 12.2.0]",
-    "provider_calls":  0,
-    "network":  "Docker --network none; loopback only",
-    "cases":  [
-                  {
-                      "case":  "invalid",
-                      "http":  422,
-                      "seconds":  0.006242132000011225
-                  },
-                  {
-                      "case":  "accepted",
-                      "http":  200,
-                      "seconds":  27.46705660600003,
-                      "step_volume_mm3":  30000.0,
-                      "glb_bounds":  [
-                                         [
-                                             0.0,
-                                             0.0,
-                                             -10.0
-                                         ],
-                                         [
-                                             200.0,
-                                             15.0,
-                                             0.0
-                                         ]
-                                     ],
-                      "glb_faces":  12,
-                      "physics":  {
-                                      "elements":  16,
-                                      "degrees_of_freedom":  32,
-                                      "tip_displacement_mm":  0.6772486772477769,
-                                      "tip_rotation_rad":  0.00507936507935922,
-                                      "root_bending_stress_mpa":  26.66666666659267,
-                                      "root_reaction_force_n":  -49.999999999949466,
-                                      "root_reaction_moment_n_mm":  -9999.99999997225,
-                                      "relative_equilibrium_residual":  2.9096725029376103E-12,
-                                      "strain_energy_n_mm":  16.93121693110831,
-                                      "second_moment_mm4":  2812.5
-                                  }
-                  },
-                  {
-                      "case":  "rejected",
-                      "http":  200,
-                      "seconds":  24.47318335099999
-                  }
-              ],
-    "versions":  {
-                     "cadquery":  "2.6.1",
-                     "cadquery-ocp":  "7.8.1.1.post1",
-                     "numpy":  "2.2.6",
-                     "fastapi":  "0.115.0",
-                     "pydantic":  "2.9.2",
-                     "pytest":  "8.3.3",
-                     "httpx":  "0.27.2",
-                     "uvicorn":  "0.30.6",
-                     "trimesh":  "4.4.3"
-                 },
-    "files":  {
-                  "model.step":  {
-                                     "bytes":  15415,
-                                     "sha256":  "e78aa3d11ddbb48c2eef56c4732fbdaaa60d926a51b2b6a52e0780f0da7dbe46"
-                                 },
-                  "preview.glb":  {
-                                      "bytes":  3300,
-                                      "sha256":  "df341c8a183290eb5499a577e262868f4b700e83e99451b50ecca5b8618c70c5"
-                                  },
-                  "preview.png":  {
-                                      "bytes":  53755,
-                                      "sha256":  "56aa57c93ff614ea3d7d18afca0967fa97231ed6e453e3b4ac553a510113a6e8"
-                                  },
-                  "server.log":  {
-                                     "bytes":  1325,
-                                     "sha256":  "a11771f8690fcdd5fe352c83be853133778d8362ab99ae302139ccd5436bc3ac"
-                                 },
-                  "pip-check.txt":  {
-                                        "bytes":  30,
-                                        "sha256":  "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09"
-                                    },
-                  "pip-freeze.txt":  {
-                                         "bytes":  2260,
-                                         "sha256":  "7a5fc68d4d906028cf20878b242e01995584c47d396403980b66ae22722c3922"
-                                     },
-                  "invalid-request.json":  {
-                                               "bytes":  492,
-                                               "sha256":  "d5cc910d470d323180e1c9fe87af2463ec16dd9c7174decccda2fba6dadc9fd9"
-                                           },
-                  "invalid-response.json":  {
-                                                "bytes":  257,
-                                                "sha256":  "b2e74506eb14ba3c55d04202e442095d88e2e6b5b73c53bb12a7c4cb13686630"
-                                            },
-                  "accepted-request.json":  {
-                                                "bytes":  552,
-                                                "sha256":  "7bd81c09081ddd5088850b79e7ce7fc45ed5d39f528b5f6ce92ee77fa44c084e"
-                                            },
-                  "accepted-response.json":  {
-                                                 "bytes":  35422,
-                                                 "sha256":  "f69a509e33689099888f4010c29ce61b9baf0305ecc63f30a8e002b45fdd6ae3"
-                                             },
-                  "rejected-request.json":  {
-                                                "bytes":  551,
-                                                "sha256":  "7d684fca5b57ecd49bfd7a94b572fd2fa0ef090f6b4119b3c6d10711d552a591"
-                                            },
-                  "rejected-response.json":  {
-                                                 "bytes":  7627,
-                                                 "sha256":  "11a9dfb42225f7c0e17142514d31e0f872ae09a52197de36cbdffdbf62a3cbcd"
-                                             }
-              },
-    "invocation_source_marker":  "c995fef2",
-    "provenance_note":  "The invocation marker c995fef2 was a transcription error; source_sha records the actual unchanged checkout HEAD used by both final checks.",
-    "test_result":  "44 passed, 18 pre-existing warnings in 84.91s; exit 0",
-    "build_result":  "Dockerfile.verify plus documented local trusted CA; exit 0"
+  "source_sha": "c995fefbd5c4404b65065667ada704809ad112b2",
+  "image_id": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.36",
+  "python": "3.10.22 (main, Oct  6 2026, 02:06:23) [GCC 12.2.0]",
+  "provider_calls": 0,
+  "network": "Docker --network none; loopback only",
+  "cases": [
+    {
+      "case": "invalid",
+      "http": 422,
+      "seconds": 0.006242132000011225
+    },
+    {
+      "case": "accepted",
+      "http": 200,
+      "seconds": 27.46705660600003,
+      "step_volume_mm3": 30000.0,
+      "glb_bounds": [
+        [
+          0.0,
+          0.0,
+          -10.0
+        ],
+        [
+          200.0,
+          15.0,
+          0.0
+        ]
+      ],
+      "glb_faces": 12,
+      "physics": {
+        "elements": 16,
+        "degrees_of_freedom": 32,
+        "tip_displacement_mm": 0.6772486772477769,
+        "tip_rotation_rad": 0.00507936507935922,
+        "root_bending_stress_mpa": 26.66666666659267,
+        "root_reaction_force_n": -49.999999999949466,
+        "root_reaction_moment_n_mm": -9999.99999997225,
+        "relative_equilibrium_residual": 2.9096725029376103e-12,
+        "strain_energy_n_mm": 16.93121693110831,
+        "second_moment_mm4": 2812.5
+      }
+    },
+    {
+      "case": "rejected",
+      "http": 200,
+      "seconds": 24.47318335099999
+    }
+  ],
+  "versions": {
+    "cadquery": "2.6.1",
+    "cadquery-ocp": "7.8.1.1.post1",
+    "numpy": "2.2.6",
+    "fastapi": "0.115.0",
+    "pydantic": "2.9.2",
+    "pytest": "8.3.3",
+    "httpx": "0.27.2",
+    "uvicorn": "0.30.6",
+    "trimesh": "4.4.3"
+  },
+  "files": {
+    "model.step": {
+      "bytes": 15415,
+      "sha256": "e78aa3d11ddbb48c2eef56c4732fbdaaa60d926a51b2b6a52e0780f0da7dbe46"
+    },
+    "preview.glb": {
+      "bytes": 3300,
+      "sha256": "df341c8a183290eb5499a577e262868f4b700e83e99451b50ecca5b8618c70c5"
+    },
+    "preview.png": {
+      "bytes": 53755,
+      "sha256": "56aa57c93ff614ea3d7d18afca0967fa97231ed6e453e3b4ac553a510113a6e8"
+    },
+    "server.log": {
+      "bytes": 1325,
+      "sha256": "a11771f8690fcdd5fe352c83be853133778d8362ab99ae302139ccd5436bc3ac"
+    },
+    "pip-check.txt": {
+      "bytes": 30,
+      "sha256": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09"
+    },
+    "pip-freeze.txt": {
+      "bytes": 2260,
+      "sha256": "7a5fc68d4d906028cf20878b242e01995584c47d396403980b66ae22722c3922"
+    },
+    "invalid-request.json": {
+      "bytes": 492,
+      "sha256": "d5cc910d470d323180e1c9fe87af2463ec16dd9c7174decccda2fba6dadc9fd9"
+    },
+    "invalid-response.json": {
+      "bytes": 257,
+      "sha256": "b2e74506eb14ba3c55d04202e442095d88e2e6b5b73c53bb12a7c4cb13686630"
+    },
+    "accepted-request.json": {
+      "bytes": 552,
+      "sha256": "7bd81c09081ddd5088850b79e7ce7fc45ed5d39f528b5f6ce92ee77fa44c084e"
+    },
+    "accepted-response.json": {
+      "bytes": 35422,
+      "sha256": "f69a509e33689099888f4010c29ce61b9baf0305ecc63f30a8e002b45fdd6ae3"
+    },
+    "rejected-request.json": {
+      "bytes": 551,
+      "sha256": "7d684fca5b57ecd49bfd7a94b572fd2fa0ef090f6b4119b3c6d10711d552a591"
+    },
+    "rejected-response.json": {
+      "bytes": 7627,
+      "sha256": "11a9dfb42225f7c0e17142514d31e0f872ae09a52197de36cbdffdbf62a3cbcd"
+    }
+  },
+  "invocation_source_marker": "c995fef2",
+  "provenance_note": "The invocation marker c995fef2 was a transcription error; source_sha records the actual unchanged checkout HEAD used by both final checks.",
+  "test_result": "44 passed, 18 pre-existing warnings in 84.91s; exit 0",
+  "build_result": "Dockerfile.verify plus documented local trusted CA; exit 0"
 }
