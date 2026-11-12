@@ -3,11 +3,12 @@ import asyncio
 import base64
 import logging
 
-from fastapi import Request
+from fastapi import Request, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .spec import CantileverSpec
 from .service import approved_candidates, generate_with_feedback
+from .admission import native_slot, AdmissionBusy
 
 logger = logging.getLogger('mirum.engineering')
 _slots = asyncio.Semaphore(1)
@@ -31,7 +32,17 @@ def attach_engineering_routes(app, limiter):
         """Accepted = this bounded digital/beam model passes, not engineering certification."""
         try:
             async with _slots:
-                result = await generate_with_feedback(body.specification, body.candidate_heights_mm)
+                owner = object()
+                try:
+                    native_slot.claim(owner)
+                except AdmissionBusy:
+                    raise HTTPException(429, 'Engineering capacity busy', headers={'Retry-After': '5'}) from None
+                try:
+                    result = await generate_with_feedback(body.specification, body.candidate_heights_mm)
+                finally:
+                    native_slot.release(owner)
+        except HTTPException:
+            raise
         except Exception:
             logger.exception('Required deterministic engineering validation failed')
             return {'status': 'error', 'detail': 'Required engineering generation or validation failed'}

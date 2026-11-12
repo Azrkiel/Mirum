@@ -9,6 +9,11 @@ services:
       - ./analysis:/opt/analysis:ro   # Phase 3: standalone XFOIL analysis package. Mounted outside /app to avoid nested-bind-mount on read-only rootfs. PYTHONPATH adds /opt in the Dockerfile.
       - backend_tmp_parts:/app/tmp_parts
       - backend_telemetry:/app/telemetry_logs
+      - engineering_data:/tmp/mirum/engineering
+    environment:
+      MIRUM_ENGINEERING_DATA_DIR: /tmp/mirum/engineering
+      WEB_CONCURRENCY: "1"
+      MIRUM_API_REPLICAS: "1"
     read_only: true
     tmpfs:
       - /tmp:size=256M
@@ -34,3 +39,4 @@ services:
 volumes:
   backend_tmp_parts:
   backend_telemetry:
+  engineering_data:

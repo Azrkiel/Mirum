@@ -11,7 +11,7 @@ B01–B08 are complete within their task scopes; B09 is next eligible. Durable j
 | [x] | B05 | [Prepare and finalize briefs without AI](tasks/B05-brief-preparation.md) | complete | B03, B04 | [B05 handoff](handoffs/B05.md), [evidence](evidence/B05.json) |
 | [x] | B07 | [Evaluate the reviewed candidate choices](tasks/B07-candidate-search.md) | complete | B04, B05 | [B07 handoff](handoffs/B07.md), [evidence](evidence/B07.json) |
 | [x] | B08 | [Make acceptance depend on complete evidence](tasks/B08-acceptance-policy.md) | complete | B03, B04, B07 | [B08 handoff](handoffs/B08.md), [evidence](evidence/B08.json) |
-| [ ] | B09 | [Persist and control engineering jobs](tasks/B09-job-lifecycle.md) | not_started | B07, B08 | Not produced |
+| [ ] | B09 | [Persist and control engineering jobs](tasks/B09-job-lifecycle.md) | in_progress | B07, B08 | Starting SHA: a7ee16186f9042dfc39d260a4a2c28e6ed291433; durable integrated repositories and lifecycle in progress |
 | [ ] | B10 | [Publish complete revision-bound packages](tasks/B10-result-packages.md) | not_started | B08, B09 | Not produced |
 | [x] | B06 | [Propose structured briefs with AI](tasks/B06-ai-preparation.md) | complete | B05 | [B06 handoff](handoffs/B06.md), [evidence](evidence/B06.json) |
 | [ ] | B11 | [Expose the common workflow through APIs](tasks/B11-versioned-api.md) | not_started | B05, B06, B09, B10 | Not produced |

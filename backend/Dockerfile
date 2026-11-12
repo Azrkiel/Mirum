@@ -59,6 +59,8 @@ ENV HOME=/tmp \
 # If OSMesa packages are not installed (e.g. in CI), set MIRUM_NO_PYRENDER=1
 # to disable pyrender and use the pure-numpy synthetic fallback instead.
 
+RUN mkdir -p /tmp/mirum/engineering && chown caduser:caduser /tmp/mirum/engineering
+ENV MIRUM_ENGINEERING_DATA_DIR=/tmp/mirum/engineering WEB_CONCURRENCY=1 MIRUM_API_REPLICAS=1
 USER caduser
 
 # No --reload: reload spawns a worker subprocess via multiprocessing.spawn,
