@@ -86,3 +86,10 @@ Real native publication, exact captured bytes, tamper/write/capacity failures,
 lease/expiry, seven-day records and legacy cleanup boundaries passed (V08/V10/V11).
 ZIP includes replay inputs and pinned native reports; independent numerical replay
 and public HTTP/browser/live-provider qualification remain for B11-B14.
+
+B11 scoped update: [handoff](handoffs/B11.md) and [manifest](evidence/B11.json)
+record 11 final API checks, 90 broader regressions and real credential-free
+loopback HTTP/native accepted, rejected and cancelled results. Exact review,
+idempotency, overload, tamper/expiry, all downloads and auth/rate behavior passed
+(V01/V04/V08/V09/V10/V11/V13). AI parity remains an offline fixture; browser and
+live-provider release gates remain open.

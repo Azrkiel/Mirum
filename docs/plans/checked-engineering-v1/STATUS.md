@@ -1,6 +1,6 @@
 # Task status
 
-B01 through B10 are complete within their task scopes. B11 is next eligible. Versioned API/UI and release qualification remain pending.
+B01 through B11 are complete within their task scopes. B12 is next eligible. Browser workflow and release qualification remain pending.
 
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |
 |---|---|---|---|---|---|
@@ -14,7 +14,7 @@ B01 through B10 are complete within their task scopes. B11 is next eligible. Ver
 | [x] | B09 | [Persist and control engineering jobs](tasks/B09-job-lifecycle.md) | complete | B07, B08 | [B09 handoff](handoffs/B09.md), [evidence](evidence/B09.json) |
 | [x] | B10 | [Publish complete revision-bound packages](tasks/B10-result-packages.md) | complete | B08, B09 | [B10 handoff](handoffs/B10.md), [evidence](evidence/B10.json) |
 | [x] | B06 | [Propose structured briefs with AI](tasks/B06-ai-preparation.md) | complete | B05 | [B06 handoff](handoffs/B06.md), [evidence](evidence/B06.json) |
-| [ ] | B11 | [Expose the common workflow through APIs](tasks/B11-versioned-api.md) | in_progress | B05, B06, B09, B10 | Starting SHA: 7b6853b4b8bea0b4bf77000c0b2df3fb2fc2a783 |
+| [x] | B11 | [Expose the common workflow through APIs](tasks/B11-versioned-api.md) | complete | B05, B06, B09, B10 | [B11 handoff](handoffs/B11.md), [evidence](evidence/B11.json) |
 | [ ] | B12 | [Build the checked beam interface](tasks/B12-user-workflow.md) | not_started | B11 | Not produced |
 | [ ] | B13 | [Qualify the end-to-end behavior](tasks/B13-release-verification.md) | not_started | B06, B07, B08, B09, B10, B11, B12 | Not produced |
 | [ ] | B14 | [Prepare the reproducible first release](tasks/B14-release-handoff.md) | not_started | B13 | Not produced |
