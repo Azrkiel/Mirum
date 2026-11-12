@@ -2,6 +2,16 @@
 
 **Full AI-assisted V1: BLOCKED. B14 prerequisite: not satisfied.**
 
+Latest investigation: two additional bounded diagnostic calls returned a REST
+ReadTimeout (35.199233 seconds) and actual HTTP 503/UNAVAILABLE (1.136582 seconds).
+A TLS-only probe confirmed Avast re-signs the provider connection even in Docker.
+That explains the historical trust-root failure; its role in current generation
+failures remains unproven pending an authorized controlled exception comparison.
+The old SDK also discards thinking-token/model metadata and lacks thinking config.
+See [handoff](handoffs/B13-root-cause-investigation.md) and
+[evidence](evidence/B13-root-cause-investigation.json). No application/security
+configuration or release gate changed. Earlier diagnostic results below remain historical.
+
 Latest diagnostic: model metadata access succeeded over gRPC and REST. One REST
 C01 generation returned in 5.137554 seconds with `MAX_TOKENS` under the existing
 1024-token cap; it was rejected as incomplete. No accurate draft, full corpus

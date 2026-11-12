@@ -1,5 +1,9 @@
 # Release acceptance and evidence matrix
 
+Latest investigation: [Avast TLS interception is confirmed](evidence/B13-root-cause-investigation.json),
+while REST generation still timed out or returned actual HTTP 503. No completed
+live draft or proven remedy exists. No release gate is promoted.
+
 Latest diagnostic: [metadata access passed on both transports](evidence/B13-transport-comparison.json),
 while one REST generation exhausted the 1024-token output cap (`MAX_TOKENS`).
 The incomplete candidate was rejected. No V-row or release state is promoted.

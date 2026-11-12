@@ -1,6 +1,6 @@
 # Task status
 
-B01 through B12 are complete within task scope. Checked preparation selects Gemini 3.6 Flash; 84 targeted offline checks pass. The latest [transport comparison](handoffs/B13-transport-comparison.md) passed model metadata access over gRPC and REST; one REST generation returned MAX_TOKENS at the 1024-token cap, with no complete draft. Earlier ledgers are preserved. B13 remains blocked, and B14 is blocked at its B13 prerequisite gate. Full AI-assisted release is not qualified.
+B01 through B12 are complete within task scope. Checked preparation selects Gemini 3.6 Flash; 84 targeted offline checks pass. The latest [root-cause investigation](handoffs/B13-root-cause-investigation.md) reproduced a REST timeout and actual HTTP 503, and confirmed Avast TLS interception inside Docker. Its role in the current failures needs a controlled domain-only exception test, not yet authorized. No usable live draft or release qualification is claimed. B13/B14 remain blocked; earlier ledgers are preserved.
 
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |
 |---|---|---|---|---|---|
