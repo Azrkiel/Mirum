@@ -32,10 +32,12 @@ Provider prompts are not executable Python and are not sent to a compiler.
 ## Provider and operational bounds
 
 The default `GeminiProposalProvider` uses the dedicated
-`GEMINI_MODEL_ENGINEERING_PREPARATION` setting (`gemini-3.6-flash`) and the existing
-`clarifier` ModelRegistry temperature/token limits. The model is separate from
-legacy CAD agents; changing their registry model does not change this
-preparation boundary. It uses the existing `GEMINI_API_KEY_HEAVY` and installed
+`GEMINI_MODEL_ENGINEERING_PREPARATION` setting (`gemini-3.6-flash`), the dedicated
+`GEMINI_ENGINEERING_MAX_OUTPUT_TOKENS` allowance (4096), and the existing
+`clarifier` ModelRegistry temperature. The model and output allowance are separate
+from legacy CAD agents; their registry model/token changes do not change this
+preparation boundary. The 4096-token candidate requires fresh live qualification;
+it has not yet demonstrated complete output. It uses the existing `GEMINI_API_KEY_HEAVY` and installed
 `google-ai-generativelanguage`. It snapshots model/temperature/token limits per
 revision; output tokens are capped at 4096. Each explicit async client closes its
 transport in `finally`. SDK retries are disabled (`retry=None`), timeout is 45 s,

@@ -28,6 +28,8 @@ GEMINI_MODEL_LITE: str = "gemini-3.5-flash"
 
 # Checked beam preparation has its own qualification/configuration boundary.
 GEMINI_MODEL_ENGINEERING_PREPARATION: str = "gemini-3.6-flash"
+# Separate from legacy clarifier limits; live requalification is required.
+GEMINI_ENGINEERING_MAX_OUTPUT_TOKENS: int = 4096
 
 # ---------------------------------------------------------------------------
 # Pipeline tuning knobs

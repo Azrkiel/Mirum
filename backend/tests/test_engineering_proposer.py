@@ -185,6 +185,7 @@ def test_sdk_schema_builds_offline_and_transport_disables_retries(monkeypatch):
         async def generate_content(self, request, **kwargs):
             assert kwargs == {'retry': None, 'timeout': 45}
             assert request.model == 'models/gemini-3.6-flash'
+            assert request.generation_config.max_output_tokens == 4096
             captured.append(request)
             return glm.GenerateContentResponse(candidates=[dict(finish_reason='STOP', content=dict(parts=[dict(text=response())]))],
                 usage_metadata=dict(prompt_token_count=10, candidates_token_count=20))
@@ -204,9 +205,33 @@ def test_checked_preparation_selects_36_flash_without_changing_legacy_models():
     legacy = {name: registry.get(name).model_id for name in ('clarifier', 'classifier', 'machinist')}
     settings = GeminiProposalProvider().settings()
     assert settings.model == 'gemini-3.6-flash'
-    assert settings.temperature == 0.4 and settings.max_tokens == 1024
+    assert settings.temperature == 0.4 and settings.max_tokens == 4096
+    assert registry.get('clarifier').max_tokens == 1024
     assert config.GEMINI_MODEL_LITE == config.GEMINI_MODEL_HEAVY == 'gemini-3.5-flash'
     assert {name: registry.get(name).model_id for name in legacy} == legacy
+
+
+def test_gemini_truncated_candidate_stops_without_schema_repair(monkeypatch):
+    from google.ai import generativelanguage_v1beta as glm
+    from engineering.proposer import GeminiProposalProvider
+    events = []
+    class Transport:
+        async def close(self): events.append('closed')
+    class Client:
+        transport = Transport()
+        def __init__(self, **kwargs): pass
+        async def generate_content(self, request, **kwargs):
+            events.append('called')
+            assert kwargs == {'retry': None, 'timeout': 45}
+            return glm.GenerateContentResponse(candidates=[dict(finish_reason='MAX_TOKENS',
+                content=dict(parts=[dict(text='private incomplete provider reply')]))])
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'offline-placeholder')
+    monkeypatch.setattr(glm, 'GenerativeServiceAsyncClient', Client)
+    _, draft, proposer, ledger = setup(GeminiProposalProvider())
+    result = propose(proposer, draft)
+    assert result.state == 'unavailable'
+    assert events == ['called', 'closed'] and ledger.read(draft.draft_id, 1).calls == 1
+    assert 'private incomplete' not in str(result) + ledger.read(draft.draft_id, 1).model_dump_json()
 
 
 def test_gemini_transport_uses_installed_os_trust_without_global_override(monkeypatch):
