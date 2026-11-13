@@ -1,5 +1,9 @@
 # B13 root-cause investigation and controlled-test boundary
 
+Follow-up: the user has authorized the proposed comparison. The [latest checkpoint](B13-avast-test-checkpoint.md)
+records the tool's refusal to open Avast and the pending manual setting step.
+Zero calls have been consumed from that new authorization.
+
 State: blocked, pending authorization for a controlled antivirus/network test.
 Date: November 12, 2026.
 Application source remains `0f1864adb06e548222265e9d8fd6377c47aad509`.

@@ -2,6 +2,13 @@
 
 **Full AI-assisted V1: BLOCKED. B14 prerequisite: not satisfied.**
 
+Latest checkpoint: the user authorized the one-call domain-exception comparison.
+The automation tool rejected opening Avast, so the setting change requires the
+user's manual action. A post-restart check still observed the Avast issuer and
+no request reservation/result; zero authorized comparison calls have run.
+See [checkpoint](handoffs/B13-avast-test-checkpoint.md). No security setting or
+qualification gate changed.
+
 Latest investigation: two additional bounded diagnostic calls returned a REST
 ReadTimeout (35.199233 seconds) and actual HTTP 503/UNAVAILABLE (1.136582 seconds).
 A TLS-only probe confirmed Avast re-signs the provider connection even in Docker.

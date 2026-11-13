@@ -1,6 +1,6 @@
 # Task status
 
-B01 through B12 are complete within task scope. Checked preparation selects Gemini 3.6 Flash; 84 targeted offline checks pass. The latest [root-cause investigation](handoffs/B13-root-cause-investigation.md) reproduced a REST timeout and actual HTTP 503, and confirmed Avast TLS interception inside Docker. Its role in the current failures needs a controlled domain-only exception test, not yet authorized. No usable live draft or release qualification is claimed. B13/B14 remain blocked; earlier ledgers are preserved.
+B01 through B12 are complete within task scope. Checked preparation selects Gemini 3.6 Flash; 84 targeted offline checks pass. The root-cause investigation confirmed Avast TLS interception and generation timeout/HTTP 503. The user authorized a domain-only exception comparison, but [the automation tool blocks Avast](handoffs/B13-avast-test-checkpoint.md); the manual setting step is pending, with zero comparison calls consumed. No usable live draft or release qualification is claimed. B13/B14 remain blocked; earlier ledgers are preserved.
 
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |
 |---|---|---|---|---|---|
