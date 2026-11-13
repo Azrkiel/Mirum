@@ -1,5 +1,9 @@
 # B13 approved antivirus comparison: manual setting step required
 
+Superseded checkpoint: [the user added the exception and the test ran](B13-avast-controlled-result.md).
+One call returned actual HTTP 503/high demand with a verified Google certificate.
+Manual removal and verification are now pending.
+
 State: blocked pending the manual domain exception step.
 Date: November 13, 2026 UTC (November 12 local).
 Application source: `0f1864adb06e548222265e9d8fd6377c47aad509`, unchanged.
