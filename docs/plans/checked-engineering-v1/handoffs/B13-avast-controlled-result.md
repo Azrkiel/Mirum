@@ -1,6 +1,6 @@
 # B13 controlled exception result: provider high demand
 
-State: blocked on live generation; temporary exception cleanup pending.
+State: blocked on live generation; temporary exception cleanup verified complete.
 Live application source: `0f1864adb06e548222265e9d8fd6377c47aad509`.
 New offline candidate: `0c0458ae802cedba75d7680809a8254b3f76ab7d`.
 Date: November 13 UTC / November 12 local, 2026.
@@ -47,17 +47,19 @@ complete 4096-token live draft and cannot fix provider capacity by itself. Any
 future qualification must freeze and exercise this exact ordinary-provider
 configuration, with its applicable explicit live-run budget.
 
-## Cleanup required
+## Cleanup completed
 
-The user has been asked to remove only the temporary
-`generativelanguage.googleapis.com` exception. Removal confirmation and restored
-scanning/certificate verification are still pending. Do not claim rollback
-complete. The app cannot be automated through the blocked computer-use tool.
-No more provider requests are planned from this exhausted one-call authorization.
+The user confirmed removing the temporary `generativelanguage.googleapis.com`
+exception. At `2026-11-13T05:38:23.587743+00:00`, a fresh TLS-only connection with
+certificate/hostname verification enabled again observed **Avast Web/Mail Shield
+Root**, matching the pre-test interception state. The cleanup check used zero API
+or generation requests. Its local artifact is `cleanup-restored.json`.
 
-After the user confirms removal, verify the prior Avast issuer/scanning state
-with a TLS-only check, record the result, and close the cleanup checkpoint.
-Preserve all pre-existing exceptions and all consumed-call records.
+The exception was added and removed manually because the computer-use tool blocks
+Avast. No global security feature was disabled. The one-call reservation and all
+prior evidence remain unchanged. Cleanup is complete within the observed scope;
+the release and live-qualification gates remain blocked. No more provider calls
+are planned from this exhausted authorization.
 
 [Evidence](../evidence/B13-avast-controlled-result.json) records commands/settings,
 safe error classifications and fingerprints. Local evidence remains under

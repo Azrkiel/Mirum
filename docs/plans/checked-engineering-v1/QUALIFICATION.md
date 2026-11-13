@@ -6,7 +6,8 @@ Latest controlled result: after the user added the approved domain exception,
 TLS verification observed a Google Trust Services issuer. The unchanged 1024-token
 C01 request still returned actual HTTP 503/UNAVAILABLE in 3.748222 seconds, with
 a provider high-demand indication. Excluding Avast did not resolve this request.
-Manual removal/rollback verification is pending. Separately, an unqualified
+The user removed the temporary exception; a TLS-only check verified restoration
+of the previous Avast issuer with zero additional API calls. Separately, an unqualified
 4096-token candidate at `0c0458ae802cedba75d7680809a8254b3f76ab7d` passes 85 offline
 tests; no live request used that new allowance. See [handoff](handoffs/B13-avast-controlled-result.md)
 and [evidence](evidence/B13-avast-controlled-result.json). No V-row is promoted.
