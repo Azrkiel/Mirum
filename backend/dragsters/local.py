@@ -75,6 +75,43 @@ def generate_result(spec: DragsterSpec, output_root: Path) -> Path:
             shutil.rmtree(stage)
 
 
+def generate_result_v2(spec, output_root: Path) -> Path:
+    """Publish v2 evidence only after independent STEP checks and preview succeed."""
+    import cadquery as cq
+    from .spec_v2 import canonical_spec_v2, parse_v2
+    from .styles import resolve_build
+    from .validation_v2 import verify_step_v2
+
+    spec = parse_v2(canonical_spec_v2(spec))
+    root = output_root.resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix='.dragster-preview-stage-', dir=root))
+    try:
+        step = stage / 'body.step'
+        cq.exporters.export(resolve_build(spec.style)(spec), str(step), exportType='STEP')
+        report = verify_step_v2(step, spec)
+        if report.get('passed') is not True:
+            raise ValueError('STEP verification did not pass')
+        export_preview(step, stage / 'preview.glb')
+        report['preview'] = {
+            'source': 'verified_reimported_step',
+            'source_step_sha256': report['step_sha256'],
+            'glb_sha256': hashlib.sha256((stage / 'preview.glb').read_bytes()).hexdigest(),
+            'linear_tolerance_mm': 0.05, 'angular_tolerance_rad': 0.1, 'units': 'm',
+        }
+        (stage / 'spec.json').write_text(canonical_spec_v2(spec), encoding='utf-8')
+        (stage / 'report.json').write_text(json.dumps(report, sort_keys=True, indent=2,
+                                                    allow_nan=False) + '\n', encoding='utf-8')
+        destination = root / f'dragster-{uuid.uuid4().hex}'
+        if destination.exists():
+            raise FileExistsError('Fresh result name is already occupied')
+        stage.rename(destination)
+        return destination
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+
+
 @dataclass
 class PreviewState:
     """Only successful transactions replace accepted state."""
@@ -83,8 +120,9 @@ class PreviewState:
 
     def attempt(self, payload: str, root: Path) -> bool:
         try:
-            spec = DragsterSpec.model_validate_json(payload)
-            result = generate_result(spec, root)
+            from .spec_v2 import parse_any
+            spec = parse_any(payload)
+            result = (generate_result if spec.schema_version == 1 else generate_result_v2)(spec, root)
         except Exception as exc:
             self.error = str(exc)
             return False
@@ -93,7 +131,7 @@ class PreviewState:
         return True
 
 
-def render_preview(data: bytes) -> None:
+def render_preview(data: bytes, *, envelopes=None) -> None:
     """Offline orbit viewer shared by standalone and integrated parameter forms."""
     import streamlit as st
     import plotly.graph_objects as go
@@ -104,6 +142,26 @@ def render_preview(data: bytes) -> None:
     i, j, k = mesh.faces.T
     figure = go.Figure(go.Mesh3d(x=x, y=y, z=z, i=i, j=j, k=k,
                                color='lightsteelblue', flatshading=True))
+    if envelopes:
+        import math
+        for envelope in envelopes:
+            cx, cy, cz = envelope['center_mm']
+            radius, width, count = envelope['diameter_mm'] / 2, envelope['width_mm'], 40
+            vertices = [(cx + radius * math.cos(2 * math.pi * t / count),
+                         cy + sign * width / 2,
+                         cz + radius * math.sin(2 * math.pi * t / count))
+                        for sign in (-1, 1) for t in range(count)]
+            faces = []
+            for t in range(count):
+                nxt = (t + 1) % count
+                faces.extend([(t, nxt, count + t), (nxt, count + nxt, count + t)])
+            for t in range(1, count - 1):
+                faces.extend([(0, t + 1, t), (count, count + t, count + t + 1)])
+            ex, ey, ez = zip(*vertices)
+            ei, ej, ek = zip(*faces)
+            figure.add_trace(go.Mesh3d(x=ex, y=ey, z=ez, i=ei, j=ej, k=ek,
+                color='slategray', opacity=0.25, showlegend=True,
+                name=f"{envelope['axle']} {envelope['side']} envelope — not in STEP"))
     span = max(mesh.extents)
     figure.update_layout(
         scene=dict(aspectmode='manual',

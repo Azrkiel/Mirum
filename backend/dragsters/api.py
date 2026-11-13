@@ -13,7 +13,7 @@ async def stream(spec, request, safe_error, runner=None):
     """StreamingResponse cancellation owns generation until native cleanup ends."""
     attempt_id = request.state.dragster_attempt_id
     yield event(dict(step='native', status='running', attempt_id=attempt_id,
-                     message='Building and checking the wedge in a bounded native worker'))
+                     message=f'Building and checking the {spec.style.replace("_", " ")} body in a bounded native worker'))
     task = asyncio.create_task(generate(spec, runner=runner))
     delivered = False
     try:
