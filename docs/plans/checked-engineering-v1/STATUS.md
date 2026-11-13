@@ -1,6 +1,6 @@
 # Task status
 
-B01 through B12 are complete within task scope. The [controlled exception test](handoffs/B13-avast-controlled-result.md) observed a verified Google certificate but still received actual HTTP 503 with a high-demand indication. One authorized call was consumed; the user removed the temporary exception and a TLS-only check verified restoration of the previous Avast issuer. A separate 4096-token preparation candidate passes 85 offline checks but is not live-qualified. B13/B14 remain blocked; earlier ledgers are preserved.
+B01 through B12 are complete within task scope. The [supplied-key diagnostic](handoffs/B13-provided-key-diagnostic.md) passed metadata access and reached generation/local parsing in 7.36 seconds on the 4096-token candidate, but the reply failed strict JSON/schema validation; no repair was authorized in that one-call test. The candidate passes 85 offline checks but is not live-qualified. Antivirus cleanup is verified complete. B13/B14 remain blocked; earlier ledgers are preserved.
 
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |
 |---|---|---|---|---|---|

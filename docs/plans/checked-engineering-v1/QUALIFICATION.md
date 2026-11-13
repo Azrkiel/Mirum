@@ -2,6 +2,14 @@
 
 **Full AI-assisted V1: BLOCKED. B14 prerequisite: not satisfied.**
 
+Latest supplied-key diagnostic: metadata access passed, and ordinary application
+gRPC generation on `0c0458ae802cedba75d7680809a8254b3f76ab7d` reached local parsing
+in 7.358356 seconds with the 4096-token setting. The response failed strict
+JSON/schema validation; the one-call budget allowed no repair, and exact validation
+errors were not retained. No accurate reviewable draft or qualification pass is
+claimed. See [handoff](handoffs/B13-provided-key-diagnostic.md) and
+[evidence](evidence/B13-provided-key-diagnostic.json). The key value is not recorded.
+
 Latest controlled result: after the user added the approved domain exception,
 TLS verification observed a Google Trust Services issuer. The unchanged 1024-token
 C01 request still returned actual HTTP 503/UNAVAILABLE in 3.748222 seconds, with

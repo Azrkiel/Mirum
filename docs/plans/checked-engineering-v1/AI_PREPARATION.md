@@ -37,7 +37,7 @@ The default `GeminiProposalProvider` uses the dedicated
 `clarifier` ModelRegistry temperature. The model and output allowance are separate
 from legacy CAD agents; their registry model/token changes do not change this
 preparation boundary. The 4096-token candidate requires fresh live qualification;
-it has not yet demonstrated complete output. It uses the existing `GEMINI_API_KEY_HEAVY` and installed
+it has not yet demonstrated an accurate reviewable draft. It uses the existing `GEMINI_API_KEY_HEAVY` and installed
 `google-ai-generativelanguage`. It snapshots model/temperature/token limits per
 revision; output tokens are capped at 4096. Each explicit async client closes its
 transport in `finally`. SDK retries are disabled (`retry=None`), timeout is 45 s,
