@@ -57,6 +57,7 @@ def test_coupled_fixture_closure_and_source_resolved_interactions(family):
         coupled.replay(bad,bank)
 
 
+@pytest.mark.usefixtures('native_xfoil')
 def test_actual_coordinate_polars_drive_native_coupled_swept_case(tmp_path):
     a=build('tailless_swept',dict(wing=dict(root_chord_m=.24,taper=1.,incidence_deg=0.,
         washout_deg=0.,dihedral_deg=0.,sweep_deg=25.,airfoil='0012')))
@@ -81,6 +82,7 @@ def test_uncovered_local_conditions_reject_instead_of_extrapolating():
         coupled.solve(record,controls,bank,speed_m_s=1.,spanwise=2)
 
 
+@pytest.mark.usefixtures('native_xfoil')
 def test_native_canard_adjacent_alpha_continuation_stays_inside_real_polar_coverage(tmp_path):
     a=build('canard');record=archive(a);controls={c.name:0. for c in a.controls}
     foils={digest(coordinates_payload(s.airfoil.coordinates)):s.airfoil.coordinates

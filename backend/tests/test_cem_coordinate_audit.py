@@ -75,6 +75,7 @@ def test_audit_checks_actual_coordinate_state_and_retains_failure(tmp_path, monk
 
 
 @pytest.mark.parametrize('settings', [None, dict(refined_density_ratio=1., top_refined_x=[.4, .77])])
+@pytest.mark.usefixtures('native_xfoil')
 def test_native_coordinate_audit_replays_without_promoting_qualification(tmp_path, settings):
     points = asb.Airfoil('naca0012').coordinates
     angles = [-1., 0., 1.] if settings is None else [2., 3., 4.]

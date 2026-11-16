@@ -68,6 +68,7 @@ def test_coordinate_bank_rejects_ambiguous_native_angle_grid(kind):
         CoordinateBank(reports)
 
 
+@pytest.mark.usefixtures('native_xfoil')
 def test_native_exact_coordinate_reference_and_parent_replay(tmp_path):
     points=asb.Airfoil('naca0012').coordinates
     report=query(points,1000000.,[0.,2.,4.],tmp_path/'polar')
@@ -95,6 +96,7 @@ def test_coordinate_vaccel_rejects_unsupported_input(tmp_path, vaccel):
     assert not (tmp_path/'invalid').exists()
 
 
+@pytest.mark.usefixtures('native_xfoil')
 def test_native_coordinate_vaccel_is_explicit_and_replayed(tmp_path):
     report = query(asb.Airfoil('naca0012').coordinates, 1000000., [0., 2., 4.],
                    tmp_path/'explicit', vaccel=0.)
@@ -117,6 +119,7 @@ def test_coordinate_bank_rejects_mixed_acceleration():
         CoordinateBank(reports)
 
 
+@pytest.mark.usefixtures('native_xfoil')
 def test_native_reflex_and_deflected_coordinates_are_not_replaced_by_naca(tmp_path):
     a=build('tailless_swept')
     neutral={c.name:0. for c in a.controls}
@@ -210,6 +213,7 @@ def test_bank_rejects_mixed_panel_distribution():
         CoordinateBank(reports)
 
 
+@pytest.mark.usefixtures('native_xfoil')
 def test_native_panel_settings_bound_to_commands_and_reconstruction(tmp_path):
     from cem.glider.families import coordinate_polars as p
     settings = dict(refined_density_ratio=1., top_refined_x=[.4, .77], bottom_refined_x=[.3, .8])

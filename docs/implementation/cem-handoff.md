@@ -315,3 +315,32 @@ Preserve these as historical source/runtime-bound results. A changed implementat
 ## First task for the next builder
 
 Create one reviewable G2/G3 slice that installs a physically coherent spar/skin/rib construction for a supported family and measures its actual material mass, CG, inertia and installed section/load-path evidence. Add adversarial geometry/mass tests and keep `accepted_for_manufacture=false` until that particular construction passes all declared physical/process gates. Then use this closure path to support genuinely new G4 shapes.
+
+## CI coverage note (2026-11-16)
+
+The offline CI image (`Dockerfile.verify`) sets `MIRUM_XFOIL_BIN` to the mock
+`analysis/tests/mock_xfoil`, and has no AVL. The following tests run the real
+natively built XFOIL and are **not run in CI: they need the native aero build**.
+They skip, through the `native_xfoil` fixture in `backend/tests/conftest.py`,
+unless `MIRUM_XFOIL_BIN` resolves to a compiled (ELF) executable:
+
+- `test_cem_aero_polar_audit.py::test_native_initialization_audit_replays_without_running_tools`
+- `test_cem_aero_section_qualification.py::test_native_narrow_section_rejects_missing_midpoint_and_replays_failure`
+- `test_cem_coordinate_audit.py::test_native_coordinate_audit_replays_without_promoting_qualification` (2 params)
+- `test_cem_family_coordinate_polars.py`: `test_native_exact_coordinate_reference_and_parent_replay`,
+  `test_native_coordinate_vaccel_is_explicit_and_replayed`,
+  `test_native_reflex_and_deflected_coordinates_are_not_replaced_by_naca`,
+  `test_native_panel_settings_bound_to_commands_and_reconstruction`
+- `test_cem_family_coupled_aero.py::test_actual_coordinate_polars_drive_native_coupled_swept_case`,
+  `test_native_canard_adjacent_alpha_continuation_stays_inside_real_polar_coverage`
+
+Build and run (Linux, needs gfortran, cmake, make, patch, curl, git, X11 headers):
+
+```
+python scripts/cem/build_native_aero.py --directory work/native-aero
+export MIRUM_XFOIL_BIN=$PWD/work/native-aero/Xfoil/bin/xfoil MIRUM_AVL_BIN=$PWD/work/native-aero/avl-build/src/avl
+python -m pytest backend/tests -k "native or actual_coordinate_polars" -q
+```
+
+`cem-coordinate-window-results.json` is copied into the image so the window
+coverage tests run in CI.

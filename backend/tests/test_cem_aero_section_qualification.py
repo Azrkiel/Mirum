@@ -33,6 +33,7 @@ def test_section_reference_preserves_previous_evidence(tmp_path):
     assert (tmp_path/'previous.out').read_text()=='preserve'
 
 
+@pytest.mark.usefixtures('native_xfoil')
 def test_native_narrow_section_rejects_missing_midpoint_and_replays_failure(tmp_path,monkeypatch):
     try: resolve('xfoil')
     except NativeFailure: pytest.skip('Native XFOIL executable not selected')

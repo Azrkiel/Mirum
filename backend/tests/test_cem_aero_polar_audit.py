@@ -69,6 +69,7 @@ def test_unavailable_solver_cannot_make_a_section_audit_admissible(tmp_path,monk
     assert all(s['state']=='failed' for s in value['sequences'])
 
 
+@pytest.mark.usefixtures('native_xfoil')
 def test_native_initialization_audit_replays_without_running_tools(tmp_path,monkeypatch):
     try: resolve('xfoil')
     except NativeFailure: pytest.skip('Native XFOIL executable not selected')
