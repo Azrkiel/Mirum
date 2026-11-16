@@ -960,10 +960,14 @@ if ACCESS_GATE and not st.session_state.get("access_token"):
     st.stop()
 
 # ── Page Layout ─────────────────────────────────────────────
-workflow = st.radio('Design workflow', ['Text to CAD', 'Passive glider distance search', 'Physics-based glider CEM', 'Deterministic rocket nozzle'], horizontal=True)
+workflow = st.radio('Design workflow', ['Text to CAD', 'CO2 dragster', 'Passive glider distance search', 'Physics-based glider CEM', 'Deterministic rocket nozzle'], horizontal=True)
 if workflow == 'Deterministic rocket nozzle':
     from regen_ui import render_regen
     render_regen(BACKEND_URL, _auth_headers)
+    st.stop()
+if workflow == 'CO2 dragster':
+    from dragster_ui import render_dragster
+    render_dragster(BACKEND_URL, _auth_headers)
     st.stop()
 if workflow == 'Physics-based glider CEM':
     from cem_ui import render_cem

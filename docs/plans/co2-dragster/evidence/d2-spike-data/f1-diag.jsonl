@@ -1,0 +1,30 @@
+{"case": "wedge-v1", "limit_mib": null, "arena_max": null, "rep": 0, "rc": 0, "total_s": 1.648054319000039, "rss_mib": 518.57421875, "vmpeak_mib": 1627.12890625, "threads": 16, "wall_s": 6.379914529999951}
+{"case": "wedge-v1", "limit_mib": null, "arena_max": null, "rep": 1, "rc": 0, "total_s": 1.2093531099999382, "rss_mib": 518.69140625, "vmpeak_mib": 1563.13671875, "threads": 16, "wall_s": 4.506616643000143}
+{"case": "td-preset", "limit_mib": null, "arena_max": null, "rep": 0, "rc": 0, "total_s": 11.992119889999685, "rss_mib": 607.68359375, "vmpeak_mib": 2174.78515625, "threads": 16, "wall_s": 18.99515443700011}
+{"case": "td-preset", "limit_mib": null, "arena_max": null, "rep": 1, "rc": 0, "total_s": 5.5914115599998695, "rss_mib": 607.5546875, "vmpeak_mib": 2174.78515625, "threads": 16, "wall_s": 10.211255875999996}
+{"case": "nw-preset", "limit_mib": null, "arena_max": null, "rep": 0, "rc": 0, "total_s": 5.540905198000019, "rss_mib": 586.91015625, "vmpeak_mib": 2139.203125, "threads": 16, "wall_s": 10.115874349000023}
+{"case": "nw-preset", "limit_mib": null, "arena_max": null, "rep": 1, "rc": 0, "total_s": 5.373867536000489, "rss_mib": 585.296875, "vmpeak_mib": 2139.19921875, "threads": 16, "wall_s": 10.410685926000042}
+{"case": "wedge-v1", "limit_mib": null, "arena_max": "2", "rep": 0, "rc": 0, "total_s": 1.437798708000173, "rss_mib": 519.5234375, "vmpeak_mib": 1179.1953125, "threads": 16, "wall_s": 4.68734693999977}
+{"case": "wedge-v1", "limit_mib": null, "arena_max": "2", "rep": 1, "rc": 0, "total_s": 0.9512123380000048, "rss_mib": 518.30859375, "vmpeak_mib": 1179.19140625, "threads": 16, "wall_s": 4.58763516900035}
+{"case": "td-preset", "limit_mib": null, "arena_max": "2", "rep": 0, "rc": 0, "total_s": 6.938549257999966, "rss_mib": 607.6640625, "vmpeak_mib": 1262.296875, "threads": 16, "wall_s": 12.017354945999614}
+{"case": "td-preset", "limit_mib": null, "arena_max": "2", "rep": 1, "rc": 0, "total_s": 5.92863543600015, "rss_mib": 606.99609375, "vmpeak_mib": 1262.3984375, "threads": 16, "wall_s": 10.775033301999883}
+{"case": "nw-preset", "limit_mib": null, "arena_max": "2", "rep": 0, "rc": 0, "total_s": 5.6067911089994595, "rss_mib": 586.5859375, "vmpeak_mib": 1244.234375, "threads": 16, "wall_s": 10.279674701999738}
+{"case": "nw-preset", "limit_mib": null, "arena_max": "2", "rep": 1, "rc": 0, "total_s": 5.931958335999752, "rss_mib": 585.2109375, "vmpeak_mib": 1243.23046875, "threads": 16, "wall_s": 11.057336924000083}
+{"case": "wedge-v1", "limit_mib": 1536, "arena_max": null, "rep": 0, "rc": "timeout", "wall_s": 120.06632136000007}
+{"case": "wedge-v1", "limit_mib": 1536, "arena_max": null, "rep": 1, "rc": "timeout", "wall_s": 120.13910869700021}
+{"case": "wedge-v1", "limit_mib": 1536, "arena_max": null, "rep": 2, "rc": "timeout", "wall_s": 120.12701431400001}
+{"case": "td-preset", "limit_mib": 1536, "arena_max": null, "rep": 0, "rc": -11, "stderr": "", "wall_s": 11.028838716999417}
+{"case": "td-preset", "limit_mib": 1536, "arena_max": null, "rep": 1, "rc": -11, "stderr": "", "wall_s": 10.156390662000376}
+{"case": "td-preset", "limit_mib": 1536, "arena_max": null, "rep": 2, "rc": -11, "stderr": "", "wall_s": 12.882557657999314}
+{"case": "nw-preset", "limit_mib": 1536, "arena_max": null, "rep": 0, "rc": "timeout", "wall_s": 120.11579184599941}
+{"case": "nw-preset", "limit_mib": 1536, "arena_max": null, "rep": 1, "rc": "timeout", "wall_s": 120.13176049100002}
+{"case": "nw-preset", "limit_mib": 1536, "arena_max": null, "rep": 2, "rc": "timeout", "wall_s": 120.12053736100006}
+{"case": "wedge-v1", "limit_mib": 1536, "arena_max": "2", "rep": 0, "rc": 0, "total_s": 0.738695841999288, "rss_mib": 518.87890625, "vmpeak_mib": 1179.17578125, "threads": 16, "wall_s": 3.3172615670000596}
+{"case": "wedge-v1", "limit_mib": 1536, "arena_max": "2", "rep": 1, "rc": 0, "total_s": 0.6950707869991675, "rss_mib": 518.35546875, "vmpeak_mib": 1179.1640625, "threads": 16, "wall_s": 3.1037713910000093}
+{"case": "wedge-v1", "limit_mib": 1536, "arena_max": "2", "rep": 2, "rc": 0, "total_s": 0.7722122390005097, "rss_mib": 518.8203125, "vmpeak_mib": 1179.1796875, "threads": 16, "wall_s": 3.135918144000243}
+{"case": "td-preset", "limit_mib": 1536, "arena_max": "2", "rep": 0, "rc": 0, "total_s": 7.278491442999439, "rss_mib": 607.83984375, "vmpeak_mib": 1262.2578125, "threads": 16, "wall_s": 13.33204546900015}
+{"case": "td-preset", "limit_mib": 1536, "arena_max": "2", "rep": 1, "rc": 0, "total_s": 6.453105891000632, "rss_mib": 607.0, "vmpeak_mib": 1262.40625, "threads": 16, "wall_s": 11.209748243999456}
+{"case": "td-preset", "limit_mib": 1536, "arena_max": "2", "rep": 2, "rc": 0, "total_s": 5.92100936100087, "rss_mib": 604.9765625, "vmpeak_mib": 1262.42578125, "threads": 16, "wall_s": 10.039819052999519}
+{"case": "nw-preset", "limit_mib": 1536, "arena_max": "2", "rep": 0, "rc": 0, "total_s": 5.129799119000381, "rss_mib": 585.625, "vmpeak_mib": 1244.25, "threads": 16, "wall_s": 9.424259724999501}
+{"case": "nw-preset", "limit_mib": 1536, "arena_max": "2", "rep": 1, "rc": 0, "total_s": 5.11171241700049, "rss_mib": 586.3515625, "vmpeak_mib": 1243.234375, "threads": 16, "wall_s": 9.75555272099973}
+{"case": "nw-preset", "limit_mib": 1536, "arena_max": "2", "rep": 2, "rc": 0, "total_s": 6.481311114998789, "rss_mib": 585.94921875, "vmpeak_mib": 1243.234375, "threads": 16, "wall_s": 12.475230871000349}

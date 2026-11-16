@@ -70,6 +70,8 @@ FORMATS: dict[str, tuple[str, str]] = {
     # fmt: (filename, mime type)
     "step": ("model.step", "application/step"),
     "glb":  ("model.glb",  "model/gltf-binary"),
+    "spec": ("spec.json", "application/json"),
+    "report": ("report.json", "application/json"),
 }
 
 _RUN_ID_RE = re.compile(r"[0-9a-f]{32}")
@@ -135,6 +137,8 @@ def available(run_id: str) -> dict[str, bool]:
     out: dict[str, bool] = {}
     for fmt in FORMATS:
         path = artifact_path(run_id, fmt)
+        if fmt in {"spec", "report"} and not (path and path.is_file()):
+            continue
         out[fmt] = bool(path and path.is_file() and path.stat().st_size > 0)
     return out
 
@@ -222,7 +226,7 @@ def create_run() -> tuple[str, pathlib.Path]:
     return run_id, path
 
 
-def store(run_id: str, fmt: str, data: bytes) -> bool:
+def store(run_id: str, fmt: str, data: bytes, *, _stage: pathlib.Path | None = None) -> bool:
     """Write already-accepted bytes for one format. Returns True on success."""
     if not data:
         return False
@@ -232,6 +236,10 @@ def store(run_id: str, fmt: str, data: bytes) -> bool:
     path = artifact_path(run_id, fmt)
     if path is None:
         return False
+    if _stage is not None:
+        if not _contained(_stage.resolve(), _RUNS_DIR) or not _stage.name.startswith(".publish-"):
+            return False
+        path = _stage / FORMATS[fmt][0]
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
@@ -266,3 +274,41 @@ def discard(run_id: str) -> None:
     path = run_dir(run_id)
     if path is not None and path.is_dir():
         shutil.rmtree(path, ignore_errors=True)
+
+
+def publish_required(run_id: str, data: dict[str, bytes]) -> None:
+    """Atomically publish all four deterministic artifacts or discard this attempt.
+
+    Staging uses an unaddressable name. Existing generic optional delivery keeps
+    its original behavior; only this dedicated transaction requires all files.
+    """
+    import tempfile
+    if set(data) != {'step', 'glb', 'spec', 'report'} or not is_valid_run_id(run_id):
+        raise ValueError('Invalid required artifact publication')
+    if sum(len(payload) for payload in data.values()) > _MAX_TOTAL_BYTES:
+        raise OSError('Required artifact publication exceeds total storage budget')
+    _RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    stage = pathlib.Path(tempfile.mkdtemp(prefix='.publish-', dir=_RUNS_DIR))
+    renamed = False
+    try:
+        for fmt, payload in data.items():
+            if not store(run_id, fmt, payload, _stage=stage):
+                raise OSError('Required artifact publication failed: ' + fmt)
+        for fmt, payload in data.items():
+            if (stage / FORMATS[fmt][0]).read_bytes() != payload:
+                raise OSError('Required artifact publication byte mismatch')
+        destination = run_dir(run_id)
+        if destination is None or destination.exists():
+            raise OSError('Required artifact revision is already occupied')
+        stage.rename(destination)
+        renamed = True
+        enforce_caps()
+        if not all(available(run_id).values()):
+            raise OSError('Required artifact publication evicted before delivery')
+    except Exception:
+        if renamed:
+            discard(run_id)
+        raise
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage, ignore_errors=True)

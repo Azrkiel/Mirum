@@ -1,17 +1,20 @@
 FROM node:22-bookworm-slim AS explorer-build
 WORKDIR /build
-COPY components/glider_explorer/package*.json ./
+COPY frontend/components/glider_explorer/package*.json ./
 RUN npm ci
-COPY components/glider_explorer/ ./
+COPY frontend/components/glider_explorer/ ./
 RUN npm run build
 
 FROM python:3.10-slim
 
 # Install pinned dependencies
-COPY requirements.txt /tmp/requirements.txt
+COPY frontend/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-COPY . /app/
+COPY frontend/ /app/
+COPY backend/dragsters/spec.py /app/backend/dragsters/spec.py
+COPY backend/dragsters/local.py /app/backend/dragsters/local.py
+COPY backend/dragsters/examples/wedge.json /app/backend/dragsters/examples/wedge.json
 COPY --from=explorer-build /build/dist /app/components/glider_explorer/dist
 WORKDIR /app
 

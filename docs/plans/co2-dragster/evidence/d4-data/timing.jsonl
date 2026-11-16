@@ -1,0 +1,31 @@
+{"case": "preset", "ok": true, "build_s": 2.4785425269999983, "verify_s": 2.262188423999998, "glb_s": 4.146697134, "total_s": 8.887428084999996, "rss_mib": 586.4765625, "vmpeak_mib": 2139.09375}
+{"case": "preset", "ok": true, "build_s": 2.1659303910000034, "verify_s": 1.5768667519999937, "glb_s": 3.657237066999997, "total_s": 7.400034209999994, "rss_mib": 585.67578125, "vmpeak_mib": 2139.171875}
+{"case": "preset", "ok": true, "build_s": 1.8988582189999974, "verify_s": 1.4941398930000034, "glb_s": 2.8046630489999984, "total_s": 6.197661160999999, "rss_mib": 627.5859375, "vmpeak_mib": 2139.125}
+{"case": "preset", "ok": true, "build_s": 1.8792477029999972, "verify_s": 1.4400510940000046, "glb_s": 2.7519233450000016, "total_s": 6.071222142000003, "rss_mib": 586.796875, "vmpeak_mib": 2139.09375}
+{"case": "preset", "ok": true, "build_s": 1.7877182619999985, "verify_s": 1.5658750739999974, "glb_s": 2.984856002000001, "total_s": 6.338449337999997, "rss_mib": 586.40625, "vmpeak_mib": 2139.0859375}
+{"case": "preset", "ok": true, "build_s": 1.7366903380000025, "verify_s": 1.5729805299999953, "glb_s": 2.724922036999999, "total_s": 6.034592904999997, "rss_mib": 585.57421875, "vmpeak_mib": 2139.09375}
+{"case": "preset", "ok": true, "build_s": 1.7031979280000087, "verify_s": 1.4475877569999938, "glb_s": 2.8336902740000056, "total_s": 5.984475959000008, "rss_mib": 586.859375, "vmpeak_mib": 2139.09765625}
+{"case": "preset", "ok": true, "build_s": 1.7347149950000045, "verify_s": 1.4646702409999932, "glb_s": 2.7056834469999984, "total_s": 5.905068682999996, "rss_mib": 625.96875, "vmpeak_mib": 2139.0546875}
+{"case": "preset", "ok": true, "build_s": 1.9757847940000062, "verify_s": 1.6616847649999897, "glb_s": 2.912875808999999, "total_s": 6.550345367999995, "rss_mib": 586.2578125, "vmpeak_mib": 2139.16796875}
+{"case": "preset", "ok": true, "build_s": 1.7269299109999992, "verify_s": 1.509690237000001, "glb_s": 2.801142678000005, "total_s": 6.037762826000005, "rss_mib": 587.296875, "vmpeak_mib": 2139.0859375}
+{"case": "waist14-housing64", "ok": true, "build_s": 1.8312028670000018, "verify_s": 1.4721488089999895, "glb_s": 3.053870540999995, "total_s": 6.357222216999986, "rss_mib": 587.78515625, "vmpeak_mib": 2139.09375}
+{"case": "housingh60-body18", "ok": true, "build_s": 1.741604687000006, "verify_s": 1.5680636319999905, "glb_s": 3.0213088229999983, "total_s": 6.330977141999995, "rss_mib": 587.5390625, "vmpeak_mib": 2143.7578125}
+{"case": "housingl110", "ok": true, "build_s": 1.6922455080000134, "verify_s": 1.51713393, "glb_s": 2.71434647800001, "total_s": 5.9237259160000235, "rss_mib": 578.9140625, "vmpeak_mib": 2132.91015625}
+{"case": "front0.30-waist0.35", "ok": true, "build_s": 1.7680327709999801, "verify_s": 1.6598223080000025, "glb_s": 3.0034692959999916, "total_s": 6.431324374999974, "rss_mib": 593.57421875, "vmpeak_mib": 2140.125}
+{"case": "length160", "ok": true, "build_s": 1.2164819660000035, "verify_s": 1.0217382470000018, "glb_s": 2.393902661999988, "total_s": 4.632122874999993, "rss_mib": 564.171875, "vmpeak_mib": 2116.30859375}
+{"case": "length300", "ok": true, "build_s": 2.230883671000015, "verify_s": 2.0116024799999934, "glb_s": 3.2922869580000054, "total_s": 7.534773109000014, "rss_mib": 615.421875, "vmpeak_mib": 2167.796875}
+{"case": "wheels16", "ok": true, "build_s": 1.646784112000006, "verify_s": 1.381989314000009, "glb_s": 2.90630582, "total_s": 5.935079246000015, "rss_mib": 586.34375, "vmpeak_mib": 2139.171875}
+{"case": "wheels45", "ok": true, "build_s": 1.750629836999991, "verify_s": 1.4881083330000138, "glb_s": 2.783019347999982, "total_s": 6.021757517999987, "rss_mib": 626.375, "vmpeak_mib": 2139.17578125}
+{"case": "housingl40-depth30", "ok": true, "build_s": 2.0561364649999803, "verify_s": 1.7032052410000063, "glb_s": 2.8197842529999946, "total_s": 6.579125958999981, "rss_mib": 598.5703125, "vmpeak_mib": 2149.3359375}
+{"case": "housingl40-depth38", "ok": true, "build_s": 1.8755969009999944, "verify_s": 1.7768340449999869, "glb_s": 2.884518435000018, "total_s": 6.5369493809999994, "rss_mib": 597.6796875, "vmpeak_mib": 2149.3515625}
+{"case": "housingl110-depth80", "ok": true, "build_s": 1.8370988060000002, "verify_s": 1.567626899000004, "glb_s": 3.0147019580000176, "total_s": 6.419427663000022, "rss_mib": 578.40625, "vmpeak_mib": 2130.9609375}
+{"case": "n2.0", "ok": true, "build_s": 1.9464053869999987, "verify_s": 1.6332734350000067, "glb_s": 2.917742709999999, "total_s": 6.497421532000004, "rss_mib": 585.69921875, "vmpeak_mib": 2139.17578125}
+{"case": "n4.0", "ok": true, "build_s": 1.6962465459999976, "verify_s": 1.5358601430000078, "glb_s": 3.0041816670000117, "total_s": 6.236288356000017, "rss_mib": 585.5078125, "vmpeak_mib": 2139.16796875}
+{"case": "side0.8", "ok": true, "build_s": 1.8169511050000153, "verify_s": 1.5956245530000217, "glb_s": 3.164248127999997, "total_s": 6.576823786000034, "rss_mib": 585.859375, "vmpeak_mib": 2139.1796875}
+preset build_s: median 1.83 max 2.48 min 1.70
+preset verify_s: median 1.54 max 2.26 min 1.44
+preset glb_s: median 2.82 max 4.15 min 2.71
+preset total_s: median 6.13 max 8.89 min 5.91
+preset rss_mib: median 586.64 max 627.59 min 585.57
+preset vmpeak_mib: median 2139.09 max 2139.17 min 2139.05
+ALL max total_s 8.887428084999996 max rss 627.5859375 max vmpeak 2167.796875 all ok True errors 0
