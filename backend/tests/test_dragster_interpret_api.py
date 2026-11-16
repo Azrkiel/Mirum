@@ -61,6 +61,8 @@ def test_early_pipeline_route_without_provider(client, monkeypatch):
     assert len(events) == 1 and events[0]['step'] == 'route'
     assert events[0]['workflow'] == 'co2_dragster'
     rea.assert_not_awaited()
+    rea = AsyncMock(side_effect=RuntimeError('stop after routing check'))
+    monkeypatch.setattr(main, 'run_rea', rea)
     response = client.post('/generate', json={'prompt':'design a pinewood derby car'})
     events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith('data: ')]
     assert not any(event['step'] == 'route' for event in events)
