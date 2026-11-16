@@ -159,6 +159,19 @@ a missing Heavy key return HTTP 503 with a fixed safe message; the parameter
 form remains usable. Extraction uses a request-local Heavy-key client and the
 configured LITE model; it does not reconfigure the generic pipeline's client.
 
+Spend guard: besides the 10/minute per-IP limit, the route has a process-wide
+cap on provider calls per rolling 24 hours, set by `MIRUM_DRAGSTER_INTERPRET_DAILY_CAP`
+(read once in `backend/config.py`; default 200; `0` disables the endpoint's
+provider path; negative or non-numeric values fall back to 0 or 200 respectively).
+Only requests that would call the provider count; style clarifications do not.
+The counter is in memory, per worker process, and resets on restart. A reached cap
+returns the same fixed 503 as a provider failure, without calling the provider.
+
+The `unsupported` and `questions` strings come from the model (or, for validation
+messages, from the spec validator). The server strips control characters and angle
+brackets and limits each to 200 characters, but they are still model text: the UI
+must render them as plain text, never as HTML or Markdown.
+
 The opt-in sample lives in `backend/dragsters/eval/`, separate from the generic
 eval corpus. It contains 15 prompts. Run `python -m dragsters.eval.run_live`
 only after user approval; it spends Gemini quota and writes a markdown comparison

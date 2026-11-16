@@ -48,6 +48,21 @@ def test_unavailable_safe_503(client, monkeypatch, error):
     assert response.json() == {'message': 'Text interpretation is unavailable right now; the parameter form still works.'}
 
 
+def test_invalid_base_spec_is_clean_422(client, monkeypatch):
+    monkeypatch.setattr(extraction, 'interpret', AsyncMock(side_effect=extraction.InvalidBaseSpec('x')))
+    response = client.post('/dragsters/interpret', json={'prompt': 'wedge'})
+    assert response.status_code == 422
+    assert response.json()['detail'][0]['loc'] == ['body', 'base_spec']
+
+
+def test_cap_reached_is_the_same_safe_503_without_provider(client, monkeypatch):
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'unit-test-placeholder')
+    monkeypatch.setattr(extraction, '_daily_cap', lambda: 0)
+    response = client.post('/dragsters/interpret', json={'prompt': 'CO2 wedge'})
+    assert response.status_code == 503
+    assert response.json() == {'message': 'Text interpretation is unavailable right now; the parameter form still works.'}
+
+
 def test_missing_key_503(client, monkeypatch):
     monkeypatch.delenv('GEMINI_API_KEY_HEAVY', raising=False)
     assert client.post('/dragsters/interpret', json={'prompt':'wedge'}).status_code == 503
@@ -89,3 +104,12 @@ async def test_real_sdk_schema_and_explicit_key_client_without_network(monkeypat
     assert request.generation_config.max_output_tokens == 2048
     factory.assert_called_once_with(client_options={'api_key':'unit-test-placeholder'})
     native.transport.close.assert_awaited_once()
+
+
+def test_pinned_sdk_still_exposes_the_per_model_client_slot():
+    """extraction assigns model._async_client; fail loudly if the pinned SDK drops it."""
+    import inspect
+    import google.generativeai as genai
+    model = genai.GenerativeModel('models/placeholder')
+    assert hasattr(model, '_async_client')
+    assert '_async_client' in inspect.getsource(genai.GenerativeModel.generate_content_async)

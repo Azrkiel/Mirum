@@ -1574,9 +1574,12 @@ class DragsterInterpretRequest(BaseModel):
 @app.post("/dragsters/interpret")
 @limiter.limit("10/minute")
 async def interpret_dragster(body: DragsterInterpretRequest, request: Request):
-    from dragsters.extraction import interpret, ExtractionUnavailable, UNAVAILABLE_MESSAGE
+    from dragsters.extraction import interpret, ExtractionUnavailable, InvalidBaseSpec, UNAVAILABLE_MESSAGE
     try:
         return await interpret(body.prompt, body.base_spec)
+    except InvalidBaseSpec:
+        return JSONResponse(status_code=422, content={'detail': [
+            {'loc': ['body', 'base_spec'], 'msg': 'base_spec failed validation', 'type': 'value_error'}]})
     except ExtractionUnavailable:
         return JSONResponse(status_code=503, content={'message': _safe_error(UNAVAILABLE_MESSAGE)})
 

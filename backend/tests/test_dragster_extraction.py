@@ -13,6 +13,7 @@ from backend.dragsters.styles import load_preset
 
 @pytest.fixture
 def provider(monkeypatch):
+    extraction._provider_calls.clear()
     monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'unit-test-placeholder')
     sdk = ModuleType('google.generativeai')
     model = MagicMock()
@@ -200,3 +201,111 @@ async def test_complete_stock_patch_can_create_optional_block(provider):
     result = await extraction.interpret('wedge stock 250x60x50 mm', None)
     assert result['status'] == 'resolved'
     assert result['spec']['stock'] == dict(length_mm=250,width_mm=60,height_mm=50)
+
+
+# --- security review follow-ups -------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_daily_cap_blocks_provider_and_counts_only_provider_calls(provider, monkeypatch):
+    monkeypatch.setattr(extraction, '_daily_cap', lambda: 2)
+    # Clarifications never reach the provider, so they do not consume the cap.
+    for _ in range(5):
+        await extraction.interpret('design a CO2 dragster', None)
+    assert len(extraction._provider_calls) == 0
+    provider.answer([change('length_mm', 220)])
+    await extraction.interpret('wedge 220', None)
+    await extraction.interpret('wedge 220', None)
+    calls = provider.model.generate_content_async.await_count
+    with pytest.raises(extraction.ExtractionUnavailable):
+        await extraction.interpret('wedge 220', None)
+    assert provider.model.generate_content_async.await_count == calls == 2
+
+
+@pytest.mark.asyncio
+async def test_daily_cap_zero_disables_provider_path(provider, monkeypatch):
+    monkeypatch.setattr(extraction, '_daily_cap', lambda: 0)
+    with pytest.raises(extraction.ExtractionUnavailable):
+        await extraction.interpret('wedge 220', None)
+    provider.model.generate_content_async.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_daily_cap_window_rolls_over(provider, monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(extraction, '_clock', lambda: now[0])
+    monkeypatch.setattr(extraction, '_daily_cap', lambda: 1)
+    provider.answer([change('length_mm', 220)])
+    await extraction.interpret('wedge 220', None)
+    with pytest.raises(extraction.ExtractionUnavailable):
+        await extraction.interpret('wedge 220', None)
+    now[0] += extraction._WINDOW_S + 1
+    assert (await extraction.interpret('wedge 220', None))['status'] == 'resolved'
+
+
+def test_cap_env_var_default_and_parsing(monkeypatch):
+    import importlib
+    from backend import config
+    try:
+        monkeypatch.delenv('MIRUM_DRAGSTER_INTERPRET_DAILY_CAP', raising=False)
+        assert importlib.reload(config).DRAGSTER_INTERPRET_DAILY_CAP == 200
+        monkeypatch.setenv('MIRUM_DRAGSTER_INTERPRET_DAILY_CAP', '0')
+        assert importlib.reload(config).DRAGSTER_INTERPRET_DAILY_CAP == 0
+        monkeypatch.setenv('MIRUM_DRAGSTER_INTERPRET_DAILY_CAP', '-5')
+        assert importlib.reload(config).DRAGSTER_INTERPRET_DAILY_CAP == 0
+        monkeypatch.setenv('MIRUM_DRAGSTER_INTERPRET_DAILY_CAP', 'junk')
+        assert importlib.reload(config).DRAGSTER_INTERPRET_DAILY_CAP == 200
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config)
+
+
+@pytest.mark.asyncio
+async def test_model_text_is_bounded_and_sanitized(provider):
+    nasty = '<script>alert(1)</script>\x00\x1b[31m' + 'a' * 400 + '\nline2'
+    provider.answer(unsupported=[nasty, '<>'])
+    result = await extraction.interpret('wedge with spoiler', None)
+    assert result['status'] == 'unsupported'
+    body = result['message'][len('Unsupported request: '):]
+    assert '<' not in result['message'] and '>' not in result['message']
+    assert not any(ord(c) < 32 for c in result['message'])
+    assert all(len(part) <= 200 for part in body.split('; '))
+    provider.answer(questions=[nasty])
+    result = await extraction.interpret('wedge wider', None)
+    assert result['status'] == 'needs_clarification'
+    assert len(result['questions'][0]) <= 200
+    assert not any(c in result['questions'][0] for c in '<>\x00\x1b\n')
+
+
+def test_clean_helper_edge_cases():
+    assert extraction._clean('a\tb\r\nc') == 'a b c'
+    assert extraction._clean('<>') == '(no detail)'
+    assert len(extraction._clean('x' * 1000)) == 200
+
+
+@pytest.mark.asyncio
+async def test_missing_sdk_slot_fails_closed(provider):
+    provider.sdk.GenerativeModel.return_value = SimpleNamespace(
+        generate_content_async=AsyncMock())  # no _async_client attribute
+    with pytest.raises(extraction.ExtractionUnavailable):
+        await extraction.interpret('wedge 220', None)
+    provider.sdk.GenerativeModel.return_value.generate_content_async.assert_not_awaited()
+    assert len(extraction._provider_calls) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('missing', ['google.generativeai', 'google.ai.generativelanguage_v1beta'])
+async def test_import_failure_is_typed_unavailable(provider, monkeypatch, missing):
+    monkeypatch.setitem(sys.modules, missing, None)  # makes the import raise ImportError
+    with pytest.raises(extraction.ExtractionUnavailable):
+        await extraction.interpret('wedge 220', None)
+
+
+@pytest.mark.asyncio
+async def test_base_spec_revalidation_failure_is_invalid_base_spec(provider, monkeypatch):
+    def boom(_):
+        raise ValueError('secret detail')
+    monkeypatch.setattr(extraction, 'parse_v2', boom)
+    with pytest.raises(extraction.InvalidBaseSpec) as caught:
+        await extraction.interpret('wedge', load_preset('wedge'))
+    assert 'secret' not in str(caught.value)
+    provider.model.generate_content_async.assert_not_awaited()
