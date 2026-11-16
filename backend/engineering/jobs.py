@@ -10,7 +10,7 @@ from .briefs import RevisionConflict
 from .capabilities import CAPABILITY
 from .contracts import EngineeringRun, Lifecycle, Outcome, ContractModel, Text, Sha256, CapabilityReference
 from pydantic import AwareDatetime
-from typing import Literal
+from typing import Literal, NamedTuple
 from .search import search, _controlled, _Stopped
 from .store import SQLiteBriefRepository
 
@@ -43,6 +43,12 @@ def parse_run(value):
 
 def changed(run, **updates):
     return EngineeringRun.model_validate(dict(run.model_dump(), updated_at=datetime.now(timezone.utc), **updates))
+
+
+class Admitted(NamedTuple):
+    job: object
+    brief: object
+    owner: object
 
 
 class JobController:
@@ -94,9 +100,18 @@ class JobController:
             return parse_run(row[0])
 
     def submit(self, brief_id, key, client='anonymous'):
+        """Admit and start in one step (event-loop thread). The API admits in a worker
+        thread and starts on the loop; see ``admit`` and ``start``."""
+        return self.start(self.admit(brief_id, key, client))
+
+    def admit(self, brief_id, key, client='anonymous'):
+        """Blocking part of submit (cleanup, quota/storage checks, slot claim, insert).
+
+        Safe to run in a worker thread; it never touches the event loop. The caller
+        must pass the result to ``start`` (on the loop) so the claimed slot runs a task.
+        """
         if self.closed:
             raise RuntimeError('Engineering controller is closed')
-        self.tasks = {key: task for key, task in self.tasks.items() if not task.done()}
         if type(key) is not str or not key.strip() or len(key) > 128:
             raise ValueError('Idempotency key must contain 1-128 characters')
         if self.publisher:
@@ -108,7 +123,7 @@ class JobController:
             if previous:
                 if previous['brief'] != brief_id:
                     raise RevisionConflict('Idempotency key belongs to a different finalized brief')
-                return parse_run(previous['record'])
+                return Admitted(parse_run(previous['record']), None, None)
         brief = SQLiteBriefRepository(self.store).read_brief(brief_id)
         owner = object()
         with self.store.transaction() as db:
@@ -116,7 +131,7 @@ class JobController:
             if row:
                 if row['brief'] != brief_id:
                     raise RevisionConflict('Idempotency key belongs to a different finalized brief')
-                return parse_run(row['record'])
+                return Admitted(parse_run(row['record']), None, None)
             reserved = db.execute('SELECT COALESCE(SUM(reserved),0), COUNT(*) FROM jobs WHERE reserved>0').fetchone()
             self.fairness.check(client)
             usage=max(reserved[0],self.store.storage_bytes())
@@ -139,7 +154,17 @@ class JobController:
                 native_slot.release(owner)
                 raise
         self.fairness.admitted(client)
+        return Admitted(job, brief, owner)
+
+    def start(self, admitted):
+        """Create the execution task for an admitted job. Must run on the event loop."""
+        job, brief, owner = admitted
+        if owner is None:      # idempotent replay: nothing new to run
+            return job
+        self.tasks = {key: task for key, task in self.tasks.items() if not task.done()}
         try:
+            if self.closed:
+                raise RuntimeError('Engineering controller is closed')
             self.tasks[job.job_id] = asyncio.create_task(self._run(job, brief, owner, time.monotonic()+self.seconds))
         except BaseException:
             native_slot.release(owner)

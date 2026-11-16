@@ -19,7 +19,7 @@ from .bundles import BundlePublisher,FORMATS
 from .capabilities import list_capabilities
 from .contracts import ContractModel,ReviewAcknowledgement,Text,REVIEW_FIELDS
 from .jobs import JobController,compact_run
-from .limits import AiCallBudget
+from .limits import AiCallBudget,run_in_thread_owned
 from .proposer import make_proposer
 from .store import SQLiteStore,SQLiteBriefRepository,SQLiteProposalLedger,ArtifactExpired,PreparationQuota
 
@@ -147,10 +147,15 @@ def create_runtime():
         briefs=BriefService(SQLiteBriefRepository(store))
         fairness=ClientFairness(config.ENGINEERING_JOBS_PER_CLIENT_HOUR,config.ENGINEERING_REFUSAL_MEMORY_SECONDS)
         jobs=JobController(store,publisher=publisher,fairness=fairness)
+        ledger=SQLiteProposalLedger(store)
+        budget=None
+        if ai_enabled:
+            # Spend survives restarts: seed the rolling budget from the last 24 h of audit records.
+            budget=AiCallBudget.from_config()
+            budget.seed(ledger.recent_calls(window=budget.window))
         return SimpleNamespace(store=store,publisher=publisher,briefs=briefs,jobs=jobs,
             ai_enabled=ai_enabled,fairness=fairness,quota=PreparationQuota.from_config(store),
-            proposer=make_proposer(briefs,ledger=SQLiteProposalLedger(store),enabled=ai_enabled,
-                budget=AiCallBudget.from_config() if ai_enabled else None))
+            proposer=make_proposer(briefs,ledger=ledger,enabled=ai_enabled,budget=budget))
     except BaseException:
         store.close()
         raise
@@ -197,22 +202,24 @@ def attach_v1_routes(app,limiter):
             # 503 matches this router's other "feature unavailable" reports. Nothing is built or read.
             raise HTTPException(503,'AI draft preparation is not enabled')
         client=client_key(request)
+        size=len(json.dumps(body.input,allow_nan=False,separators=(',',':')).encode())
+        def create(payload,incoming,ai=False):
+            # Blocking SQLite work: quota check, insert and accounting run off the event loop.
+            value.quota.admit_draft(client,ai=ai,size=incoming)
+            created=value.briefs.create(payload)
+            value.quota.record_draft(created.draft.draft_id,client,len(created.model_dump_json()))
+            return created
         if body.mode=='form':
             if body.prompt is not None: raise ValueError('Form input does not take a prompt')
-            value.quota.admit_draft(client)
-            prepared=value.briefs.create(body.input)
-            value.quota.record_draft(prepared.draft.draft_id,client,len(prepared.model_dump_json()))
-            return prepared_view(prepared)
+            return prepared_view(await asyncio.to_thread(create,body.input,size))
         if body.input or body.prompt is None: raise ValueError('AI entry requires a prompt and empty initial input')
         if not value.proposer.budget.has_capacity():
             # Over the provider-call budget: the existing AI-unavailable report, before any record or call.
             return JSONResponse(status_code=503,content=dict(state='unavailable',
                 reasons=['AI preparation unavailable; typed form remains available'],prepared=None),headers={'Cache-Control':'no-store'})
-        value.quota.admit_draft(client,ai=True)
-        prepared=value.briefs.create({})
-        value.quota.record_draft(prepared.draft.draft_id,client,len(prepared.model_dump_json()))
+        prepared=await asyncio.to_thread(create,{},len(body.prompt.encode()),True)
         result=await value.proposer.propose(prepared.draft.draft_id,expected_revision=1,prompt=body.prompt)
-        value.quota.touch(prepared.draft.draft_id,len(result.prepared.model_dump_json()))
+        await asyncio.to_thread(value.quota.touch,prepared.draft.draft_id,len(result.prepared.model_dump_json()))
         if result.state in ('unavailable','cancelled'):
             return JSONResponse(status_code=503,content=dict(state=result.state,reasons=result.reasons,prepared=prepared_view(result.prepared)),headers={'Cache-Control':'no-store'})
         return prepared_view(result.prepared)
@@ -226,16 +233,22 @@ def attach_v1_routes(app,limiter):
     @limiter.limit('30/minute')
     async def edit_draft(draft_id:str,body:DraftEdit,request:Request):
         value=await asyncio.to_thread(clean,request)
-        prepared=value.briefs.edit(draft_id,expected_revision=body.expected_revision,payload=body.input)
-        value.quota.touch(draft_id,len(prepared.model_dump_json()))
-        return prepared_view(prepared)
+        size=len(json.dumps(body.input,allow_nan=False,separators=(',',':')).encode())
+        def edit():
+            value.quota.admit_edit(draft_id,size)
+            edited=value.briefs.edit(draft_id,expected_revision=body.expected_revision,payload=body.input)
+            value.quota.touch(draft_id,len(edited.model_dump_json()))
+            return edited
+        return prepared_view(await asyncio.to_thread(edit))
 
     @router.post('/briefs',status_code=201)
     @limiter.limit('30/minute')
     async def finalize_brief(body:ReviewInput,request:Request):
         value=await asyncio.to_thread(clean,request)
-        value.quota.admit_brief(body.draft_id)
-        return value.briefs.finalize(body).model_dump(mode='json')
+        def finalize():
+            value.quota.admit_brief(body.draft_id)
+            return value.briefs.finalize(body).model_dump(mode='json')
+        return await asyncio.to_thread(finalize)
 
     @router.get('/briefs/{brief_id}')
     @limiter.limit('30/minute')
@@ -271,7 +284,13 @@ def attach_v1_routes(app,limiter):
     @limiter.limit('10/minute')
     async def submit_job(body:JobSubmit,request:Request):
         value=runtime(request)
-        job=value.jobs.submit(body.brief_id,body.idempotency_key,client_key(request))
+        client=client_key(request)
+        # Admission (cleanup, quota, slot claim, insert) is blocking: run it in a worker thread,
+        # then create the asyncio task on the loop. If this request is cancelled in between, the
+        # already-admitted job is still started on the loop rather than leaking its slot.
+        admitted=await run_in_thread_owned(value.jobs.admit,body.brief_id,body.idempotency_key,client,
+            on_orphan=value.jobs.start)
+        job=value.jobs.start(admitted)
         return await asyncio.to_thread(job_view,value,job)
 
     @router.get('/jobs/{job_id}')
@@ -298,16 +317,21 @@ def attach_v1_routes(app,limiter):
         if not value.publisher.directory(job_id).exists():
             if job.outcome=='accepted': raise HTTPException(503,'Required accepted publication unavailable')
             raise KeyError(format)
-        try: resource=await asyncio.to_thread(value.publisher.open_lease,job_id,format)
+        try: resource=await run_in_thread_owned(value.publisher.open_lease,job_id,format,
+            on_orphan=lambda orphan:orphan.close())
         except ArtifactExpired: raise
         except KeyError:
             if job.outcome=='accepted': raise HTTPException(503,'Required publication metadata unavailable') from None
             raise
         except (ValueError,OSError):
             raise HTTPException(503,'Required publication integrity check failed') from None
-        return LeasedResponse(resource,media_type=resource.mime_type,
-            headers={'Cache-Control':'no-store','Content-Length':str(resource.size),
-                'Content-Disposition':f'attachment; filename="{resource.filename}"',
-                'X-Content-SHA256':resource.sha256})
+        try:
+            return LeasedResponse(resource,media_type=resource.mime_type,
+                headers={'Cache-Control':'no-store','Content-Length':str(resource.size),
+                    'Content-Disposition':f'attachment; filename="{resource.filename}"',
+                    'X-Content-SHA256':resource.sha256})
+        except BaseException:
+            resource.close()   # never leak the lease, including on cancellation
+            raise
 
     app.include_router(router)

@@ -102,6 +102,39 @@ def test_aborted_download_releases_the_lease(tmp_path, native):
     store.close()
 
 
+def test_closing_a_download_never_waits_for_the_store_lock(tmp_path, native):
+    store, pub, bundle = published(tmp_path, native)
+    download = pub.open_lease(JOB, 'zip', envelope=bundle)
+    held, done = threading.Event(), threading.Event()
+    def hold_store_lock():
+        with store._lock:
+            held.set()
+            done.wait(10)
+    holder = threading.Thread(target=hold_store_lock); holder.start()
+    assert held.wait(5)
+    closer = threading.Thread(target=download.close); closer.start()
+    closer.join(2)
+    finished = not closer.is_alive()
+    done.set(); holder.join(); closer.join()
+    assert finished and pub.leases[JOB] == 0
+    store.close()
+
+
+def test_concurrent_double_close_cannot_double_decrement_and_pin_or_free_wrongly(tmp_path, native):
+    store, pub, bundle = published(tmp_path, native)
+    first = pub.open_lease(JOB, 'zip', envelope=bundle)
+    second = pub.open_lease(JOB, 'glb', envelope=bundle)
+    assert pub.leases[JOB] == 2
+    threads = [threading.Thread(target=first.close) for _ in range(8)]
+    for thread in threads: thread.start()
+    for thread in threads: thread.join()
+    assert pub.leases[JOB] == 1          # exactly one release from the eight racing closes
+    second.close()
+    second.close()
+    assert pub.leases[JOB] == 0          # never negative
+    store.close()
+
+
 def test_response_never_started_is_released_by_closing(tmp_path, native):
     store, pub, bundle = published(tmp_path, native)
     download = pub.open_lease(JOB, 'glb', envelope=bundle)

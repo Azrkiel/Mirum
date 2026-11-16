@@ -3,6 +3,7 @@
 One API process on one local Linux volume. Never place this database on NFS.
 """
 from contextlib import contextmanager
+import json
 import os
 from pathlib import Path
 import sqlite3
@@ -148,6 +149,16 @@ class PreparationQuota:
     def record_draft(self, draft_id, client, size):
         with self.store.transaction() as db:
             db.execute('INSERT OR REPLACE INTO draft_owners VALUES (?,?,?,?)', (draft_id, client, int(size), time.time()))
+
+    def admit_edit(self, draft_id, size):
+        """Cap growth through PATCH: the edited record replaces this draft's old bytes."""
+        with self.store.transaction() as db:
+            row = db.execute('SELECT bytes FROM draft_owners WHERE draft=?', (draft_id,)).fetchone()
+            if row is None or db.execute('SELECT 1 FROM briefs WHERE draft=?', (draft_id,)).fetchone():
+                return
+            used = db.execute('SELECT COALESCE(SUM(o.bytes),0) ' + self.UNFINALIZED).fetchone()[0]
+            if used - row[0] + size > self.max_draft_bytes:
+                raise AdmissionBusy('Unfinalized draft capacity reached; retry after drafts expire')
 
     def touch(self, draft_id, size):
         with self.store.transaction() as db:
@@ -296,6 +307,18 @@ class SQLiteProposalLedger:
                 raise RevisionConflict('Proposal audit cannot reset its budget or provider')
             db.execute('UPDATE audits SET record=? WHERE draft=? AND revision=?',
                        (audit.model_dump_json(), audit.draft_id, audit.draft_revision))
+
+    def recent_calls(self, now=None, window=86400.0):
+        """Ages (seconds) of provider calls recorded in the last ``window`` seconds, one
+        entry per call, to restore the spend budget after a restart."""
+        now = time.time() if now is None else now
+        with self.store.transaction() as db:
+            rows = db.execute("SELECT r.created,a.record FROM retention r JOIN audits a "
+                              "ON r.kind='audit' AND r.id=a.draft||':'||a.revision WHERE r.created>?", (now - window,)).fetchall()
+        ages = []
+        for created, record in rows:
+            ages += [max(0.0, now - created)] * int(json.loads(record).get('calls', 0))
+        return ages
 
     def read(self, draft_id, revision):
         with self.store.transaction() as db:

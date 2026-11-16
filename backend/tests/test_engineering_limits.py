@@ -50,14 +50,65 @@ def test_turn_rule_cannot_starve_the_last_client_forever():
     gate.check('a')
 
 
-def test_legacy_admission_uses_turn_rule_without_consuming_job_quota():
+def test_legacy_admission_spends_the_same_hourly_quota_and_turn_rule():
     from engineering.admission import ClientQuotaExceeded
     gate, _ = fairness(per_hour=1)
-    gate.admitted('a', count=False)
-    gate.check('a')                      # legacy runs did not use up the hourly job quota
+    gate.check('a'); gate.admitted('a')  # the legacy route now calls check() then admitted()
+    with pytest.raises(ClientQuotaExceeded):
+        gate.check('a')                  # one legacy run used the hourly quota
+    gate.check('b')
     gate.refused('b')
     with pytest.raises(ClientQuotaExceeded):
         gate.check_turn('a')
+
+
+def test_admitted_can_skip_the_quota_count_for_internal_callers():
+    gate, _ = fairness(per_hour=1)
+    gate.admitted('a', count=False)
+    gate.check('a')                      # not counted, so the hourly quota is intact
+
+
+def test_budget_seed_restores_spend_after_restart():
+    from engineering.limits import AiCallBudget
+    clock = Clock()
+    budget = AiCallBudget(3, 5, clock=clock)
+    budget.seed([10.0, 3600.0, 86300.0, 90000.0, -5.0])   # the last two are outside the window
+    assert budget.used() == 3 and not budget.has_capacity()
+    clock.advance(200)                                      # the 86300 s old call ages out
+    assert budget.used() == 2 and budget.reserve()
+
+
+def test_orphaned_thread_result_is_handed_to_the_loop_after_cancellation():
+    import asyncio
+    import threading
+    from engineering.limits import run_in_thread_owned
+    released, orphans = threading.Event(), []
+    def slow():
+        released.wait(5)
+        return 'resource'
+    async def run():
+        task = asyncio.ensure_future(run_in_thread_owned(slow, on_orphan=orphans.append))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert orphans == []
+        released.set()
+        for _ in range(100):
+            if orphans: break
+            await asyncio.sleep(0.02)
+    asyncio.run(run())
+    assert orphans == ['resource']
+
+
+def test_uncancelled_thread_call_returns_its_value_and_errors_propagate():
+    import asyncio
+    from engineering.limits import run_in_thread_owned
+    async def run():
+        assert await run_in_thread_owned(lambda x: x + 1, 1, on_orphan=lambda r: None) == 2
+        with pytest.raises(ZeroDivisionError):
+            await run_in_thread_owned(lambda: 1 / 0, on_orphan=lambda r: None)
+    asyncio.run(run())
 
 
 def test_unlimited_fairness_never_refuses_a_lone_client():

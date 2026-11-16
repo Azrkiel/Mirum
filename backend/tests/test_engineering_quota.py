@@ -173,3 +173,61 @@ def test_hourly_job_quota_and_turn_rule_share_the_single_slot_fairly(tmp_path):
             jobs.submit(brief.brief_id, 'k6', 'alice')
         await jobs.close(); store.close()
     asyncio.run(run())
+
+
+def test_admit_runs_in_a_worker_thread_and_start_runs_on_the_loop(tmp_path):
+    import threading
+    from engineering.admission import ClientFairness
+    async def run():
+        store, brief, jobs = controller(tmp_path, ClientFairness.unlimited())
+        admitted = await asyncio.to_thread(jobs.admit, brief.brief_id, 'threaded', 'alice')
+        assert admitted.owner is not None and jobs.tasks == {}   # slot claimed, no task yet
+        job = jobs.start(admitted)                               # create_task only works on the loop
+        assert job.job_id in jobs.tasks
+        replay = await asyncio.to_thread(jobs.admit, brief.brief_id, 'threaded', 'alice')
+        assert replay.owner is None and jobs.start(replay).job_id == job.job_id
+        jobs.cancel(job.job_id); await jobs.wait(job.job_id)
+        await jobs.close(); store.close()
+    asyncio.run(run())
+
+
+# --- N4: byte cap counts the incoming record and the edit path ---
+
+def test_incoming_size_counts_against_the_byte_cap(tmp_path):
+    store, quota, service = make(tmp_path, max_draft_bytes=1000)
+    quota.admit_draft('a', size=1000)
+    with pytest.raises(AdmissionBusy):
+        quota.admit_draft('a', size=1001)
+    store.close()
+
+
+def test_edit_growth_is_capped_but_shrinking_or_equal_is_allowed(tmp_path):
+    store, quota, service = make(tmp_path, max_draft_bytes=10_000)
+    prepared = new_draft(service, quota, 'a')
+    other = new_draft(service, quota, 'b')
+    used_by_other = len(other.model_dump_json())
+    draft_id = prepared.draft.draft_id
+    quota.admit_edit(draft_id, 10_000 - used_by_other)       # fits exactly
+    with pytest.raises(AdmissionBusy):
+        quota.admit_edit(draft_id, 10_000 - used_by_other + 1)
+    store.close()
+
+
+# --- N5: AI spend survives restart ---
+
+def test_recent_audit_calls_seed_the_budget_after_restart(tmp_path):
+    import time
+    from engineering.limits import AiCallBudget
+    from engineering.store import SQLiteProposalLedger
+    store, quota, service = make(tmp_path)
+    now = time.time()
+    with store.transaction() as db:
+        for draft, revision, calls, age in (('d1', 1, 2, 60), ('d2', 1, 1, 3600), ('d3', 1, 2, 90000)):
+            db.execute('INSERT INTO audits VALUES (?,?,?)', (draft, revision, '{"calls": %d}' % calls))
+            db.execute('INSERT INTO retention VALUES (?,?,?)', ('audit', '%s:%d' % (draft, revision), now - age))
+    ages = SQLiteProposalLedger(store).recent_calls(now=now)
+    assert sorted(round(a) for a in ages) == [60, 60, 3600]  # the 90000 s old audit is outside 24 h
+    budget = AiCallBudget(3, 2)
+    budget.seed(ages)
+    assert budget.used() == 3 and not budget.has_capacity()
+    store.close()

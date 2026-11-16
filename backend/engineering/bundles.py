@@ -1,7 +1,7 @@
 """Atomic exact-byte publication, validated downloads, retention and leases."""
 import asyncio
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import io
 import json
@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import threading
 import time
 import zipfile
 from typing import Literal
@@ -75,11 +76,13 @@ class Download:
     sha256: str
     _release: object = None
     _closed: bool = False
+    _guard: object = field(default_factory=threading.Lock, repr=False)
 
     def close(self):
         """Release the lease exactly once, even if called again or after a disconnect."""
-        if self._closed: return
-        self._closed=True
+        with self._guard:
+            if self._closed: return
+            self._closed=True
         try: self.file.close()
         finally:
             if self._release: self._release()
@@ -99,6 +102,9 @@ class BundlePublisher:
         self.root.mkdir(exist_ok=True)
         self.staging.mkdir(exist_ok=True)
         self.leases = {}
+        # Guards lease counts only. Lock order is store lock, then this one; release takes
+        # only this one, so closing a download never waits on the store lock.
+        self._lease_lock = threading.Lock()
         with store.transaction() as db:
             db.execute('CREATE TABLE IF NOT EXISTS publications(job TEXT PRIMARY KEY, record TEXT NOT NULL, expires REAL NOT NULL)')
             # Backfill pre-B10 rows from their recorded times, never reset TTL on restart.
@@ -303,9 +309,9 @@ class BundlePublisher:
             path=self.directory(job_id)/name
             if not path.is_file(): raise KeyError(format)
             file=path.open('rb')
-            self.leases[job_id]=self.leases.get(job_id,0)+1
+            with self._lease_lock: self.leases[job_id]=self.leases.get(job_id,0)+1
         def release():
-            with self.store._lock: self.leases[job_id]-=1
+            with self._lease_lock: self.leases[job_id]=max(0,self.leases.get(job_id,0)-1)
         download=Download(file,name,mime,0,'',_release=release)
         try:
             identities={p['path']:p for p in publication['payloads']}

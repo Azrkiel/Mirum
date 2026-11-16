@@ -1,4 +1,5 @@
-"""Process-wide provider-spend budget for AI draft preparation (pure, no I/O)."""
+"""Process-wide provider-spend budget for AI draft preparation, and a small thread helper."""
+import asyncio
 from collections import deque
 import time
 from threading import Lock
@@ -26,6 +27,13 @@ class AiCallBudget:
         while self._calls and self._calls[0] <= now - self.window:
             self._calls.popleft()
 
+    def seed(self, ages_seconds):
+        """Restore spend after a restart: one entry per past call, ``age`` seconds old."""
+        with self._lock:
+            now = self._clock()
+            self._calls = deque(sorted(self._calls + deque(now - age for age in ages_seconds if 0 <= age < self.window)))
+            self._prune(now)
+
     def has_capacity(self):
         """Non-reserving pre-check used before any draft record is created."""
         with self._lock:
@@ -49,3 +57,23 @@ class AiCallBudget:
         with self._lock:
             self._prune(self._clock())
             return len(self._calls)
+
+
+async def run_in_thread_owned(function, *args, on_orphan):
+    """``await asyncio.to_thread(function, *args)`` that cannot leak its result.
+
+    If the awaiting task is cancelled, the thread keeps running; its result is then
+    handed to ``on_orphan`` on the event loop instead of being dropped (for example to
+    release a lease or start an already-admitted job).
+    """
+    future = asyncio.ensure_future(asyncio.to_thread(function, *args))
+    try:
+        return await asyncio.shield(future)
+    except asyncio.CancelledError:
+        def orphaned(done):
+            if done.cancelled():
+                return
+            if done.exception() is None:
+                on_orphan(done.result())
+        future.add_done_callback(orphaned)
+        raise
