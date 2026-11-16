@@ -1,0 +1,282 @@
+{
+  "base_commit": "956ceaac6e4264034a4c65a0dd59462a820d1f34",
+  "scope": "lift-weight-and-pitch-inviscid-development-only",
+  "conditions": {
+    "altitude_m": 0.0,
+    "alpha_min_deg": -5.0,
+    "alpha_max_deg": 12.0,
+    "minimum_speed_m_s": 1.0,
+    "maximum_speed_m_s": 15.0,
+    "coarse_resolution": 6,
+    "fine_resolution": 9
+  },
+  "sources_sha256": {
+    "native_workflow.py": "495a7eee7c2e6cedbad30e1e7215adecfe040306face67276d2498685eb97a29",
+    "common.py": "4d766a33979d98130505055ca6ce3d324fa2ee4a5bb922b5d6e1c7a076092e1f",
+    "tandem.py": "201f25007d8258301c2a91af6d48d2ee867b1ab6b10b8691ad35fd10123720c8",
+    "diagnostics.py": "be58b6771818f94c5cba7b46c852a2640ebfec92af27216df36b330629db62e0",
+    "installed.py": "7ad4c4fe59b2c7cfaca7325dcdd13dc2e517666cb3d5fa285e3bf3beecd7b294",
+    "canard.py": "d866798f65a2f19bf0db8d55b6a3173169708adceec5a3c4487c3f75b8a7e59f",
+    "development.py": "8c0df56da0f93793f973320a301fd52e8236984b83751bed0daf738157ca3374",
+    "tailless_swept.py": "fbdeca6b3545d42ae127880db837550d5e6154a8bddda20757025e801f39fe4f",
+    "contracts.py": "1f09ddbb6b2052071c3364536e209dd2eda2e6e276312a6fbf89773e1e6ff378",
+    "__init__.py": "f1ccd74c06d980b41d3315c464dd9c31602f7f6688cd6c324de2813aa4de1be2",
+    "admission.py": "4c74d35ac3ef57c1f776a45758eb0ab5b4873cba3dbf817428494118d7c0a026"
+  },
+  "packages": {
+    "aerosandbox": "4.2.10",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3"
+  },
+  "families": {
+    "tailless_swept": {
+      "geometry": {
+        "family": "tailless_swept",
+        "builder_revision": "tailless-swept-screening-v1+0c697d71047d7ce9c2cc4588985c19d90325869d2d4a361f2fd9bfdedaed93f3",
+        "parameters": {
+          "family": "tailless_swept",
+          "wing": {
+            "span_m": 1.2,
+            "root_chord_m": 0.18,
+            "taper": 0.65,
+            "sweep_deg": 25.0,
+            "incidence_deg": 2.0,
+            "washout_deg": 2.0,
+            "dihedral_deg": 3.0,
+            "airfoil": "0012"
+          },
+          "wing_x_m": 0.12,
+          "reflex_fraction": 0.015,
+          "elevon_hinge": 0.75,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.22,
+            "body_mass_kg": 0.02,
+            "body_length_m": 0.7
+          }
+        },
+        "aircraft_revision": "3b24b59d67836916067bf35bf8d4b02854e2d7dc452725b3d6615024c667ef8f"
+      },
+      "controls": {
+        "elevon_pitch": 0.0,
+        "elevon_roll": 0.0
+      },
+      "state": "diagnostic_equilibrium",
+      "fine": {
+        "alpha_deg": 6.518960975304353,
+        "speed_m_s": 5.197094885372772,
+        "static_margin": 0.07827214509986288
+      },
+      "mesh_changes": {
+        "alpha_deg": 0.3041097785589635,
+        "relative_speed": 0.016951122710592847,
+        "static_margin": 0.0011257230928976292
+      },
+      "diagnostic_revision": "7bc8fbe3bac9084079f12447d7b9a646e0f2b6dd63f2cadf1f0ccc55e09a75b2",
+      "search_states": [
+        "diagnostic_equilibrium",
+        "diagnostic_equilibrium"
+      ],
+      "comparison_state": "diagnostic_pair",
+      "report_sha256": "e7f560a32a7fb96c3e847819352818e21f6cdc1bef5967fbac19508514c65c47",
+      "artifacts_sha256": {
+        "archive.json": "463b8f61ca2da7a1251e179716989229c77c27e04ef6e0935208545f2a0a081b",
+        "search.json": "d8b80336ae0bb343de34ecb107b5f0fab8899b235b53db93ef790ea74a604958",
+        "comparison.json": "c57c7f2d7dd8c351ddc1b0fbcc38adfae15860a6105f7d77d83dd9b46495ee47",
+        "conditions.json": "1a49ffad58a17248b902327ed70da27fa98dce37d761d3e6737805b6ef9fc7fb",
+        "bundle/controlled-4.stl": "daa53bcd81af88d53c8049130126a777c3ade7d7ca6f27e20a73e58b7d36fb73",
+        "bundle/native-development.json": "f4830d62b1e61269153b4aad40ec3e514755457cde4e0b2b9408882888d35ad9",
+        "bundle/main_wing.stl": "f4973a2747f7179ff62184e719d31ba8d984381ada8eaf4744c7105d1a9f99fc",
+        "bundle/controlled-5.stl": "5438a0bf717ece2c67258603ac29f74d29d1eb882f9c13e72a771cfadcad5d1a",
+        "bundle/controlled-1.stl": "abe82b9bfb107e3118cd22e9655c53e9d5d1e585dc0d3d685c40c76cdaf89770",
+        "bundle/controlled-3.stl": "4f2bf8e17d5dec18b75cfc9fcd7580f856cfdfceab126ea3eb182b7b4ad85008",
+        "bundle/controlled-0.stl": "c8a56b06a96c70644df754b95dcc90fbdd57a720bc977ff5f17782802d474ab6",
+        "bundle/screening.json": "841509eaa069d805df62b7b1cd7a1737272fbf6482010e83af073cad2ef173cb",
+        "bundle/controlled-2.stl": "3f82f7d21eca7d2633bf7632bc5567978de5b577c17d1b39936539b87ec4cc32"
+      },
+      "independent_numerical_performance": false,
+      "physical_construction": false,
+      "verified_gain": false
+    },
+    "canard": {
+      "geometry": {
+        "family": "canard",
+        "builder_revision": "canard-screening-v1+f9174e01e0439bda0badf92d42c425ed0e50092c4c44611a7790b0d047797bd6",
+        "parameters": {
+          "family": "canard",
+          "foreplane": {
+            "span_m": 0.45,
+            "root_chord_m": 0.1,
+            "taper": 0.8,
+            "sweep_deg": 0.0,
+            "incidence_deg": 4.0,
+            "washout_deg": 0.0,
+            "dihedral_deg": 3.0,
+            "airfoil": "2412"
+          },
+          "main_wing": {
+            "span_m": 1.2,
+            "root_chord_m": 0.18,
+            "taper": 0.65,
+            "sweep_deg": 0.0,
+            "incidence_deg": 2.0,
+            "washout_deg": 2.0,
+            "dihedral_deg": 3.0,
+            "airfoil": "2412"
+          },
+          "foreplane_x_m": 0.04,
+          "main_x_m": 0.4,
+          "vertical_separation_m": 0.04,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.3,
+            "body_mass_kg": 0.02,
+            "body_length_m": 0.7
+          }
+        },
+        "aircraft_revision": "73191fbd490f31774723ffffc0787dd86173628efe4d429363724708db6d0516"
+      },
+      "controls": {
+        "foreplane_elevator": 0.0,
+        "aileron": 0.0
+      },
+      "state": "diagnostic_equilibrium",
+      "fine": {
+        "alpha_deg": 0.8122877450052922,
+        "speed_m_s": 5.992129416059736,
+        "static_margin": 0.1254659495352793
+      },
+      "mesh_changes": {
+        "alpha_deg": 0.16184503004651218,
+        "relative_speed": 0.005160751769964778,
+        "static_margin": 0.0008074113570267216
+      },
+      "diagnostic_revision": "924e51193e3837b778c2748456f816e243bc31674ed68c869883e1c19a6f7ade",
+      "search_states": [
+        "diagnostic_equilibrium",
+        "inconclusive"
+      ],
+      "comparison_state": "inconclusive",
+      "report_sha256": "2a4e19a7312d2509b9514293566fb113974b15f3131f6a4b50c5e0a1fa904e36",
+      "artifacts_sha256": {
+        "archive.json": "d66b750b8696f003a2b4681103b3bd07341a736b4ca54019d9a93cf7c5bf75b0",
+        "search.json": "e5a415b9ea91dea1d82106cba9a7cc84339b17fbcee7e04de28413a1dbd2e47d",
+        "comparison.json": "321a17047ff62cd7f16ccfa4ff74c3bd74fcf4ca96d0f06723bf3ae9948244e5",
+        "conditions.json": "1a49ffad58a17248b902327ed70da27fa98dce37d761d3e6737805b6ef9fc7fb",
+        "bundle/controlled-4.stl": "3d7e85be2cc4898e28180ab5efe599d7350a11f40c753299267aa04eadce2d84",
+        "bundle/native-development.json": "1fb1386a4a79c4786ac3f405fab2d47b7c7d0bbec5d0c131a31f148633e2df80",
+        "bundle/controlled-11.stl": "21d9cc3bb188a109764d20ad74a42b92cf37b26718ac7f81f2a088df2cde4da2",
+        "bundle/controlled-9.stl": "f72f7cbb98234d3b8410fccd9bd499347fa725119b760a28a60fe1b16f257a0c",
+        "bundle/controlled-6.stl": "9ecb01b689bc82751bf7d179dc20111e634426d24720eb350e9dc9b3df17d168",
+        "bundle/controlled-7.stl": "90ec2735ade5ea3e8bd53506702c6e9723885a40444a5e1afcb37d22ce16d341",
+        "bundle/controlled-10.stl": "680ffd1ced35ae306fd9c3034dd53cdf4bd962a0853c5152142e88011060fed4",
+        "bundle/main_wing.stl": "c37763f097c772d39862a809cf48b9050a681c4972f9c772feafea8d7717e951",
+        "bundle/controlled-5.stl": "9cd0b0a48abc8eddcfeede0a0f737dbd1fd90ad3b738d7daf9c485784fe64eb0",
+        "bundle/controlled-8.stl": "f957bbae4f7fd8f4bda884c6f9af068ea34ee5b17a7731a44335d103472fe90a",
+        "bundle/controlled-1.stl": "2c4059430b01959424c68efdd924f43b58ee63098f6081e82f1df45b98665c18",
+        "bundle/controlled-3.stl": "7a0339f42557d7b485b8806aed3ad1b2f32c20b5482d0d54318d73e6461394e0",
+        "bundle/controlled-13.stl": "68533093a2bea82262795241456ddacdee260fe9b1b31011de4e07ab067ae403",
+        "bundle/controlled-0.stl": "f66b1572b97bc038ed6b6928b155189d2476d6c065394ef7b7309c594e3ed266",
+        "bundle/foreplane.stl": "c8f5d830358972e3823a54337fca680b6c0079a5d0baeb9b7e9369775b1f8f02",
+        "bundle/screening.json": "2356922ec564347521fd99d7a3e015c7b64f9246a1f8a2a5fd79c068acb87e05",
+        "bundle/controlled-12.stl": "6f32894e522c5c09989ddda97440e189e51f244964a7207fa4fd71651b200132",
+        "bundle/controlled-2.stl": "d316bbb2279ddf44b569c90b2e207352c8653b8a9d070c360007874c07a30a91"
+      },
+      "independent_numerical_performance": false,
+      "physical_construction": false,
+      "verified_gain": false
+    },
+    "tandem": {
+      "geometry": {
+        "family": "tandem",
+        "builder_revision": "tandem-screening-v1+6eac7cef982888e7f51af1dede83a6e4ffe8ca0ba5f474435db0d7df5582daab",
+        "parameters": {
+          "family": "tandem",
+          "front_wing": {
+            "span_m": 0.9,
+            "root_chord_m": 0.15,
+            "taper": 0.65,
+            "sweep_deg": 0.0,
+            "incidence_deg": 3.0,
+            "washout_deg": 2.0,
+            "dihedral_deg": 3.0,
+            "airfoil": "2412"
+          },
+          "rear_wing": {
+            "span_m": 1.0,
+            "root_chord_m": 0.16,
+            "taper": 0.65,
+            "sweep_deg": 0.0,
+            "incidence_deg": 2.0,
+            "washout_deg": 2.0,
+            "dihedral_deg": 3.0,
+            "airfoil": "2412"
+          },
+          "front_x_m": 0.05,
+          "rear_x_m": 0.43,
+          "vertical_separation_m": 0.06,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.1,
+            "body_mass_kg": 0.02,
+            "body_length_m": 0.7
+          }
+        },
+        "aircraft_revision": "6dcbd7a877f15cbe7c7bd64d5464bd4131929a4ad6332968dba2120d78e04638"
+      },
+      "controls": {
+        "front_elevator": 0.0,
+        "rear_elevator": 0.0,
+        "aileron": 0.0
+      },
+      "state": "diagnostic_equilibrium",
+      "fine": {
+        "alpha_deg": -1.5000580954070166,
+        "speed_m_s": 9.075937279799929,
+        "static_margin": 0.09911626169380836
+      },
+      "mesh_changes": {
+        "alpha_deg": 0.15097234367869428,
+        "relative_speed": 0.01075556421422097,
+        "static_margin": 0.0011546713427369182
+      },
+      "diagnostic_revision": "3673f71038bfd5ec3d202b0cdcdb1c4babd631799420a0c3ea9ee9f8c6539ffd",
+      "search_states": [
+        "diagnostic_equilibrium",
+        "inconclusive"
+      ],
+      "comparison_state": "inconclusive",
+      "report_sha256": "a5948b7bca35b075cba5b987fb014cd3f3970946c16f2348326bc8423d0324c4",
+      "artifacts_sha256": {
+        "archive.json": "f3b5e98a567f4c3c8362f2de98f3ce161041fa676e1af395f0dc15cd0629758c",
+        "search.json": "914b31bf9fff3ab20c2401a66304377d35cf767a9a4ef8eb8730f9fd64173c13",
+        "comparison.json": "f8f0339c9552b417d15414ae66990404fae466d9641c2f602d499daa0aaeb5fd",
+        "conditions.json": "1a49ffad58a17248b902327ed70da27fa98dce37d761d3e6737805b6ef9fc7fb",
+        "bundle/controlled-4.stl": "f4f6b33e193dfb52b67ee5298c14fa85abc8bd15af72937854eb04e85738164c",
+        "bundle/native-development.json": "ec999ff38d600567302fb2c85af3728d5bf20ddc98086a7ab77b4e5af5f0366b",
+        "bundle/controlled-11.stl": "719154faf6c591980780935bd2044b43ab2b1104900048faa659f87b747a517d",
+        "bundle/controlled-9.stl": "020db11dad3bb066bb7ea1d40e91a00d75dbfb8d492b887de0842885c2b841af",
+        "bundle/controlled-6.stl": "e190bc7b5da73c9e8b0211ced70932eb07b1c52474b52412299385b9de79fe8b",
+        "bundle/controlled-7.stl": "ef05fe242587fa802b7909dcbb62593d83086d9ba79c81c13095a5833ec2cea6",
+        "bundle/controlled-10.stl": "8a6352a6af721c164926da13e98a3e49cd5094f0f75d5b18373840e8b962a70d",
+        "bundle/controlled-5.stl": "263f549e7580027a1afa198a8740a05194e07803b0636b5479469edb93ac0bb4",
+        "bundle/controlled-8.stl": "32b23c815b1c1411e520a8c36348701eda6db3f6ccc18cfc44796981e7d70606",
+        "bundle/controlled-1.stl": "98e3b6a0399065f51943e3ad675aab7c60a623391a0ca5e9c45e39f43997b50c",
+        "bundle/controlled-3.stl": "b692c129ac051c3fe00f2ae70c0e891da976c95d4be9bb82b4693f2fd1587385",
+        "bundle/controlled-13.stl": "cbd4983fc2b4ac72beb115c327d72004e1239a84d9f71b42994b22501e5c54dc",
+        "bundle/controlled-0.stl": "778712a67c270f3727132095e9fd2079bdc4635d6913b96016a688bb9642e19e",
+        "bundle/rear_wing.stl": "3825edbf563f00bf5ef531b0c323008c6844cfa5d61cf311a75386ad91744549",
+        "bundle/front_wing.stl": "1e0f3a45c1d9b0e476c289294e8bb2159818dbc1e78eaaab4da2e458bbafbb47",
+        "bundle/screening.json": "0e78d4666f00c45efda8b920159628afa841260431708a30051e3bb166e0da06",
+        "bundle/controlled-12.stl": "25ec96e514938e662e3e66cbc17f36e42cfaafe83a3c2c821e40164ba1bfc4a4",
+        "bundle/controlled-2.stl": "9611966d6d7761954dff3560eb78990ae517af7a08b53987d92d8557b54d3e7f"
+      },
+      "independent_numerical_performance": false,
+      "physical_construction": false,
+      "verified_gain": false
+    }
+  }
+}

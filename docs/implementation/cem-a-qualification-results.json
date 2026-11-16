@@ -1,0 +1,519 @@
+{
+  "format": "mirum-a-qualification-receipt-1",
+  "scope": "Reproducibility receipt; raw native files remain local and must be reproduced on a receiving runtime.",
+  "implementation_sha256": "3f7baeb26b01fd670bfa5f4779878b6e3b9daadecf2093fe33cb8199286e4a29",
+  "runtime": {
+    "aerosandbox": "4.2.10",
+    "neuralfoil": "0.3.3",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "trimesh": "4.4.3",
+    "casadi": "3.8.2",
+    "python": "3.12.14"
+  },
+  "executables": {
+    "avl": "500b3e53379ca0659b1371ca341a5cdaf5a842f44c0cfd16d4a5994bf542741f",
+    "xfoil": "68b7d33b61ba61ea062c7d7b5636905cfbe24a4001a4b158524ab51b450315d1"
+  },
+  "shared_interface_file_sha256": {
+    "backend/cem/aero/contracts.py": "ae659d1d2fd61e8935a9bdda53b9c43646fbc9d1b29b354addac4317705e7120",
+    "backend/cem/aero/fixtures.py": "e4cb1a5ee526a20e61b4ba87d1736157d90ea76594dae83d8a867b3f9901fa77",
+    "examples/cem/aero-contract-fixture.json": "f483ce45d3f172b47d821e2c0f204956b799139ed5325e39b0fb82e17ffebe65"
+  },
+  "references": [
+    {
+      "local_report": "work/qualification-next/conventional-final-02/qualification.json",
+      "report_file_sha256": "924955ce4a9f04b6dd9a8c60213c64a95189e308b448e6fce5edf05b1ecb8b47",
+      "evidence_sha256": "78f151936392851cc638455df1ffdc75237c1fcefafba9b36892a7a3147422a2",
+      "case_id": "conventional-naca0012-rigid-v1",
+      "state": "passed",
+      "scope": "Specific rigid conventional numerical benchmark; no flight, fabrication or broad family qualification.",
+      "input_sha256": "994594ce2c89c1920fb21e38adfb9e224fae2831a59b574fdb9ca7cb8cd0f05c",
+      "binding": {
+        "calibration_sha256": "b1fa2cf84e57e195ef6ec77a66612aefb6d2a60dc7e1f2dc1de6b73576fa87b7",
+        "geometry_sha256": "e37cbf5bd298e15446291f2896c3207a57ae337ecbcd202efa8ad76ea0e296a9",
+        "hardware_sha256": "19a54b03030cf3b38947918459c72ecaaea0f80b0e535ac6a751161e90c6c147",
+        "implementation_sha256": "3f7baeb26b01fd670bfa5f4779878b6e3b9daadecf2093fe33cb8199286e4a29",
+        "mission_sha256": "7a68ab1c238b7c4b577d016542198c735480fb89ca63b6042aaa5dad7abb4b44",
+        "process_sha256": "162e176b0a330e866a4e56a040a11b642f04843583e1f1c2534bafd242306e9f"
+      },
+      "objective_m": 54.956840171980254,
+      "static_margin": 0.10488681608893452,
+      "equilibrium_residual": [
+        -4.1543333183920654e-11,
+        -2.6138150804864263e-12,
+        3.6800433136616325e-11
+      ],
+      "polar_panel_differences": {
+        "cd": 2.000000000000092e-05,
+        "cl": 0.003899999999999987,
+        "cm": 0.0009
+      },
+      "objective_mesh_difference_m": 0.004899084443508173,
+      "countercase": {
+        "case_id": "conventional-aft-cg-unstable-v1",
+        "state": "rejected_as_expected",
+        "reason": "AVL admission rejected: pitch stability/static margin",
+        "native_Cma": 0.490627
+      },
+      "verified_gain": false,
+      "families_enabled": []
+    },
+    {
+      "local_report": "work/qualification-next/t_tail-final-02/qualification.json",
+      "report_file_sha256": "a28f7dfd9b7de51212dce68499db05ed7446ba62bd978f7354fbc11b301313f7",
+      "evidence_sha256": "0218e287a491f56b11325a8da29bda998a8c772597a5a33193cacf16e6d02436",
+      "case_id": "t-tail-naca0012-rigid-v1",
+      "state": "passed",
+      "scope": "Specific rigid t_tail numerical benchmark; no flight, fabrication or broad family qualification.",
+      "input_sha256": "acefc299810d4dd9d7170cc491914aee8706bf117ed51e46c74c8b8dce2e3e42",
+      "binding": {
+        "calibration_sha256": "b1fa2cf84e57e195ef6ec77a66612aefb6d2a60dc7e1f2dc1de6b73576fa87b7",
+        "geometry_sha256": "eddaf40c173f9acec311ef6444e0bdd973d07860a9221cb1274c0bdc54b9380d",
+        "hardware_sha256": "f148d51d1747d523895a032cf7575e01f45f3783e8018de29dad32912ecd04f9",
+        "implementation_sha256": "3f7baeb26b01fd670bfa5f4779878b6e3b9daadecf2093fe33cb8199286e4a29",
+        "mission_sha256": "7a68ab1c238b7c4b577d016542198c735480fb89ca63b6042aaa5dad7abb4b44",
+        "process_sha256": "307ebe95ce7360b6fc18a5b24f30f74098d191d87f4f6452dba73e11aaa9d3a1"
+      },
+      "objective_m": 55.06876324078566,
+      "static_margin": 0.11851595192033816,
+      "equilibrium_residual": [
+        -4.2228486686139433e-11,
+        -2.9207926947211115e-12,
+        1.2136635703773106e-11
+      ],
+      "polar_panel_differences": {
+        "cd": 2.000000000000092e-05,
+        "cl": 0.003899999999999987,
+        "cm": 0.0009
+      },
+      "objective_mesh_difference_m": 0.04247666470424605,
+      "countercase": {
+        "case_id": "t-tail-aft-cg-unstable-v1",
+        "state": "rejected_as_expected",
+        "reason": "AVL admission rejected: pitch stability/static margin, lateral static/roll stability",
+        "native_Cma": 1.383061
+      },
+      "verified_gain": false,
+      "families_enabled": []
+    },
+    {
+      "local_report": "work/qualification-next/v_tail-final-02/qualification.json",
+      "report_file_sha256": "44e3599c1893096f1d7fd3e94bf8aa41ca7834a14d85eabf6b9d5c2c4fe09949",
+      "evidence_sha256": "0ab0221c8b362f282396f21ec9ff15451ecc549beba78b6d5f7eb541a270164d",
+      "case_id": "v-tail-naca0012-rigid-v1",
+      "state": "passed",
+      "scope": "Specific rigid v_tail numerical benchmark; no flight, fabrication or broad family qualification.",
+      "input_sha256": "9a94f741c24a07813700847dca7a671639be19455accb06a899664cc744534e6",
+      "binding": {
+        "calibration_sha256": "b1fa2cf84e57e195ef6ec77a66612aefb6d2a60dc7e1f2dc1de6b73576fa87b7",
+        "geometry_sha256": "def09d6fda9d333dbbbac760a77e9128bc393d8189bf28d6aa88fc74c92cef61",
+        "hardware_sha256": "525531c60e3257938ef112b82e47d4830cbaca214be2289fd09cbb83a3abf24c",
+        "implementation_sha256": "3f7baeb26b01fd670bfa5f4779878b6e3b9daadecf2093fe33cb8199286e4a29",
+        "mission_sha256": "7a68ab1c238b7c4b577d016542198c735480fb89ca63b6042aaa5dad7abb4b44",
+        "process_sha256": "2684ea3156cb522b132d49c06bc3e433445651c5d34db145d26d856e26a7c26d"
+      },
+      "objective_m": 55.029520952573506,
+      "static_margin": 0.1385981136569062,
+      "equilibrium_residual": [
+        -3.9947100998269624e-11,
+        -2.7750423189793336e-12,
+        1.8956321181600845e-11
+      ],
+      "polar_panel_differences": {
+        "cd": 2.000000000000092e-05,
+        "cl": 0.003899999999999987,
+        "cm": 0.0009
+      },
+      "objective_mesh_difference_m": 0.05177390661879855,
+      "countercase": {
+        "case_id": "v-tail-aft-cg-unstable-v1",
+        "state": "rejected_as_expected",
+        "reason": "AVL admission rejected: pitch stability/static margin, lateral static/roll stability",
+        "native_Cma": 1.308909
+      },
+      "verified_gain": false,
+      "families_enabled": []
+    }
+  ],
+  "low_re_section": {
+    "local_report": "work/qualification-next/section-final-02/section-qualification.json",
+    "report_file_sha256": "bbd13fc48748cbf85ee3cc090c14f596c65884088a2eda2aae9ceeeaff8a8e49",
+    "evidence_sha256": "6b377a36bb84f1899f21b8d7139ea54a42be3ecaa6179da35980316947af9b42",
+    "case_id": "naca0006-low-re-attached-v1",
+    "state": "failed",
+    "stage": "interpolation_coverage",
+    "scope": "Uninstalled smooth NACA0006 numerical section reference only; no aircraft, stall, flight or material qualification.",
+    "input_sha256": "283d6275e5fbf59ca5a98b4a3aa574ac79f26c4fd0534a3bf02752e083116372",
+    "binding": {
+      "calibration_sha256": "071010cbe1e95ed5ce1197b6d59e91f8adbc0d0e2ff87bd5a1106d95651a81a5",
+      "geometry_sha256": "515e69f852e7baf873b9b43bff4d090abe114aaea6bcadd59ad93fed9b41e1bd",
+      "hardware_sha256": "aa7d7a0e12fe72c0b855ec46b2682c1a442a2a46c007dab56d7b276ad0e6f3e5",
+      "implementation_sha256": "3f7baeb26b01fd670bfa5f4779878b6e3b9daadecf2093fe33cb8199286e4a29",
+      "mission_sha256": "283d6275e5fbf59ca5a98b4a3aa574ac79f26c4fd0534a3bf02752e083116372",
+      "process_sha256": "6e7fbee5ec4fb54a937c4e93db0f1b79d2c2b505d1338d65a6c08328c08ee170"
+    },
+    "panel_differences": {
+      "cd": 1.0000000000003062e-05,
+      "cl": 0.00030000000000002247,
+      "cm": 0.00010000000000000113
+    },
+    "initialization": [
+      {
+        "reynolds": 30000.0,
+        "all_sequences_complete": true,
+        "repeatable": true,
+        "sequence_sensitive_alpha_deg": []
+      },
+      {
+        "reynolds": 40000.0,
+        "all_sequences_complete": true,
+        "repeatable": true,
+        "sequence_sensitive_alpha_deg": []
+      },
+      {
+        "reynolds": 50000.0,
+        "all_sequences_complete": true,
+        "repeatable": true,
+        "sequence_sensitive_alpha_deg": []
+      },
+      {
+        "reynolds": 60000.0,
+        "all_sequences_complete": true,
+        "repeatable": true,
+        "sequence_sensitive_alpha_deg": []
+      }
+    ],
+    "failure": {
+      "native_evidence": {
+        "artifacts": [
+          {
+            "file": "polar_6735fde6c4a23770.in",
+            "sha256": "61f2a48824ad7aef68781d4ccce2fc26a2db6089f9216bf07f0aca56f8f17832"
+          },
+          {
+            "file": "polar_6735fde6c4a23770.log",
+            "sha256": "690b62702ed3f32166b6bdc6f610223dfdd09bc0b965f7d3c53b200c007b5271"
+          },
+          {
+            "file": "polar_6735fde6c4a23770.out",
+            "sha256": "b7c6be371bb4d60c696b0e3d189326a4b438b63364e5cabb11667ab186375b58"
+          }
+        ],
+        "coverage": {
+          "converged_alpha_deg": [
+            -3.0,
+            -2.875,
+            -2.75,
+            -2.625,
+            -2.5,
+            -2.375,
+            -2.25,
+            -2.125,
+            -2.0,
+            -1.875,
+            -1.75,
+            -1.625,
+            -1.5,
+            -1.375,
+            -1.25,
+            -1.125,
+            -1.0,
+            -0.875,
+            -0.75,
+            -0.625,
+            -0.5,
+            -0.375,
+            -0.25,
+            -0.125,
+            0.0,
+            0.125,
+            0.25,
+            0.375,
+            0.5,
+            0.625,
+            0.75,
+            0.875,
+            1.0,
+            1.125,
+            1.25,
+            1.375,
+            1.5,
+            1.625,
+            1.75,
+            1.875,
+            2.0,
+            2.25,
+            2.375,
+            2.5,
+            2.625,
+            2.75,
+            2.875,
+            3.0
+          ],
+          "missing_alpha_deg": [
+            2.125
+          ],
+          "naca": "0006",
+          "requested_alpha_deg": [
+            -3.0,
+            -2.875,
+            -2.75,
+            -2.625,
+            -2.5,
+            -2.375,
+            -2.25,
+            -2.125,
+            -2.0,
+            -1.875,
+            -1.75,
+            -1.625,
+            -1.5,
+            -1.375,
+            -1.25,
+            -1.125,
+            -1.0,
+            -0.875,
+            -0.75,
+            -0.625,
+            -0.5,
+            -0.375,
+            -0.25,
+            -0.125,
+            0.0,
+            0.125,
+            0.25,
+            0.375,
+            0.5,
+            0.625,
+            0.75,
+            0.875,
+            1.0,
+            1.125,
+            1.25,
+            1.375,
+            1.5,
+            1.625,
+            1.75,
+            1.875,
+            2.0,
+            2.125,
+            2.25,
+            2.375,
+            2.5,
+            2.625,
+            2.75,
+            2.875,
+            3.0
+          ],
+          "reynolds": 34641.016151377546,
+          "transition": {
+            "bottom_xtr": 1.0,
+            "n_crit": 9.0,
+            "top_xtr": 1.0
+          }
+        },
+        "executable_sha256": "68b7d33b61ba61ea062c7d7b5636905cfbe24a4001a4b158524ab51b450315d1",
+        "returncode": 0,
+        "solver": "xfoil",
+        "state": "nonconvergence"
+      },
+      "reason": "XFOIL nonconvergence: incomplete requested polar coverage",
+      "type": "NativeFailure"
+    },
+    "aircraft_admission": false,
+    "verified_gain": false
+  },
+  "wide_low_re_audit": {
+    "local_report": "work/qualification-next/wide-audit-final-02/polar-audit.json",
+    "report_file_sha256": "b1d02f083944ec55f1e6865f4110ed951dd5a5cfef91e8351478084e425f9230",
+    "evidence_sha256": "61081db4dc469f61221154ab1d4301f4286054e31492554f1df7de4a75d56bb8",
+    "state": "diagnostic_completed",
+    "controls": {
+      "alpha_deg": [
+        -4.0,
+        -3.5,
+        -3.0,
+        -2.5,
+        -2.0,
+        -1.5,
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        4.5,
+        5.0,
+        5.5,
+        6.0,
+        6.5,
+        7.0,
+        7.5,
+        8.0
+      ],
+      "naca": "0006",
+      "reynolds": 30000.0,
+      "transition": {
+        "bottom_xtr": 1.0,
+        "n_crit": 9.0,
+        "top_xtr": 1.0
+      }
+    },
+    "all_sequences_complete": false,
+    "repeatable": true,
+    "sequence_sensitive_alpha_deg": [
+      8.0
+    ],
+    "sequences": [
+      {
+        "sequence": "ascending",
+        "state": "partial",
+        "missing_alpha_deg": [
+          -4.0,
+          4.0,
+          7.5,
+          8.0
+        ]
+      },
+      {
+        "sequence": "ascending_repeat",
+        "state": "partial",
+        "missing_alpha_deg": [
+          -4.0,
+          4.0,
+          7.5,
+          8.0
+        ]
+      },
+      {
+        "sequence": "zero_centered",
+        "state": "partial",
+        "missing_alpha_deg": [
+          -4.0,
+          4.0,
+          7.0
+        ]
+      },
+      {
+        "sequence": "reset_each",
+        "state": "partial",
+        "missing_alpha_deg": [
+          7.0
+        ]
+      }
+    ],
+    "production_admissible": false,
+    "verified_gain": false
+  },
+  "http_comparison": {
+    "discovery_job": "450f24998ff6422f947317117f331402",
+    "comparison_job": "9d91b17c7c714b9d94f715ed6b2eaa37",
+    "elite_id": "58d44bfcb883d41d",
+    "shaped_elites": 8,
+    "screening_delta": 0.13605958335011792,
+    "independent_state": "inconclusive",
+    "verified_gain": false,
+    "bundle_status": 404,
+    "implementation_sha256": "3f7baeb26b01fd670bfa5f4779878b6e3b9daadecf2093fe33cb8199286e4a29",
+    "comparison_file_sha256": "6975a09c47114b0fa82ed59a4dd281ae08eb9bff9252d55c006d34c4c6cac6aa",
+    "reference_state": "passed",
+    "reference_family": "t_tail",
+    "independent_arm_failures": [
+      {
+        "state": "failed",
+        "reason": "XFOIL nonconvergence: incomplete requested polar coverage"
+      },
+      {
+        "state": "failed",
+        "reason": "XFOIL nonconvergence: incomplete requested polar coverage"
+      }
+    ],
+    "legacy_avl_failures": [
+      {
+        "state": "failed",
+        "reason": "ValueError: AVL: spiral divergence outside mission envelope"
+      },
+      {
+        "state": "failed",
+        "reason": "ValueError: AVL: spiral divergence outside mission envelope"
+      }
+    ]
+  },
+  "regression": {
+    "passed": 317,
+    "failed": 0,
+    "command": "OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -m pytest backend/tests/test_cem* backend/tests/test_glider* frontend/test_cem_ui.py analysis/tests/test_avl.py analysis/tests/test_airfoil.py --tb=short -q",
+    "log_sha256": "bd5d099944c99c9e2d249db578cbbd838b68b531266e5cca92f805af776dc5e7",
+    "native_binaries_selected": true
+  },
+  "cli_execution_and_replay": [
+    {
+      "label": "conventional-final-02",
+      "exit_code": 0,
+      "expected_exit_code": 0
+    },
+    {
+      "label": "conventional-replay-02",
+      "exit_code": 0,
+      "expected_exit_code": 0
+    },
+    {
+      "label": "t_tail-final-02",
+      "exit_code": 0,
+      "expected_exit_code": 0
+    },
+    {
+      "label": "t_tail-replay-02",
+      "exit_code": 0,
+      "expected_exit_code": 0
+    },
+    {
+      "label": "v_tail-final-02",
+      "exit_code": 0,
+      "expected_exit_code": 0
+    },
+    {
+      "label": "v_tail-replay-02",
+      "exit_code": 0,
+      "expected_exit_code": 0
+    },
+    {
+      "label": "section-final-02",
+      "exit_code": 1,
+      "expected_exit_code": 1
+    },
+    {
+      "label": "section-replay-02",
+      "exit_code": 1,
+      "expected_exit_code": 1
+    },
+    {
+      "label": "wide-audit-final-02",
+      "exit_code": 0,
+      "expected_exit_code": 0
+    },
+    {
+      "label": "wide-audit-replay-02",
+      "exit_code": 0,
+      "expected_exit_code": 0
+    },
+    {
+      "label": "http-final-02",
+      "exit_code": 0,
+      "expected_exit_code": 0
+    }
+  ],
+  "verified_gain": false,
+  "new_families_enabled": [],
+  "limitations": [
+    "Specific rigid numerical references only; no family-wide envelope.",
+    "Low-Re interpolation qualification failed; production grid unchanged.",
+    "No physical flight, stall, interference-error, construction or deployment qualification."
+  ]
+}
