@@ -15,7 +15,7 @@ def test_auth_headers_use_the_session_token():
     class St:
         session_state = State()
 
-    ns = {'st': St}
+    ns = {'st': St, 'client_ip_headers': lambda: {}}
     exec(compile(ast.Module(body=[node], type_ignores=[]), str(APP), 'exec'), ns)
     assert ns['_auth_headers']() == {}
     St.session_state['access_token'] = 'secret'

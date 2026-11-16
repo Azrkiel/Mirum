@@ -41,6 +41,11 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_flag(name: str) -> bool:
+    """True only for an explicit "1"; anything else (or unset) is off."""
+    return _os_cfg.environ.get(name, "").strip() == "1"
+
+
 def _env_float(name: str, default: float) -> float:
     try:
         return float(_os_cfg.environ.get(name, str(default)))
@@ -96,3 +101,9 @@ XFOIL_BIN: str = _os.environ.get(
     # On Linux/macOS, fall back to "xfoil" on PATH.
     _WINDOWS_DEFAULT if _os.name == "nt" else "xfoil",
 )
+
+# Honour X-Mirum-Client-IP as the rate-limit key (see backend/client_key.py).
+# Default OFF. Turn on ONLY when the backend is unreachable from the public
+# internet (private Fly backend behind the public frontend): any direct caller
+# could otherwise forge the header.
+TRUSTED_CLIENT_HEADER: bool = _env_flag("MIRUM_TRUSTED_CLIENT_HEADER")

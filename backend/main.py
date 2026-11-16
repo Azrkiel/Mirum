@@ -26,7 +26,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
+from client_key import client_key
 
 from agents import (
     ScriptError,
@@ -175,7 +175,7 @@ async def _lifespan(application: FastAPI):
         await cem_jobs.close()
 
 
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_key)
 app = FastAPI(title="Text-to-CAD API", version="0.1.0", lifespan=_lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

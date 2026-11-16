@@ -14,6 +14,11 @@ services:
       - /tmp:size=256M
     env_file:
       - .env
+    # Leave MIRUM_TRUSTED_CLIENT_HEADER off here: port 8000 is published, so
+    # any caller could forge X-Mirum-Client-IP. Enable only behind a private
+    # network where just the frontend reaches the backend:
+    # environment:
+    #   MIRUM_TRUSTED_CLIENT_HEADER: "1"
     restart: unless-stopped
 
   frontend:
