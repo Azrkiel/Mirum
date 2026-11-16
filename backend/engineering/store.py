@@ -9,6 +9,7 @@ import sqlite3
 import time
 from threading import RLock
 
+from .admission import AdmissionBusy
 from .briefs import MemoryBriefRepository, PreparedDraft, RevisionConflict, _check_revision
 from .contracts import EngineeringBrief
 from .proposer import ProposalAudit
@@ -59,6 +60,8 @@ class SQLiteStore:
                 key TEXT NOT NULL UNIQUE, record TEXT NOT NULL, cancel INTEGER NOT NULL DEFAULT 0,
                 deadline REAL NOT NULL, expires REAL, reserved INTEGER NOT NULL,
                 FOREIGN KEY(brief) REFERENCES briefs(id));
+            CREATE TABLE IF NOT EXISTS draft_owners(draft TEXT PRIMARY KEY, client TEXT NOT NULL,
+                bytes INTEGER NOT NULL, updated REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS retention(kind TEXT, id TEXT, created REAL NOT NULL, PRIMARY KEY(kind,id));
             PRAGMA user_version=1;
@@ -90,9 +93,87 @@ class SQLiteStore:
         self.db.close()
         self._owner.close()
 
+    DATABASE_FILES = ('engineering.sqlite3', 'engineering.sqlite3-wal', 'engineering.sqlite3-shm', 'owner.lock')
+
     def storage_bytes(self):
+        """Artifact bytes only. The SQLite files hold drafts/audits/briefs, which have
+        their own caps (PreparationQuota) and must not starve job admission."""
         return sum(path.stat().st_size for path in self.root.rglob('*')
-                   if path.is_file() and not path.is_symlink())
+                   if path.is_file() and not path.is_symlink()
+                   and not (path.parent == self.root and path.name in self.DATABASE_FILES))
+
+    def metadata_bytes(self):
+        return sum((self.root / name).stat().st_size for name in self.DATABASE_FILES if (self.root / name).is_file())
+
+
+TOMBSTONE = '{"expired":true}'
+
+
+class PreparationQuota:
+    """Caps and short expiry for drafts, audits and finalized briefs.
+
+    Accounted apart from job artifact storage. Counts are SQL-derived, so they
+    survive restart. Callers run it synchronously (no await between admit and
+    record), so the single process cannot interleave two admissions.
+    """
+    def __init__(self, store, *, ttl_seconds, max_drafts, max_draft_bytes, per_client_drafts,
+                 max_audits, max_audit_bytes, max_briefs, per_client_briefs):
+        self.store = store
+        self.ttl, self.max_drafts, self.max_draft_bytes = ttl_seconds, max_drafts, max_draft_bytes
+        self.per_client_drafts, self.max_audits, self.max_audit_bytes = per_client_drafts, max_audits, max_audit_bytes
+        self.max_briefs, self.per_client_briefs = max_briefs, per_client_briefs
+
+    @classmethod
+    def from_config(cls, store):
+        import config
+        return cls(store, ttl_seconds=config.ENGINEERING_DRAFT_TTL_SECONDS, max_drafts=config.ENGINEERING_MAX_DRAFTS,
+                   max_draft_bytes=config.ENGINEERING_MAX_DRAFT_BYTES, per_client_drafts=config.ENGINEERING_MAX_DRAFTS_PER_CLIENT,
+                   max_audits=config.ENGINEERING_MAX_AUDITS, max_audit_bytes=config.ENGINEERING_MAX_AUDIT_BYTES,
+                   max_briefs=config.ENGINEERING_MAX_BRIEFS, per_client_briefs=config.ENGINEERING_MAX_BRIEFS_PER_CLIENT)
+
+    UNFINALIZED = 'FROM draft_owners o WHERE NOT EXISTS (SELECT 1 FROM briefs b WHERE b.draft=o.draft)'
+
+    def admit_draft(self, client, *, ai=False, size=0):
+        self.expire()
+        with self.store.transaction() as db:
+            count, used = db.execute('SELECT COUNT(*),COALESCE(SUM(o.bytes),0) ' + self.UNFINALIZED).fetchone()
+            mine = db.execute('SELECT COUNT(*) ' + self.UNFINALIZED + ' AND o.client=?', (client,)).fetchone()[0]
+            if count >= self.max_drafts or used + size > self.max_draft_bytes or mine >= self.per_client_drafts:
+                raise AdmissionBusy('Unfinalized draft capacity reached; retry after drafts expire')
+            if ai:
+                audits, audit_bytes = db.execute('SELECT COUNT(*),COALESCE(SUM(LENGTH(record)),0) FROM audits').fetchone()
+                if audits >= self.max_audits or audit_bytes >= self.max_audit_bytes:
+                    raise AdmissionBusy('AI audit capacity reached; retry after records expire')
+
+    def record_draft(self, draft_id, client, size):
+        with self.store.transaction() as db:
+            db.execute('INSERT OR REPLACE INTO draft_owners VALUES (?,?,?,?)', (draft_id, client, int(size), time.time()))
+
+    def touch(self, draft_id, size):
+        with self.store.transaction() as db:
+            db.execute('UPDATE draft_owners SET bytes=?,updated=? WHERE draft=?', (int(size), time.time(), draft_id))
+
+    def admit_brief(self, draft_id):
+        """Bound live finalized briefs globally and per owning client before finalizing."""
+        with self.store.transaction() as db:
+            total = db.execute('SELECT COUNT(*) FROM briefs WHERE record!=?', (TOMBSTONE,)).fetchone()[0]
+            row = db.execute('SELECT client FROM draft_owners WHERE draft=?', (draft_id,)).fetchone()
+            mine = 0
+            if row:
+                mine = db.execute('SELECT COUNT(*) FROM briefs b JOIN draft_owners o ON o.draft=b.draft '
+                                  'WHERE o.client=? AND b.record!=?', (row[0], TOMBSTONE)).fetchone()[0]
+            if total >= self.max_briefs or mine >= self.per_client_briefs:
+                raise AdmissionBusy('Finalized brief capacity reached; retry after records expire')
+
+    def expire(self, now=None):
+        """Tombstone unfinalized drafts older than the short TTL and release their quota."""
+        now = time.time() if now is None else now
+        with self.store.transaction() as db:
+            stale = db.execute('SELECT o.draft ' + self.UNFINALIZED + ' AND o.updated<=? '
+                               'AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.draft=o.draft)', (now - self.ttl,)).fetchall()
+            for (draft_id,) in stale:
+                db.execute('UPDATE drafts SET record=? WHERE id=? AND record!=?', (TOMBSTONE, draft_id, TOMBSTONE))
+            db.execute('DELETE FROM draft_owners WHERE draft NOT IN (SELECT id FROM drafts WHERE record!=?)', (TOMBSTONE,))
 
 
 class SQLiteBriefRepository:

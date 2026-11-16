@@ -33,10 +33,19 @@ def attach_engineering_routes(app, limiter):
         try:
             async with _slots:
                 owner = object()
+                # Shared fairness with the reviewed-job path (present when the v1 runtime is up).
+                fairness = getattr(getattr(request.app.state, 'engineering', None), 'fairness', None)
                 try:
+                    client = str(getattr(limiter, '_key_func', lambda r: 'unknown')(request))
+                except Exception:
+                    client = 'unknown'
+                try:
+                    if fairness: fairness.check_turn(client)
                     native_slot.claim(owner)
-                except AdmissionBusy:
-                    raise HTTPException(429, 'Engineering capacity busy', headers={'Retry-After': '5'}) from None
+                except AdmissionBusy as busy:
+                    if fairness and type(busy) is AdmissionBusy: fairness.refused(client)
+                    raise HTTPException(429, 'Engineering capacity busy', headers={'Retry-After': str(busy.retry_after)}) from None
+                if fairness: fairness.admitted(client, count=False)
                 try:
                     result = await generate_with_feedback(body.specification, body.candidate_heights_mm)
                 finally:

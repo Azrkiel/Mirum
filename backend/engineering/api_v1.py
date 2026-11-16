@@ -1,4 +1,5 @@
 """Checked workflow transport. Physical inputs enter only through review."""
+import asyncio
 import importlib.util
 import json
 import os
@@ -10,17 +11,25 @@ from typing import Literal,Annotated
 from fastapi import APIRouter,HTTPException,Request,Response
 from fastapi.routing import APIRoute
 from fastapi.responses import JSONResponse,StreamingResponse
-from starlette.background import BackgroundTask
-from pydantic import Field,BeforeValidator
+from pydantic import Field,BeforeValidator,field_validator
 
-from .admission import AdmissionBusy
+from .admission import AdmissionBusy,ClientFairness
 from .briefs import BriefService,RevisionConflict
 from .bundles import BundlePublisher,FORMATS
 from .capabilities import list_capabilities
 from .contracts import ContractModel,ReviewAcknowledgement,Text,REVIEW_FIELDS
 from .jobs import JobController,compact_run
+from .limits import AiCallBudget
 from .proposer import make_proposer
-from .store import SQLiteStore,SQLiteBriefRepository,SQLiteProposalLedger,ArtifactExpired
+from .store import SQLiteStore,SQLiteBriefRepository,SQLiteProposalLedger,ArtifactExpired,PreparationQuota
+
+MAX_INPUT_BYTES=16*1024  # the reviewed brief bound; enforced on the model, after the body cap
+
+
+def _bounded_input(value):
+    if len(json.dumps(value,allow_nan=False,separators=(',',':')).encode())>MAX_INPUT_BYTES:
+        raise ValueError('Engineering input exceeds 16 KiB')
+    return value
 
 
 class DraftCreate(ContractModel):
@@ -28,10 +37,14 @@ class DraftCreate(ContractModel):
     input: dict = Field(default_factory=dict)
     prompt: str | None = Field(default=None,max_length=8000)
 
+    _bound=field_validator('input')(_bounded_input)
+
 
 class DraftEdit(ContractModel):
     expected_revision: int = Field(ge=1)
     input: dict
+
+    _bound=field_validator('input')(_bounded_input)
 
 
 class JobSubmit(ContractModel):
@@ -50,11 +63,52 @@ def _review_json(value):
 ReviewInput=Annotated[ReviewAcknowledgement,BeforeValidator(_review_json)]
 
 
+async def limit_body(request):
+    """Reject oversized bodies before JSON/model parsing: by Content-Length, and while
+    reading when the length is absent or false. The bounded body is cached on the
+    request, so the normal parser reads it without a second pass."""
+    import config
+    limit=config.ENGINEERING_MAX_BODY_BYTES
+    declared=request.headers.get('content-length')
+    if declared is not None:
+        try: size=int(declared)
+        except ValueError: raise HTTPException(400,'Invalid Content-Length') from None
+        if size>limit: raise HTTPException(413,'Request body too large')
+    received=bytearray()
+    async for chunk in request.stream():
+        received.extend(chunk)
+        if len(received)>limit: raise HTTPException(413,'Request body too large')
+    request._body=bytes(received)
+
+
+class LeasedResponse(StreamingResponse):
+    """Streams one leased file and releases the lease when the response ends for any
+    reason, including client disconnect and cancellation (no reliance on GC)."""
+    def __init__(self,download,**kwargs):
+        self.download=download
+        super().__init__(self._chunks(),**kwargs)
+
+    def _chunks(self):
+        try:
+            while True:
+                try: block=self.download.file.read(65536)
+                except ValueError:  # closed by an abort while this read was queued
+                    return
+                if not block: break
+                yield block
+        finally: self.download.close()
+
+    async def __call__(self,scope,receive,send):
+        try: await super().__call__(scope,receive,send)
+        finally: self.download.close()
+
+
 class CheckedRoute(APIRoute):
     def get_route_handler(self):
         handler=super().get_route_handler()
         async def guarded(request):
             try:
+                if request.method in ('POST','PUT','PATCH'): await limit_body(request)
                 response=await handler(request)
                 response.headers['Cache-Control']='no-store'
                 return response
@@ -91,10 +145,12 @@ def create_runtime():
     try:
         publisher=BundlePublisher(store)
         briefs=BriefService(SQLiteBriefRepository(store))
-        jobs=JobController(store,publisher=publisher)
+        fairness=ClientFairness(config.ENGINEERING_JOBS_PER_CLIENT_HOUR,config.ENGINEERING_REFUSAL_MEMORY_SECONDS)
+        jobs=JobController(store,publisher=publisher,fairness=fairness)
         return SimpleNamespace(store=store,publisher=publisher,briefs=briefs,jobs=jobs,
-            ai_enabled=ai_enabled,
-            proposer=make_proposer(briefs,ledger=SQLiteProposalLedger(store),enabled=ai_enabled))
+            ai_enabled=ai_enabled,fairness=fairness,quota=PreparationQuota.from_config(store),
+            proposer=make_proposer(briefs,ledger=SQLiteProposalLedger(store),enabled=ai_enabled,
+                budget=AiCallBudget.from_config() if ai_enabled else None))
     except BaseException:
         store.close()
         raise
@@ -109,7 +165,12 @@ def attach_v1_routes(app,limiter):
         return value
 
     def clean(request):
-        value=runtime(request); value.publisher.cleanup(); return value
+        value=runtime(request); value.publisher.cleanup(); value.quota.expire(); return value
+
+    def client_key(request):
+        # The same identity the rate limiter uses.
+        try: return str(limiter._key_func(request))
+        except Exception: return request.client.host if request.client else 'unknown'
 
     def prepared_view(prepared):
         content=prepared.draft.content
@@ -131,16 +192,27 @@ def attach_v1_routes(app,limiter):
     @router.post('/drafts',status_code=201)
     @limiter.limit('10/minute')
     async def create_draft(body:DraftCreate,request:Request):
-        value=clean(request)
+        value=await asyncio.to_thread(clean,request)
         if body.mode=='ai' and (not value.ai_enabled or value.proposer is None):
             # 503 matches this router's other "feature unavailable" reports. Nothing is built or read.
             raise HTTPException(503,'AI draft preparation is not enabled')
+        client=client_key(request)
         if body.mode=='form':
             if body.prompt is not None: raise ValueError('Form input does not take a prompt')
-            return prepared_view(value.briefs.create(body.input))
+            value.quota.admit_draft(client)
+            prepared=value.briefs.create(body.input)
+            value.quota.record_draft(prepared.draft.draft_id,client,len(prepared.model_dump_json()))
+            return prepared_view(prepared)
         if body.input or body.prompt is None: raise ValueError('AI entry requires a prompt and empty initial input')
+        if not value.proposer.budget.has_capacity():
+            # Over the provider-call budget: the existing AI-unavailable report, before any record or call.
+            return JSONResponse(status_code=503,content=dict(state='unavailable',
+                reasons=['AI preparation unavailable; typed form remains available'],prepared=None),headers={'Cache-Control':'no-store'})
+        value.quota.admit_draft(client,ai=True)
         prepared=value.briefs.create({})
+        value.quota.record_draft(prepared.draft.draft_id,client,len(prepared.model_dump_json()))
         result=await value.proposer.propose(prepared.draft.draft_id,expected_revision=1,prompt=body.prompt)
+        value.quota.touch(prepared.draft.draft_id,len(result.prepared.model_dump_json()))
         if result.state in ('unavailable','cancelled'):
             return JSONResponse(status_code=503,content=dict(state=result.state,reasons=result.reasons,prepared=prepared_view(result.prepared)),headers={'Cache-Control':'no-store'})
         return prepared_view(result.prepared)
@@ -148,22 +220,27 @@ def attach_v1_routes(app,limiter):
     @router.get('/drafts/{draft_id}')
     @limiter.limit('30/minute')
     async def read_draft(draft_id:str,request:Request):
-        return prepared_view(clean(request).briefs.read(draft_id))
+        return prepared_view((await asyncio.to_thread(clean,request)).briefs.read(draft_id))
 
     @router.patch('/drafts/{draft_id}')
     @limiter.limit('30/minute')
     async def edit_draft(draft_id:str,body:DraftEdit,request:Request):
-        return prepared_view(clean(request).briefs.edit(draft_id,expected_revision=body.expected_revision,payload=body.input))
+        value=await asyncio.to_thread(clean,request)
+        prepared=value.briefs.edit(draft_id,expected_revision=body.expected_revision,payload=body.input)
+        value.quota.touch(draft_id,len(prepared.model_dump_json()))
+        return prepared_view(prepared)
 
     @router.post('/briefs',status_code=201)
     @limiter.limit('30/minute')
     async def finalize_brief(body:ReviewInput,request:Request):
-        return clean(request).briefs.finalize(body).model_dump(mode='json')
+        value=await asyncio.to_thread(clean,request)
+        value.quota.admit_brief(body.draft_id)
+        return value.briefs.finalize(body).model_dump(mode='json')
 
     @router.get('/briefs/{brief_id}')
     @limiter.limit('30/minute')
     async def read_brief(brief_id:str,request:Request):
-        return clean(request).briefs.read_brief(brief_id).model_dump(mode='json')
+        return (await asyncio.to_thread(clean,request)).briefs.read_brief(brief_id).model_dump(mode='json')
 
     def job_view(value,job):
         record=job.model_dump(mode='json')
@@ -181,7 +258,8 @@ def attach_v1_routes(app,limiter):
         formats={}
         if record['lifecycle'] in ('completed','unavailable','cancelled'):
             try:
-                value.publisher.validate(job.job_id,job.bundle)
+                # Publish-time validation is authoritative; polling only does stat-level checks.
+                value.publisher.quick_check(job.job_id,job.bundle)
                 delivery='available'
                 directory=value.publisher.directory(job.job_id)
                 formats={format:(directory/name).is_file() for format,(name,_) in FORMATS.items()}
@@ -193,23 +271,26 @@ def attach_v1_routes(app,limiter):
     @limiter.limit('10/minute')
     async def submit_job(body:JobSubmit,request:Request):
         value=runtime(request)
-        return job_view(value,value.jobs.submit(body.brief_id,body.idempotency_key))
+        job=value.jobs.submit(body.brief_id,body.idempotency_key,client_key(request))
+        return await asyncio.to_thread(job_view,value,job)
 
     @router.get('/jobs/{job_id}')
     @limiter.limit('120/minute')
     async def read_job(job_id:str,request:Request):
-        value=runtime(request); return job_view(value,value.jobs.read(job_id))
+        value=runtime(request)
+        return await asyncio.to_thread(lambda:job_view(value,value.jobs.read(job_id)))
 
     @router.post('/jobs/{job_id}/cancel')
     @limiter.limit('30/minute')
     async def cancel_job(job_id:str,request:Request):
-        value=runtime(request); return job_view(value,value.jobs.cancel(job_id))
+        value=runtime(request)
+        return await asyncio.to_thread(lambda:job_view(value,value.jobs.cancel(job_id)))
 
     @router.get('/jobs/{job_id}/artifacts/{format}')
     @limiter.limit('60/minute')
     async def download(job_id:str,format:str,request:Request):
         value=runtime(request)
-        job=value.jobs.read(job_id)
+        job=await asyncio.to_thread(value.jobs.read,job_id)
         if getattr(job,'expired',False): raise ArtifactExpired('Expired')
         if format not in FORMATS: raise KeyError(format)
         if job.lifecycle not in ('completed','unavailable','cancelled'):
@@ -217,23 +298,14 @@ def attach_v1_routes(app,limiter):
         if not value.publisher.directory(job_id).exists():
             if job.outcome=='accepted': raise HTTPException(503,'Required accepted publication unavailable')
             raise KeyError(format)
-        lease=value.publisher.lease(job_id,format)
-        try: resource=lease.__enter__()
+        try: resource=await asyncio.to_thread(value.publisher.open_lease,job_id,format)
         except ArtifactExpired: raise
         except KeyError:
             if job.outcome=='accepted': raise HTTPException(503,'Required publication metadata unavailable') from None
             raise
         except (ValueError,OSError):
             raise HTTPException(503,'Required publication integrity check failed') from None
-        def close(): lease.__exit__(None,None,None)
-        def chunks():
-            try:
-                while True:
-                    block=resource.file.read(65536)
-                    if not block: break
-                    yield block
-            finally: close()
-        return StreamingResponse(chunks(),media_type=resource.mime_type,background=BackgroundTask(close),
+        return LeasedResponse(resource,media_type=resource.mime_type,
             headers={'Cache-Control':'no-store','Content-Length':str(resource.size),
                 'Content-Disposition':f'attachment; filename="{resource.filename}"',
                 'X-Content-SHA256':resource.sha256})

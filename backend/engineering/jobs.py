@@ -5,7 +5,7 @@ import math
 import time
 from uuid import uuid4
 
-from .admission import AdmissionBusy, native_slot
+from .admission import AdmissionBusy, ClientFairness, native_slot
 from .briefs import RevisionConflict
 from .capabilities import CAPABILITY
 from .contracts import EngineeringRun, Lifecycle, Outcome, ContractModel, Text, Sha256, CapabilityReference
@@ -51,13 +51,15 @@ class JobController:
     B10 supplies durable publication. No publisher means no accepted terminal
     commit. Polling/read never starts work; only submit creates an owned task.
     """
-    def __init__(self, store, *, publisher=None, adapter=None, overall_seconds=420):
+    def __init__(self, store, *, publisher=None, adapter=None, overall_seconds=420, fairness=None):
         if isinstance(overall_seconds, bool) or not math.isfinite(overall_seconds) or not 0 < overall_seconds <= 420:
             raise ValueError('Overall deadline must be positive and at most 420 seconds')
         if getattr(store, '_controller_created', False):
             raise RuntimeError('Engineering store already has a controller owner')
         store._controller_created = True
         self.store, self.publisher, self.adapter = store, publisher, adapter
+        # Direct (non-API) use is unrestricted; the API runtime supplies configured fairness.
+        self.fairness = fairness or ClientFairness.unlimited()
         self.seconds, self.tasks = overall_seconds, {}
         self.closed = False
         store.recover()
@@ -91,7 +93,7 @@ class JobController:
                 raise KeyError(job_id)
             return parse_run(row[0])
 
-    def submit(self, brief_id, key):
+    def submit(self, brief_id, key, client='anonymous'):
         if self.closed:
             raise RuntimeError('Engineering controller is closed')
         self.tasks = {key: task for key, task in self.tasks.items() if not task.done()}
@@ -99,6 +101,8 @@ class JobController:
             raise ValueError('Idempotency key must contain 1-128 characters')
         if self.publisher:
             self.publisher.cleanup()
+        # Idempotency keys are scoped to the client: another client's identical key is a different key.
+        key = client + '\x00' + key
         with self.store.transaction() as db:
             previous=db.execute('SELECT brief,record FROM jobs WHERE key=?',(key,)).fetchone()
             if previous:
@@ -114,10 +118,15 @@ class JobController:
                     raise RevisionConflict('Idempotency key belongs to a different finalized brief')
                 return parse_run(row['record'])
             reserved = db.execute('SELECT COALESCE(SUM(reserved),0), COUNT(*) FROM jobs WHERE reserved>0').fetchone()
+            self.fairness.check(client)
             usage=max(reserved[0],self.store.storage_bytes())
             if usage + CAPABILITY.resources.run_bytes > CAPABILITY.resources.storage_bytes or reserved[1] >= 50:
                 raise AdmissionBusy('Engineering storage capacity exhausted; retry after expiry')
-            native_slot.claim(owner)
+            try:
+                native_slot.claim(owner)
+            except AdmissionBusy:
+                self.fairness.refused(client)
+                raise
             try:
                 now = datetime.now(timezone.utc)
                 job = EngineeringRun(schema_version='engineering_run_v1', job_id=uuid4().hex,
@@ -129,6 +138,7 @@ class JobController:
             except BaseException:
                 native_slot.release(owner)
                 raise
+        self.fairness.admitted(client)
         try:
             self.tasks[job.job_id] = asyncio.create_task(self._run(job, brief, owner, time.monotonic()+self.seconds))
         except BaseException:
@@ -174,7 +184,8 @@ class JobController:
             if outcome == Outcome.ACCEPTED:
                 if self.publisher is None or bundle is None:
                     raise ValueError('Durable complete publication is required')
-                self.publisher.validate(job_id, bundle)
+                # publish() already validated every byte once; re-check cheaply (no byte reads).
+                self.publisher.quick_check(job_id, bundle)
             run = changed(run, lifecycle=lifecycle, outcome=outcome, failures=tuple(failures), bundle=bundle)
             db.execute('UPDATE jobs SET record=?,reserved=?,expires=? WHERE id=?',
                        (run.model_dump_json(), bundle.stored_bytes if bundle else self.publisher.stored_bytes(job_id) if self.publisher else 0,

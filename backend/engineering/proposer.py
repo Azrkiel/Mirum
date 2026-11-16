@@ -21,6 +21,7 @@ from pydantic import Field, StringConstraints, ValidationError
 
 from .briefs import BriefService, InputIssue, PreparedDraft, RevisionConflict
 from .capabilities import CAPABILITY
+from .limits import AiCallBudget
 from .contracts import (CapabilityReference, ContractModel, FieldOrigin, Provenance,
                         Sha256, Text)
 from .search import _controlled, _Stopped
@@ -158,16 +159,21 @@ class GeminiProposalProvider:
         key = os.environ.get('GEMINI_API_KEY_HEAVY', '').strip()
         if not key:
             raise RuntimeError('AI preparation credentials unavailable')
-        # gRPC's bundled roots omit locally installed trust anchors. Use the
-        # verified OS trust store per client, without changing process globals.
-        roots = ssl.create_default_context().get_ca_certs(binary_form=True)
-        if not roots:
-            raise RuntimeError('AI preparation trusted roots unavailable')
-        certificates = ''.join(ssl.DER_cert_to_PEM_cert(root) for root in roots).encode('ascii')
-        transport = partial(GenerativeServiceGrpcAsyncIOTransport,
-            ssl_channel_credentials=grpc.ssl_channel_credentials(root_certificates=certificates))
-        # Explicit per-call client: never mutate the legacy global genai config.
-        client = glm.GenerativeServiceAsyncClient(transport=transport, client_options=ClientOptions(api_key=key))
+        import config
+        if config.ENGINEERING_TLS_OS_TRUST:
+            # Explicit local diagnostic opt-in (MIRUM_ENGINEERING_TLS_OS_TRUST): trust the
+            # OS store, e.g. behind TLS-intercepting antivirus. Any locally added root
+            # could then read the API key, so this is never the default.
+            roots = ssl.create_default_context().get_ca_certs(binary_form=True)
+            if not roots:
+                raise RuntimeError('AI preparation trusted roots unavailable')
+            certificates = ''.join(ssl.DER_cert_to_PEM_cert(root) for root in roots).encode('ascii')
+            transport = partial(GenerativeServiceGrpcAsyncIOTransport,
+                ssl_channel_credentials=grpc.ssl_channel_credentials(root_certificates=certificates))
+            client = glm.GenerativeServiceAsyncClient(transport=transport, client_options=ClientOptions(api_key=key))
+        else:
+            # Default: the SDK's own gRPC channel with gRPC's bundled roots.
+            client = glm.GenerativeServiceAsyncClient(client_options=ClientOptions(api_key=key))
         try:
             request = glm.GenerateContentRequest(model='models/'+settings.model.removeprefix('models/'),
                 contents=[glm.Content(role='user', parts=[glm.Part(text=prompt)])],
@@ -286,7 +292,7 @@ def _parse(text):
 
 
 def make_proposer(service: BriefService, *, ledger: ProposalLedger, enabled: bool,
-                  provider_factory=None) -> 'BriefProposer | None':
+                  provider_factory=None, budget: AiCallBudget | None = None) -> 'BriefProposer | None':
     """Build the AI proposer only when the feature flag is on.
 
     When off this constructs no provider, opens no channel and reads no
@@ -294,17 +300,19 @@ def make_proposer(service: BriefService, *, ledger: ProposalLedger, enabled: boo
     """
     if not enabled:
         return None
-    return BriefProposer(service, ledger=ledger, provider=provider_factory() if provider_factory else None)
+    return BriefProposer(service, ledger=ledger, provider=provider_factory() if provider_factory else None, budget=budget)
 
 
 class BriefProposer:
     def __init__(self, service: BriefService, *, ledger: ProposalLedger,
-                 provider: ProposalProvider | None = None, call_seconds: float = 45):
+                 provider: ProposalProvider | None = None, call_seconds: float = 45,
+                 budget: AiCallBudget | None = None):
         if isinstance(call_seconds, bool) or not isinstance(call_seconds, (int, float)) or not math.isfinite(call_seconds) or not 0 < call_seconds <= 45:
             raise ValueError('AI call deadline must be positive and at most 45 seconds')
         self.service, self.ledger = service, ledger
         self.provider = provider or GeminiProposalProvider()
         self.call_seconds = call_seconds
+        self.budget = budget or AiCallBudget.from_config()
 
     async def propose(self, draft_id: str, *, expected_revision: int, prompt: str, cancelled=None) -> ProposalResult:
         current = self.service.read(draft_id)
@@ -317,6 +325,8 @@ class BriefProposer:
         text = EXTRACTION_PROMPT + json.dumps(prompt, ensure_ascii=False)
         if len(text + REPAIR_PROMPT) > CAPABILITY.resources.prompt_characters:
             raise ValueError('Complete AI preparation prompt exceeds 8000 characters')
+        if not self.budget.has_capacity():
+            return ProposalResult(state='unavailable', prepared=current, reasons=('AI preparation unavailable; typed form remains available',))
         try:
             if not self.provider.available:
                 raise RuntimeError('Provider unavailable')
@@ -343,9 +353,14 @@ class BriefProposer:
                 if (self.service.read(draft_id).draft.revision != expected_revision
                         or self.service.is_finalized(draft_id, expected_revision)):
                     raise RevisionConflict('Draft changed or finalized before provider call')
-                update(calls=attempt+1)
-                reply = await _controlled(self.provider.generate(text + (REPAIR_PROMPT if attempt else ''), provider_schema(), settings),
-                    cancelled=cancelled, deadline=time.monotonic()+self.call_seconds)
+                if not self.budget.reserve():
+                    return ProposalResult(state='unavailable', prepared=current, reasons=('AI preparation unavailable; typed form remains available',))
+                try:
+                    update(calls=attempt+1)
+                    reply = await _controlled(self.provider.generate(text + (REPAIR_PROMPT if attempt else ''), provider_schema(), settings),
+                        cancelled=cancelled, deadline=time.monotonic()+self.call_seconds)
+                finally:
+                    self.budget.release()
                 reply = ProviderReply.model_validate(reply.model_dump())
                 size = len(reply.text.encode())
                 update(response_bytes=audit.response_bytes+size, prompt_tokens=audit.prompt_tokens+reply.prompt_tokens,

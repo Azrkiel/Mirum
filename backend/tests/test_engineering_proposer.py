@@ -234,12 +234,14 @@ def test_gemini_truncated_candidate_stops_without_schema_repair(monkeypatch):
     assert 'private incomplete' not in str(result) + ledger.read(draft.draft_id, 1).model_dump_json()
 
 
-def test_gemini_transport_uses_installed_os_trust_without_global_override(monkeypatch):
+def test_gemini_os_trust_opt_in_uses_installed_os_trust_without_global_override(monkeypatch):
     import ssl
     import grpc
     from google.ai import generativelanguage_v1beta as glm
     from google.ai.generativelanguage_v1beta.services.generative_service import transports
     from engineering.proposer import GeminiProposalProvider, provider_schema
+    import config
+    monkeypatch.setattr(config, 'ENGINEERING_TLS_OS_TRUST', True)  # explicit local-diagnostic opt-in
     captured = {}
     roots = ssl.create_default_context().get_ca_certs(binary_form=True)
     expected = ''.join(ssl.DER_cert_to_PEM_cert(root) for root in roots).encode('ascii')

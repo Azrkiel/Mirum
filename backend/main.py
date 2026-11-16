@@ -200,6 +200,34 @@ app.add_middleware(
 )
 
 
+_ENGINEERING_ID_SEGMENT = re.compile(r"^(/engineering/v1/(?:drafts|briefs|jobs))/[^/?]+")
+_ID_MASK = lambda m: m.group(1) + "/{id}"
+
+
+def _loggable_path(request: Request) -> str:
+    """Raw path, except /engineering/v1 resource ids (bearer secrets) are never logged:
+    use the matched route template, or mask the id segment if no route matched."""
+    path = request.url.path
+    if not path.startswith("/engineering/v1"):
+        return path
+    template = getattr(request.scope.get("route"), "path", None)
+    if isinstance(template, str) and template.startswith("/engineering/v1"):
+        return template
+    return _ENGINEERING_ID_SEGMENT.sub(_ID_MASK, path)
+
+
+class _MaskEngineeringIds(logging.Filter):
+    """uvicorn's access log prints the raw request target; mask /engineering/v1 ids there too."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str) and args[2].startswith("/engineering/v1"):
+            record.args = (*args[:2], _ENGINEERING_ID_SEGMENT.sub(_ID_MASK, args[2]), *args[3:])
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_MaskEngineeringIds())
+
+
 @app.middleware("http")
 async def audit_log(request: Request, call_next):
     start = time.time()
@@ -211,7 +239,7 @@ async def audit_log(request: Request, call_next):
         "%s %s %s %d %.3fs",
         request.client.host if request.client else "-",
         request.method,
-        request.url.path,
+        _loggable_path(request),
         response.status_code,
         elapsed,
     )

@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import math
+import re
 
 import requests
 import streamlit as st
@@ -50,11 +51,24 @@ class CheckedClient:
         return response.json()
 
 
+def _refs():
+    """Resource ids act as bearer secrets: keep them in the session, never in the URL."""
+    return st.session_state.setdefault('checked_refs',{})
+
+
+_MARKDOWN_SPECIAL=set('\\`*_{}[]()#+-.!|<>~$&:')
+
+
+def _plain(text):
+    """Escape Markdown so model/server text renders as plain text (no links, images or emphasis)."""
+    return ''.join(('\\'+c if c in _MARKDOWN_SPECIAL else c) for c in str(text))
+
+
 def _remember(state):
-    if state.prepared: st.query_params['checked_draft']=state.prepared['draft']['draft_id']
-    if state.brief: st.query_params['checked_brief']=state.brief['brief_id']
-    elif 'checked_brief' in st.query_params: del st.query_params['checked_brief']
-    if state.job_id: st.query_params['checked_job']=state.job_id
+    if state.prepared: _refs()['checked_draft']=state.prepared['draft']['draft_id']
+    if state.brief: _refs()['checked_brief']=state.brief['brief_id']
+    elif 'checked_brief' in _refs(): del _refs()['checked_brief']
+    if state.job_id: _refs()['checked_job']=state.job_id
 
 
 def _clear_files(job_id):
@@ -105,9 +119,9 @@ def _result(client,state):
     if job.get('expired') or job.get('delivery')=='expired':
         _clear_files(state.job_id); st.warning('Expired. The six-hour download window ended. Review a new request to generate again.'); return
     active=job['lifecycle'] not in ('completed','unavailable','cancelled')
-    st.write('State: **'+job['lifecycle']+'** | engineering outcome: **'+job['outcome']+'**')
+    st.text('State: '+str(job['lifecycle'])+' | engineering outcome: '+str(job['outcome']))
     if active:
-        st.info('Native checks are running for this immutable reviewed brief. Refresh preserves this job identity.')
+        st.info('Native checks are running for this immutable reviewed brief. The job keeps running if this tab is reloaded, but its id is no longer kept in the page URL.')
         if st.button('Cancel current job',key='checked_cancel'):
             try: client.request('POST','/jobs/'+state.job_id+'/cancel'); st.rerun()
             except APIError as error: st.error(str(error))
@@ -118,7 +132,7 @@ def _result(client,state):
     elif job['lifecycle']=='cancelled':
         st.warning('Cancelled before terminal commit. No accepted package is offered.')
     else: st.error('A required execution or publication stage is unavailable. No accepted package is offered.')
-    for reason in job.get('failures',[]): st.write(reason)
+    for reason in job.get('failures',[]): st.text(str(reason))
     attempts=job.get('attempts',[])
     if attempts:
         st.dataframe([dict(thickness_mm=a['candidate']['specification']['height_mm'],outcome=a['outcome'],
@@ -166,27 +180,27 @@ def render_checked(backend,headers):
     st.info('Digital model only: ideal clamp, homogeneous linear elasticity, static end force. No physical testing, manufacturing release or standards certification.')
     client=CheckedClient(backend,headers)
     state=st.session_state.setdefault('checked_state',CheckedState())
-    if state.job_id is None: state.job_id=st.query_params.get('checked_job')
+    if state.job_id is None: state.job_id=_refs().get('checked_job')
     st.query_params['checked_workflow']='1'
     try:
         metadata=st.session_state.get('checked_capabilities')
         if metadata is None:
             metadata=client.request('GET','/capabilities'); st.session_state['checked_capabilities']=metadata
-        if state.prepared is None and st.query_params.get('checked_draft'):
-            state.adopt_draft(client.request('GET','/drafts/'+st.query_params['checked_draft']))
+        if state.prepared is None and _refs().get('checked_draft'):
+            state.adopt_draft(client.request('GET','/drafts/'+_refs()['checked_draft']))
         if state.prepared:
             state.observe(client.request('GET','/drafts/'+state.prepared['draft']['draft_id']))
-        if state.brief is None and not state.stale and st.query_params.get('checked_brief'):
-            try: state.reviewed(client.request('GET','/briefs/'+st.query_params['checked_brief']))
+        if state.brief is None and not state.stale and _refs().get('checked_brief'):
+            try: state.reviewed(client.request('GET','/briefs/'+_refs()['checked_brief']))
             except ValueError:
-                if 'checked_brief' in st.query_params: del st.query_params['checked_brief']
-        if state.job_id is None: state.job_id=st.query_params.get('checked_job')
+                if 'checked_brief' in _refs(): del _refs()['checked_brief']
+        if state.job_id is None: state.job_id=_refs().get('checked_job')
     except APIError as error:
         st.error(str(error))
         if error.status==410:
             state.prepared=None; state.brief=None
             for key in ('checked_draft','checked_brief'):
-                if key in st.query_params: del st.query_params[key]
+                if key in _refs(): del _refs()[key]
         else: return
     descriptor=metadata['capabilities'][0]
     if state.stale:
@@ -196,7 +210,7 @@ def render_checked(backend,headers):
     if st.button('Start a new typed request',help='Creates a separate supported request. Prior requirements are retained in their old revision; the current job remains available for cancellation.'):
         state.prepared=None; state.brief=None; state.stale=False
         for key in ('checked_draft','checked_brief'):
-            if key in st.query_params: del st.query_params[key]
+            if key in _refs(): del _refs()[key]
         st.session_state['checked_entry']='Typed form'; st.rerun()
     if ai_mode_enabled(metadata):
         entry=st.radio('Entry method',['Typed form','AI-assisted draft'],horizontal=True,key='checked_entry')
@@ -218,7 +232,7 @@ def render_checked(backend,headers):
     prepared=state.prepared
     issues=prepared.get('issues',[]) if prepared else []
     for issue in issues:
-        (st.error if issue['state']=='unsupported' else st.warning)(issue['field']+': '+issue['reason'])
+        (st.error if issue['state']=='unsupported' else st.warning)(_plain(issue['field']+': '+issue['reason']))
     blocked=any(i['state']=='unsupported' for i in issues)
     if blocked: st.error('Unsupported requirements cannot be removed by saving this form. Start a new typed request only if you intend a separate supported design.')
     resolved=st.checkbox('I resolved the listed clarification questions in these typed fields.',key='checked_resolved_'+str(identity(state.prepared))) if issues and not blocked else True

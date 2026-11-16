@@ -73,6 +73,16 @@ class Download:
     mime_type: str
     size: int
     sha256: str
+    _release: object = None
+    _closed: bool = False
+
+    def close(self):
+        """Release the lease exactly once, even if called again or after a disconnect."""
+        if self._closed: return
+        self._closed=True
+        try: self.file.close()
+        finally:
+            if self._release: self._release()
 
 
 class BundlePublisher:
@@ -220,7 +230,7 @@ class BundlePublisher:
             with self.store.transaction() as db:
                 db.execute('INSERT INTO publications VALUES (?,?,?)',
                     (job_id,json.dumps(publication),time.time()+CAPABILITY.resources.bundle_retention_seconds))
-            self.validate(job_id,publication.get('bundle'))
+            await asyncio.to_thread(self.validate,job_id,publication.get('bundle'))
             return publication
         except BaseException:
             if stage.exists(): shutil.rmtree(stage)
@@ -229,42 +239,57 @@ class BundlePublisher:
                 db.execute('DELETE FROM publications WHERE job=?',(job_id,))
             raise
 
-    def validate(self,job_id,envelope=None):
-        # Caller may already hold the terminal write transaction. RLock protects
-        # the connection; do not start a nested SQLite transaction here.
+    def quick_check(self,job_id,envelope=None):
+        """Cheap integrity gate for status/terminal paths: recorded publication row,
+        envelope identity, exact file set, paths and recorded byte counts. Reads no
+        file content; ``validate`` (publish time) and ``open_lease`` (download time)
+        do the digest work."""
         with self.store._lock:
             publication,_=self._publication(job_id)
-            if envelope is not None:
-                expected=envelope.model_dump(mode='json') if isinstance(envelope,BundleIdentity) else envelope
-                if publication.get('bundle') != expected: raise ValueError('Publication envelope changed')
-            directory=self.directory(job_id)
-            identities={p['path']:p for p in publication['payloads']}
-            names=set(identities)|{'manifest.json','package.zip'}
-            if set(p.name for p in directory.iterdir()) != names: raise ValueError('Incomplete package')
-            captured={}
-            for name in names:
-                path=directory/name
-                if name not in MIME or path.is_symlink() or path.resolve().parent != directory.resolve():
-                    raise ValueError('Invalid package path')
-                expected=identities.get(name) or dict(bytes=publication['manifest_bytes' if name=='manifest.json' else 'zip_bytes'],
-                    sha256=publication['manifest_sha256' if name=='manifest.json' else 'zip_sha256'])
-                if path.stat().st_size != expected['bytes']: raise ValueError('Package byte count changed')
-                value=path.read_bytes()
-                if digest(value) != expected['sha256']: raise ValueError('Package fingerprint changed')
-                captured[name]=value
-            manifest=BundleManifest.model_validate_json(captured['manifest.json']).model_dump(mode='json')
-            if manifest['job_id']!=job_id or manifest['kind']!=publication['kind']:
-                raise ValueError('Manifest revision changed')
-            if ({p['path']:dict(path=p['path'],sha256=p['sha256'],bytes=p['bytes']) for p in manifest['payloads']} != identities
-                    or any(p['mime_type']!=MIME[p['path']] for p in manifest['payloads'])):
-                raise ValueError('Manifest content mismatch')
-            with zipfile.ZipFile(io.BytesIO(captured['package.zip'])) as z:
-                if set(z.namelist()) != names-{'package.zip'} or len(z.namelist()) != len(names)-1:
-                    raise ValueError('Archive layout mismatch')
-                if any(z.read(name)!=captured[name] for name in z.namelist()): raise ValueError('Archive content mismatch')
+        if envelope is not None:
+            expected=envelope.model_dump(mode='json') if isinstance(envelope,BundleIdentity) else envelope
+            if publication.get('bundle') != expected: raise ValueError('Publication envelope changed')
+        directory=self.directory(job_id)
+        identities={p['path']:p for p in publication['payloads']}
+        names=set(identities)|{'manifest.json','package.zip'}
+        if set(p.name for p in directory.iterdir()) != names: raise ValueError('Incomplete package')
+        for name in names:
+            path=directory/name
+            if name not in MIME or path.is_symlink() or path.resolve().parent != directory.resolve():
+                raise ValueError('Invalid package path')
+            expected=identities.get(name) or dict(bytes=publication['manifest_bytes' if name=='manifest.json' else 'zip_bytes'])
+            if path.stat().st_size != expected['bytes']: raise ValueError('Package byte count changed')
+        return publication
 
-    @contextmanager
-    def lease(self,job_id,format,*,envelope=None):
+    def validate(self,job_id,envelope=None):
+        """Full validation: every digest, the manifest and the archive. Run once at
+        publish time and not under the store lock, so it never blocks other requests."""
+        publication=self.quick_check(job_id,envelope)
+        directory=self.directory(job_id)
+        identities={p['path']:p for p in publication['payloads']}
+        names=set(identities)|{'manifest.json','package.zip'}
+        captured={}
+        for name in names:
+            expected=identities.get(name) or dict(sha256=publication['manifest_sha256' if name=='manifest.json' else 'zip_sha256'])
+            value=(directory/name).read_bytes()
+            if digest(value) != expected['sha256']: raise ValueError('Package fingerprint changed')
+            captured[name]=value
+        manifest=BundleManifest.model_validate_json(captured['manifest.json']).model_dump(mode='json')
+        if manifest['job_id']!=job_id or manifest['kind']!=publication['kind']:
+            raise ValueError('Manifest revision changed')
+        if ({p['path']:dict(path=p['path'],sha256=p['sha256'],bytes=p['bytes']) for p in manifest['payloads']} != identities
+                or any(p['mime_type']!=MIME[p['path']] for p in manifest['payloads'])):
+            raise ValueError('Manifest content mismatch')
+        with zipfile.ZipFile(io.BytesIO(captured['package.zip'])) as z:
+            if set(z.namelist()) != names-{'package.zip'} or len(z.namelist()) != len(names)-1:
+                raise ValueError('Archive layout mismatch')
+            if any(z.read(name)!=captured[name] for name in z.namelist()): raise ValueError('Archive content mismatch')
+
+    def open_lease(self,job_id,format,*,envelope=None):
+        """Open one served file under a lease. The store lock is held only for the cheap
+        checks; the single integrity check (streamed digest of the exact file that will
+        be served against its recorded digest) runs outside it. Blocking: call off the
+        event loop. The caller must ``close()`` the returned Download (idempotent)."""
         if format not in FORMATS: raise KeyError(format)
         with self.store._lock:
             publication,expires=self._publication(job_id)
@@ -273,19 +298,34 @@ class BundlePublisher:
                 row=self.store.db.execute('SELECT record FROM jobs WHERE id=?',(job_id,)).fetchone()
                 if not row or json.loads(row[0])['lifecycle'] not in ('completed','unavailable','cancelled'):
                     raise KeyError('Publication is not committed')
-            self.validate(job_id,envelope)
+            self.quick_check(job_id,envelope)
             name,mime=FORMATS[format]
             path=self.directory(job_id)/name
             if not path.is_file(): raise KeyError(format)
             file=path.open('rb')
             self.leases[job_id]=self.leases.get(job_id,0)+1
-        try:
-            size,sha=path.stat().st_size,digest(file.read())
-            file.seek(0)
-            yield Download(file,name,mime,size,sha)
-        finally:
-            file.close()
+        def release():
             with self.store._lock: self.leases[job_id]-=1
+        download=Download(file,name,mime,0,'',_release=release)
+        try:
+            identities={p['path']:p for p in publication['payloads']}
+            recorded=(identities.get(name) or dict(sha256=publication['manifest_sha256' if name=='manifest.json' else 'zip_sha256']))['sha256']
+            hasher=hashlib.sha256(); size=0
+            for block in iter(lambda:file.read(1<<20),b''):
+                hasher.update(block); size+=len(block)
+            if hasher.hexdigest()!=recorded: raise ValueError('Package fingerprint changed')
+            file.seek(0)
+            download.size,download.sha256=size,recorded
+            return download
+        except BaseException:
+            download.close()
+            raise
+
+    @contextmanager
+    def lease(self,job_id,format,*,envelope=None):
+        download=self.open_lease(job_id,format,envelope=envelope)
+        try: yield download
+        finally: download.close()
 
     def stored_bytes(self,job_id):
         with self.store._lock:
