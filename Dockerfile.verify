@@ -44,6 +44,7 @@ COPY frontend/ /workspace/frontend/
 COPY --from=explorer-build /build/dist /workspace/frontend/components/glider_explorer/dist
 COPY --from=explorer-build /usr/local/bin/node /usr/local/bin/node
 COPY data_pipeline/ /workspace/data_pipeline/
+COPY scripts/cem/ /workspace/scripts/cem/
 COPY output/wing_assembly_oml_reference.json /workspace/output/wing_assembly_oml_reference.json
 COPY pytest.ini /workspace/pytest.ini
 # Git-Bash checkouts may contain CRLF shebangs; normalize trusted test shims.
