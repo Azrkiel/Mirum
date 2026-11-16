@@ -670,6 +670,11 @@ async def _apply_diff_and_export(
 
 async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = False) -> AsyncGenerator[str, None]:
     """Run the full pipeline, yielding SSE progress events."""
+    from dragsters.intent import detect
+    if detect(prompt).is_dragster:
+        yield 'data: ' + json.dumps({'step': 'route', 'status': 'done', 'workflow': 'co2_dragster',
+                                    'detail': 'Routed to the deterministic CO2 dragster workflow'}) + '\n\n'
+        return
 
     # --- Step 1: REA (parallel with Planner) + Planner ---
     yield _event("planner", "running")
@@ -1548,6 +1553,7 @@ async def _execute_accepted(script: str, output_path: str, output_variable: str 
 # A dedicated fixed worker consumes only the strict spec, never Python source.
 from dragsters.spec import DragsterSpec
 from dragsters.api import stream as dragster_stream
+from dragsters.spec_v2 import DragsterSpecV2
 
 
 @app.post("/dragsters/generate")
@@ -1557,6 +1563,22 @@ async def generate_dragster(body: DragsterSpec, request: Request):
     return StreamingResponse(dragster_stream(body, request, _safe_error, request.app.state.dragster_runner),
                              media_type="text/event-stream",
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+class DragsterInterpretRequest(BaseModel):
+    model_config = {'extra': 'forbid', 'strict': True}
+    prompt: str = Field(min_length=1, max_length=2000)
+    base_spec: DragsterSpecV2 | None = None
+
+
+@app.post("/dragsters/interpret")
+@limiter.limit("10/minute")
+async def interpret_dragster(body: DragsterInterpretRequest, request: Request):
+    from dragsters.extraction import interpret, ExtractionUnavailable, UNAVAILABLE_MESSAGE
+    try:
+        return await interpret(body.prompt, body.base_spec)
+    except ExtractionUnavailable:
+        return JSONResponse(status_code=503, content={'message': _safe_error(UNAVAILABLE_MESSAGE)})
 
 
 @app.post("/generate")
