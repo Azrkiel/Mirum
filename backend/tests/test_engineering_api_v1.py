@@ -19,6 +19,17 @@ def client(tmp_path,monkeypatch,offline_models):
         yield c
 
 
+@pytest.fixture
+def ai_client(tmp_path,monkeypatch,offline_models):
+    """Same app with MIRUM_ENGINEERING_AI_DRAFTS on (config constant, read at startup)."""
+    import config
+    monkeypatch.setattr(config,'ENGINEERING_AI_DRAFTS',True)
+    monkeypatch.setenv('MIRUM_ENGINEERING_DATA_DIR',str(tmp_path/'engineering'))
+    with TestClient(main.app) as c:
+        main.app.state.limiter.reset()
+        yield c
+
+
 def finalized(client,payload=None):
     response=client.post('/engineering/v1/drafts',json={'input':payload or data()['content']})
     assert response.status_code==201,response.text
@@ -116,7 +127,8 @@ def test_revision_conflicts_missing_inputs_and_auth(client,monkeypatch):
     assert client.get('/engineering/v1/capabilities',headers={'X-Mirum-Access-Token':'fixture-access'}).status_code==200
 
 
-def test_no_provider_typed_route_and_ai_failure_remains_reviewable(client,monkeypatch):
+def test_no_provider_typed_route_and_ai_failure_remains_reviewable(ai_client,monkeypatch):
+    client=ai_client
     monkeypatch.delenv('GEMINI_API_KEY_HEAVY',raising=False)
     finalized(client)
     response=client.post('/engineering/v1/drafts',json={'mode':'ai','prompt':'Describe a beam','input':{}})
@@ -126,7 +138,8 @@ def test_no_provider_typed_route_and_ai_failure_remains_reviewable(client,monkey
     assert client.get('/engineering/v1/drafts/'+value['prepared']['draft']['draft_id']).status_code==200
 
 
-def test_ai_fixture_uses_same_review_service_and_semantic_identity(client):
+def test_ai_fixture_uses_same_review_service_and_semantic_identity(ai_client):
+    client=ai_client
     from engineering.proposer import ProviderReply,ProviderSettings
     corpus=json.loads(__import__('pathlib').Path('backend/tests/fixtures/engineering/ai-corpus-v1.json').read_text())
     cases=corpus['cases'] if isinstance(corpus,dict) else corpus
@@ -164,3 +177,35 @@ def test_public_rate_limit_applies_without_native_execution(client,monkeypatch):
     main.limiter.reset()
     codes=[client.get('/engineering/v1/capabilities').status_code for _ in range(31)]
     assert codes.count(200)==30 and codes[-1]==429
+
+
+def test_ai_flag_off_rejects_ai_mode_without_provider_or_key(client,monkeypatch):
+    from engineering import proposer as proposer_module
+    touched=[]
+    def forbid(name):
+        def fail(*args,**kwargs): touched.append(name); raise AssertionError(name)
+        return fail
+    monkeypatch.setattr(proposer_module.GeminiProposalProvider,'__init__',forbid('init'))
+    monkeypatch.setattr(proposer_module.GeminiProposalProvider,'available',property(forbid('available')))
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY','must-not-be-read')
+    assert main.app.state.engineering.proposer is None
+    response=client.post('/engineering/v1/drafts',json={'mode':'ai','prompt':'Describe a beam','input':{}})
+    assert response.status_code==503
+    assert response.json()['detail']=='AI draft preparation is not enabled'
+    capabilities=client.get('/engineering/v1/capabilities').json()
+    assert capabilities['ai_enabled'] is False and capabilities['ai_available'] is False
+    assert touched==[]
+
+
+def test_ai_flag_off_leaves_form_mode_and_legacy_generate_unchanged(client):
+    prepared,brief=finalized(client)
+    assert prepared['draft']['revision']==1 and brief['brief_id']
+    assert '/engineering/generate' in {getattr(route,'path',None) for route in main.app.routes}
+
+
+def test_ai_flag_on_reports_enabled_and_availability_follows_key(ai_client,monkeypatch):
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY','fixture-not-sent')
+    on=ai_client.get('/engineering/v1/capabilities').json()
+    assert on['ai_enabled'] is True and on['ai_available'] is True
+    monkeypatch.delenv('GEMINI_API_KEY_HEAVY')
+    assert ai_client.get('/engineering/v1/capabilities').json()['ai_available'] is False

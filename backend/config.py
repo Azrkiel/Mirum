@@ -53,6 +53,19 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Read a boolean env var; only "1"/"true" (any case) count as on."""
+    raw = _os_cfg.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true")
+
+
+# Checked-beam AI draft preparation (POST /engineering/v1/drafts with mode "ai").
+# OFF by default: not live-qualified. When off, no provider is constructed and
+# no API key is read for this feature. Typed/form mode is unaffected.
+ENGINEERING_AI_DRAFTS: bool = _env_flag("MIRUM_ENGINEERING_AI_DRAFTS", False)
+
 # Maximum Machinist retries per part before the Critic Loop gives up
 CRITIC_MAX_RETRIES: int = _env_int("MIRUM_CRITIC_MAX_RETRIES", 3)
 

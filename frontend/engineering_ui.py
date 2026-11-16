@@ -8,7 +8,7 @@ import math
 import requests
 import streamlit as st
 
-from engineering_state import CheckedState,checked_bytes,merge_form,identity
+from engineering_state import CheckedState,checked_bytes,merge_form,identity,ai_mode_enabled
 
 FORMATS={'zip':('package.zip','application/zip'),'brief':('brief.json','application/json'),
     'spec':('selected_spec.json','application/json'),'source':('model.py','text/plain'),
@@ -198,8 +198,11 @@ def render_checked(backend,headers):
         for key in ('checked_draft','checked_brief'):
             if key in st.query_params: del st.query_params[key]
         st.session_state['checked_entry']='Typed form'; st.rerun()
-    entry=st.radio('Entry method',['Typed form','AI-assisted draft'],horizontal=True,key='checked_entry')
-    if not metadata['ai_available']: st.caption('AI is unavailable. The typed form works without provider credentials.')
+    if ai_mode_enabled(metadata):
+        entry=st.radio('Entry method',['Typed form','AI-assisted draft'],horizontal=True,key='checked_entry')
+        if not metadata['ai_available']: st.caption('AI is unavailable. The typed form works without provider credentials.')
+    else:
+        entry='Typed form'; st.session_state['checked_entry']=entry
     if entry=='AI-assisted draft':
         prompt=st.text_area('Engineering request',max_chars=8000,key='checked_prompt',
             help='Include all dimensions, force, material source and limits. Unsupported requirements remain visible and block execution.')

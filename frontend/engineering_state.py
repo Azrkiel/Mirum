@@ -59,3 +59,8 @@ def checked_bytes(job,path,value):
     if expected is None or hashlib.sha256(value).hexdigest()!=expected:
         raise ValueError('Downloaded bytes belong to another accepted revision')
     return value
+
+
+def ai_mode_enabled(capabilities):
+    """AI entry is offered only when the server reports the feature enabled."""
+    return bool(isinstance(capabilities,dict) and capabilities.get('ai_enabled') is True)

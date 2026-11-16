@@ -417,3 +417,56 @@ assert not any(n in sys.modules for n in ['agents', 'google.generativeai', 'goog
 @pytest.mark.parametrize('seconds', [46, 0, -1, True, float('nan'), float('inf')])
 def test_call_deadline_cannot_be_disabled_or_increased(seconds):
     with pytest.raises(ValueError): setup(FixtureProvider([]), call_seconds=seconds)
+
+
+def test_failed_validation_is_kept_in_the_audit_ledger_only(caplog):
+    raw_bad = '{"schema_version": "engineering_proposal_v1", "state": "bogus-secret-marker"}'
+    provider = FixtureProvider([raw_bad, 'not json at all'])
+    _, draft, proposer, ledger = setup(provider)
+    with caplog.at_level('DEBUG'):
+        result = propose(proposer, draft)
+    assert result.state == 'unavailable'
+    # never returned to the client-facing result, never logged
+    assert 'bogus-secret-marker' not in result.model_dump_json()
+    assert 'bogus-secret-marker' not in caplog.text and 'not json at all' not in caplog.text
+    audit = ledger.read(draft.draft_id, draft.revision)
+    first, second = audit.validation_failures
+    assert (first.attempt, second.attempt) == (1, 2)
+    assert first.raw_reply == raw_bad and not first.raw_truncated
+    pairs = {(e.location, e.type) for e in first.errors}
+    assert ('state', 'literal_error') in pairs
+    assert ('fields', 'missing') in pairs
+    assert all('bogus-secret-marker' not in e.location + e.type for e in first.errors)
+    assert [(e.location, e.type) for e in second.errors] == [('line 1 column 1', 'json_invalid')]
+    assert second.raw_reply == 'not json at all' and not second.raw_truncated
+
+
+def test_audited_raw_reply_is_bounded():
+    from engineering.proposer import validation_failure
+    failure = validation_failure(1, ValueError('x'), 'y' * 30000)
+    assert len(failure.raw_reply) == 16384 and failure.raw_truncated
+
+
+def test_valid_reply_records_no_validation_failure():
+    _, draft, proposer, ledger = setup(FixtureProvider([response()]))
+    assert propose(proposer, draft).state == 'proposed'
+    assert ledger.read(draft.draft_id, draft.revision).validation_failures == ()
+
+
+def test_flag_off_builds_no_provider_and_reads_no_key(monkeypatch):
+    from engineering import proposer as module
+    from engineering.briefs import BriefService, MemoryBriefRepository
+    reads = []
+    class Watching(dict):
+        def get(self, key, *args): reads.append(key); return super().get(key, *args)
+        def __getitem__(self, key): reads.append(key); return super().__getitem__(key)
+        def __contains__(self, key): reads.append(key); return super().__contains__(key)
+    monkeypatch.setattr(module.os, 'environ', Watching({'GEMINI_API_KEY_HEAVY': 'must-not-be-read'}))
+    built = []
+    monkeypatch.setattr(module.GeminiProposalProvider, '__init__', lambda self: built.append(1))
+    service = BriefService(MemoryBriefRepository())
+    assert module.make_proposer(service, ledger=module.MemoryProposalLedger(), enabled=False,
+                                provider_factory=lambda: built.append(2)) is None
+    assert built == [] and reads == []
+    on = module.make_proposer(service, ledger=module.MemoryProposalLedger(), enabled=True)
+    assert on is not None and built == [1]

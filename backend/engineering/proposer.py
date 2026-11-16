@@ -17,7 +17,7 @@ import time
 from typing import Annotated, Literal, Protocol
 from uuid import uuid4
 
-from pydantic import Field
+from pydantic import Field, StringConstraints, ValidationError
 
 from .briefs import BriefService, InputIssue, PreparedDraft, RevisionConflict
 from .capabilities import CAPABILITY
@@ -186,6 +186,37 @@ class GeminiProposalProvider:
             await client.transport.close()
 
 
+RAW_REPLY_AUDIT_CHARACTERS = 16384
+MAX_AUDITED_ERRORS = 32
+
+
+class ValidationErrorLocation(ContractModel):
+    location: Text
+    type: Text
+
+
+class ValidationFailure(ContractModel):
+    """Why a model reply failed local JSON/schema validation. Ledger-only evidence:
+    never logged and never returned to a client."""
+    attempt: int = Field(ge=1, le=2)
+    errors: tuple[ValidationErrorLocation, ...] = Field(max_length=MAX_AUDITED_ERRORS)
+    raw_reply: Annotated[str, StringConstraints(max_length=RAW_REPLY_AUDIT_CHARACTERS)]
+    raw_truncated: bool = False
+
+
+def validation_failure(attempt: int, error: BaseException, raw: str) -> ValidationFailure:
+    """Locations and types only; pydantic messages and input values are omitted."""
+    if isinstance(error, ValidationError):
+        found = [ValidationErrorLocation(location=('.'.join(str(part) for part in item['loc']) or '(root)')[:240],
+                                         type=str(item['type'])[:240]) for item in error.errors(include_input=False, include_url=False, include_context=False)]
+    elif isinstance(error, json.JSONDecodeError):
+        found = [ValidationErrorLocation(location=f'line {error.lineno} column {error.colno}', type='json_invalid')]
+    else:
+        found = [ValidationErrorLocation(location='(root)', type=type(error).__name__.lower())]
+    return ValidationFailure(attempt=attempt, errors=tuple(found[:MAX_AUDITED_ERRORS]),
+                             raw_reply=raw[:RAW_REPLY_AUDIT_CHARACTERS], raw_truncated=len(raw) > RAW_REPLY_AUDIT_CHARACTERS)
+
+
 class ProposalAudit(ContractModel):
     draft_id: Text
     draft_revision: int = Field(ge=1)
@@ -199,6 +230,7 @@ class ProposalAudit(ContractModel):
     response_bytes: int = Field(default=0, ge=0)
     prompt_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
+    validation_failures: tuple[ValidationFailure, ...] = Field(default=(), max_length=2)
 
 
 class ProposalLedger(Protocol):
@@ -251,6 +283,18 @@ def _parse(text):
     decoded = json.loads(text, object_pairs_hook=unique,
                          parse_constant=lambda _: (_ for _ in ()).throw(ValueError('Nonfinite extraction')))
     return ProposalResponse.model_validate_json(json.dumps(decoded, allow_nan=False))
+
+
+def make_proposer(service: BriefService, *, ledger: ProposalLedger, enabled: bool,
+                  provider_factory=None) -> 'BriefProposer | None':
+    """Build the AI proposer only when the feature flag is on.
+
+    When off this constructs no provider, opens no channel and reads no
+    credential: callers must treat None as "AI preparation not enabled".
+    """
+    if not enabled:
+        return None
+    return BriefProposer(service, ledger=ledger, provider=provider_factory() if provider_factory else None)
 
 
 class BriefProposer:
@@ -310,7 +354,8 @@ class BriefProposer:
                     return ProposalResult(state='unavailable', prepared=current, reasons=('AI structured response exceeded 16 KiB; use the form',))
                 try:
                     proposal = _parse(reply.text)
-                except (ValueError, TypeError):
+                except (ValueError, TypeError) as invalid:
+                    update(validation_failures=audit.validation_failures + (validation_failure(attempt+1, invalid, reply.text),))
                     if not attempt: continue
                     return ProposalResult(state='unavailable', prepared=current, reasons=('AI response did not match the extraction schema; use the form',))
                 payload = proposal.fields.model_dump(mode='json', exclude_none=True)

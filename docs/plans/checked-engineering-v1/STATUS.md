@@ -1,5 +1,7 @@
 # Task status
 
+**Landing on main (U4).** The typed/form path is available. AI draft mode (`POST /engineering/v1/drafts` with `mode: ai`) is OFF by default and is not live-qualified. Enable it with `MIRUM_ENGINEERING_AI_DRAFTS=1` (or `true`); `GET /engineering/v1/capabilities` then reports `ai_enabled: true` and the Streamlit "Checked beam" page offers the AI entry mode. With the flag off the AI route returns 503 "AI draft preparation is not enabled" and no provider is built or key read. When a model reply fails local validation, the error locations/types and the raw reply (capped at 16 KiB) are kept in the proposer audit ledger only, never logged or returned.
+
 B01 through B12 are complete within task scope. The [supplied-key diagnostic](handoffs/B13-provided-key-diagnostic.md) passed metadata access and reached generation/local parsing in 7.36 seconds on the 4096-token candidate, but the reply failed strict JSON/schema validation; no repair was authorized in that one-call test. The candidate passes 85 offline checks but is not live-qualified. Antivirus cleanup is verified complete. B13/B14 remain blocked; earlier ledgers are preserved.
 
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |

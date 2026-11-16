@@ -45,3 +45,11 @@ def test_form_preserves_unsupported_input_and_requires_explicit_new_request():
         {'requirements':{'length_mm':200.},'mode':'fixed_design'})
     assert payload['features']==['holes']
     assert payload['requirements']['other_load']=='torsion'
+
+
+def test_ai_mode_is_offered_only_when_server_enables_it():
+    from frontend.engineering_state import ai_mode_enabled
+    assert ai_mode_enabled({'ai_enabled':True,'ai_available':False})
+    assert not ai_mode_enabled({'ai_enabled':False,'ai_available':True})
+    assert not ai_mode_enabled({'ai_available':True})
+    assert not ai_mode_enabled(None)

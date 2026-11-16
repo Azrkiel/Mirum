@@ -15,6 +15,9 @@ services:
       WEB_CONCURRENCY: "1"
       MIRUM_API_REPLICAS: "1"
       MIRUM_ENGINEERING_REQUIRE_VOLUME: "1"
+      # Checked-beam AI draft mode is OFF by default and not live-qualified.
+      # Set to "1" or "true" to enable POST /engineering/v1/drafts with mode "ai".
+      # MIRUM_ENGINEERING_AI_DRAFTS: "1"
     read_only: true
     tmpfs:
       - /tmp:size=256M

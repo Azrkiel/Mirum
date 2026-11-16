@@ -19,7 +19,7 @@ from .bundles import BundlePublisher,FORMATS
 from .capabilities import list_capabilities
 from .contracts import ContractModel,ReviewAcknowledgement,Text,REVIEW_FIELDS
 from .jobs import JobController,compact_run
-from .proposer import BriefProposer
+from .proposer import make_proposer
 from .store import SQLiteStore,SQLiteBriefRepository,SQLiteProposalLedger,ArtifactExpired
 
 
@@ -84,13 +84,17 @@ def create_runtime():
             raise RuntimeError('Engineering requires an owned mounted volume under /tmp/mirum')
     if resolved==scratch or scratch in resolved.parents or resolved in scratch.parents:
         raise RuntimeError('Engineering persistent data and disposable scratch must be separate')
+    # Read once from config; off by default. Off means no provider object is built.
+    import config
+    ai_enabled=bool(config.ENGINEERING_AI_DRAFTS)
     store=SQLiteStore(root)
     try:
         publisher=BundlePublisher(store)
         briefs=BriefService(SQLiteBriefRepository(store))
         jobs=JobController(store,publisher=publisher)
         return SimpleNamespace(store=store,publisher=publisher,briefs=briefs,jobs=jobs,
-            proposer=BriefProposer(briefs,ledger=SQLiteProposalLedger(store)))
+            ai_enabled=ai_enabled,
+            proposer=make_proposer(briefs,ledger=SQLiteProposalLedger(store),enabled=ai_enabled))
     except BaseException:
         store.close()
         raise
@@ -118,7 +122,8 @@ def attach_v1_routes(app,limiter):
         value=runtime(request)
         native=os.name=='posix' and all(importlib.util.find_spec(name) for name in ('cadquery','OCP','numpy'))
         return dict(capabilities=[c.model_dump(mode='json') for c in list_capabilities()],
-            native_available=bool(native),ai_available=value.proposer.provider.available,
+            native_available=bool(native),ai_enabled=value.ai_enabled,
+            ai_available=bool(value.ai_enabled and value.proposer is not None and value.proposer.provider.available),
             review_fields=list(REVIEW_FIELDS),
             availability_scope='Runtime prerequisites; each execution still requires all native evidence',
             persistent_volume_required=os.environ.get('MIRUM_ENGINEERING_REQUIRE_VOLUME','0')=='1')
@@ -127,6 +132,9 @@ def attach_v1_routes(app,limiter):
     @limiter.limit('10/minute')
     async def create_draft(body:DraftCreate,request:Request):
         value=clean(request)
+        if body.mode=='ai' and (not value.ai_enabled or value.proposer is None):
+            # 503 matches this router's other "feature unavailable" reports. Nothing is built or read.
+            raise HTTPException(503,'AI draft preparation is not enabled')
         if body.mode=='form':
             if body.prompt is not None: raise ValueError('Form input does not take a prompt')
             return prepared_view(value.briefs.create(body.input))

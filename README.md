@@ -137,6 +137,7 @@ and rendered, not a second execution of the script. Files are kept for 6 hours.
 |----------|--------|---------|
 | `/generate` | POST | Full pipeline, streamed |
 | `/engineering/generate` | POST | Deterministic typed cantilever CAD + measured STEP checks + bounded beam FEA; no LLM (API only) |
+| `/engineering/v1/*` | GET, POST, PATCH | Checked cantilever design: reviewed typed brief, deterministic no-LLM solver, evidence-gated package. Typed path available; AI draft mode off by default (see below) |
 | `/plan` | POST | Planner only, returns the manifest |
 | `/requirements` | POST | Requirements extraction only |
 | `/clarify` | POST | Returns clarifying questions for a vague prompt |
@@ -148,6 +149,12 @@ and rendered, not a second execution of the script. Files are kept for 6 hours.
 | `/analysis/plots`, `/analysis/pdf` | POST | XFOIL results as plots or a PDF |
 | `/stats` | GET | Failure rates by domain and operation |
 | `/admin/model-config` | GET, POST | Read or change which model each agent uses |
+
+### Checked cantilever design (`/engineering/v1`)
+
+The typed path (form in the "Checked beam" page, or `POST /engineering/v1/drafts` with form input) is available: a human reviews the exact revision, then a deterministic solver with no model produces an evidence-gated package.
+
+AI draft mode, where a model proposes the brief, is **off by default and not live-qualified**. To turn it on, set `MIRUM_ENGINEERING_AI_DRAFTS=1` (or `true`) on the backend, plus `GEMINI_API_KEY_HEAVY`. With it off, an AI-mode request returns 503 "AI draft preparation is not enabled", `GET /engineering/v1/capabilities` reports `ai_enabled: false`, and the UI shows form mode only. AI proposals still need the same human review; failed model replies are kept in an internal audit ledger only.
 
 ## What doesn't work yet
 
