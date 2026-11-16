@@ -344,3 +344,13 @@ python -m pytest backend/tests -k "native or actual_coordinate_polars" -q
 
 `cem-coordinate-window-results.json` is copied into the image so the window
 coverage tests run in CI.
+
+`test_cem_window_coverage.py::test_actual_installed_states_are_not_covered_by_historical_narrow_windows`
+is also **not run in CI: it needs the receipt's runtime**. `installed_sha256` hashes
+exact float coordinates, and aerosandbox's NACA coordinates differ in the last bits
+(up to 5.6e-17, 23 of 798 values for NACA 2412 on Windows/numpy 2.4.6) across numpy
+builds and CPU SIMD paths. The test skips when `asb.Airfoil('naca2412')` does not
+reproduce the receipt's foil digest `e9426ae7…`. If that probe matches, an identity
+change fails as before. To run it, use the receipt's recorded runtime (Python 3.12.14,
+numpy 2.2.6, aerosandbox 4.2.10; see `runtime` in the receipt) on a machine whose
+probe matches.

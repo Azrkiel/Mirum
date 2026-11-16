@@ -10,9 +10,34 @@ spec = importlib.util.spec_from_file_location('window_diagnostic', ROOT / 'scrip
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
+# digest(coordinates_payload(asb.Airfoil('naca2412').coordinates)) as produced by
+# the receipt's recorded runtime (it is the canard/tandem foil in the receipt and
+# matches the coordinates retained in cem-panel-distribution-results.json).
+RECEIPT_NACA2412_SHA256 = 'e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97'
+
+
+def _skip_unless_runtime_reproduces_receipt_floats(receipt):
+    """The receipt's installed_sha256 values hash exact float coordinates.
+
+    aerosandbox NACA generation differs in the last bits across numpy builds and
+    CPU features (SIMD transcendental kernels). This probe uses only third-party
+    code, so a mismatch means the runtime cannot reproduce the receipt; if the
+    probe matches, any identity change is a real regression and fails.
+    """
+    import aerosandbox as asb
+    from cem.core import digest
+    from cem.glider.families.coordinate_polars import coordinates_payload
+    assert any(RECEIPT_NACA2412_SHA256 in s['foils'] for s in receipt['installed_states'])
+    probe = digest(coordinates_payload(asb.Airfoil('naca2412').coordinates))
+    if probe != RECEIPT_NACA2412_SHA256:
+        pytest.skip('Runtime does not reproduce the receipt runtime float output '
+                    f'(aerosandbox naca2412 coordinates sha256 {probe[:12]}, receipt '
+                    f'{RECEIPT_NACA2412_SHA256[:12]}); installed-state identities cannot match')
+
 
 def test_actual_installed_states_are_not_covered_by_historical_narrow_windows():
     receipt = json.loads((ROOT / 'docs/testing/cem-coordinate-window-results.json').read_text())
+    _skip_unless_runtime_reproduces_receipt_floats(receipt)
     for state in receipt['installed_states']:
         result = module.diagnose(state, receipt['windows'])
         assert json.loads(json.dumps(result, allow_nan=False)) == result
