@@ -1,0 +1,309 @@
+{
+  "format": "mirum-aero-qualification-1",
+  "case_id": "conventional-naca0012-rigid-v1",
+  "scope": "Specific rigid conventional numerical benchmark; no flight, fabrication or broad family qualification.",
+  "geometry": {
+    "family": "conventional",
+    "reference": {
+      "area_m2": 0.36,
+      "chord_m": 0.3,
+      "span_m": 1.2,
+      "cg_m": [
+        0.259,
+        0.0,
+        0.0
+      ],
+      "mass_kg": 0.312,
+      "inertia_kg_m2": [
+        0.03,
+        0.02,
+        0.04
+      ]
+    },
+    "surfaces": [
+      {
+        "name": "wing",
+        "role": "wing",
+        "naca": "0012",
+        "mirror_y": true,
+        "sections": [
+          {
+            "leading_edge_m": [
+              0.2,
+              0.0,
+              0.0
+            ],
+            "chord_m": 0.3,
+            "incidence_deg": 1.0
+          },
+          {
+            "leading_edge_m": [
+              0.2,
+              0.6,
+              0.2
+            ],
+            "chord_m": 0.3,
+            "incidence_deg": 1.0
+          }
+        ]
+      },
+      {
+        "name": "htail",
+        "role": "htail",
+        "naca": "0012",
+        "mirror_y": true,
+        "sections": [
+          {
+            "leading_edge_m": [
+              0.62,
+              0.0,
+              0.0
+            ],
+            "chord_m": 0.3,
+            "incidence_deg": 0.7
+          },
+          {
+            "leading_edge_m": [
+              0.62,
+              0.15,
+              0.0
+            ],
+            "chord_m": 0.3,
+            "incidence_deg": 0.7
+          }
+        ]
+      },
+      {
+        "name": "vtail",
+        "role": "vtail",
+        "naca": "0012",
+        "mirror_y": false,
+        "sections": [
+          {
+            "leading_edge_m": [
+              0.62,
+              0.0,
+              0.0
+            ],
+            "chord_m": 0.3,
+            "incidence_deg": 0.0
+          },
+          {
+            "leading_edge_m": [
+              0.62,
+              0.0,
+              0.15
+            ],
+            "chord_m": 0.3,
+            "incidence_deg": 0.0
+          }
+        ]
+      }
+    ],
+    "body": [
+      {
+        "x_m": 0.0,
+        "width_m": 0.0002,
+        "height_m": 0.0002,
+        "exponent": 2.0
+      },
+      {
+        "x_m": 0.1,
+        "width_m": 0.05,
+        "height_m": 0.05,
+        "exponent": 2.0
+      },
+      {
+        "x_m": 0.3,
+        "width_m": 0.05,
+        "height_m": 0.05,
+        "exponent": 2.0
+      },
+      {
+        "x_m": 0.5,
+        "width_m": 0.008,
+        "height_m": 0.008,
+        "exponent": 2.0
+      },
+      {
+        "x_m": 0.9,
+        "width_m": 0.003,
+        "height_m": 0.003,
+        "exponent": 2.0
+      }
+    ]
+  },
+  "requirements": {
+    "objective": "distance_m",
+    "mode": "maximize",
+    "reference_target": null,
+    "minimum_performance": null,
+    "launch": {
+      "height_m": 10.0,
+      "method": "drop",
+      "launch_speed_m_s": null
+    },
+    "environment": {
+      "kind": "still_air",
+      "wind_m_s": 0.0,
+      "uplift_m_s": 0.0,
+      "thermal": null,
+      "ridge": null,
+      "altitude_m": 0.0,
+      "temperature_c": 15.0
+    },
+    "constraints": {
+      "max_span_m": 1.4,
+      "max_length_m": 0.95,
+      "max_mass_kg": 0.5,
+      "max_speed_m_s": 15.0,
+      "payload": null
+    },
+    "process": "balsa",
+    "construction": "screening_oml",
+    "discovery": {
+      "wing_shape": "baseline",
+      "families": "all",
+      "budget_evals": 40,
+      "seed": 42,
+      "top_k": 3
+    }
+  },
+  "calibration": {
+    "version": "uncalibrated-1",
+    "state": "engineering_priors_not_flight_validated",
+    "cd0_factor": {
+      "median": 1.0,
+      "log_sigma": 0.18
+    },
+    "cl_max_factor": {
+      "median": 1.0,
+      "log_sigma": 0.1
+    },
+    "oswald_factor": {
+      "median": 1.0,
+      "log_sigma": 0.08
+    },
+    "eta_launch": {
+      "drop": {
+        "median": 0.0,
+        "log_sigma": 0.0
+      },
+      "hand_toss": {
+        "median": 0.6,
+        "log_sigma": 0.2
+      },
+      "discus": {
+        "median": 0.6,
+        "log_sigma": 0.2
+      },
+      "catapult": {
+        "median": 0.6,
+        "log_sigma": 0.2
+      },
+      "hi_start": {
+        "median": 0.6,
+        "log_sigma": 0.2
+      }
+    },
+    "mass_factor": {
+      "sheet_foam": {
+        "median": 1.0,
+        "log_sigma": 0.08
+      },
+      "balsa": {
+        "median": 1.0,
+        "log_sigma": 0.1
+      },
+      "fdm_lwpla": {
+        "median": 1.0,
+        "log_sigma": 0.15
+      },
+      "fdm_pla": {
+        "median": 1.0,
+        "log_sigma": 0.08
+      },
+      "hybrid": {
+        "median": 1.0,
+        "log_sigma": 0.12
+      }
+    }
+  },
+  "hardware": {
+    "mass_model": "prescribed rigid numerical reference",
+    "mass_kg": 0.312,
+    "cg_m": [
+      0.259,
+      0.0,
+      0.0
+    ],
+    "inertia_kg_m2": [
+      0.03,
+      0.02,
+      0.04
+    ],
+    "payload": null,
+    "ballast_kg": 0.0,
+    "structure": "rigid reference; no delivered-part or rod qualification"
+  },
+  "polar_grid": {
+    "naca": "0012",
+    "reynolds": [
+      230000.0,
+      300000.0,
+      350000.0
+    ],
+    "alpha_deg": [
+      -2.0,
+      -1.75,
+      -1.5,
+      -1.25,
+      -1.0,
+      -0.75,
+      -0.5,
+      -0.25,
+      0.0,
+      0.25,
+      0.5,
+      0.75,
+      1.0,
+      1.25,
+      1.5,
+      1.75,
+      2.0,
+      2.25,
+      2.5,
+      2.75,
+      3.0
+    ],
+    "panels": [
+      160,
+      240
+    ],
+    "transition": {
+      "n_crit": 9.0,
+      "top_xtr": 1.0,
+      "bottom_xtr": 1.0
+    }
+  },
+  "initial": {
+    "glide_speed_m_s": 14.0,
+    "alpha_trim_deg": 0.0,
+    "glide_angle_deg": 10.0
+  },
+  "limits": {
+    "static_margin_min": 0.05,
+    "static_margin_max": 0.2,
+    "dutch_roll_min_damping": 0.05,
+    "spiral_min_time_to_double_s": 8.0
+  },
+  "rejected_case": {
+    "case_id": "conventional-aft-cg-unstable-v1",
+    "cg_m": [
+      0.33,
+      0.0,
+      0.0
+    ],
+    "expected_failure": "pitch stability/static margin"
+  }
+}

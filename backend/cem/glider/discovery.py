@@ -88,9 +88,11 @@ def discover(req, calibration, progress=lambda value: None):
             reason_if_no_elite=None if elites else 'No design met the declared physics/model/process envelope')
         candidates.extend(elites[:req.discovery.top_k])
     selected = ALL_FAMILIES if req.discovery.families == 'all' else req.discovery.families
+    from .families import capabilities as family_capabilities
     return dict(status='completed', per_process=per_process, candidates=candidates, evaluations=records,
         search='seeded MAP-Elites over conventional/T/V layouts; bounded chord-shape and local resampling, no Opti refinement',
         capabilities=dict(supported_families=list(SUPPORTED_FAMILIES),
+            family_prototypes=family_capabilities(),
             unavailable_families=[f for f in selected if f not in SUPPORTED_FAMILIES],
             novel_shape_discovery=False, picogk_builder=False,
             parametric_wing_shape_discovery=True,

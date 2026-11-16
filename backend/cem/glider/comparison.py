@@ -14,8 +14,8 @@ LIMITS = [
     'Paired screening equilibrium; only chord factors change. No hardware rebalancing or tail adjustment.',
     'Mass, CG and inertia may change as consequences of planform changes; the source spar is held fixed.',
     'Unity factors use the same five stations, not the differently discretized template.',
-    'XFOIL station polars and inviscid AVL checks do not independently close whole-aircraft viscous performance.',
-    'No verified performance gain, fabrication acceptance or engineering certification is claimed.',
+    'Executable diagnostics alone cannot establish gain. Independent performance has separate coverage, stability, convergence and error gates.',
+    'Any verified gain concerns the declared rigid numerical model; fabrication acceptance and flight validation remain separate.',
 ]
 
 
@@ -78,11 +78,15 @@ def compare_shape(req, calibration, elite, directory, *, independent_recheck=Fal
     delta = arms[1]['result']['objective_value']-arms[0]['result']['objective_value'] if admitted else None
     recheck = (recheck_pair((baseline, shaped), arms, req, directory) if independent_recheck else
                dict(state='not_requested', missing=['XFOIL station polars', 'AVL trim and modes']))
+    from cem.aero.verification import verify_pair
+    independent = (verify_pair((baseline,shaped),arms,req,calibration,elite['process'],directory)
+                   if independent_recheck else dict(state='not_requested',verified_gain=False))
     report = finite_json(dict(**identity(req, calibration), requirements=req.model_dump(mode='json'),
         calibration=calibration, provenance=provenance(), kind='shape_comparison',
         elite_id=elite['elite_id'], status='screened' if admitted else 'inconclusive',
         baseline=arms[0], shaped=arms[1], objective=req.objective, objective_delta=delta,
-        verified_gain=False, engineering_certified=False, accepted_for_manufacture=False,
+        verified_gain=independent['verified_gain'], engineering_certified=False, accepted_for_manufacture=False,
+        independent_performance=independent,
         independent_recheck=recheck, model_limits=LIMITS,
         evaluations=2, discovery_budget_used=0))
     report['comparison_sha256'] = digest(dict(requirements=report['requirements'],
@@ -99,7 +103,7 @@ def validate_comparison(report, payload, directory):
     from .rechecks import validate_rechecks
     req = GliderMissionRequirements.model_validate(payload['requirements'])
     pair = comparison_pair(req, payload['calibration'], payload['elite'])
-    if (report.get('kind') != 'shape_comparison' or report.get('verified_gain') is not False
+    if (report.get('kind') != 'shape_comparison' or type(report.get('verified_gain')) is not bool
             or report.get('accepted_for_manufacture') is not False
             or report.get('elite_id') != payload['elite']['elite_id'] or report.get('objective') != req.objective
             or report.get('evaluations') != 2 or report.get('discovery_budget_used') != 0):
@@ -141,3 +145,8 @@ def validate_comparison(report, payload, directory):
     if report.get('comparison_sha256') != binding:
         raise ValueError('Comparison revision binding mismatch')
     validate_rechecks(report['independent_recheck'], arms, payload.get('independent_recheck', False), directory, pair, req)
+    from cem.aero.verification import validate
+    verified=validate(report.get('independent_performance'),pair,arms,req,payload['calibration'],
+                      payload['elite']['process'],directory,payload.get('independent_recheck',False))
+    if report.get('verified_gain') is not verified:
+        raise ValueError('Comparison gain differs from independent numerical evidence')
