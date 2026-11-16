@@ -1,0 +1,622 @@
+{
+  "scope": "computational_control_response_replay_inputs_not_measured_validation",
+  "families": {
+    "canard": {
+      "geometry": {
+        "aircraft_revision": "9a4fb99eff8877be0edbe87f27cf95dcb792125c30651c503d6d02efafea9d12",
+        "builder_revision": "canard-screening-v1+f9174e01e0439bda0badf92d42c425ed0e50092c4c44611a7790b0d047797bd6",
+        "family": "canard",
+        "parameters": {
+          "family": "canard",
+          "foreplane": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 4.0,
+            "root_chord_m": 0.1,
+            "span_m": 0.45,
+            "sweep_deg": 0.0,
+            "taper": 0.8,
+            "washout_deg": 0.0
+          },
+          "foreplane_x_m": 0.04,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "body_length_m": 0.7,
+            "body_mass_kg": 0.02,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.35
+          },
+          "main_wing": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 2.0,
+            "root_chord_m": 0.18,
+            "span_m": 1.2,
+            "sweep_deg": 0.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "main_x_m": 0.4,
+          "vertical_separation_m": 0.04
+        }
+      },
+      "conditions": {
+        "alpha_deg": 4.0,
+        "altitude_m": 0.0,
+        "coarse_resolution": 3,
+        "fine_resolution": 6,
+        "speed_m_s": 6.0,
+        "step_deg": 2.0
+      },
+      "diagnostic_revision": "5d55106ff573553935df32b40423901a3c6f59279733854dbc89a8ddc2d697cd",
+      "report_sha256": "79542b7f2dbbacf4445baf1d96e4817039f3c829f9872ea1d10f476c0c8ec73e",
+      "file_sha256": "0442424ee171c3aabc51058c27b1808440689aba53bd639b22a13d9aab21a420",
+      "sample_count": 10,
+      "mesh_levels": [
+        {
+          "resolution": 3,
+          "channels": [
+            {
+              "name": "foreplane_elevator",
+              "central_derivative_per_rad": {
+                "CD": 0.03258903268069244,
+                "CL": 0.2611733090025748,
+                "Cm": 1.0395586799884635,
+                "D": 0.15737130378601905,
+                "L": 1.2611968128834563,
+                "force_geometry_n": [
+                  0.06901131283537044,
+                  2.8419995444717946e-16,
+                  1.2691022680554336
+                ],
+                "moment_geometry_nm": [
+                  -4.596895438052739e-16,
+                  0.700540523355561,
+                  -1.141458833435393e-16
+                ]
+              }
+            },
+            {
+              "name": "aileron",
+              "central_derivative_per_rad": {
+                "CD": 9.93923337957349e-17,
+                "CL": 0.0,
+                "Cm": 1.789062008323228e-15,
+                "D": 5.963540027744094e-16,
+                "L": 0.0,
+                "force_geometry_n": [
+                  5.963540027744094e-16,
+                  -0.2071543165865272,
+                  0.0
+                ],
+                "moment_geometry_nm": [
+                  1.581324283011021,
+                  1.2921003393445536e-15,
+                  -0.0014410150756181414
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "resolution": 6,
+          "channels": [
+            {
+              "name": "foreplane_elevator",
+              "central_derivative_per_rad": {
+                "CD": 0.03756553983431281,
+                "CL": 0.2842160078611393,
+                "Cm": 1.1094314764012663,
+                "D": 0.18140268350627953,
+                "L": 1.3724692031274688,
+                "force_geometry_n": [
+                  0.08522218375394347,
+                  3.870865499779207e-16,
+                  1.381779948657832
+                ],
+                "moment_geometry_nm": [
+                  4.1387588994630236e-15,
+                  0.7476265862297458,
+                  2.844668772186036e-16
+                ]
+              }
+            },
+            {
+              "name": "aileron",
+              "central_derivative_per_rad": {
+                "CD": 6.460501696722768e-16,
+                "CL": 7.951386703658792e-15,
+                "Cm": -2.584200678689107e-15,
+                "D": 3.1805546814635168e-15,
+                "L": 3.180554681463517e-14,
+                "force_geometry_n": [
+                  3.975693351829396e-16,
+                  -0.21296568756253142,
+                  3.81666561775622e-14
+                ],
+                "moment_geometry_nm": [
+                  1.645402675045088,
+                  -1.7393658414253607e-15,
+                  -0.009004944914278215
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "mesh_derivative_changes": [
+        {
+          "derivative_change_per_rad": {
+            "CD": 0.0049765071536203714,
+            "CL": 0.023042698858564525,
+            "Cm": 0.06987279641280275,
+            "D": 0.024031379720260482,
+            "L": 0.11127239024401248,
+            "force_geometry_n": [
+              0.016210870918573025,
+              1.0288659553074123e-16,
+              0.11267768060239836
+            ],
+            "moment_geometry_nm": [
+              4.598448443268297e-15,
+              0.04708606287418471,
+              3.9861276056214285e-16
+            ]
+          },
+          "name": "foreplane_elevator"
+        },
+        {
+          "derivative_change_per_rad": {
+            "CD": 5.466578358765419e-16,
+            "CL": 7.951386703658792e-15,
+            "Cm": -4.373262687012335e-15,
+            "D": 2.5842006786891076e-15,
+            "L": 3.180554681463517e-14,
+            "force_geometry_n": [
+              -1.987846675914698e-16,
+              -0.005811370976004232,
+              3.81666561775622e-14
+            ],
+            "moment_geometry_nm": [
+              0.06407839203406707,
+              -3.0314661807699143e-15,
+              -0.007563929838660073
+            ]
+          },
+          "name": "aileron"
+        }
+      ],
+      "qualified_control_authority": false,
+      "production_admission": false,
+      "verified_gain": false
+    },
+    "tailless_swept": {
+      "geometry": {
+        "aircraft_revision": "3b24b59d67836916067bf35bf8d4b02854e2d7dc452725b3d6615024c667ef8f",
+        "builder_revision": "tailless-swept-screening-v1+0c697d71047d7ce9c2cc4588985c19d90325869d2d4a361f2fd9bfdedaed93f3",
+        "family": "tailless_swept",
+        "parameters": {
+          "elevon_hinge": 0.75,
+          "family": "tailless_swept",
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "body_length_m": 0.7,
+            "body_mass_kg": 0.02,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.22
+          },
+          "reflex_fraction": 0.015,
+          "wing": {
+            "airfoil": "0012",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 2.0,
+            "root_chord_m": 0.18,
+            "span_m": 1.2,
+            "sweep_deg": 25.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "wing_x_m": 0.12
+        }
+      },
+      "conditions": {
+        "alpha_deg": 4.0,
+        "altitude_m": 0.0,
+        "coarse_resolution": 3,
+        "fine_resolution": 6,
+        "speed_m_s": 6.0,
+        "step_deg": 2.0
+      },
+      "diagnostic_revision": "a023fdeb9e85e404e3ea01e47d27d5dbaec3e26ca343074832a943c3af47e0f2",
+      "report_sha256": "77f71bbd62c61c9f1d6158d62ceac4b7b599ef0867d0bc6c79326c12c71f78e8",
+      "file_sha256": "e4aadbf640e256de82c5f25c87f3311b2330747002b3b7b377a8a06f5b1b4d99",
+      "sample_count": 10,
+      "mesh_levels": [
+        {
+          "resolution": 3,
+          "channels": [
+            {
+              "name": "elevon_pitch",
+              "central_derivative_per_rad": {
+                "CD": 0.02889044776578776,
+                "CL": 1.3424106812319823,
+                "Cm": -0.8034728509713708,
+                "D": 0.1136756544006024,
+                "L": 5.282002338645414,
+                "force_geometry_n": [
+                  -0.25505511123232644,
+                  1.2695817637189575e-16,
+                  5.2770652592225264
+                ],
+                "moment_geometry_nm": [
+                  4.0688736647628975e-16,
+                  -0.47651469803364066,
+                  -2.7711436815119447e-17
+                ]
+              }
+            },
+            {
+              "name": "elevon_roll",
+              "central_derivative_per_rad": {
+                "CD": 9.93923337957349e-17,
+                "CL": 0.0,
+                "Cm": -4.969616689786745e-16,
+                "D": 3.975693351829396e-16,
+                "L": 0.0,
+                "force_geometry_n": [
+                  3.975693351829396e-16,
+                  -0.1741662365812554,
+                  0.0
+                ],
+                "moment_geometry_nm": [
+                  1.8300142855344408,
+                  -2.981770013872047e-16,
+                  0.059831760381304874
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "resolution": 6,
+          "channels": [
+            {
+              "name": "elevon_pitch",
+              "central_derivative_per_rad": {
+                "CD": 0.029936638382134926,
+                "CL": 1.4019174229131837,
+                "Cm": -0.8277510170975417,
+                "D": 0.11779211545046774,
+                "L": 5.516144358758673,
+                "force_geometry_n": [
+                  -0.2672815993531129,
+                  4.303219725220004e-17,
+                  5.510924070949868
+                ],
+                "moment_geometry_nm": [
+                  3.644951772328452e-16,
+                  -0.49091332144255423,
+                  -2.637909786798271e-17
+                ]
+              }
+            },
+            {
+              "name": "elevon_roll",
+              "central_derivative_per_rad": {
+                "CD": -1.5530052155583579e-16,
+                "CL": 0.0,
+                "Cm": 2.236327510404035e-16,
+                "D": -5.963540027744094e-16,
+                "L": 0.0,
+                "force_geometry_n": [
+                  -5.963540027744094e-16,
+                  -0.17981276585284175,
+                  0.0
+                ],
+                "moment_geometry_nm": [
+                  1.901825201381385,
+                  1.2424041724466862e-16,
+                  0.06353787221181888
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "mesh_derivative_changes": [
+        {
+          "derivative_change_per_rad": {
+            "CD": 0.0010461906163471667,
+            "CL": 0.0595067416812014,
+            "Cm": -0.024278166126170952,
+            "D": 0.004116461049865336,
+            "L": 0.2341420201132589,
+            "force_geometry_n": [
+              -0.012226488120786472,
+              -8.392597911969572e-17,
+              0.2338588117273419
+            ],
+            "moment_geometry_nm": [
+              -4.239218924344456e-17,
+              -0.014398623408913569,
+              1.3323389471367371e-18
+            ]
+          },
+          "name": "elevon_pitch"
+        },
+        {
+          "derivative_change_per_rad": {
+            "CD": -2.546928553515707e-16,
+            "CL": 0.0,
+            "Cm": 7.205944200190779e-16,
+            "D": -9.93923337957349e-16,
+            "L": 0.0,
+            "force_geometry_n": [
+              -9.93923337957349e-16,
+              -0.005646529271586348,
+              0.0
+            ],
+            "moment_geometry_nm": [
+              0.07181091584694421,
+              4.2241741863187335e-16,
+              0.003706111830514003
+            ]
+          },
+          "name": "elevon_roll"
+        }
+      ],
+      "qualified_control_authority": false,
+      "production_admission": false,
+      "verified_gain": false
+    },
+    "tandem": {
+      "geometry": {
+        "aircraft_revision": "57d38f45cbc22ad1d81ef040c4d89ceefe6aab1886f6ee07a91102e2cac44fe0",
+        "builder_revision": "tandem-screening-v1+6eac7cef982888e7f51af1dede83a6e4ffe8ca0ba5f474435db0d7df5582daab",
+        "family": "tandem",
+        "parameters": {
+          "family": "tandem",
+          "front_wing": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 3.0,
+            "root_chord_m": 0.15,
+            "span_m": 0.9,
+            "sweep_deg": 0.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "front_x_m": 0.05,
+          "inventory": {
+            "areal_density_kg_m2": 0.35,
+            "body_length_m": 0.7,
+            "body_mass_kg": 0.02,
+            "equipment_mass_kg": 0.06,
+            "equipment_x_m": 0.28
+          },
+          "rear_wing": {
+            "airfoil": "2412",
+            "dihedral_deg": 3.0,
+            "incidence_deg": 2.0,
+            "root_chord_m": 0.16,
+            "span_m": 1.0,
+            "sweep_deg": 0.0,
+            "taper": 0.65,
+            "washout_deg": 2.0
+          },
+          "rear_x_m": 0.43,
+          "vertical_separation_m": 0.06
+        }
+      },
+      "conditions": {
+        "alpha_deg": 4.0,
+        "altitude_m": 0.0,
+        "coarse_resolution": 3,
+        "fine_resolution": 6,
+        "speed_m_s": 6.0,
+        "step_deg": 2.0
+      },
+      "diagnostic_revision": "42ccff096e3113470caeec319abe989c269432fc6cb02e48d552b24fcba7de62",
+      "report_sha256": "0487fe343d78cbf96ab80f88c4f26e64378bae885e5693ee8d150fef3806a2e4",
+      "file_sha256": "83bf7d0a8686a9130824f05b0d0de8f8e805808dec43f78d634eaecec18c8fa1",
+      "sample_count": 14,
+      "mesh_levels": [
+        {
+          "resolution": 3,
+          "channels": [
+            {
+              "name": "front_elevator",
+              "central_derivative_per_rad": {
+                "CD": 0.06348808296072854,
+                "CL": 0.7882577589192012,
+                "Cm": 2.342357885003207,
+                "D": 0.3411727096517711,
+                "L": 4.235945125022096,
+                "force_geometry_n": [
+                  0.044857035183180696,
+                  5.124917211342581e-17,
+                  4.249425580758433
+                ],
+                "moment_geometry_nm": [
+                  8.696829207126804e-17,
+                  1.638219339851538,
+                  1.805368563086591e-17
+                ]
+              }
+            },
+            {
+              "name": "rear_elevator",
+              "central_derivative_per_rad": {
+                "CD": 0.09884948188836036,
+                "CL": 1.5307725260198728,
+                "Cm": -1.9966505848591032,
+                "D": 0.5311980455353568,
+                "L": 8.226076236791345,
+                "force_geometry_n": [
+                  -0.04391799723455521,
+                  2.8885897009385454e-16,
+                  8.24309243103598
+                ],
+                "moment_geometry_nm": [
+                  8.07562712090346e-17,
+                  -1.39643545676095,
+                  -4.105757538632408e-17
+                ]
+              }
+            },
+            {
+              "name": "aileron",
+              "central_derivative_per_rad": {
+                "CD": 0.0,
+                "CL": -7.951386703658792e-16,
+                "Cm": -2.782985346280577e-15,
+                "D": 1.987846675914698e-16,
+                "L": -6.3611093629270335e-15,
+                "force_geometry_n": [
+                  5.963540027744094e-16,
+                  -0.1512534911403686,
+                  -6.3611093629270335e-15
+                ],
+                "moment_geometry_nm": [
+                  0.9589212898203685,
+                  -1.987846675914698e-15,
+                  -0.03186360149555377
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "resolution": 6,
+          "channels": [
+            {
+              "name": "front_elevator",
+              "central_derivative_per_rad": {
+                "CD": 0.0713978605443522,
+                "CL": 0.8382324297212551,
+                "Cm": 2.48483857187685,
+                "D": 0.38367832842461985,
+                "L": 4.504499364753012,
+                "force_geometry_n": [
+                  0.06852571563236014,
+                  1.8456496358651359e-16,
+                  4.5202906779387675
+                ],
+                "moment_geometry_nm": [
+                  -1.195425764676046e-15,
+                  1.737868765025272,
+                  -1.344198811185238e-16
+                ]
+              }
+            },
+            {
+              "name": "rear_elevator",
+              "central_derivative_per_rad": {
+                "CD": 0.11035154281470261,
+                "CL": 1.6216575454051751,
+                "Cm": -2.112858161319718,
+                "D": 0.5930079019653782,
+                "L": 8.71447479734668,
+                "force_geometry_n": [
+                  -0.01632766787429196,
+                  -1.5500933307791859e-16,
+                  8.734612914871825
+                ],
+                "moment_geometry_nm": [
+                  -1.0331367196501974e-15,
+                  -1.4777097575046194,
+                  -4.330215323693577e-17
+                ]
+              }
+            },
+            {
+              "name": "aileron",
+              "central_derivative_per_rad": {
+                "CD": 1.987846675914698e-16,
+                "CL": 0.0,
+                "Cm": -6.3611093629270335e-15,
+                "D": 1.1927080055488188e-15,
+                "L": 6.3611093629270335e-15,
+                "force_geometry_n": [
+                  3.975693351829396e-16,
+                  -0.15573582645337888,
+                  6.3611093629270335e-15
+                ],
+                "moment_geometry_nm": [
+                  0.9971938124547572,
+                  -4.373262687012335e-15,
+                  -0.03780599548063729
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "mesh_derivative_changes": [
+        {
+          "derivative_change_per_rad": {
+            "CD": 0.007909777583623656,
+            "CL": 0.04997467080205387,
+            "Cm": 0.14248068687364324,
+            "D": 0.04250561877284875,
+            "L": 0.26855423973091597,
+            "force_geometry_n": [
+              0.02366868044917944,
+              1.3331579147308778e-16,
+              0.2708650971803346
+            ],
+            "moment_geometry_nm": [
+              -1.282394056747314e-15,
+              0.0996494251737341,
+              -1.5247356674938972e-16
+            ]
+          },
+          "name": "front_elevator"
+        },
+        {
+          "derivative_change_per_rad": {
+            "CD": 0.011502060926342247,
+            "CL": 0.09088501938530236,
+            "Cm": -0.11620757646061497,
+            "D": 0.06180985643002146,
+            "L": 0.4883985605553356,
+            "force_geometry_n": [
+              0.02759032936026325,
+              -4.438683031717731e-16,
+              0.49152048383584557
+            ],
+            "moment_geometry_nm": [
+              -1.1138929908592321e-15,
+              -0.08127430074366937,
+              -2.2445778506116905e-18
+            ]
+          },
+          "name": "rear_elevator"
+        },
+        {
+          "derivative_change_per_rad": {
+            "CD": 1.987846675914698e-16,
+            "CL": 7.951386703658792e-16,
+            "Cm": -3.578124016646457e-15,
+            "D": 9.93923337957349e-16,
+            "L": 1.2722218725854067e-14,
+            "force_geometry_n": [
+              -1.987846675914698e-16,
+              -0.004482335313010288,
+              1.2722218725854067e-14
+            ],
+            "moment_geometry_nm": [
+              0.03827252263438874,
+              -2.385416011097637e-15,
+              -0.005942393985083519
+            ]
+          },
+          "name": "aileron"
+        }
+      ],
+      "qualified_control_authority": false,
+      "production_admission": false,
+      "verified_gain": false
+    }
+  }
+}
