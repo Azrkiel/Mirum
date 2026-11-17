@@ -158,10 +158,13 @@ To be written by the U6 design pass.
 
 | Stream | State | PR |
 | --- | --- | --- |
-| U1 D7 | draft, waits for Docker steps | #31 |
-| U2 D8 backend | started 2026-11-16 | |
-| U3 regen wiring | started 2026-11-16 | |
-| U4 checked design + flag | started 2026-11-16 | |
-| U5 B13 | waits for U4 and owner approval | |
-| U6 adapters | waits for U1–U4 | |
+| U1 D7 | draft, waits for Docker steps on the owner's laptop | #31 |
+| U2 D8 backend | **merged** 2026-11-17 (security review fixed; D8 UI waits for U1) | #37 |
+| U3 regen wiring | **merged** 2026-11-17 | #36 |
+| U4 checked design + flag | **merged** 2026-11-17 (two security rounds) | #38 |
+| — client key behind proxy | **merged** 2026-11-17 (limits were one shared bucket) | #39 |
+| U5 B13 | unblocked by U4; waits for owner approval (spends Gemini key) | |
+| U6 adapters | **ready to start** on the code; D7 not merged, so the dragster adapter targets the v2 service on `main` | |
 | U7 routing + workspace | waits for U6 | |
+
+Handoff for the next session: [`.claude/handoffs/2026-11-17-1130.md`](../../.claude/handoffs/2026-11-17-1130.md).
