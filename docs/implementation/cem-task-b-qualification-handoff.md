@@ -89,6 +89,14 @@ analytic polars or relax stability checks. A must provide passing evidence for
 the actual geometry/operating envelope being qualified, plus rejected cases.
 Passing reference wings alone does not supply that evidence.
 
+Since 2026-11-05 the [low-Re method decision](cem-low-re-method-decision.md)
+defines what "passing evidence" means for section aerodynamics. Every surface
+station must be at Re ≥ 50,000 at the lowest declared speed (an arm below that
+is rejected, not waiting on A). Section data comes from NeuralFoil with its
+confidence gate. XFOIL provides single-point spot checks at the arm's actual
+converged points, not complete polar grids. Spiral-stability rejection and all
+other stability checks are unchanged.
+
 ### 2. Prove aerodynamic-to-delivered geometry correspondence
 
 Build A's installed aerodynamic inputs from the delivered revision, including
