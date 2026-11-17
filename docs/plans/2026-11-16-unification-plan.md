@@ -469,8 +469,14 @@ Original questions, kept for the record:
 | U3 regen wiring | **merged** 2026-11-17 | #36 |
 | U4 checked design + flag | **merged** 2026-11-17 (two security rounds) | #38 |
 | — client key behind proxy | **merged** 2026-11-17 (limits were one shared bucket) | #39 |
-| U5 B13 | **owner approved** 2026-11-17 (≤ 60 calls + one diagnostic case); evaluator evidence fix first; runs when Docker has ≥ 5 GB free | #44 |
-| U6 adapters | § 5 design done; § 5.12 decided by the lead (owner delegated). Next: U6.0 core ∥ D7 backend split, then regen ∥ glider, then dragster. Correction: the dragster v2 *service* is not on `main` (only in #31), so the dragster adapter waits for D7's backend | this PR |
-| U7 routing + workspace | waits for U6 | |
+| U5 B13 | **blocked on the provider.** Owner approved (≤ 60 calls + diagnostics). Evaluator evidence fix #44; GitHub Actions runner #47 (manual, env `b13-live`, main only, atomic reservation tags, caps #50); model → `gemini-4-hydrogen` #49; SDK → `google-genai` 2.8.0, thinking `low` #53. 6 diagnostic calls (2 SDKs × 2 keys × 2 models, laptop + Actions) all ended in HTTP 503 or the 45 s limit; `countTokens` works. The 30-case run has not started. Needs a key/model the provider serves. Evidence: `C:/Users/jiang/mirum-evidence/B13/u5-20261117/summary.json` | #44 #47 #49 #50 #53 |
+| U6.0 core | **merged** 2026-11-17 (beam bytes pinned; closed limit tables; measurements bound to the generator report; two security rounds) | #48 |
+| D7 backend split | **merged** 2026-11-17 (v2 generation on main; #31 keeps the UI half) | #46 |
+| U6.1 regen adapter | **merged** 2026-11-17 (identity tests pass natively; `JobRunner.cancel` frees the shared slot) | #52 |
+| U6.2 glider adapter | **merged** 2026-11-17 (identity byte-for-byte, 75 s locally; registered in lifespan) | #51 |
+| U6.3 dragster adapter + rules proposer | open; security LOWs fixed; merged with main; CI running | #55 |
+| U7a router | **merged** 2026-11-17 (provider-free; 0 of 88 eval prompts reroute) | #54 |
+| U7b `/generate` routing + assurance labels | in progress | |
+| U7c workspace UI (`feat/professional-workspace`) | after U7b | |
 
 Handoff for the next session: [`.claude/handoffs/2026-11-17-1130.md`](../../.claude/handoffs/2026-11-17-1130.md).
