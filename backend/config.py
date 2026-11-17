@@ -27,7 +27,9 @@ GEMINI_MODEL_HEAVY: str = "gemini-3.5-flash"
 GEMINI_MODEL_LITE: str = "gemini-3.5-flash"
 
 # Checked beam preparation has its own qualification/configuration boundary.
-GEMINI_MODEL_ENGINEERING_PREPARATION: str = "gemini-3.6-flash"
+# 2026-11-17: owner switched from gemini-3.6-flash (HTTP 503 "high demand" off the laptop,
+# 45 s stalls on it) to gemini-4-hydrogen. Explicit, documented change; needs live requalification.
+GEMINI_MODEL_ENGINEERING_PREPARATION: str = "gemini-4-hydrogen"
 # Separate from legacy clarifier limits; live requalification is required.
 GEMINI_ENGINEERING_MAX_OUTPUT_TOKENS: int = 4096
 

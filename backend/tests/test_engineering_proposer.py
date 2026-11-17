@@ -184,7 +184,7 @@ def test_sdk_schema_builds_offline_and_transport_disables_retries(monkeypatch):
         def __init__(self, **kwargs): pass
         async def generate_content(self, request, **kwargs):
             assert kwargs == {'retry': None, 'timeout': 45}
-            assert request.model == 'models/gemini-3.6-flash'
+            assert request.model == 'models/gemini-4-hydrogen'
             assert request.generation_config.max_output_tokens == 4096
             captured.append(request)
             return glm.GenerateContentResponse(candidates=[dict(finish_reason='STOP', content=dict(parts=[dict(text=response())]))],
@@ -204,7 +204,7 @@ def test_checked_preparation_selects_36_flash_without_changing_legacy_models():
     registry = ModelRegistry.instance()
     legacy = {name: registry.get(name).model_id for name in ('clarifier', 'classifier', 'machinist')}
     settings = GeminiProposalProvider().settings()
-    assert settings.model == 'gemini-3.6-flash'
+    assert settings.model == 'gemini-4-hydrogen'
     assert settings.temperature == 0.4 and settings.max_tokens == 4096
     assert registry.get('clarifier').max_tokens == 1024
     assert config.GEMINI_MODEL_LITE == config.GEMINI_MODEL_HEAVY == 'gemini-3.5-flash'
