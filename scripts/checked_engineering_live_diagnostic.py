@@ -39,6 +39,7 @@ async def main(output, state_root, credentials=None, *, case_id, authorization):
         return 2
     store = SQLiteStore(state_root)
     original_native = None
+    native_calls = []
     try:
         with store.transaction() as db:
             db.execute('CREATE TABLE IF NOT EXISTS live_diagnostic(id TEXT PRIMARY KEY, draft TEXT NOT NULL)')
@@ -53,6 +54,7 @@ async def main(output, state_root, credentials=None, *, case_id, authorization):
         original_native = ProcessRunner.run
 
         async def forbidden_native(*args, **kwargs):
+            native_calls.append(True)
             raise AssertionError('Live preparation cannot execute native work')
         ProcessRunner.run = forbidden_native
         started = time.monotonic()
@@ -66,10 +68,11 @@ async def main(output, state_root, credentials=None, *, case_id, authorization):
         report.update(settings=provider.settings().model_dump(mode='json'), state=result.state,
                       issues=len(result.prepared.issues), elapsed_seconds=round(time.monotonic() - started, 3),
                       audit=safe_audit(audit), provider_failures=list(provider.failures),
+                      native_execution_attempts=len(native_calls),
                       brief_matches_expected=bool(content and expected_sha and content.brief_sha256 == expected_sha))
         (output/'diagnostic.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report, indent=2))
-        return 0 if report['brief_matches_expected'] else 2
+        return 0 if report['brief_matches_expected'] and not native_calls else 2
     finally:
         if original_native is not None:
             ProcessRunner.run = original_native

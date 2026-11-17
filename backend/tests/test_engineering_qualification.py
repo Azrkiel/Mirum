@@ -243,6 +243,7 @@ def test_live_diagnostic_is_bounded_safe_and_never_repeats(tmp_path, monkeypatch
     assert marker not in text
     report = json.loads(text)
     assert report['brief_matches_expected'] and report['audit']['calls'] == 2
+    assert report['native_execution_attempts'] == 0
     assert report['audit']['validation_failures'][0]['errors'][0]['type'] == 'json_invalid'
     with pytest.raises(ValueError, match='never repeated'):
         run()
