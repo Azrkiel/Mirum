@@ -238,6 +238,8 @@ def assemble_evaluation(candidate: GeneratorCandidate, *, discovery: bytes, desi
                     raise ValueError('Archive budget exceeded')
                 extra = tuple((z.read(p['file']), p['sha256']) for p in parts if p['file'] in names)
                 mismatches += sum(1 for p in parts if p['file'] not in names)
+                # a part whose bytes differ from its claimed hash is a mismatch, not a pass
+                mismatches += sum(1 for data, claimed in extra if _sha(data) != claimed)
         except (zipfile.BadZipFile, ValueError, KeyError, TypeError):
             extra, mismatches = (), mismatches + 1
         artifact = dict(hash_mismatches=mismatches, bundle_bytes=len(bundle))
@@ -380,14 +382,19 @@ class GliderAdapter:
             if found['candidates']:
                 # The GliderCEM.size rule: highest objective value, first on ties.
                 elite = max(found['candidates'], key=lambda e: e['result']['objective_value'])
-                _, _, job = await _stage(
+                design_bytes, design, job = await _stage(
                     jobs, dict(kind='design', requirements=found['requirements'],
                                calibration=found['calibration'], elite=elite), validate, owned)
-                design_bytes = (job['directory'] / 'result.json').read_bytes()
+                # design_bytes are the bytes ``_stage`` validated, never a second read of the file.
                 zip_path = job['directory'] / 'bundle.zip'
-                if zip_path.is_symlink() or not zip_path.is_file() or zip_path.stat().st_size > RUN_BYTES:
+                if zip_path.is_symlink() or not zip_path.is_file():
+                    raise EngineeringUnavailable('CEM bundle is not a regular file')
+                with zip_path.open('rb') as stream:
+                    bundle = stream.read(RUN_BYTES + 1)
+                if len(bundle) > RUN_BYTES:
                     raise EngineeringUnavailable('CEM bundle exceeds the run budget')
-                bundle = zip_path.read_bytes()
+                if _sha(bundle) != design.get('bundle_sha256'):
+                    raise EngineeringUnavailable('CEM bundle differs from the validated bundle hash')
             if len(found_bytes) + len(design_bytes or b'') + len(bundle or b'') > RUN_BYTES:
                 raise EngineeringUnavailable('CEM run exceeds the run budget')
             try:
