@@ -13,6 +13,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_ace import st_ace
 
+from client_ip import client_ip_headers
+
 st.set_page_config(page_title="Text-to-CAD", page_icon="\U0001f529", layout="wide")
 
 # Reduce top padding for a tighter layout
@@ -29,7 +31,9 @@ ACCESS_GATE = os.environ.get("MIRUM_ACCESS_GATE", "") == "1"
 
 def _auth_headers() -> dict:
     token = st.session_state.get("access_token", "")
-    return {"X-Mirum-Access-Token": token} if token else {}
+    headers = {"X-Mirum-Access-Token": token} if token else {}
+    headers.update(client_ip_headers())  # visitor address, for per-visitor rate limits
+    return headers
 
 
 STEP_LABELS = {
@@ -950,7 +954,7 @@ if ACCESS_GATE and not st.session_state.get("access_token"):
         try:
             # Generous timeout: a stopped backend machine cold-starts on demand.
             ok = requests.get(f"{BACKEND_URL}/auth/check",
-                              headers={"X-Mirum-Access-Token": entered}, timeout=90).status_code == 200
+                              headers={"X-Mirum-Access-Token": entered, **client_ip_headers()}, timeout=90).status_code == 200
         except requests.RequestException:
             ok = False
         if ok:
