@@ -11,9 +11,9 @@ import math
 import time
 from typing import Awaitable, Callable, Literal
 
-from .capabilities import CAPABILITY, CapabilityAdapter, get_adapter
+from .capabilities import CAPABILITY, CapabilityAdapter, GeneratorDescriptor, get_adapter, get_capability
 from .contracts import (AttemptRecord, CandidateSpec, ContractModel, EngineeringBrief,
-                        Outcome, Sha256)
+                        GeneratorBriefContent, GeneratorCandidate, Outcome, Sha256)
 from .service import EngineeringUnavailable
 
 
@@ -80,15 +80,31 @@ async def search(brief: EngineeringBrief, *, adapter: CapabilityAdapter | None =
         raise ValueError('Deadline must be a finite monotonic time')
     deadline = deadline if deadline is not None else time.monotonic() + CAPABILITY.resources.overall_seconds
     reference = brief.content.capability
+    generator = isinstance(brief.content, GeneratorBriefContent)
+    descriptor = getattr(adapter, 'descriptor', None)
+    if descriptor is not None and descriptor.id != reference.id:
+        raise ValueError('Adapter belongs to another capability')
     adapter = adapter or get_adapter(reference.id, reference.version,
         numerical_policy_version=reference.numerical_policy_version,
         resource_policy_version=reference.resource_policy_version)
     # Do not sort/repair a different adapter list at execution time.
     candidates = adapter.candidates(brief)
-    expected = tuple(CandidateSpec.from_brief(brief, h) for h in brief.content.candidate_heights_mm)
-    if type(candidates) is not tuple or candidates != expected:
-        raise ValueError('Execution must use exactly the finalized ascending candidate set')
-    candidates = tuple(CandidateSpec.model_validate(c.model_dump()) for c in candidates)
+    if generator:
+        # One reviewed specification; the adapter supplies only its own spec digest.
+        if (type(candidates) is not tuple or len(candidates) != 1
+                or type(candidates[0]) is not GeneratorCandidate
+                or candidates[0] != GeneratorCandidate.from_brief(brief, candidates[0].candidate_sha256)):
+            raise ValueError('Execution must use exactly the one finalized specification')
+        candidates = tuple(GeneratorCandidate.model_validate(c.model_dump()) for c in candidates)
+        rule = get_capability(reference.id, reference.version,
+                              numerical_policy_version=reference.numerical_policy_version,
+                              resource_policy_version=reference.resource_policy_version).selection_rule
+    else:
+        expected = tuple(CandidateSpec.from_brief(brief, h) for h in brief.content.candidate_heights_mm)
+        if type(candidates) is not tuple or candidates != expected:
+            raise ValueError('Execution must use exactly the finalized ascending candidate set')
+        candidates = tuple(CandidateSpec.model_validate(c.model_dump()) for c in candidates)
+        rule = CAPABILITY.selection_rule
     attempts, evaluations = [], []
 
     async def progress(event):
@@ -103,7 +119,7 @@ async def search(brief: EngineeringBrief, *, adapter: CapabilityAdapter | None =
                 await progress(SearchProgress(phase=state))
         retained = tuple(evaluations) if state == 'selected' else tuple(
             dict(entry, artifacts={}) for entry in evaluations)
-        return SearchResult(state, tuple(attempts), retained, selected, reasons)
+        return SearchResult(state, tuple(attempts), retained, selected, reasons, rule)
 
     try:
         for ordinal, candidate in enumerate(candidates):
@@ -120,8 +136,9 @@ async def search(brief: EngineeringBrief, *, adapter: CapabilityAdapter | None =
             outcome = decision.outcome
             if outcome == Outcome.NOT_EVALUATED:
                 raise EngineeringUnavailable('Required candidate evidence unavailable')
+            failures = tuple(decision.reasons) if generator else tuple(result['report']['failures'])
             attempt = AttemptRecord(ordinal=ordinal, candidate=candidate, outcome=outcome,
-                                    checks=result['checks'], failures=tuple(result['report']['failures']))
+                                    checks=result['checks'], failures=failures)
             attempts.append(attempt)
             evaluations.append(result)
             await progress(SearchProgress(phase='attempt', ordinal=ordinal,

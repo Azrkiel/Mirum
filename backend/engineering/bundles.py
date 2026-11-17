@@ -15,8 +15,9 @@ import zipfile
 from typing import Literal
 from pydantic import Field, model_validator
 
-from .capabilities import CAPABILITY
-from .contracts import ArtifactIdentity, BundleIdentity, EngineeringBrief, Outcome, ContractModel, Sha256
+from .capabilities import CAPABILITY, GENERATOR_BASE_PAYLOADS, GENERATOR_DIAGNOSTIC_BASE, GENERATOR_PREFIX
+from .contracts import (ArtifactIdentity, BundleIdentity, EngineeringBrief, GeneratorBriefContent, Outcome,
+                        ContractModel, Sha256)
 from .policy import assess
 from .store import ArtifactExpired
 
@@ -33,12 +34,26 @@ FORMATS = {
     'manifest': ('manifest.json','application/json'),
 }
 MIME = dict(FORMATS.values())
-PAYLOADS = set(MIME)-{'package.zip','manifest.json'}
+PAYLOADS = set(MIME)-{'package.zip','manifest.json'}   # the beam's eight; generators add their own below
+# Registry generators publish their own bytes under flat ``generator-*`` names.
+GENERATOR_FORMATS = {
+    'generator-spec': ('generator-spec.json','application/json'),
+    'generator-report': ('generator-report.json','application/json'),
+    'generator-body-step': ('generator-body.step','application/step'),
+    'generator-preview-glb': ('generator-preview.glb','model/gltf-binary'),
+    'generator-cleaned-stl': ('generator-cleaned.stl','model/stl'),
+    'generator-spec-canonical': ('generator-spec.canonical.json','application/json'),
+    'generator-bundle-zip': ('generator-bundle.zip','application/zip'),
+    'generator-result': ('generator-result.json','application/json'),
+}
+ALL_FORMATS = {**FORMATS, **GENERATOR_FORMATS}
+MIME.update(dict(GENERATOR_FORMATS.values()))
 METADATA_RESERVE = 1024**2
 
 
 class ManifestPayload(ArtifactIdentity):
-    mime_type: Literal['application/json','text/plain','application/step','model/gltf-binary','text/markdown']
+    mime_type: Literal['application/json','text/plain','application/step','model/gltf-binary','text/markdown',
+                       'model/stl','application/zip']
 
 
 class BundleManifest(ContractModel):
@@ -47,12 +62,15 @@ class BundleManifest(ContractModel):
     brief_sha256: Sha256
     selected_candidate_sha256: Sha256 | None
     kind: Literal['accepted','diagnostic']
-    payloads: tuple[ManifestPayload,...] = Field(min_length=4,max_length=8)
+    payloads: tuple[ManifestPayload,...] = Field(min_length=4,max_length=16)
 
     @model_validator(mode='after')
     def complete(self):
+        paths={p.path for p in self.payloads}
         expected=PAYLOADS if self.kind=='accepted' else {'brief.json','attempts.json','report.json','report.md'}
-        if (len(self.payloads)!=len(expected) or {p.path for p in self.payloads}!=expected
+        base=set(GENERATOR_BASE_PAYLOADS) if self.kind=='accepted' else set(GENERATOR_DIAGNOSTIC_BASE)
+        generated=(base<=paths and len(paths)>len(base) and all(p.startswith(GENERATOR_PREFIX) for p in paths-base))
+        if (len(self.payloads)!=len(paths) or not (paths==expected or generated)
                 or any(p.mime_type!=MIME[p.path] for p in self.payloads)
                 or (self.selected_candidate_sha256 is not None)!=(self.kind=='accepted')):
             raise ValueError('Incomplete or incorrectly typed manifest')
@@ -164,11 +182,35 @@ class BundlePublisher:
                 raise ValueError('Attempt evidence changed')
         payload=self._reports(job_id,brief,result,'accepted')
         payload.update(selected['artifacts'])
-        payload['selected_spec.json']=encode(candidate.specification.model_dump(mode='json'))
+        payload['selected_spec.json']=encode(candidate.content.specification if isinstance(candidate.content,GeneratorBriefContent)
+                                             else candidate.specification.model_dump(mode='json'))
         publication=await self._publish(job_id,brief,result,payload,'accepted')
         return BundleIdentity.model_validate_json(json.dumps(publication['bundle']))
 
+    def _generator_reports(self,job_id,brief,result,outcome):
+        descriptor=brief.content.descriptor
+        report=dict(schema_version='engineering_report_v1',job_id=job_id,brief_id=brief.brief_id,
+            brief_sha256=brief.brief_sha256,fixed_requirements_sha256=brief.fixed_requirements_sha256,
+            capability=brief.content.capability.model_dump(mode='json'),outcome=outcome,
+            scope=descriptor.id,standards='not_evaluated',engineering_certified=False,
+            reasons=list(result.reasons),
+            evaluations=[dict(candidate_sha256=e['candidate'].candidate_sha256,
+                              report_sha256=e['report_sha256'],generator_report=e['report']) for e in result.evaluations])
+        rows=[f'# Checked {descriptor.label} result','',f'Job: {job_id}',f'Brief: {brief.brief_sha256}',
+            f'Outcome: {outcome}','',
+            'Digital evidence from the capability verifier, not physical testing, manufacturing release or standards certification.',
+            f'Selection: {descriptor.selection_rule}.','',
+            '| Check | State | Reason |','|---|---|---|']
+        for a in result.attempts:
+            rows += [f'| {c.check_id} | {c.state.value} | {c.reason or "Passed"} |' for c in a.checks]
+        rows += ['',*result.reasons]
+        return {'brief.json':encode(brief.model_dump(mode='json')),
+            'attempts.json':encode([a.model_dump(mode='json') for a in result.attempts]),
+            'report.json':encode(report),'report.md':('\n'.join(rows)+'\n').encode()}
+
     def _reports(self,job_id,brief,result,outcome):
+        if isinstance(brief.content,GeneratorBriefContent):
+            return self._generator_reports(job_id,brief,result,outcome)
         report=dict(schema_version='engineering_report_v1',job_id=job_id,brief_id=brief.brief_id,
             brief_sha256=brief.brief_sha256,fixed_requirements_sha256=brief.fixed_requirements_sha256,
             capability=brief.content.capability.model_dump(mode='json'),outcome=outcome,
@@ -191,12 +233,21 @@ class BundlePublisher:
 
     async def publish_diagnostics(self,job_id,brief,result):
         payload=self._reports(job_id,brief,result,'rejected' if result.state=='rejected' else 'not_evaluated')
+        if isinstance(brief.content,GeneratorBriefContent) and result.evaluations:
+            payload.update(result.evaluations[-1].get('diagnostics',{}))
         return await self._publish(job_id,brief,result,payload,'diagnostic')
 
     async def _publish(self,job_id,brief,result,payload,kind):
         directory=self.directory(job_id)
         if directory.exists(): raise ValueError('Immutable package already exists')
         required=PAYLOADS if kind=='accepted' else {'brief.json','attempts.json','report.json','report.md'}
+        if isinstance(brief.content,GeneratorBriefContent):
+            descriptor=brief.content.descriptor
+            if kind=='accepted': required=set(GENERATOR_BASE_PAYLOADS)|set(descriptor.payloads)
+            else:
+                extra={n for n in payload if n.startswith(GENERATOR_PREFIX)}
+                if not extra<=set(descriptor.diagnostic_payloads): raise ValueError('Incomplete publication')
+                required=set(GENERATOR_DIAGNOSTIC_BASE)|extra
         if set(payload) != required: raise ValueError('Incomplete publication')
         identities=[ArtifactIdentity(path=name,bytes=len(value),sha256=digest(value)) for name,value in sorted(payload.items())]
         manifest=dict(schema_version='engineering_manifest_v1',job_id=job_id,brief_sha256=brief.brief_sha256,
@@ -296,7 +347,7 @@ class BundlePublisher:
         checks; the single integrity check (streamed digest of the exact file that will
         be served against its recorded digest) runs outside it. Blocking: call off the
         event loop. The caller must ``close()`` the returned Download (idempotent)."""
-        if format not in FORMATS: raise KeyError(format)
+        if format not in ALL_FORMATS: raise KeyError(format)
         with self.store._lock:
             publication,expires=self._publication(job_id)
             if time.time()>=expires: raise ArtifactExpired('Engineering artifacts expired')
@@ -305,7 +356,7 @@ class BundlePublisher:
                 if not row or json.loads(row[0])['lifecycle'] not in ('completed','unavailable','cancelled'):
                     raise KeyError('Publication is not committed')
             self.quick_check(job_id,envelope)
-            name,mime=FORMATS[format]
+            name,mime=ALL_FORMATS[format]
             path=self.directory(job_id)/name
             if not path.is_file(): raise KeyError(format)
             file=path.open('rb')

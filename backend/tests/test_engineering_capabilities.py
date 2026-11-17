@@ -11,7 +11,7 @@ from backend.tests.test_engineering_spec import spec_data
 def test_registry_pins_one_bounded_capability_and_all_required_evidence():
     from engineering.capabilities import CAPABILITY, get_capability, list_capabilities
     descriptor = get_capability(CAPABILITY.id, CAPABILITY.version)
-    assert list_capabilities() == (descriptor,)
+    assert list_capabilities()[0] == descriptor and len(list_capabilities()) == 4
     assert descriptor.units == 'mm_N_MPa'
     assert descriptor.exports == ('step', 'glb', 'source', 'brief', 'specification',
                                   'attempts', 'report_json', 'report_markdown', 'manifest', 'zip')
@@ -102,8 +102,8 @@ def test_ambiguous_or_invalid_choices_cannot_be_reviewed(changes):
 def test_metadata_import_does_not_initialize_native_or_ai_runtime():
     code = '''import sys
 from engineering.capabilities import CAPABILITY, list_capabilities
-assert list_capabilities() == (CAPABILITY,)
-assert not any(m in sys.modules for m in ['google.generativeai', 'agents', 'cadquery', 'OCP', 'numpy'])
+assert list_capabilities()[0] == CAPABILITY
+assert not any(m.split('.')[0] in ('google', 'agents', 'cadquery', 'OCP', 'numpy', 'aerosandbox', 'trimesh', 'scipy', 'fastapi') for m in sys.modules)
 '''
     subprocess.run([sys.executable, '-c', code], check=True)
 

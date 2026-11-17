@@ -209,3 +209,39 @@ def test_ai_flag_on_reports_enabled_and_availability_follows_key(ai_client,monke
     assert on['ai_enabled'] is True and on['ai_available'] is True
     monkeypatch.delenv('GEMINI_API_KEY_HEAVY')
     assert ai_client.get('/engineering/v1/capabilities').json()['ai_available'] is False
+
+
+def test_capabilities_keep_the_beam_first_and_add_review_fields_and_availability(client):
+    value=client.get('/engineering/v1/capabilities').json()
+    entries=value['capabilities']
+    assert [e['id'] for e in entries]==['rectangular_cantilever','co2_dragster','regen_chamber','glider_cem']
+    from engineering.contracts import REVIEW_FIELDS
+    assert value['review_fields']==list(REVIEW_FIELDS) and entries[0]['review_fields']==list(REVIEW_FIELDS)
+    assert entries[0]['version']=='1.0.0' and entries[0]['required_checks']
+    for entry in entries[1:]:
+        assert entry['engineering_certified'] is False and entry['standards']=='not_evaluated'
+        assert entry['review_fields']==[] and entry['review_fields_prefix']=='specification.'
+        assert entry['resources']['overall_seconds']==420 and entry['resources']['run_bytes']==32*1024**2
+    from engineering.capabilities import GENERATORS,adapter_installed
+    assert [e['available'] for e in entries[1:]]==[adapter_installed(g) for g in GENERATORS]
+
+
+def test_generator_draft_refuses_unsupported_and_rules_mode_needs_a_declared_proposer(client):
+    from backend.tests.test_engineering_generator_contracts import regen_spec,reference
+    from engineering.capabilities import get_generator
+    ref=reference(get_generator('regen_chamber'))
+    refused=client.post('/engineering/v1/drafts',json={'capability':'regen_chamber',
+        'input':{'capability':ref,'specification':regen_spec(voxel_size_mm=0.2)}})
+    assert refused.status_code==201,refused.text
+    body=refused.json()
+    assert body['draft']['content'] is None and [i['state'] for i in body['issues']]==['unsupported']
+    ok=client.post('/engineering/v1/drafts',json={'capability':'regen_chamber',
+        'input':{'capability':ref,'specification':regen_spec()}})
+    assert ok.status_code==201 and ok.json()['draft']['content']['schema_version']=='engineering_generator_brief_v1'
+    assert len(ok.json()['brief_sha256'])==64
+    for body in ({'capability':'nope','input':{}},
+                 {'capability':'regen_chamber','input':{}},
+                 {'capability':'regen_chamber','mode':'ai','prompt':'x','input':{}},
+                 {'capability':'regen_chamber','mode':'rules','prompt':'x','input':{}},
+                 {'capability':'rectangular_cantilever','mode':'rules','prompt':'x','input':{}}):
+        assert client.post('/engineering/v1/drafts',json=body).status_code==422,body
