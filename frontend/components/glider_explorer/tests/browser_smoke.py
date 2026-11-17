@@ -8,7 +8,7 @@ with sync_playwright() as p:
     errors=[]
     page.on('pageerror',lambda e:errors.append(str(e)))
     page.goto(os.environ.get('MIRUM_UI_URL', 'http://127.0.0.1:8501'))
-    page.get_by_text('Passive glider distance search',exact=True).click()
+    page.get_by_text('Glider Search',exact=True).click()
     page.get_by_text('Explore one design',exact=True).click()
     frame=page.frame_locator('iframe[title="components.glider_explorer.glider_explorer"]')
     # Component name is reported below if Streamlit changes it.

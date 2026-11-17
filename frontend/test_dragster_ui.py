@@ -29,7 +29,7 @@ def accepted(tmp_path):
 
 
 def app():
-    return AppTest.from_string('from dragster_ui import render_dragster\nrender_dragster("http://unused", lambda: {})').run()
+    return AppTest.from_string('from dragster_ui import render_dragster\nrender_dragster("http://unused", lambda: {})', default_timeout=15).run()
 
 
 def button(at, label):
@@ -42,18 +42,18 @@ def test_success_invalid_edit_rejection_and_recovery(monkeypatch, accepted):
         return state.begin(), future, Event()
     monkeypatch.setattr(dragster_ui, 'start_attempt', start)
     at = app()
-    button(at, 'Generate accepted wedge').click().run()
+    button(at, 'Generate body').click().run()
     assert not at.exception
     state = at.session_state.dragster_state
     assert state.accepted['run_id'] == 'a'*32
     files = state.files.copy()
-    next(n for n in at.number_input if n.label == 'pocket_center_z_mm').set_value(40.0).run()
-    button(at, 'Generate accepted wedge').click().run()
+    at.number_input(key='dragster_param_pocket_center_z_mm').set_value(40.0).run()
+    button(at, 'Generate body').click().run()
     assert at.error
     assert at.session_state.dragster_state.files == files
     assert any('differ' in v.value for v in at.info)
-    next(n for n in at.number_input if n.label == 'pocket_center_z_mm').set_value(accepted[0]['spec']['pocket_center_z_mm']).run()
-    button(at, 'Generate accepted wedge').click().run()
+    at.number_input(key='dragster_param_pocket_center_z_mm').set_value(accepted[0]['spec']['pocket_center_z_mm']).run()
+    button(at, 'Generate body').click().run()
     assert not at.exception and not at.error
 
 
@@ -65,9 +65,9 @@ def test_cancel_and_late_completion_preserve_previous_result(monkeypatch, accept
     at = app()
     state = at.session_state.dragster_state
     state.accept(state.begin(), *accepted)
-    button(at, 'Generate accepted wedge').click().run()
-    assert button(at, 'Generate accepted wedge').disabled
-    button(at, 'Cancel wedge attempt').click().run()
+    button(at, 'Generate body').click().run()
+    assert button(at, 'Generate body').disabled
+    button(at, 'Cancel generation').click().run()
     assert cancel.is_set()
     future.set_result(accepted)
     at.run()
@@ -80,14 +80,14 @@ def test_json_import_is_atomic_and_first_failure_is_clear():
     at = app()
     initial = at.number_input[0].value
     at.text_area[0].set_value('{"width_mm":46}').run()
-    button(at, 'Load wedge parameters').click().run()
+    button(at, 'Load parameters').click().run()
     assert at.number_input[0].value == initial
     assert at.error
-    assert any('No accepted result yet' in i.value for i in at.info)
+    assert any('No accepted model' in i.value for i in at.markdown)
 
     payload = json.loads(dragster_ui.EXAMPLE.read_text())
     payload['width_mm'] = 46.0
     at.text_area[0].set_value(json.dumps(payload)).run()
-    button(at, 'Load wedge parameters').click().run()
-    assert next(n for n in at.number_input if n.label == 'width_mm').value == 46.0
+    button(at, 'Load parameters').click().run()
+    assert at.number_input(key='dragster_param_width_mm').value == 46.0
     assert not at.error and not at.exception

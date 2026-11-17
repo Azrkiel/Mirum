@@ -175,7 +175,6 @@ def _result(client,state):
 
 
 def render_checked(backend,headers):
-    st.header('Checked beam')
     st.caption('One solid rectangular cantilever. Review requirements, run deterministic checks, inspect one complete evidence package.')
     st.info('Digital model only: ideal clamp, homogeneous linear elasticity, static end force. No physical testing, manufacturing release or standards certification.')
     client=CheckedClient(backend,headers)
