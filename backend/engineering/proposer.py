@@ -300,7 +300,52 @@ def make_proposer(service: BriefService, *, ledger: ProposalLedger, enabled: boo
     """
     if not enabled:
         return None
-    return BriefProposer(service, ledger=ledger, provider=provider_factory() if provider_factory else None, budget=budget)
+    return CapabilityProposers(BriefProposer(service, ledger=ledger,
+        provider=provider_factory() if provider_factory else None, budget=budget))
+
+
+class CapabilityProposers:
+    """Per-capability proposer dispatcher.
+
+    The beam's ``BriefProposer`` is the ``ai`` entry, unchanged; ``provider``,
+    ``budget`` and ``propose`` forward to it. ``rules(capability_id)`` lazily
+    resolves a stdlib proposer a descriptor declares: no provider, no key.
+    """
+    def __init__(self, ai: 'BriefProposer'):
+        self.ai = ai
+
+    provider = property(lambda self: self.ai.provider,
+                        lambda self, value: setattr(self.ai, 'provider', value))
+    budget = property(lambda self: self.ai.budget,
+                      lambda self, value: setattr(self.ai, 'budget', value))
+
+    async def propose(self, *args, **kwargs):
+        return await self.ai.propose(*args, **kwargs)
+
+    def rules(self, capability_id: str):
+        return rules_proposer(capability_id)
+
+
+def rules_proposer(capability_id: str):
+    """Resolve a descriptor's stdlib ``rules`` proposer lazily.
+
+    It builds no provider and reads no key, so it is allowed with the AI flag off.
+    A rules proposer's ``propose(prompt)`` returns ``(payload, issues, provenance)``,
+    the arguments ``BriefService.create`` takes. Only descriptors that declare one have one.
+    """
+    import importlib
+    from .capabilities import UnsupportedCapability, get_generator
+    descriptor = get_generator(capability_id)
+    reference = descriptor.proposers.get('rules') if descriptor else None
+    if reference is None:
+        raise UnsupportedCapability('No rules proposer for this capability')
+    module, _, attribute = reference.partition(':')
+    try:
+        return getattr(importlib.import_module(module), attribute)()
+    except ModuleNotFoundError as missing:
+        if missing.name == module:
+            raise UnsupportedCapability('proposer not installed') from None
+        raise
 
 
 class BriefProposer:

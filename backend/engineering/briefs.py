@@ -13,8 +13,10 @@ from uuid import uuid4
 
 from pydantic import Field, ValidationError
 
+from .capabilities import get_generator
 from .contracts import (BriefContent, BriefDraft, ContractModel, EngineeringBrief,
-                        FieldOrigin, Provenance, REVIEW_FIELDS, ReviewAcknowledgement, Text)
+                        FieldOrigin, GeneratorBriefContent, Provenance, REVIEW_FIELDS,
+                        ReviewAcknowledgement, Text)
 
 
 class RevisionConflict(ValueError):
@@ -139,8 +141,11 @@ class BriefService:
     def __init__(self, repository: BriefRepository):
         self.repository = repository
 
-    def validate(self, payload: dict) -> tuple[BriefContent | None, tuple[InputIssue, ...]]:
+    def validate(self, payload: dict) -> tuple[BriefContent | GeneratorBriefContent | None, tuple[InputIssue, ...]]:
         encoded = self._encode(payload)
+        descriptor = self._generator(payload)
+        if descriptor is not None:
+            return self._validate_generator(payload, descriptor)
         try:
             return BriefContent.model_validate_json(encoded), ()
         except ValidationError as error:
@@ -157,6 +162,46 @@ class BriefService:
             return None, tuple(issues)
 
     @staticmethod
+    def _generator(payload: dict):
+        capability = payload.get('capability')
+        return get_generator(capability.get('id')) if isinstance(capability, dict) and isinstance(
+            capability.get('id'), str) else None
+
+    @staticmethod
+    def _validate_generator(payload: dict, descriptor):
+        """Refuse unsupported requests first; then normalize the spec (defaults included)
+        and record the required checks, so the reviewed brief is exactly what runs."""
+        specification = payload.get('specification')
+        refused = descriptor.refuse(specification)
+        if refused:
+            return None, tuple(InputIssue(field=field[:240], state='unsupported', reason=reason[:240])
+                               for field, reason in refused)
+        if not isinstance(specification, dict):
+            return None, (InputIssue(field='specification', state='clarification_required',
+                                     reason='A specification object is required'),)
+        try:
+            normalized = descriptor.parse_spec(specification).model_dump(mode='json')
+            content = GeneratorBriefContent.model_validate_json(json.dumps(dict(
+                schema_version='engineering_generator_brief_v1',
+                capability=payload.get('capability'), specification=normalized,
+                required_checks=list(descriptor.required_checks(normalized))), allow_nan=False))
+            return content, ()
+        except ValidationError as error:
+            issues = []
+            for e in error.errors(include_input=False, include_url=False):
+                loc = '.'.join(map(str, e['loc'])) or 'specification'
+                field = loc if loc.startswith(('specification', 'capability')) else 'specification.' + loc
+                unsupported = (e['type'] in ('extra_forbidden', 'literal_error', 'less_than_equal')
+                               or field.startswith('capability'))
+                issues.append(InputIssue(field=field[:240], state='unsupported' if unsupported
+                                         else 'clarification_required', reason=e['msg'][:240]))
+            return None, tuple(issues) or (InputIssue(field='specification', state='unsupported',
+                                                      reason='Unsupported specification'),)
+        except ValueError:
+            return None, (InputIssue(field='specification', state='unsupported',
+                                     reason='Specification does not satisfy the capability'),)
+
+    @staticmethod
     def _encode(payload: dict) -> str:
         if type(payload) is not dict:
             raise ValueError('Preparation requires a structured input object')
@@ -166,7 +211,23 @@ class BriefService:
         return encoded
 
     @staticmethod
-    def input_provenance(payload: dict) -> Provenance:
+    def input_provenance(payload: dict, content=None) -> Provenance:
+        if isinstance(content, GeneratorBriefContent):
+            given = payload.get('specification') if isinstance(payload.get('specification'), dict) else {}
+            origins = []
+            for name in content.review_fields:
+                value, present = given, True
+                for part in name[len('specification.'):].split('.'):
+                    if isinstance(value, dict) and part in value:
+                        value = value[part]
+                    else:
+                        present = False
+                        break
+                origins.append(FieldOrigin(field=name, origin='user_supplied' if present else 'policy',
+                                           reference='Typed normalized input' if present
+                                           else 'Default value of the capability specification'))
+            return Provenance(record_id=uuid4().hex, created_at=datetime.now(timezone.utc),
+                              input_mode='form', field_origins=tuple(origins))
         origins = []
         for name in REVIEW_FIELDS:
             path = name.split('.') if name in ('mode', 'candidate_heights_mm') else ['requirements', *name.split('.')]
@@ -186,7 +247,7 @@ class BriefService:
         issues = validation_issues + tuple(InputIssue.model_validate(i.model_dump()) for i in extra_issues)
         draft = BriefDraft(draft_id=draft_id, revision=revision, content=content,
                            clarifications=tuple(f'{i.field}: {i.reason}'[:240] for i in issues),
-                           provenance=provenance or self.input_provenance(payload))
+                           provenance=provenance or self.input_provenance(payload, content))
         return PreparedDraft(draft=draft, input_json=self._encode(payload), issues=issues)
 
     def create(self, payload: dict, *, provenance: Provenance | None = None,

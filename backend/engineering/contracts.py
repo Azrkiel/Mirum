@@ -8,13 +8,14 @@ from __future__ import annotations
 from decimal import Decimal
 from enum import Enum
 import math
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import (AwareDatetime, ConfigDict, Field, StringConstraints,
+from pydantic import (AwareDatetime, ConfigDict, Field, StringConstraints, ValidationError,
                       field_validator, model_validator)
 
-from cem.core import StrictModel, digest
-from .capabilities import CAPABILITY, get_capability
+from cem.core import StrictModel, canonical_json, digest
+from .capabilities import (CAPABILITY, GENERATOR_BASE_PAYLOADS, GENERATOR_PREFIX,
+                           GENERATOR_SPEC_PREFIX, GeneratorDescriptor, get_capability, get_generator)
 from .spec import CantileverSpec, specification_digest
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=240)]
@@ -26,6 +27,11 @@ REVIEW_FIELDS = (
     'material.allowable_stress_mpa', 'material.reference', 'material.source_kind',
     'assumptions', 'mode', 'candidate_heights_mm',
 )
+
+
+def is_reviewable_field(name: str) -> bool:
+    """Beam review fields, or a ``specification.<leaf>`` path of a generator brief."""
+    return name in REVIEW_FIELDS or name.startswith(GENERATOR_SPEC_PREFIX)
 
 
 class ContractModel(StrictModel):
@@ -169,6 +175,65 @@ class BriefContent(ContractModel):
                            candidate_heights_mm=self.candidate_heights_mm))
 
 
+class GeneratorBriefContent(ContractModel):
+    """One reviewed specification for a registry generator; one candidate, no mode.
+
+    ``specification`` is the spec model's ``model_dump(mode='json')`` with defaults
+    included, so the reviewed brief is exactly the specification that runs.
+    """
+    schema_version: Literal['engineering_generator_brief_v1']
+    capability: CapabilityReference
+    specification: dict[str, Any]
+    required_checks: tuple[str, ...]
+
+    @property
+    def descriptor(self) -> GeneratorDescriptor:
+        descriptor = get_capability(self.capability.id, self.capability.version,
+                                    numerical_policy_version=self.capability.numerical_policy_version,
+                                    resource_policy_version=self.capability.resource_policy_version)
+        if not isinstance(descriptor, GeneratorDescriptor):
+            raise ValueError('Capability is not a registry generator')
+        return descriptor
+
+    @model_validator(mode='after')
+    def reviewed_specification(self):
+        descriptor = self.descriptor
+        refused = descriptor.refuse(self.specification)
+        if refused:
+            raise ValueError('Unsupported request: ' + refused[0][1])
+        try:
+            normalized = descriptor.parse_spec(self.specification).model_dump(mode='json')
+        except ValidationError as error:
+            first = error.errors(include_input=False, include_url=False)[0]
+            raise ValueError('Specification invalid at ' + '.'.join(map(str, first['loc']))
+                             + ': ' + first['msg'][:160]) from None
+        if canonical_json(normalized) != canonical_json(self.specification):
+            raise ValueError('Specification must be the normalized form with every default included')
+        if self.required_checks != descriptor.required_checks(normalized):
+            raise ValueError('Required checks must equal the capability set for this specification')
+        return self
+
+    @property
+    def review_fields(self) -> tuple[str, ...]:
+        return self.descriptor.review_fields(self.specification)
+
+    def fixed_meaning(self) -> dict:
+        return dict(schema_version=self.schema_version,
+                    capability=self.capability.model_dump(mode='json'),
+                    specification=self.specification, required_checks=self.required_checks)
+
+    @property
+    def fixed_requirements_sha256(self) -> str:
+        return digest(self.fixed_meaning())
+
+    @property
+    def brief_sha256(self) -> str:
+        return self.fixed_requirements_sha256
+
+
+AnyContent = Annotated[BriefContent | GeneratorBriefContent, Field(discriminator='schema_version')]
+
+
 class FieldOrigin(ContractModel):
     field: Text
     origin: Literal['user_supplied', 'ai_proposed', 'converted', 'policy']
@@ -177,7 +242,7 @@ class FieldOrigin(ContractModel):
     @field_validator('field')
     @classmethod
     def known_field(cls, value):
-        if value not in REVIEW_FIELDS:
+        if not is_reviewable_field(value):
             raise ValueError('Unknown field origin')
         return value
 
@@ -201,7 +266,7 @@ class BriefDraft(ContractModel):
     schema_version: Literal['engineering_draft_v1'] = 'engineering_draft_v1'
     draft_id: Text
     revision: int = Field(ge=1)
-    content: BriefContent | None
+    content: AnyContent | None
     clarifications: tuple[Text, ...]
     provenance: Provenance
 
@@ -211,7 +276,7 @@ class BriefDraft(ContractModel):
             raise ValueError('Incomplete content requires explicit clarification')
         return self
 
-    def revised(self, *, content: BriefContent | None, provenance: Provenance,
+    def revised(self, *, content: BriefContent | GeneratorBriefContent | None, provenance: Provenance,
                 clarifications: tuple[str, ...] = ()) -> BriefDraft:
         return BriefDraft(draft_id=self.draft_id, revision=self.revision + 1,
                           content=content, clarifications=clarifications, provenance=provenance)
@@ -228,7 +293,7 @@ class ReviewAcknowledgement(ContractModel):
     @field_validator('acknowledged_fields')
     @classmethod
     def known_unique_fields(cls, values):
-        if len(values) != len(set(values)) or set(values) - set(REVIEW_FIELDS):
+        if len(values) != len(set(values)) or not all(is_reviewable_field(v) for v in values):
             raise ValueError('Review must identify unique supported fields')
         return values
 
@@ -238,7 +303,7 @@ class EngineeringBrief(ContractModel):
     brief_id: Text
     draft_id: Text
     draft_revision: int = Field(ge=1)
-    content: BriefContent
+    content: AnyContent
     fixed_requirements_sha256: Sha256
     brief_sha256: Sha256
     review: ReviewAcknowledgement
@@ -246,17 +311,21 @@ class EngineeringBrief(ContractModel):
 
     @model_validator(mode='after')
     def exact_reviewed_meaning(self):
+        generator = isinstance(self.content, GeneratorBriefContent)
+        fields = self.content.review_fields if generator else REVIEW_FIELDS
         if (self.fixed_requirements_sha256 != self.content.fixed_requirements_sha256
                 or self.brief_sha256 != self.content.brief_sha256):
             raise ValueError('Brief identity does not match normalized meaning')
         if (self.review.draft_id != self.draft_id
                 or self.review.draft_revision != self.draft_revision
                 or self.review.brief_sha256 != self.brief_sha256
-                or set(self.review.acknowledged_fields) != set(REVIEW_FIELDS)):
+                or set(self.review.acknowledged_fields) != set(fields)):
             raise ValueError('Exact draft revision and all values/assumptions require review')
-        if {origin.field for origin in self.provenance.field_origins} != set(REVIEW_FIELDS):
+        if {origin.field for origin in self.provenance.field_origins} != set(fields):
             raise ValueError('Every reviewed input requires a recorded field origin')
-        if self.provenance.force_conversion is not None:
+        if generator and self.provenance.force_conversion is not None:
+            raise ValueError('Generator briefs take no mass-to-force conversion')
+        if not generator and self.provenance.force_conversion is not None:
             conversion = self.provenance.force_conversion
             force_origin = next(o for o in self.provenance.field_origins if o.field == 'tip_force_n')
             if (conversion.force_n != self.content.requirements.tip_force_n
@@ -302,6 +371,32 @@ class CandidateSpec(ContractModel):
                    specification=spec, candidate_sha256=specification_digest(spec))
 
 
+class GeneratorCandidate(ContractModel):
+    """The single reviewed specification of a generator; ``candidate_sha256`` is the
+    generator's own specification digest, supplied by its adapter."""
+    schema_version: Literal['engineering_generator_candidate_v1'] = 'engineering_generator_candidate_v1'
+    content: GeneratorBriefContent
+    brief_sha256: Sha256
+    fixed_requirements_sha256: Sha256
+    candidate_sha256: Sha256
+
+    @model_validator(mode='after')
+    def bound_candidate(self):
+        if (self.brief_sha256 != self.content.brief_sha256
+                or self.fixed_requirements_sha256 != self.content.fixed_requirements_sha256):
+            raise ValueError('Candidate does not match the complete reviewed brief/specification')
+        return self
+
+    @classmethod
+    def from_brief(cls, brief: EngineeringBrief, candidate_sha256: str) -> GeneratorCandidate:
+        brief = EngineeringBrief.model_validate(brief.model_dump())
+        if not isinstance(brief.content, GeneratorBriefContent):
+            raise ValueError('Brief does not belong to a registry generator')
+        return cls(content=brief.content, brief_sha256=brief.brief_sha256,
+                   fixed_requirements_sha256=brief.fixed_requirements_sha256,
+                   candidate_sha256=candidate_sha256)
+
+
 class CheckState(str, Enum):
     PASSED = 'passed'
     FAILED = 'failed'
@@ -327,7 +422,8 @@ class Outcome(str, Enum):
 class Measurement(ContractModel):
     name: Text
     value: float
-    unit: Literal['mm', 'mm2', 'mm3', 'mm4', 'N', 'N_mm', 'MPa', 'ratio', 'count', 'rad', 'N_mm_energy']
+    unit: Literal['mm', 'mm2', 'mm3', 'mm4', 'N', 'N_mm', 'MPa', 'ratio', 'count', 'rad', 'N_mm_energy',
+                  'kg', 'm', 'm4', 'Pa', 's', 'm_s']
 
 
 class ComparisonLimit(Measurement):
@@ -337,7 +433,10 @@ class ComparisonLimit(Measurement):
 
 class ArtifactIdentity(ContractModel):
     path: Literal['brief.json', 'selected_spec.json', 'model.py', 'model.step', 'preview.glb',
-                  'attempts.json', 'report.json', 'report.md', 'manifest.json']
+                  'attempts.json', 'report.json', 'report.md', 'manifest.json',
+                  'generator-spec.json', 'generator-report.json', 'generator-body.step',
+                  'generator-preview.glb', 'generator-cleaned.stl', 'generator-spec.canonical.json',
+                  'generator-bundle.zip', 'generator-result.json']
     sha256: Sha256
     bytes: int = Field(gt=0)
 
@@ -362,30 +461,72 @@ class CheckResult(ContractModel):
         if self.state == CheckState.PASSED and not (
                 self.measurements and self.limits and any(a.path == 'model.step' for a in self.artifacts)):
             raise ValueError('Passed checks require measurements, limits and measured STEP identity')
-        if self.state != CheckState.PASSED and not self.reason:
-            raise ValueError('A non-passing check requires a specific reason')
-        for items, label in ((self.measurements, 'measurement'), (self.limits, 'limit')):
-            names = [item.name for item in items]
-            if len(names) != len(set(names)):
-                raise ValueError(f'Duplicate {label} names')
-        measured = {m.name: m.unit for m in self.measurements}
-        if any(limit.name not in measured or measured[limit.name] != limit.unit for limit in self.limits):
-            raise ValueError('Comparison limits must identify a measured quantity with matching units')
-        paths = [a.path for a in self.artifacts]
-        if len(paths) != len(set(paths)):
-            raise ValueError('Duplicate artifact identities')
+        _evidence_common(self)
+        return self
+
+
+def _evidence_common(check) -> None:
+    if check.state != CheckState.PASSED and not check.reason:
+        raise ValueError('A non-passing check requires a specific reason')
+    for items, label in ((check.measurements, 'measurement'), (check.limits, 'limit')):
+        names = [item.name for item in items]
+        if len(names) != len(set(names)):
+            raise ValueError(f'Duplicate {label} names')
+    measured = {m.name: m.unit for m in check.measurements}
+    if any(limit.name not in measured or measured[limit.name] != limit.unit for limit in check.limits):
+        raise ValueError('Comparison limits must identify a measured quantity with matching units')
+    paths = [a.path for a in check.artifacts]
+    if len(paths) != len(set(paths)):
+        raise ValueError('Duplicate artifact identities')
+
+
+class GeneratorCheckResult(ContractModel):
+    """One check of a registry generator's own verifier, in the shared evidence shape."""
+    schema_version: Literal['engineering_generator_check_v1'] = 'engineering_generator_check_v1'
+    capability_id: Text
+    check_id: Text
+    state: CheckState
+    method: Text
+    method_version: Text
+    brief_sha256: Sha256
+    candidate_sha256: Sha256
+    measurements: tuple[Measurement, ...]
+    limits: tuple[ComparisonLimit, ...]
+    artifacts: tuple[ArtifactIdentity, ...]
+    reason: Text | None = None
+
+    @model_validator(mode='after')
+    def evidence_shape(self):
+        descriptor = get_generator(self.capability_id)
+        if descriptor is None or self.check_id not in descriptor.all_check_ids:
+            raise ValueError('Check is not declared by the capability version')
+        if any(a.path not in descriptor.payloads for a in self.artifacts):
+            raise ValueError('Check artifact is not a payload of this capability')
+        if self.state == CheckState.PASSED and not (
+                self.measurements and self.limits
+                and any(a.path == descriptor.primary_artifact for a in self.artifacts)):
+            raise ValueError('Passed checks require measurements, limits and the measured primary artifact identity')
+        _evidence_common(self)
         return self
 
 
 class AttemptRecord(ContractModel):
     ordinal: int = Field(ge=0, lt=4)
-    candidate: CandidateSpec
+    candidate: CandidateSpec | GeneratorCandidate
     outcome: Outcome
-    checks: tuple[CheckResult, ...]
+    checks: tuple[CheckResult | GeneratorCheckResult, ...]
     failures: tuple[Text, ...] = ()
 
     @model_validator(mode='after')
     def consistent_evidence(self):
+        generator = isinstance(self.candidate, GeneratorCandidate)
+        if generator and (self.ordinal != 0 or any(not isinstance(c, GeneratorCheckResult)
+                                                   or c.capability_id != self.candidate.content.capability.id
+                                                   for c in self.checks)):
+            raise ValueError("Generator attempts are single and carry that capability's own checks")
+        if not generator and any(not isinstance(c, CheckResult) for c in self.checks):
+            raise ValueError('Beam attempts carry beam checks')
+        required = self.candidate.content.required_checks if generator else CAPABILITY.required_checks
         ids = [c.check_id for c in self.checks]
         if len(ids) != len(set(ids)):
             raise ValueError('Each check must occur once per attempt')
@@ -393,7 +534,7 @@ class AttemptRecord(ContractModel):
                or c.candidate_sha256 != self.candidate.candidate_sha256 for c in self.checks):
             raise ValueError('Check evidence belongs to another brief/candidate')
         if self.outcome == Outcome.ACCEPTED and (
-                set(ids) != set(CAPABILITY.required_checks)
+                set(ids) != set(required)
                 or any(c.state != CheckState.PASSED for c in self.checks) or self.failures):
             raise ValueError('Accepted attempt requires all mandatory passing evidence')
         if self.outcome == Outcome.REJECTED and (
@@ -417,7 +558,10 @@ class BundleIdentity(ContractModel):
         paths = [p.path for p in self.payloads]
         expected = {'brief.json', 'selected_spec.json', 'model.py', 'model.step',
                     'preview.glb', 'attempts.json', 'report.json', 'report.md'}
-        if len(paths) != len(expected) or set(paths) != expected:
+        base = set(GENERATOR_BASE_PAYLOADS)
+        generated = (len(paths) == len(set(paths)) and base <= set(paths) and len(paths) > len(base)
+                     and all(p.startswith(GENERATOR_PREFIX) for p in set(paths) - base))
+        if not generated and (len(paths) != len(expected) or set(paths) != expected):
             raise ValueError('Bundle requires all eight payloads; manifest/ZIP hashes stay external')
         minimum = sum(p.bytes for p in self.payloads) + self.manifest_bytes + self.zip_bytes
         if minimum > self.stored_bytes:
@@ -452,7 +596,11 @@ class EngineeringRun(ContractModel):
             raise ValueError('Run attempts do not belong to this reviewed brief/version')
         if any(a.outcome == Outcome.ACCEPTED for a in self.attempts[:-1]):
             raise ValueError('No attempt may follow an accepted candidate')
-        if self.attempts:
+        generator = any(isinstance(a.candidate, GeneratorCandidate) for a in self.attempts)
+        if generator and (len(self.attempts) > 1 or any(not isinstance(a.candidate, GeneratorCandidate)
+                                                        for a in self.attempts)):
+            raise ValueError('A generator run has at most one attempt')
+        if self.attempts and not generator:
             choices = self.attempts[0].candidate.content.candidate_heights_mm
             actual = tuple(a.candidate.specification.height_mm for a in self.attempts)
             if actual != choices[:len(actual)]:
@@ -469,13 +617,17 @@ class EngineeringRun(ContractModel):
                     or self.bundle is None):
                 raise ValueError('Accepted run requires selected candidate, complete checks and bundle')
             files = {p.path: p.sha256 for p in self.bundle.payloads}
+            if generator and set(files) != set(GENERATOR_BASE_PAYLOADS) | set(
+                    self.attempts[-1].candidate.content.descriptor.payloads):
+                raise ValueError('Generator bundle does not match the capability payload set')
             if any(files[a.path] != a.sha256 for c in self.attempts[-1].checks
                    for a in c.artifacts if a.path in files):
                 raise ValueError('Published artifacts differ from checked artifacts')
         if self.outcome == Outcome.REJECTED and (
                 not self.attempts or any(a.outcome != Outcome.REJECTED for a in self.attempts)
                 or self.selected_candidate_sha256 is not None
-                or len(self.attempts) != len(self.attempts[0].candidate.content.candidate_heights_mm)):
+                or len(self.attempts) != (1 if generator else
+                                          len(self.attempts[0].candidate.content.candidate_heights_mm))):
             raise ValueError('Rejected run cannot select or publish accepted CAD')
         if self.lifecycle == Lifecycle.COMPLETED and self.outcome == Outcome.NOT_EVALUATED:
             raise ValueError('Completed runs require an evaluated outcome')

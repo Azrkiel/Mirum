@@ -14,7 +14,8 @@ from typing import Literal
 
 from .capabilities import CAPABILITY
 from .contracts import (ArtifactIdentity, CandidateSpec, CheckResult, CheckState,
-                        ComparisonLimit, ContractModel, Measurement, Outcome, Sha256, Text)
+                        ComparisonLimit, ContractModel, GeneratorCandidate, GeneratorCheckResult,
+                        Measurement, Outcome, Sha256, Text)
 from .spec import build_source
 
 
@@ -111,7 +112,7 @@ class NativeReport(ContractModel):
 class PolicyDecision(ContractModel):
     available: bool
     outcome: Outcome
-    checks: tuple[CheckResult, ...]
+    checks: tuple[CheckResult | GeneratorCheckResult, ...]
     reasons: tuple[Text, ...]
 
 
@@ -282,8 +283,11 @@ def _validate(candidate, evaluation):
     return PolicyDecision(available=True, outcome=expected_outcome, checks=checks, reasons=tuple(failed))
 
 
-def assess(candidate: CandidateSpec, evaluation: dict) -> PolicyDecision:
+def assess(candidate: CandidateSpec | GeneratorCandidate, evaluation: dict) -> PolicyDecision:
     """An invalid/missing evidence association is unavailable, never acceptance."""
+    if isinstance(candidate, GeneratorCandidate):
+        from .generator_policy import assess_generator
+        return assess_generator(candidate, evaluation)
     try:
         return _validate(candidate, evaluation)
     except _InvalidEvidence as error:

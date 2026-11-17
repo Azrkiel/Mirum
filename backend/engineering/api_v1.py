@@ -15,12 +15,12 @@ from pydantic import Field,BeforeValidator,field_validator
 
 from .admission import AdmissionBusy,ClientFairness
 from .briefs import BriefService,RevisionConflict
-from .bundles import BundlePublisher,FORMATS
-from .capabilities import list_capabilities
+from .bundles import BundlePublisher,FORMATS,ALL_FORMATS
+from .capabilities import CAPABILITY,CapabilityDescriptor,adapter_installed,get_capability,get_generator,list_capabilities
 from .contracts import ContractModel,ReviewAcknowledgement,Text,REVIEW_FIELDS
 from .jobs import JobController,compact_run
 from .limits import AiCallBudget,run_in_thread_owned
-from .proposer import make_proposer
+from .proposer import make_proposer,rules_proposer
 from .store import SQLiteStore,SQLiteBriefRepository,SQLiteProposalLedger,ArtifactExpired,PreparationQuota
 
 MAX_INPUT_BYTES=16*1024  # the reviewed brief bound; enforced on the model, after the body cap
@@ -33,7 +33,8 @@ def _bounded_input(value):
 
 
 class DraftCreate(ContractModel):
-    mode: Literal['form','ai']='form'
+    mode: Literal['form','ai','rules']='form'
+    capability: str=Field(default=CAPABILITY.id,min_length=1,max_length=64)
     input: dict = Field(default_factory=dict)
     prompt: str | None = Field(default=None,max_length=8000)
 
@@ -127,6 +128,19 @@ class CheckedRoute(APIRoute):
         return guarded
 
 
+def generator_entry(c):
+    """Explicit allowlist: no import strings, module names or source paths leave the server."""
+    return dict(id=c.id,version=c.version,label=c.label,numerical_version=c.numerical_version,
+        base_checks=list(c.base_checks),conditional_checks=[x.model_dump(mode='json') for x in c.conditional_checks],
+        unsupported_features=list(c.unsupported_features),selection_rule=c.selection_rule,
+        limitations=list(c.limitations),primary_artifact=c.primary_artifact,payloads=list(c.payloads),
+        engineering_certified=c.engineering_certified,standards=c.standards,
+        limits=[dict(name=r.name,value=r.value) for r in c.numerical+c.runtime_limits],
+        numerical=dict(version=c.numerical_version),resources=c.resources.model_dump(mode='json'),
+        available=adapter_installed(c),
+        review_fields=[],review_fields_prefix='specification.')
+
+
 def create_runtime():
     root=Path(os.environ.get('MIRUM_ENGINEERING_DATA_DIR','/tmp/mirum/engineering'))
     scratch=Path(os.environ.get('MIRUM_WORK_DIR','/tmp/mirum/work')).resolve()
@@ -187,7 +201,16 @@ def attach_v1_routes(app,limiter):
     async def capabilities(request:Request):
         value=runtime(request)
         native=os.name=='posix' and all(importlib.util.find_spec(name) for name in ('cadquery','OCP','numpy'))
-        return dict(capabilities=[c.model_dump(mode='json') for c in list_capabilities()],
+        entries=[]
+        for c in list_capabilities():
+            entry=c.model_dump(mode='json')
+            if isinstance(c,CapabilityDescriptor):
+                entry.update(review_fields=list(REVIEW_FIELDS),available=bool(native))
+            else:
+                # A generator's review fields are the leaves of its normalized specification.
+                entry=generator_entry(c)
+            entries.append(entry)
+        return dict(capabilities=entries,
             native_available=bool(native),ai_enabled=value.ai_enabled,
             ai_available=bool(value.ai_enabled and value.proposer is not None and value.proposer.provider.available),
             review_fields=list(REVIEW_FIELDS),
@@ -198,6 +221,33 @@ def attach_v1_routes(app,limiter):
     @limiter.limit('10/minute')
     async def create_draft(body:DraftCreate,request:Request):
         value=await asyncio.to_thread(clean,request)
+        given=body.input.get('capability')
+        if given is not None and not (isinstance(given,dict) and given.get('id')==body.capability):
+            raise ValueError('Input must name the requested capability')
+        if body.capability!=CAPABILITY.id:
+            if get_generator(body.capability) is None: raise ValueError('Unknown capability')
+            if body.mode=='ai': raise ValueError('AI drafts are not offered for this capability')
+            if body.mode=='form':
+                if not isinstance(given,dict): raise ValueError('Input must name the requested capability')
+                # Resolve the exact versions before admission: an unknown version is a 422, not a draft.
+                get_capability(given.get('id'),given.get('version'),
+                    numerical_policy_version=given.get('numerical_policy_version'),
+                    resource_policy_version=given.get('resource_policy_version'))
+        elif body.mode=='rules': raise ValueError('The beam has no rules proposer')
+        if body.mode=='rules':
+            # Stdlib proposer: no provider, no key; allowed with the AI flag off.
+            if body.prompt is None or body.input: raise ValueError('Rules entry requires a prompt and empty initial input')
+            proposer=rules_proposer(body.capability)
+            size=len(body.prompt.encode())
+            client=client_key(request)
+            # Admission (quota) comes before any proposer work.
+            await asyncio.to_thread(value.quota.admit_draft,client,ai=False,size=size)
+            payload,issues,provenance=proposer.propose(body.prompt)
+            def create_rules():
+                created=value.briefs.create(payload,provenance=provenance,extra_issues=tuple(issues))
+                value.quota.record_draft(created.draft.draft_id,client,len(created.model_dump_json()))
+                return created
+            return prepared_view(await asyncio.to_thread(create_rules))
         if body.mode=='ai' and (not value.ai_enabled or value.proposer is None):
             # 503 matches this router's other "feature unavailable" reports. Nothing is built or read.
             raise HTTPException(503,'AI draft preparation is not enabled')
@@ -235,6 +285,13 @@ def attach_v1_routes(app,limiter):
         value=await asyncio.to_thread(clean,request)
         size=len(json.dumps(body.input,allow_nan=False,separators=(',',':')).encode())
         def edit():
+            current=value.briefs.read(draft_id)
+            stored=json.loads(current.input_json).get('capability')
+            drafted=stored.get('id') if isinstance(stored,dict) else CAPABILITY.id
+            given=body.input.get('capability')
+            # A draft keeps its capability: PATCH can neither switch it nor drop it.
+            if (given.get('id') if isinstance(given,dict) else (None if drafted!=CAPABILITY.id else drafted))!=drafted:
+                raise ValueError('A draft cannot change its capability')
             value.quota.admit_edit(draft_id,size)
             edited=value.briefs.edit(draft_id,expected_revision=body.expected_revision,payload=body.input)
             value.quota.touch(draft_id,len(edited.model_dump_json()))
@@ -275,7 +332,8 @@ def attach_v1_routes(app,limiter):
                 value.publisher.quick_check(job.job_id,job.bundle)
                 delivery='available'
                 directory=value.publisher.directory(job.job_id)
-                formats={format:(directory/name).is_file() for format,(name,_) in FORMATS.items()}
+                known=FORMATS if record['capability']['id']==CAPABILITY.id else ALL_FORMATS
+                formats={format:(directory/name).is_file() for format,(name,_) in known.items()}
             except (KeyError,ValueError,OSError):
                 delivery='unavailable'
         return dict(record,delivery=delivery,artifacts=formats,artifact_expires_at=expires)
@@ -311,7 +369,7 @@ def attach_v1_routes(app,limiter):
         value=runtime(request)
         job=await asyncio.to_thread(value.jobs.read,job_id)
         if getattr(job,'expired',False): raise ArtifactExpired('Expired')
-        if format not in FORMATS: raise KeyError(format)
+        if format not in ALL_FORMATS: raise KeyError(format)
         if job.lifecycle not in ('completed','unavailable','cancelled'):
             raise HTTPException(409,'Artifacts are not committed yet')
         if not value.publisher.directory(job_id).exists():
