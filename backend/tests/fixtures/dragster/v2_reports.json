@@ -1,0 +1,959 @@
+{
+  "narrow_waist": {
+    "bounds_mm": {
+      "xmax": 230.0000001,
+      "xmin": -1e-07,
+      "ymax": 22.0000001,
+      "ymin": -22.0000001,
+      "zmax": 49.0000001,
+      "zmin": 2.9999999
+    },
+    "cadquery_version": "2.6.1",
+    "checks": {
+      "absolute_bounds": {
+        "deviation_mm": {
+          "xmax": 9.999999406318238e-08,
+          "xmin": -1e-07,
+          "ymax": 1.0000000116860974e-07,
+          "ymin": -1.0000000116860974e-07,
+          "zmax": 1.0000000116860974e-07,
+          "zmin": -9.999999983634211e-08
+        },
+        "expected": {
+          "xmax": 230.0,
+          "xmin": 0.0,
+          "ymax": 22.0,
+          "ymin": -22.0,
+          "zmax": 49.0,
+          "zmin": 3.0
+        },
+        "measured": {
+          "xmax": 230.0000001,
+          "xmin": -1e-07,
+          "ymax": 22.0000001,
+          "ymin": -22.0000001,
+          "zmax": 49.0000001,
+          "zmin": 2.9999999
+        },
+        "passed": true,
+        "threshold": 0.05,
+        "tolerance_mm": 0.05
+      },
+      "body_above_ground": {
+        "ground_clearance_mm": 3.0,
+        "passed": true,
+        "tolerance_mm": 0.05,
+        "zmin_mm": 2.9999999
+      },
+      "front_axle_void": {
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "length_mm": 39.381822415824224,
+        "measured": 0.0,
+        "origin_mm": [
+          40.0,
+          -19.690911207912112,
+          15.0
+        ],
+        "passed": true,
+        "radius_mm": 1.5,
+        "residual_body_mm3": 0.0,
+        "threshold": 0.001,
+        "tolerance_mm3": 0.001
+      },
+      "front_bore_wall": {
+        "measured": {
+          "axes": [
+            {
+              "axis_half_span_mm": 16.080586833237447,
+              "axis_x_mm": 40.0,
+              "axis_z_mm": 15.0,
+              "stray_axis": false,
+              "wall_mm": 2.3680622158860087
+            }
+          ],
+          "min_wall_mm": 2.3680622158860087
+        },
+        "method_limits": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores (bore walls: the rear face is one of the measured faces)",
+        "min_wall_mm": 2.0,
+        "passed": true,
+        "threshold": 1.99,
+        "tolerance_mm": 0.01
+      },
+      "pocket_void": {
+        "axis": [
+          1,
+          0,
+          0
+        ],
+        "length_mm": 60.0,
+        "measured": 0.0,
+        "origin_mm": [
+          170.0,
+          0.0,
+          31.0
+        ],
+        "passed": true,
+        "radius_mm": 10.0,
+        "residual_body_mm3": 0.0,
+        "threshold": 0.001,
+        "tolerance_mm3": 0.001
+      },
+      "pocket_wall": {
+        "measured": {
+          "axes": [
+            {
+              "axis_y_mm": 0.0,
+              "axis_z_mm": 31.0,
+              "stray_axis": false,
+              "wall_mm": 2.5
+            }
+          ],
+          "min_wall_mm": 2.5
+        },
+        "method_limits": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores",
+        "min_wall_mm": 2.0,
+        "passed": true,
+        "threshold": 1.99,
+        "tolerance_mm": 0.01
+      },
+      "rear_axle_void": {
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "length_mm": 43.9,
+        "measured": 0.0,
+        "origin_mm": [
+          195.0,
+          -21.95,
+          17.0
+        ],
+        "passed": true,
+        "radius_mm": 1.5,
+        "residual_body_mm3": 0.0,
+        "threshold": 0.001,
+        "tolerance_mm3": 0.001
+      },
+      "rear_bore_wall": {
+        "measured": {
+          "axes": [
+            {
+              "axis_half_span_mm": 18.5,
+              "axis_x_mm": 195.0,
+              "axis_z_mm": 17.0,
+              "stray_axis": false,
+              "wall_mm": 2.3078865529319543
+            }
+          ],
+          "min_wall_mm": 2.3078865529319543
+        },
+        "method_limits": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores (bore walls: the rear face is one of the measured faces)",
+        "min_wall_mm": 2.0,
+        "passed": true,
+        "threshold": 1.99,
+        "tolerance_mm": 0.01
+      },
+      "reference_volume": {
+        "deviation_mm3": -572.3543471468147,
+        "expected_mm3": 268603.30723999196,
+        "measured": 268030.95289284515,
+        "passed": true,
+        "threshold": 2686.0330723999195,
+        "tolerance_mm3": 2686.0330723999195
+      },
+      "single_valid_solid": {
+        "passed": true,
+        "solid_count": 1
+      },
+      "spec_revalidation": {
+        "passed": true,
+        "scope": "canonical v2 spec re-parsed with the strict model"
+      },
+      "symmetry": {
+        "measured": {
+          "centroid_y_mm": 1.0745627223799805e-12,
+          "ymin_plus_ymax_mm": 0.0
+        },
+        "passed": true,
+        "threshold": {
+          "centroid_y_mm": 0.01,
+          "ymin_plus_ymax_mm": 0.05
+        }
+      },
+      "wheel_clearance_front": {
+        "intersection_volume_mm3": {
+          "left": 0.0,
+          "right": 0.0
+        },
+        "measured_distance_mm": {
+          "left": 1.5,
+          "right": 1.5
+        },
+        "passed": true,
+        "required_distance_mm": 1.49,
+        "side_clearance_mm": 1.5,
+        "tolerance_mm3": 0.001
+      },
+      "wheel_clearance_rear": {
+        "intersection_volume_mm3": {
+          "left": 0.0,
+          "right": 0.0
+        },
+        "measured_distance_mm": {
+          "left": 1.5,
+          "right": 1.5
+        },
+        "passed": true,
+        "required_distance_mm": 1.49,
+        "side_clearance_mm": 1.5,
+        "tolerance_mm3": 0.001
+      }
+    },
+    "engineering_certified": false,
+    "generator_version": "dragster_narrow_waist_v2",
+    "hardware": {
+      "stock_margin_mm": null,
+      "track_width_front_mm": 49.0,
+      "track_width_rear_mm": 53.0,
+      "wheel_envelopes": [
+        {
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "axle": "front",
+          "center_mm": [
+            40.0,
+            -24.5,
+            15.0
+          ],
+          "diameter_mm": 30.0,
+          "side": "left",
+          "width_mm": 6.0
+        },
+        {
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "axle": "front",
+          "center_mm": [
+            40.0,
+            24.5,
+            15.0
+          ],
+          "diameter_mm": 30.0,
+          "side": "right",
+          "width_mm": 6.0
+        },
+        {
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "axle": "rear",
+          "center_mm": [
+            195.0,
+            -26.5,
+            17.0
+          ],
+          "diameter_mm": 34.0,
+          "side": "left",
+          "width_mm": 6.0
+        },
+        {
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "axle": "rear",
+          "center_mm": [
+            195.0,
+            26.5,
+            17.0
+          ],
+          "diameter_mm": 34.0,
+          "side": "right",
+          "width_mm": 6.0
+        }
+      ],
+      "wheelbase_mm": 155.0
+    },
+    "mass": {
+      "basis": "body_only",
+      "density_g_cm3": null,
+      "material": null,
+      "reason": "no material density supplied",
+      "value_g": null
+    },
+    "method_limits": {
+      "absolute_bounds": "Hmax and Ymax come from the profile law sampled every 0.25 mm and at the control stations (analytic for the wedge).",
+      "front_bore_wall": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores (bore walls: the rear face is one of the measured faces)",
+      "pocket_wall": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores",
+      "rear_bore_wall": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores (bore walls: the rear face is one of the measured faces)",
+      "reference_volume": "Bore volume uses 2*a(x_axle) as the bored length; the loft tolerance (tolerances.LOFT_VOLUME_REL_TOL) is far larger than a single bore, so a missing bore on a lofted body is caught by the axle void probe, not by volume."
+    },
+    "passed": true,
+    "preview": {
+      "angular_tolerance_rad": 0.1,
+      "glb_sha256": "8a7639a2c6d9e8fc97946df321fd5a3b09f25cb05cd4b86479ab9559740215cb",
+      "linear_tolerance_mm": 0.05,
+      "source": "verified_reimported_step",
+      "source_step_sha256": "387f8970e5220d5c478292762760eb225359437831532c29f6d52fe9ee619206",
+      "units": "m"
+    },
+    "schema_version": 2,
+    "solid_count": 1,
+    "spec_sha256": "453a035ec08123bceb9b13c4a0b3ffe320c418a47f4789df044f9a4c1d710d1f",
+    "step_sha256": "387f8970e5220d5c478292762760eb225359437831532c29f6d52fe9ee619206",
+    "style": "narrow_waist",
+    "volume_mm3": 268030.95289284515
+  },
+  "teardrop": {
+    "bounds_mm": {
+      "xmax": 220.0000001,
+      "xmin": -1e-07,
+      "ymax": 28.0000001,
+      "ymin": -28.0000001,
+      "zmax": 53.0000001,
+      "zmin": 2.9999999
+    },
+    "cadquery_version": "2.6.1",
+    "checks": {
+      "absolute_bounds": {
+        "deviation_mm": {
+          "xmax": 9.999999406318238e-08,
+          "xmin": -1e-07,
+          "ymax": 1.0000000116860974e-07,
+          "ymin": -1.0000000116860974e-07,
+          "zmax": 1.0000000116860974e-07,
+          "zmin": -9.999999983634211e-08
+        },
+        "expected": {
+          "xmax": 220.0,
+          "xmin": 0.0,
+          "ymax": 28.0,
+          "ymin": -28.0,
+          "zmax": 53.0,
+          "zmin": 3.0
+        },
+        "measured": {
+          "xmax": 220.0000001,
+          "xmin": -1e-07,
+          "ymax": 28.0000001,
+          "ymin": -28.0000001,
+          "zmax": 53.0000001,
+          "zmin": 2.9999999
+        },
+        "passed": true,
+        "threshold": 0.05,
+        "tolerance_mm": 0.05
+      },
+      "body_above_ground": {
+        "ground_clearance_mm": 3.0,
+        "passed": true,
+        "tolerance_mm": 0.05,
+        "zmin_mm": 2.9999999
+      },
+      "front_axle_void": {
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "length_mm": 44.1842712474619,
+        "measured": 0.0,
+        "origin_mm": [
+          40.0,
+          -22.09213562373095,
+          15.0
+        ],
+        "passed": true,
+        "radius_mm": 1.5,
+        "residual_body_mm3": 0.0,
+        "threshold": 0.001,
+        "tolerance_mm3": 0.001
+      },
+      "front_bore_wall": {
+        "measured": {
+          "axes": [
+            {
+              "axis_half_span_mm": 18.05352881321272,
+              "axis_x_mm": 40.0,
+              "axis_z_mm": 15.0,
+              "stray_axis": false,
+              "wall_mm": 2.8550781452240654
+            }
+          ],
+          "min_wall_mm": 2.8550781452240654
+        },
+        "method_limits": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores (bore walls: the rear face is one of the measured faces)",
+        "min_wall_mm": 2.0,
+        "passed": true,
+        "threshold": 1.99,
+        "tolerance_mm": 0.01
+      },
+      "pocket_void": {
+        "axis": [
+          1,
+          0,
+          0
+        ],
+        "length_mm": 52.0,
+        "measured": 0.0,
+        "origin_mm": [
+          168.0,
+          0.0,
+          30.5
+        ],
+        "passed": true,
+        "radius_mm": 10.0,
+        "residual_body_mm3": 0.0,
+        "threshold": 0.001,
+        "tolerance_mm3": 0.001
+      },
+      "pocket_wall": {
+        "measured": {
+          "axes": [
+            {
+              "axis_y_mm": 0.0,
+              "axis_z_mm": 30.5,
+              "stray_axis": false,
+              "wall_mm": 2.0
+            }
+          ],
+          "min_wall_mm": 2.0
+        },
+        "method_limits": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores",
+        "min_wall_mm": 2.0,
+        "passed": true,
+        "threshold": 1.99,
+        "tolerance_mm": 0.01
+      },
+      "rear_axle_void": {
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "length_mm": 45.56713710759875,
+        "measured": 0.0,
+        "origin_mm": [
+          185.0,
+          -22.783568553799373,
+          17.0
+        ],
+        "passed": true,
+        "radius_mm": 1.5,
+        "residual_body_mm3": 0.0,
+        "threshold": 0.001,
+        "tolerance_mm3": 0.001
+      },
+      "rear_bore_wall": {
+        "measured": {
+          "axes": [
+            {
+              "axis_half_span_mm": 19.245152788431188,
+              "axis_x_mm": 185.0,
+              "axis_z_mm": 17.0,
+              "stray_axis": false,
+              "wall_mm": 2.0
+            }
+          ],
+          "min_wall_mm": 2.0
+        },
+        "method_limits": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores (bore walls: the rear face is one of the measured faces)",
+        "min_wall_mm": 2.0,
+        "passed": true,
+        "threshold": 1.99,
+        "tolerance_mm": 0.01
+      },
+      "reference_volume": {
+        "deviation_mm3": -850.890272490622,
+        "expected_mm3": 427868.3600630672,
+        "measured": 427017.46979057655,
+        "passed": true,
+        "threshold": 4278.683600630672,
+        "tolerance_mm3": 4278.683600630672
+      },
+      "single_valid_solid": {
+        "passed": true,
+        "solid_count": 1
+      },
+      "spec_revalidation": {
+        "passed": true,
+        "scope": "canonical v2 spec re-parsed with the strict model"
+      },
+      "symmetry": {
+        "measured": {
+          "centroid_y_mm": 1.1472106421298255e-07,
+          "ymin_plus_ymax_mm": 0.0
+        },
+        "passed": true,
+        "threshold": {
+          "centroid_y_mm": 0.01,
+          "ymin_plus_ymax_mm": 0.05
+        }
+      },
+      "wheel_clearance_front": {
+        "intersection_volume_mm3": {
+          "left": 0.0,
+          "right": 0.0
+        },
+        "measured_distance_mm": {
+          "left": 1.5416783520880266,
+          "right": 1.5416783520833823
+        },
+        "passed": true,
+        "required_distance_mm": 1.49,
+        "side_clearance_mm": 1.5,
+        "tolerance_mm3": 0.001
+      },
+      "wheel_clearance_rear": {
+        "intersection_volume_mm3": {
+          "left": 0.0,
+          "right": 0.0
+        },
+        "measured_distance_mm": {
+          "left": 1.4921310952695257,
+          "right": 1.49213109526631
+        },
+        "passed": true,
+        "required_distance_mm": 1.49,
+        "side_clearance_mm": 1.5,
+        "tolerance_mm3": 0.001
+      }
+    },
+    "engineering_certified": false,
+    "generator_version": "dragster_teardrop_v2",
+    "hardware": {
+      "stock_margin_mm": null,
+      "track_width_front_mm": 61.03875471609677,
+      "track_width_rear_mm": 56.60631104432757,
+      "wheel_envelopes": [
+        {
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "axle": "front",
+          "center_mm": [
+            40.0,
+            -30.519377358048384,
+            15.0
+          ],
+          "diameter_mm": 30.0,
+          "side": "left",
+          "width_mm": 6.0
+        },
+        {
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "axle": "front",
+          "center_mm": [
+            40.0,
+            30.519377358048384,
+            15.0
+          ],
+          "diameter_mm": 30.0,
+          "side": "right",
+          "width_mm": 6.0
+        },
+        {
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "axle": "rear",
+          "center_mm": [
+            185.0,
+            -28.303155522163784,
+            17.0
+          ],
+          "diameter_mm": 34.0,
+          "side": "left",
+          "width_mm": 6.0
+        },
+        {
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "axle": "rear",
+          "center_mm": [
+            185.0,
+            28.303155522163784,
+            17.0
+          ],
+          "diameter_mm": 34.0,
+          "side": "right",
+          "width_mm": 6.0
+        }
+      ],
+      "wheelbase_mm": 145.0
+    },
+    "mass": {
+      "basis": "body_only",
+      "density_g_cm3": null,
+      "material": null,
+      "reason": "no material density supplied",
+      "value_g": null
+    },
+    "method_limits": {
+      "absolute_bounds": "Hmax and Ymax come from the profile law sampled every 0.25 mm and at the control stations (analytic for the wedge).",
+      "front_bore_wall": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores (bore walls: the rear face is one of the measured faces)",
+      "pocket_wall": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores",
+      "rear_bore_wall": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores (bore walls: the rear face is one of the measured faces)",
+      "reference_volume": "Bore volume uses 2*a(x_axle) as the bored length; the loft tolerance (tolerances.LOFT_VOLUME_REL_TOL) is far larger than a single bore, so a missing bore on a lofted body is caught by the axle void probe, not by volume."
+    },
+    "passed": true,
+    "preview": {
+      "angular_tolerance_rad": 0.1,
+      "glb_sha256": "d4e51e402b227dd8dc0e44a686c030969af6dd5b15841e7bd94541c061042ec7",
+      "linear_tolerance_mm": 0.05,
+      "source": "verified_reimported_step",
+      "source_step_sha256": "a861b833c999bde5ee61b7d95aba2fba6ca38b2d885b481c938be9d10723080c",
+      "units": "m"
+    },
+    "schema_version": 2,
+    "solid_count": 1,
+    "spec_sha256": "a6cf400b8cd8138a9681575e0a77b598e029be0b40a0331488805133460e935a",
+    "step_sha256": "a861b833c999bde5ee61b7d95aba2fba6ca38b2d885b481c938be9d10723080c",
+    "style": "teardrop",
+    "volume_mm3": 427017.46979057655
+  },
+  "wedge": {
+    "bounds_mm": {
+      "xmax": 200.0,
+      "xmin": -3.922195901395753e-12,
+      "ymax": 21.0,
+      "ymin": -21.0,
+      "zmax": 35.0,
+      "zmin": 3.0
+    },
+    "cadquery_version": "2.6.1",
+    "checks": {
+      "absolute_bounds": {
+        "deviation_mm": {
+          "xmax": 0.0,
+          "xmin": -3.922195901395753e-12,
+          "ymax": 0.0,
+          "ymin": 0.0,
+          "zmax": 0.0,
+          "zmin": 0.0
+        },
+        "expected": {
+          "xmax": 200.0,
+          "xmin": 0.0,
+          "ymax": 21.0,
+          "ymin": -21.0,
+          "zmax": 35.0,
+          "zmin": 3.0
+        },
+        "measured": {
+          "xmax": 200.0,
+          "xmin": -3.922195901395753e-12,
+          "ymax": 21.0,
+          "ymin": -21.0,
+          "zmax": 35.0,
+          "zmin": 3.0
+        },
+        "passed": true,
+        "threshold": 0.01,
+        "tolerance_mm": 0.01
+      },
+      "body_above_ground": {
+        "ground_clearance_mm": 3.0,
+        "passed": true,
+        "tolerance_mm": 0.01,
+        "zmin_mm": 3.0
+      },
+      "front_axle_void": {
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "length_mm": 41.9,
+        "measured": 0.0,
+        "origin_mm": [
+          40.0,
+          -20.95,
+          9.0
+        ],
+        "passed": true,
+        "radius_mm": 1.5,
+        "residual_body_mm3": 0.0,
+        "threshold": 0.001,
+        "tolerance_mm3": 0.001
+      },
+      "front_bore_wall": {
+        "measured": {
+          "axes": [
+            {
+              "axis_half_span_mm": 17.5,
+              "axis_x_mm": 40.0,
+              "axis_z_mm": 9.0,
+              "stray_axis": false,
+              "wall_mm": 2.3078865529319543
+            }
+          ],
+          "min_wall_mm": 2.3078865529319543
+        },
+        "method_limits": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores (bore walls: the rear face is one of the measured faces)",
+        "min_wall_mm": 2.0,
+        "passed": true,
+        "threshold": 1.99,
+        "tolerance_mm": 0.01
+      },
+      "pocket_void": {
+        "axis": [
+          1,
+          0,
+          0
+        ],
+        "length_mm": 52.0,
+        "measured": 0.0,
+        "origin_mm": [
+          148.0,
+          0.0,
+          23.0
+        ],
+        "passed": true,
+        "radius_mm": 10.0,
+        "residual_body_mm3": 0.0,
+        "threshold": 0.001,
+        "tolerance_mm3": 0.001
+      },
+      "pocket_wall": {
+        "measured": {
+          "axes": [
+            {
+              "axis_y_mm": 0.0,
+              "axis_z_mm": 23.0,
+              "stray_axis": false,
+              "wall_mm": 2.0
+            }
+          ],
+          "min_wall_mm": 2.0
+        },
+        "method_limits": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores",
+        "min_wall_mm": 2.0,
+        "passed": true,
+        "threshold": 1.99,
+        "tolerance_mm": 0.01
+      },
+      "rear_axle_void": {
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "length_mm": 41.9,
+        "measured": 0.0,
+        "origin_mm": [
+          175.0,
+          -20.95,
+          9.0
+        ],
+        "passed": true,
+        "radius_mm": 1.5,
+        "residual_body_mm3": 0.0,
+        "threshold": 0.001,
+        "tolerance_mm3": 0.001
+      },
+      "rear_bore_wall": {
+        "measured": {
+          "axes": [
+            {
+              "axis_half_span_mm": 17.5,
+              "axis_x_mm": 175.0,
+              "axis_z_mm": 9.0,
+              "stray_axis": false,
+              "wall_mm": 2.3078865529319543
+            }
+          ],
+          "min_wall_mm": 2.3078865529319543
+        },
+        "method_limits": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores (bore walls: the rear face is one of the measured faces)",
+        "min_wall_mm": 2.0,
+        "passed": true,
+        "threshold": 1.99,
+        "tolerance_mm": 0.01
+      },
+      "reference_volume": {
+        "deviation_mm3": 1.0099029168486595e-08,
+        "expected_mm3": 209869.9571898046,
+        "measured": 209869.9571898147,
+        "passed": true,
+        "threshold": 0.2098699571898046,
+        "tolerance_mm3": 0.2098699571898046
+      },
+      "single_valid_solid": {
+        "passed": true,
+        "solid_count": 1
+      },
+      "spec_revalidation": {
+        "passed": true,
+        "scope": "canonical v2 spec re-parsed with the strict model"
+      },
+      "symmetry": {
+        "measured": {
+          "centroid_y_mm": 5.164071437303508e-16,
+          "ymin_plus_ymax_mm": 0.0
+        },
+        "passed": true,
+        "threshold": {
+          "centroid_y_mm": 0.01,
+          "ymin_plus_ymax_mm": 0.01
+        }
+      },
+      "wheel_clearance_front": {
+        "intersection_volume_mm3": {
+          "left": 0.0,
+          "right": 0.0
+        },
+        "measured_distance_mm": {
+          "left": 1.5,
+          "right": 1.5
+        },
+        "passed": true,
+        "required_distance_mm": 1.49,
+        "side_clearance_mm": 1.5,
+        "tolerance_mm3": 0.001
+      },
+      "wheel_clearance_rear": {
+        "intersection_volume_mm3": {
+          "left": 0.0,
+          "right": 0.0
+        },
+        "measured_distance_mm": {
+          "left": 1.5,
+          "right": 1.5
+        },
+        "passed": true,
+        "required_distance_mm": 1.49,
+        "side_clearance_mm": 1.5,
+        "tolerance_mm3": 0.001
+      }
+    },
+    "engineering_certified": false,
+    "generator_version": "dragster_wedge_v2",
+    "hardware": {
+      "stock_margin_mm": null,
+      "track_width_front_mm": 51.0,
+      "track_width_rear_mm": 51.0,
+      "wheel_envelopes": [
+        {
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "axle": "front",
+          "center_mm": [
+            40.0,
+            -25.5,
+            9.0
+          ],
+          "diameter_mm": 18.0,
+          "side": "left",
+          "width_mm": 6.0
+        },
+        {
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "axle": "front",
+          "center_mm": [
+            40.0,
+            25.5,
+            9.0
+          ],
+          "diameter_mm": 18.0,
+          "side": "right",
+          "width_mm": 6.0
+        },
+        {
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "axle": "rear",
+          "center_mm": [
+            175.0,
+            -25.5,
+            9.0
+          ],
+          "diameter_mm": 18.0,
+          "side": "left",
+          "width_mm": 6.0
+        },
+        {
+          "axis": [
+            0,
+            1,
+            0
+          ],
+          "axle": "rear",
+          "center_mm": [
+            175.0,
+            25.5,
+            9.0
+          ],
+          "diameter_mm": 18.0,
+          "side": "right",
+          "width_mm": 6.0
+        }
+      ],
+      "wheelbase_mm": 135.0
+    },
+    "mass": {
+      "basis": "body_only",
+      "density_g_cm3": null,
+      "material": null,
+      "reason": "no material density supplied",
+      "value_g": null
+    },
+    "method_limits": {
+      "absolute_bounds": "Hmax and Ymax come from the profile law sampled every 0.25 mm and at the control stations (analytic for the wedge).",
+      "front_bore_wall": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores (bore walls: the rear face is one of the measured faces)",
+      "pocket_wall": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores",
+      "rear_bore_wall": "min distance from feature axis to non-feature faces; sampled nowhere; excludes rear face; does not certify whole-body thickness away from the pocket and bores (bore walls: the rear face is one of the measured faces)",
+      "reference_volume": "Bore volume uses 2*a(x_axle) as the bored length; the loft tolerance (tolerances.LOFT_VOLUME_REL_TOL) is far larger than a single bore, so a missing bore on a lofted body is caught by the axle void probe, not by volume."
+    },
+    "passed": true,
+    "preview": {
+      "angular_tolerance_rad": 0.1,
+      "glb_sha256": "b7cdb1c6affc4ff5b8adf0de2ae368517cd300cca19804aad9e0f6d835cdf9d4",
+      "linear_tolerance_mm": 0.05,
+      "source": "verified_reimported_step",
+      "source_step_sha256": "03ccb8db449366f1c4818fb47abbb086d9bd438fdc95f0e314ed7da111b25fc4",
+      "units": "m"
+    },
+    "schema_version": 2,
+    "solid_count": 1,
+    "spec_sha256": "8a12dfde745f41f55c029c58145c175d6349891ccc3fe25f83e03442c3ff3464",
+    "step_sha256": "03ccb8db449366f1c4818fb47abbb086d9bd438fdc95f0e314ed7da111b25fc4",
+    "style": "wedge",
+    "volume_mm3": 209869.9571898147
+  }
+}
