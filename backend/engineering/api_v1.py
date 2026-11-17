@@ -136,7 +136,8 @@ def generator_entry(c):
         limitations=list(c.limitations),primary_artifact=c.primary_artifact,payloads=list(c.payloads),
         engineering_certified=c.engineering_certified,standards=c.standards,
         limits=[dict(name=r.name,value=r.value) for r in c.numerical+c.runtime_limits],
-        resources=c.resources.model_dump(mode='json'),available=adapter_installed(c),
+        numerical=dict(version=c.numerical_version),resources=c.resources.model_dump(mode='json'),
+        available=adapter_installed(c),
         review_fields=[],review_fields_prefix='specification.')
 
 
@@ -284,6 +285,13 @@ def attach_v1_routes(app,limiter):
         value=await asyncio.to_thread(clean,request)
         size=len(json.dumps(body.input,allow_nan=False,separators=(',',':')).encode())
         def edit():
+            current=value.briefs.read(draft_id)
+            stored=json.loads(current.input_json).get('capability')
+            drafted=stored.get('id') if isinstance(stored,dict) else CAPABILITY.id
+            given=body.input.get('capability')
+            # A draft keeps its capability: PATCH can neither switch it nor drop it.
+            if (given.get('id') if isinstance(given,dict) else (None if drafted!=CAPABILITY.id else drafted))!=drafted:
+                raise ValueError('A draft cannot change its capability')
             value.quota.admit_edit(draft_id,size)
             edited=value.briefs.edit(draft_id,expected_revision=body.expected_revision,payload=body.input)
             value.quota.touch(draft_id,len(edited.model_dump_json()))

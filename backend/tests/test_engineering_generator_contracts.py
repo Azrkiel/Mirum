@@ -76,23 +76,36 @@ def candidate_for(brief):
     return GeneratorCandidate.from_brief(brief, sha(b'spec:' + brief.brief_sha256.encode()))
 
 
-def make_check(candidate, check_id, *, state='passed', artifact_bytes=None, value=None, limit=2.0, limit_name='value'):
-    from engineering.contracts import (ArtifactIdentity, CheckState, ComparisonLimit,
-                                       GeneratorCheckResult, Measurement)
+def _passing_value(limit):
+    return {'le': limit.value / 2, 'ge': limit.value * 2 + 1, 'eq': limit.value, 'abs_le': 0.0}[limit.comparison]
+
+
+def _failing_value(limit):
+    return {'le': limit.value * 2 + 1, 'ge': limit.value - 1, 'eq': limit.value + 1,
+            'abs_le': limit.value * 2 + 1}[limit.comparison]
+
+
+def make_check(candidate, check_id, *, state='passed', artifact_bytes=None, value=None, limits=None):
+    """A check whose limits are the descriptor's closed table unless ``limits`` overrides them."""
+    from engineering.contracts import (ArtifactIdentity, CheckState, GeneratorCheckResult, Measurement)
     descriptor = candidate.content.descriptor
     primary = (artifact_bytes or {}).get(descriptor.primary_artifact, b'primary')
     passed = state == 'passed'
+    if limits is None:
+        limits = descriptor.expected_limits(candidate.content.specification)[check_id]
+    measurements = tuple(
+        Measurement(name=l.name, unit=l.unit, value=(_passing_value(l) if passed else _failing_value(l))
+                    if value is None or i else value) for i, l in enumerate(limits))
     return GeneratorCheckResult(
         capability_id=descriptor.id, check_id=check_id, state=CheckState(state),
         method='fixture', method_version='1', brief_sha256=candidate.brief_sha256,
-        candidate_sha256=candidate.candidate_sha256,
-        measurements=(Measurement(name=limit_name, value=(1.0 if passed else 3.0) if value is None else value, unit='count'),),
-        limits=(ComparisonLimit(name=limit_name, value=limit, unit='count', comparison='le'),),
+        candidate_sha256=candidate.candidate_sha256, measurements=measurements, limits=tuple(limits),
         artifacts=(ArtifactIdentity(path=descriptor.primary_artifact, sha256=sha(primary), bytes=len(primary)),),
         reason=None if passed else f'{check_id} out of tolerance')
 
 
-def make_evaluation(candidate, *, bad_checks=None, failed=(), drop=(), duplicate=(), extra=(), tamper=None, report_flag=None):
+def make_evaluation(candidate, *, bad_checks=None, failed=(), drop=(), duplicate=(), extra=(), tamper=None,
+                    report_flag=None):
     """A fake generator evaluation in the shape ``assess_generator`` documents."""
     from engineering.policy import report_digest
     descriptor = candidate.content.descriptor
@@ -104,14 +117,47 @@ def make_evaluation(candidate, *, bad_checks=None, failed=(), drop=(), duplicate
     stated = {n: sha(v) for n, v in {**artifacts, **diagnostics}.items()}
     checks = tuple(make_check(candidate, i, state='failed' if i in failed else 'passed',
                               artifact_bytes=artifacts, **(bad_checks or {}).get(i, {})) for i in ids)
-    report = dict(failures=[c.reason for c in checks if c.reason])
+    report = dict(failures=[c.reason for c in checks if c.reason],
+                  measurements={c.check_id: {m.name: m.value for m in c.measurements} for c in checks})
     result = dict(candidate=candidate, checks=checks, outcome='rejected' if rejected else 'accepted',
                   passed=(not rejected) if report_flag is None else report_flag,
                   spec_sha256=candidate.candidate_sha256, report=report, report_sha256=report_digest(report),
+                  report_bytes=json.dumps(report).encode(),
                   artifacts=artifacts, diagnostics=diagnostics, stated_digests=stated, extra_digests=())
     if tamper:
         tamper(result)
     return result
+
+
+class ParsingAdapter:
+    """Test-only adapter: parses measurements out of the fake generator report."""
+    def __init__(self, descriptor):
+        self.descriptor = descriptor
+
+    def measurements(self, report_bytes):
+        return json.loads(report_bytes)['measurements']
+
+
+from engineering import capabilities as _capabilities
+from engineering.capabilities import GeneratorDescriptor as _Descriptor
+REAL_GET_ADAPTER = _capabilities.get_adapter
+REAL_EXPECTED_LIMITS = _Descriptor.expected_limits
+
+
+@pytest.fixture(autouse=True)
+def fake_adapter_and_complete_limit_table(monkeypatch):
+    """Register a parsing adapter for the test only, and fill the checks whose real limit
+    set an adapter PR has not pinned yet with one synthetic limit (the real table is
+    exercised by its own tests through ``REAL_EXPECTED_LIMITS``)."""
+    from engineering.contracts import ComparisonLimit
+
+    def complete(self, spec):
+        real = REAL_EXPECTED_LIMITS(self, spec)
+        filler = (ComparisonLimit(name='value', value=2.0, unit='count', comparison='le'),)
+        return {c: real.get(c, filler) for c in self.required_checks(spec)}
+    monkeypatch.setattr(_Descriptor, 'expected_limits', complete)
+    monkeypatch.setattr(_capabilities, 'get_adapter',
+                        lambda cid, version, **p: ParsingAdapter(_capabilities.get_capability(cid, version, **p)))
 
 
 # --- content ----------------------------------------------------------------
@@ -220,7 +266,8 @@ def test_acceptance_needs_every_required_check_once_and_passed():
 def test_a_declared_but_not_required_check_is_extra_and_blocks_acceptance():
     glider = candidate_for(brief_for(content('glider_cem', glider_spec())))
     checks = [make_check(glider, i) for i in glider.content.required_checks]
-    extra = make_check(glider, 'foam_core')   # declared by the capability, not required by this brief
+    from engineering.contracts import ComparisonLimit
+    extra = make_check(glider, 'foam_core', limits=(ComparisonLimit(name='value', value=2.0, unit='count', comparison='le'),))   # declared by the capability, not required by this brief
     with pytest.raises(ValueError):
         attempt(glider, checks + [extra])
 
@@ -440,7 +487,8 @@ def test_supported_requests_are_not_refused():
 
 @pytest.mark.parametrize('capability_id', ['co2_dragster', 'regen_chamber', 'glider_cem'])
 def test_missing_adapter_is_unsupported_capability(capability_id):
-    from engineering.capabilities import UnsupportedCapability, get_adapter, get_generator
+    from engineering.capabilities import UnsupportedCapability, get_generator
+    get_adapter = REAL_GET_ADAPTER
     descriptor = get_generator(capability_id)
     if importlib.util.find_spec(descriptor.adapter.partition(':')[0]) is not None:
         pytest.skip('adapter installed by a later PR')
@@ -611,22 +659,95 @@ def test_generator_package_publishes_exact_bytes_and_diagnostics_hold_no_geometr
 
 def test_a_passed_state_cannot_override_a_measurement_outside_its_limit():
     candidate, assess = candidate_and_assess()
-    # PASSED with value 5 against limit le 2
-    assert not assess(make_evaluation(candidate, bad_checks={'hot_wall': dict(value=5.0)})).available
-    # FAILED with value inside the limit contradicts the measurement as well
-    inside = make_evaluation(candidate, failed=('hot_wall',), bad_checks={'hot_wall': dict(value=1.0)})
+    # PASSED with value far outside the pinned limit
+    assert not assess(make_evaluation(candidate, bad_checks={'volume': dict(value=5.0)})).available
+    inside = make_evaluation(candidate, failed=('volume',), bad_checks={'volume': dict(value=0.0)})
     assert not assess(inside).available
 
 
-def test_limits_named_by_a_policy_reference_must_equal_its_pinned_value():
-    candidate, assess = candidate_and_assess()
+def _volume_limit(candidate):
+    return candidate.content.descriptor.expected_limits(candidate.content.specification)['volume'][0]
+
+
+def test_closed_limit_table_is_built_from_the_pinned_constants():
+    candidate, _ = candidate_and_assess()
+    limit = _volume_limit(candidate)
     ref = next(r for r in candidate.content.descriptor.numerical if r.name == 'VOLUME_TOLERANCE')
-    good = dict(limit_name='VOLUME_TOLERANCE', limit=ref.value, value=ref.value / 2)
-    assert assess(make_evaluation(candidate, bad_checks={'volume': good})).available
-    loosened = dict(good, limit=ref.value * 10)
-    assert not assess(make_evaluation(candidate, bad_checks={'volume': loosened})).available
+    assert (limit.name, limit.unit, limit.comparison, limit.value) == (
+        'volume_relative_error', 'ratio', 'le', ref.value)
+
+
+def _limits_tamper(change):
+    def build(candidate):
+        limit = _volume_limit(candidate)
+        return dict(limits=change(limit))
+    return build
+
+
+@pytest.mark.parametrize('name,change', [
+    ('extra_unpinned_limit', lambda l: (l, type(l)(name='extra', value=1.0, unit='count', comparison='le'))),
+    ('missing_limit', lambda l: ()),
+    ('flipped_comparison', lambda l: (type(l)(**dict(l.model_dump(), comparison='ge')),)),
+    ('changed_unit', lambda l: (type(l)(**dict(l.model_dump(), unit='mm')),)),
+    ('loosened_value', lambda l: (type(l)(**dict(l.model_dump(), value=l.value * 10)),)),
+    ('renamed', lambda l: (type(l)(**dict(l.model_dump(), name='other')),)),
+    ('tolerance_added', lambda l: (type(l)(**dict(l.model_dump(), tolerance=1.0)),)),
+])
+def test_any_deviation_from_the_closed_limit_table_is_unavailable(name, change):
+    candidate, assess = candidate_and_assess()
+    overrides = _limits_tamper(change)(candidate)
+    state = 'passed'
+    if not overrides['limits']:
+        # a passing check cannot exist without limits, so the contract itself refuses it
+        with pytest.raises(ValueError):
+            make_check(candidate, 'volume', **overrides)
+        return
+    assert not assess(make_evaluation(candidate, bad_checks={'volume': overrides})).available, state
+
+
+def test_a_check_whose_limits_are_not_pinned_yet_is_never_accepted(monkeypatch):
+    candidate, assess = candidate_and_assess()
+    evaluation = make_evaluation(candidate)
+    assert assess(evaluation).available
+    monkeypatch.setattr(_Descriptor, 'expected_limits', REAL_EXPECTED_LIMITS)
+    assert not assess(evaluation).available   # most regen checks lack a pinned table until U6.1
+
+
+def test_check_measurements_must_equal_what_the_adapter_parses_from_the_report(monkeypatch):
+    from engineering.policy import report_digest
+    candidate, assess = candidate_and_assess()
+    assert assess(make_evaluation(candidate)).available
+
+    def fabricate(e):
+        e['report']['measurements']['volume'] = {'volume_relative_error': 0.0001}
+        e['report_bytes'] = json.dumps(e['report']).encode()
+        e['report_sha256'] = report_digest(e['report'])
+    assert not assess(make_evaluation(candidate, tamper=fabricate)).available
+
+    def extra_check(e):
+        e['report']['measurements']['phantom'] = {}
+        e['report_bytes'] = json.dumps(e['report']).encode()
+        e['report_sha256'] = report_digest(e['report'])
+    assert not assess(make_evaluation(candidate, tamper=extra_check)).available
+
+    def other_bytes(e): e['report_bytes'] = b'{"measurements": {}}'
+    assert not assess(make_evaluation(candidate, tamper=other_bytes)).available
+
+    def uninstalled(*a, **k):
+        from engineering.capabilities import UnsupportedCapability
+        raise UnsupportedCapability('adapter not installed')
+    monkeypatch.setattr(_capabilities, 'get_adapter', uninstalled)
+    assert not assess(make_evaluation(candidate)).available
 
 
 def test_report_markdown_escapes_pipes_and_newlines_in_reasons():
     from engineering.bundles import md_cell
     assert md_cell('a|b\nc\r\nd') == 'a\\|b c d'
+
+
+def test_report_markdown_escapes_the_trailing_reasons_too():
+    from engineering.bundles import BundlePublisher
+    brief = brief_for(content())
+    result = type('R', (), dict(attempts=(), evaluations=(), reasons=('bad | reason\nnext',)))()
+    out = BundlePublisher._generator_reports(object.__new__(BundlePublisher), 'a' * 32, brief, result, 'rejected')
+    assert 'bad \\| reason next' in out['report.md'].decode()

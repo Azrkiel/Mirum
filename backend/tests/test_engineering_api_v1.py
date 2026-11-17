@@ -253,8 +253,9 @@ def test_capabilities_do_not_leak_internal_import_strings_or_paths(client):
     entry=client.get('/engineering/v1/capabilities').json()['capabilities'][1]
     assert set(entry)=={'id','version','label','numerical_version','base_checks','conditional_checks','unsupported_features',
         'selection_rule','limitations','primary_artifact','payloads','available','review_fields','review_fields_prefix',
-        'engineering_certified','standards','limits','resources'}
+        'engineering_certified','standards','limits','resources','numerical'}
     assert all(set(l)=={'name','value'} for l in entry['limits'])
+    assert entry['numerical']=={'version':entry['numerical_version']}
 
 
 def test_draft_capability_is_bounded_matched_and_versions_are_resolved(client):
@@ -267,3 +268,15 @@ def test_draft_capability_is_bounded_matched_and_versions_are_resolved(client):
     assert post({'input':{'capability':ref,'specification':regen_spec()}})==422
     assert post({'capability':'regen_chamber','input':{'capability':dict(ref,id='glider_cem'),'specification':regen_spec()}})==422
     assert post({'capability':'regen_chamber','input':{'capability':dict(ref,version='9.9.9'),'specification':regen_spec()}})==422
+
+
+def test_patch_cannot_change_the_draft_capability(client):
+    from backend.tests.test_engineering_generator_contracts import regen_spec,reference
+    from engineering.capabilities import get_generator
+    ref=reference(get_generator('regen_chamber'))
+    made=client.post('/engineering/v1/drafts',json={'capability':'regen_chamber','input':{'capability':ref,'specification':regen_spec()}}).json()
+    url='/engineering/v1/drafts/'+made['draft']['draft_id']
+    other=dict(ref,id='glider_cem')
+    assert client.patch(url,json={'expected_revision':1,'input':{'capability':other,'specification':regen_spec()}}).status_code==422
+    assert client.patch(url,json={'expected_revision':1,'input':{'specification':regen_spec()}}).status_code==422
+    assert client.patch(url,json={'expected_revision':1,'input':{'capability':ref,'specification':regen_spec()}}).status_code==200

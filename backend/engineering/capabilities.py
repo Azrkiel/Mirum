@@ -238,6 +238,22 @@ class GeneratorDescriptor(StrictModel):
             return ()
         return tuple(resolve(self.refuse_with)(specification))
 
+    def expected_limits(self, specification: dict) -> dict:
+        """The closed limit table: ``{check_id: tuple[ComparisonLimit, ...]}``.
+
+        Built only from this descriptor's pinned ``PolicyReference`` values and the
+        reviewed specification, never from a generator report. A check absent from the
+        table has no pinned limit set yet and can never be accepted.
+        """
+        from .contracts import ComparisonLimit
+        pinned = {r.name: r.value for r in self.numerical}
+        table = {}
+        for check_id, rows in _LIMIT_TABLE[self.id](specification).items():
+            table[check_id] = tuple(ComparisonLimit(name=name, unit=unit, comparison=comparison,
+                                                    value=float(pinned[ref] if isinstance(ref, str) else ref))
+                                    for name, unit, comparison, ref in rows)
+        return table
+
     @property
     def diagnostic_payloads(self) -> tuple[str, ...]:
         return tuple(p for p in self.payloads if p.endswith('.json'))
@@ -247,6 +263,44 @@ class GliderCapabilitySpec(StrictModel):
     requirements: GliderMissionRequirements
     calibration_version: Sha256
     selection_rule: Literal['max_objective_value'] = 'max_objective_value'
+
+
+# Closed limit tables: ``(limit name, unit, comparison, pinned constant name | literal)``.
+# They hold only what section 5.3 and the pinned constants already fix. Each adapter PR
+# completes its own table (TODO U6.3 dragster, U6.1 regen, U6.2 glider): a check missing
+# here cannot be accepted until then, so nothing is ever approved on a guessed limit.
+def _dragster_limits(spec: dict) -> dict:
+    wedge = spec.get('style') == 'wedge'
+    wall = ('wall_distance_error', 'mm', 'le', 'WALL_DISTANCE_TOL_MM')
+    void = ('residual_void', 'mm3', 'le', 'VOID_TOLERANCE_MM3')
+    return {
+        'absolute_bounds': (('bounds_deviation', 'mm', 'le', 'WEDGE_BOUNDS_TOL_MM' if wedge else 'LOFT_BOUNDS_TOL_MM'),),
+        'reference_volume': (('volume_relative_error', 'ratio', 'le', 'LOFT_VOLUME_REL_TOL'),),
+        'symmetry': (('centroid_y_offset', 'mm', 'abs_le', 'CENTROID_Y_TOL_MM'),),
+        'pocket_void': (void,), 'front_axle_void': (void,), 'rear_axle_void': (void,),
+        'pocket_wall': (wall,), 'front_bore_wall': (wall,), 'rear_bore_wall': (wall,),
+    }
+
+
+def _regen_limits(spec: dict) -> dict:
+    return {
+        'volume': (('volume_relative_error', 'ratio', 'le', 'VOLUME_TOLERANCE'),),
+        'bbox': (('bbox_error_voxels', 'count', 'le', 'BBOX_TOLERANCE_VOXELS'),),
+        'channel_count': (('channel_count', 'count', 'eq', spec.get('channel_count', 0)),),
+    }
+
+
+def _glider_limits(spec: dict) -> dict:
+    return {
+        'candidate_selection': (('candidates', 'count', 'ge', 1),),
+        'mass_closure': (('mass_relative_error', 'ratio', 'le', 'mass_relative_error_max'),),
+        'validity_envelope': (('min_station_reynolds', 'ratio', 'ge', 'min_station_reynolds'),
+                              ('min_confidence', 'ratio', 'ge', 'min_confidence')),
+        'uncertainty_bands': (('uncertainty_samples', 'count', 'eq', 'uncertainty_samples'),),
+    }
+
+
+_LIMIT_TABLE = {'co2_dragster': _dragster_limits, 'regen_chamber': _regen_limits, 'glider_cem': _glider_limits}
 
 
 def refuse_dragster(spec: dict):
@@ -496,3 +550,9 @@ class CapabilityAdapter(Protocol):
 
     def candidates(self, brief: EngineeringBrief) -> tuple[CandidateSpec | GeneratorCandidate, ...]: ...
     async def evaluate(self, candidate: CandidateSpec | GeneratorCandidate) -> dict: ...
+
+    def measurements(self, report_bytes: bytes) -> dict:
+        """Generators only: parse the generator's own report into
+        ``{check_id: {measurement name: value}}``. The policy requires the typed checks'
+        measurements to equal this exactly."""
+        ...

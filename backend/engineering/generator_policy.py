@@ -19,6 +19,7 @@ Digests give consistency, not authenticity.
 from __future__ import annotations
 
 import hashlib
+import json
 
 from .contracts import (ArtifactIdentity, CheckState, GeneratorCandidate, GeneratorCheckResult, Outcome)
 
@@ -53,18 +54,26 @@ def _validate(candidate: GeneratorCandidate, evaluation: dict):
                  and c.candidate_sha256 == candidate.candidate_sha256 for c in checks),
              'Check evidence belongs to another brief or candidate')
     _require(all(c.state in (CheckState.PASSED, CheckState.FAILED) for c in checks), 'Unexpected check state')
+    from . import capabilities
     from .policy import _comparison
-    pins = {r.name: r.value for r in descriptor.numerical + descriptor.runtime_limits}
+    table = descriptor.expected_limits(candidate.content.specification)
     for check in checks:
+        # Closed table: the limits are exactly the pinned ones, nothing extra, nothing missing.
+        _require(check.check_id in table and check.limits == table[check.check_id],
+                 'Check limits differ from the pinned limit table')
         measured = {m.name: m.value for m in check.measurements}
-        # Limits the descriptor pins must equal its snapshot; the state is recomputed, never trusted.
-        _require(all(l.name not in pins or l.value == pins[l.name] for l in check.limits),
-                 'Check limit differs from the pinned policy')
-        if check.limits:
-            passes = all(_comparison(measured[l.name], l) for l in check.limits)
-            _require(passes == (check.state == CheckState.PASSED), 'Check state contradicts its measurements')
-        else:
-            _require(check.state == CheckState.FAILED, 'A passed check needs limits')
+        passes = all(_comparison(measured[l.name], l) for l in check.limits)
+        _require(passes == (check.state == CheckState.PASSED), 'Check state contradicts its measurements')
+    # Measurements are bound to the generator's own report, parsed by its adapter.
+    report_bytes = evaluation['report_bytes']
+    _require(type(report_bytes) is bytes and json.loads(report_bytes) == evaluation['report'],
+             'Report bytes differ from the captured report')
+    adapter = capabilities.get_adapter(descriptor.id, descriptor.version,
+                                       numerical_policy_version=descriptor.numerical_version,
+                                       resource_policy_version=descriptor.resources.version)
+    parsed = adapter.measurements(report_bytes)
+    _require(parsed == {c.check_id: {m.name: m.value for m in c.measurements} for c in checks},
+             'Check measurements differ from the generator report')
     failed = [c for c in checks if c.state == CheckState.FAILED]
     expected = Outcome.REJECTED if failed else Outcome.ACCEPTED
     _require(Outcome(evaluation['outcome']) == expected and evaluation['passed'] is (not failed),

@@ -208,7 +208,7 @@ class BundlePublisher:
             '| Check | State | Reason |','|---|---|---|']
         for a in result.attempts:
             rows += [f'| {md_cell(c.check_id)} | {c.state.value} | {md_cell(c.reason or "Passed")} |' for c in a.checks]
-        rows += ['',*result.reasons]
+        rows += ['',*(md_cell(r) for r in result.reasons)]
         return {'brief.json':encode(brief.model_dump(mode='json')),
             'attempts.json':encode([a.model_dump(mode='json') for a in result.attempts]),
             'report.json':encode(report),'report.md':('\n'.join(rows)+'\n').encode()}
