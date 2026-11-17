@@ -430,7 +430,25 @@ New file `engineering/dragster_proposer.py`, declared in the descriptor's `propo
 
 **Before each push:** gate (a). The PR body lists host counts, CI counts, and the identity tests as passed, not skipped.
 
-### 5.12 Open questions for the owner (answer before U6.0 starts)
+### 5.12 Decisions (owner delegated them to the lead, 2026-11-17)
+
+The owner told the lead to finish the work and decide these. No decision changes a limit, tolerance, floor or receipt.
+
+| Q | Decision |
+| --- | --- |
+| 1 | **Split D7's backend half** into PR `u6/d7-backend` (v2 dispatch in `service.py`, `worker.py`, `local.generate_result_v2`, `cli.py`, the `/dragsters/generate` body type). CI tests it now; #31 keeps the UI half and the Docker steps. |
+| 2 | **Accept.** Runs past 420 s / 32 MiB are `unavailable` through v1; the old endpoints still serve them. No budget change. |
+| 3 | **Automatic** selection by the existing `GliderCEM.size` rule, recorded in the reviewed brief. |
+| 4 | **Yes**, U6.0 lands first. |
+| 5 | **Accept the gap** for now; AI drafts are off. Revisit with U5. |
+| 6 | **Fixtures in CI only**; the manual real-builder run waits for Docker on the laptop. |
+| 7 | **Masked `FILE_NAME` header** comparison accepted, with exact volume, bounds and check equality. |
+| 8 | **Accept.** |
+| 9 | **Refuse** v1 dragster specs through v1. |
+
+**Ownership change from § 5.10.** U6.0 does **not** edit `backend/main.py`, so it can run in parallel with `u6/d7-backend`, which owns the dragster endpoint body in `main.py`. The `create_runtime(generators=...)` lifespan wiring moves to the first adapter that needs a shared runner (U6.1 regen), as a lifespan-only `main.py` edit made after `u6/d7-backend` merges.
+
+Original questions, kept for the record:
 
 1. **Dragster is blocked on D7.** The v2 service isn't on `main`. Wait for U1 (Docker-bound), or split D7's backend half (`service.py`, `worker.py`, `local.generate_result_v2`, the endpoint body type) into its own PR that CI can test now? Recommended: split.
 2. **Limits versus generator runtimes.** The v1 job controller caps a run at 420 s and 32 MiB. Regen's existing limits are 900 s and 1 GiB of output; CEM's are 1800 s per stage and 64 MiB bundles. U6 changes none of these, so long or large runs come back "unavailable" through v1 while the old endpoints still serve them. Accept that, or approve a separate per-capability budget change later?
@@ -452,7 +470,7 @@ New file `engineering/dragster_proposer.py`, declared in the descriptor's `propo
 | U4 checked design + flag | **merged** 2026-11-17 (two security rounds) | #38 |
 | — client key behind proxy | **merged** 2026-11-17 (limits were one shared bucket) | #39 |
 | U5 B13 | **owner approved** 2026-11-17 (≤ 60 calls + one diagnostic case); evaluator evidence fix first; runs when Docker has ≥ 5 GB free | #44 |
-| U6 adapters | § 5 design drafted, **waits for owner review** (§ 5.12). Correction: the dragster v2 *service* is not on `main` (only in #31), so the dragster adapter waits for D7's backend | this PR |
+| U6 adapters | § 5 design done; § 5.12 decided by the lead (owner delegated). Next: U6.0 core ∥ D7 backend split, then regen ∥ glider, then dragster. Correction: the dragster v2 *service* is not on `main` (only in #31), so the dragster adapter waits for D7's backend | this PR |
 | U7 routing + workspace | waits for U6 | |
 
 Handoff for the next session: [`.claude/handoffs/2026-11-17-1130.md`](../../.claude/handoffs/2026-11-17-1130.md).
