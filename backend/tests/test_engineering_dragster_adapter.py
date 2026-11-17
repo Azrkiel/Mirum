@@ -149,7 +149,7 @@ def test_parse_covers_exactly_the_required_checks_with_numeric_values(style):
     assert set(parsed) == set(get_generator('co2_dragster').required_checks(spec_for(style)))
     assert all(type(v) is float for values in parsed.values() for v in values.values())
     assert parsed['single_valid_solid'] == dict(solid_count=1.0)
-    assert parsed['spec_revalidation'] == dict(revalidated=1.0)
+    assert parsed['spec_revalidation'] == dict(revalidated=1.0, style_index=float(['wedge', 'teardrop', 'narrow_waist'].index(style)))
     assert set(parsed['symmetry']) == {'ymin_plus_ymax', 'centroid_y'}
 
 
@@ -191,6 +191,66 @@ def test_measurement_values_are_the_reports_numbers():
     assert parsed['body_above_ground']['zmin_mm'] == checks['body_above_ground']['zmin_mm']
     assert parsed['absolute_bounds']['bounds_deviation'] == max(abs(v) for v in checks['absolute_bounds']['deviation_mm'].values())
     assert parsed['pocket_void']['residual_void'] == abs(checks['pocket_void']['residual_body_mm3'])
+
+
+def test_the_wedge_volume_row_is_the_verifiers_absolute_rule_and_loft_styles_keep_the_relative_one():
+    from dragsters import tolerances
+    from engineering import dragster_adapter
+    from engineering.capabilities import get_generator
+    source = open(os.path.join(os.path.dirname(__file__), '..', 'dragsters', 'validation_v2.py'), encoding='utf-8').read()
+    assert "max(0.1, 1e-6 * expected) if spec.style == 'wedge' else LOFT_VOLUME_REL_TOL * expected" in source
+    descriptor = get_generator('co2_dragster')
+    for style in STYLES:
+        row = {l.name: l for l in descriptor.expected_limits(spec_for(style))['reference_volume']}
+        report = recorded_report(style)
+        check = report['checks']['reference_volume']
+        expected = check['expected_mm3']
+        if style == 'wedge':
+            assert set(row) == {'volume_excess_mm3'} and row['volume_excess_mm3'].value == 0.0
+            tol = max(0.1, 1e-6 * expected)
+            assert check['threshold'] == tol                      # the recorded verifier threshold
+            for deviation, passes in ((tol, True), (-tol, True), (tol * 1.001, False)):
+                report = recorded_report(style)
+                report['checks']['reference_volume']['deviation_mm3'] = deviation
+                value = dragster_adapter.parse_report(report)['reference_volume']['volume_excess_mm3']
+                assert (value <= row['volume_excess_mm3'].value) is passes
+        else:
+            assert set(row) == {'volume_relative_error'}
+            assert row['volume_relative_error'].value == tolerances.LOFT_VOLUME_REL_TOL
+            assert check['threshold'] == tolerances.LOFT_VOLUME_REL_TOL * expected
+
+
+def test_body_above_ground_also_encodes_a_positive_zmin():
+    from engineering import dragster_adapter
+    from engineering.capabilities import get_generator
+    row = {l.name: l for l in get_generator('co2_dragster').expected_limits(spec_for())['body_above_ground']}
+    assert (row['zmin_positive'].comparison, row['zmin_positive'].value) == ('eq', 1.0)
+    for zmin, positive in ((3.0, 1.0), (0.0, 0.0), (-1.0, 0.0)):
+        report = recorded_report()
+        report['checks']['body_above_ground']['zmin_mm'] = zmin
+        assert dragster_adapter.parse_report(report)['body_above_ground']['zmin_positive'] == positive
+
+
+def test_style_index_table_matches_the_registry():
+    from dragsters.styles import REGISTRY
+    from engineering.capabilities import DRAGSTER_STYLE_INDEX
+    assert DRAGSTER_STYLE_INDEX == {name: i for i, name in enumerate(REGISTRY)}
+
+
+@pytest.mark.parametrize('tamper', [
+    lambda r: r.update(style='teardrop'),
+    lambda r: [r['checks'][c].update(min_wall_mm=3.0) for c in ('pocket_wall', 'front_bore_wall', 'rear_bore_wall')],
+    lambda r: r['checks']['wheel_clearance_front'].update(side_clearance_mm=0.5),
+    lambda r: r['checks']['wheel_clearance_rear'].update(side_clearance_mm=0.5),
+    lambda r: r['checks']['body_above_ground'].update(ground_clearance_mm=2.0)])
+def test_the_policy_itself_enforces_the_report_echoes_not_only_build_evaluation(monkeypatch, tamper):
+    from engineering import dragster_adapter
+    monkeypatch.setattr(dragster_adapter, '_bind_to_spec', lambda report, spec: None)
+    cand = candidate()
+    report = recorded_report()
+    tamper(report)
+    decision = assess(cand, build(cand, report, accepted=True))
+    assert not decision.available and decision.outcome.value == 'not_evaluated'
 
 
 # --- fault injection through assess_generator --------------------------------------------
@@ -503,6 +563,16 @@ def test_evaluate_rejects_bytes_that_differ_from_the_service_result(tmp_path, mo
         result['digests']['step'] = 'f' * 64
         return result
     service.generate = lying
+    with pytest.raises(DragsterUnavailable):
+        run_evaluate()
+    assert stub.discarded == [RUN_ID]
+
+
+@pytest.mark.parametrize('bad', [bytes([255, 254]), b'not json', b'{}'])
+def test_malformed_spec_bytes_from_the_service_are_unavailable_not_a_raw_error(tmp_path, monkeypatch, bad):
+    from engineering.dragster_adapter import DragsterUnavailable
+    stub = Stub(tmp_path, monkeypatch)
+    stub.files['spec'] = bad
     with pytest.raises(DragsterUnavailable):
         run_evaluate()
     assert stub.discarded == [RUN_ID]
