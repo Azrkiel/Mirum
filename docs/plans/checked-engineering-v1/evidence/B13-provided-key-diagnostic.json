@@ -1,0 +1,192 @@
+{
+  "task": "B13",
+  "date": "2026-11-13",
+  "state": "blocked_live_schema_validation",
+  "tested_implementation_sha": "0c0458ae802cedba75d7680809a8254b3f76ab7d",
+  "starting_head": "cd4cccdffb847b9cdd4e6293f0aafa1e072ab1f1",
+  "image_id": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "local_evidence": "C:/Users/jiang/mirum-evidence/B13/new-key-20261113",
+  "volume": "mirum-checked-b13-key-diag-20261113",
+  "invocation": "python C:/Users/jiang/mirum-evidence/B13/new-key-20261113/relay.py; key supplied only through the hidden stdin prompt",
+  "authorization": {
+    "id": "user-20261113-provided-key",
+    "user_statement_redacted": "try this key: [REDACTED]",
+    "maximum_metadata_requests": 1,
+    "maximum_generation_calls": 1,
+    "metadata_requests_consumed": 1,
+    "generation_calls_consumed": 1,
+    "schema_repairs": 0,
+    "retries": null
+  },
+  "secret_handling": {
+    "entry": "Hidden getpass input with echo safety verified using a dummy value",
+    "transfer": "Local helper memory -> Docker stdin -> diagnostic process environment only",
+    "credential_file_created": false,
+    "key_in_command_arguments": false,
+    "key_value_logged": false,
+    "existing_credential_file_modified": false,
+    "key_pool_rotation": false,
+    "API_key_pattern_scan_of_diagnostic_files": "passed; no API-key value found",
+    "ephemeral_helper_and_diagnostic_processes": "exited; containers removed"
+  },
+  "metadata": {
+    "phase": "metadata",
+    "model": "gemini-3.6-flash",
+    "transport": "REST",
+    "requests": 1,
+    "generation_calls": 0,
+    "timeout_seconds": 15,
+    "sdk_retries": null,
+    "credential_source": "new_user_supplied_key_via_stdin",
+    "status": "passed",
+    "metadata": {
+      "name_matches_request": true,
+      "supports_generate_content": true,
+      "input_token_limit": 1048576,
+      "output_token_limit": 65536
+    },
+    "elapsed_seconds": 0.218302
+  },
+  "generation": {
+    "phase": "generation",
+    "credential_source": "new_user_supplied_key_via_stdin",
+    "tested_implementation_sha": "0c0458ae802cedba75d7680809a8254b3f76ab7d",
+    "settings": {
+      "provider": "gemini",
+      "sdk_version": "google-ai-generativelanguage/0.6.10",
+      "model": "gemini-3.6-flash",
+      "temperature": 0.4,
+      "max_tokens": 4096
+    },
+    "transport": "ordinary_application_grpc_asyncio",
+    "maximum_generation_calls": 1,
+    "schema_repairs": 0,
+    "sdk_retries": null,
+    "call_seconds": 45,
+    "corpus_sha256": "7fb09dcc06626b7fbe31c0e9a2237792ded90ad292651b33e5d4db2ff29bcfea",
+    "fixture_response_used": false,
+    "qualification": false,
+    "native_execution_attempts": 0,
+    "case_id": "C01",
+    "kind": "complete",
+    "expected_state": "proposed",
+    "state": "unavailable",
+    "accurate_reviewable_draft": false,
+    "silent_requirement_drop": false,
+    "review_blocked": true,
+    "expected_brief_sha256": "34aee33577a2ce2da90ed9c0e3727c53843cbcca26a4442632cd8d3bdcb5280e",
+    "actual_brief_sha256": null,
+    "audit": {
+      "draft_id": "5d4a37351fd3415ab985aa161e10f679",
+      "draft_revision": 1,
+      "settings": {
+        "provider": "gemini",
+        "sdk_version": "google-ai-generativelanguage/0.6.10",
+        "model": "gemini-3.6-flash",
+        "temperature": 0.4,
+        "max_tokens": 4096
+      },
+      "prompt_version": "engineering_extraction_v1",
+      "schema_version": "engineering_proposal_v1",
+      "status": "unavailable",
+      "calls": 1,
+      "request_characters": 1958,
+      "request_sha256": "9d60c1975427f56013c493df15266a7afacee49a4fb289a6be9b26723cee46c9",
+      "response_bytes": 0,
+      "prompt_tokens": 0,
+      "output_tokens": 0
+    },
+    "generation_calls": 1,
+    "provider_failures": [],
+    "transport_failure": null,
+    "schema_valid": false,
+    "status": "blocked",
+    "elapsed_seconds": 7.358356
+  },
+  "read_only_ledger_check": {
+    "audits": 1,
+    "calls": 1,
+    "states": [
+      "unavailable"
+    ],
+    "model": [
+      "gemini-3.6-flash"
+    ],
+    "max_tokens": [
+      4096
+    ],
+    "hashes": {
+      "engineering.sqlite3": "b1bced07640b488ddb0862939406a21b6c3571b7579b3c653b48004d31390dd8"
+    }
+  },
+  "hashes": [
+    {
+      "path": "C:\\Users\\jiang\\mirum-evidence\\B13\\new-key-20261113\\authorization.json",
+      "sha256": "38003a3df9890c5ce45a1758e5502da2e829c9603269b16855ecb0c72bc436d8"
+    },
+    {
+      "path": "C:\\Users\\jiang\\mirum-evidence\\B13\\new-key-20261113\\key_probe.py",
+      "sha256": "9206e3db08456562cf03c846bc58a8d65f9b69fbef0fcdc9d346afa3929e7552"
+    },
+    {
+      "path": "C:\\Users\\jiang\\mirum-evidence\\B13\\new-key-20261113\\relay.py",
+      "sha256": "8dc35ea81577060332f6749c3ed02a522c18f83ecc8d799058375c2bd65be22b"
+    },
+    {
+      "path": "C:\\Users\\jiang\\mirum-evidence\\B13\\new-key-20261113\\metadata-result.json",
+      "sha256": "2b57429cf3624391c1471df7dcc5724eea1144edd17ec03e88f305dc38e67b65"
+    },
+    {
+      "path": "C:\\Users\\jiang\\mirum-evidence\\B13\\new-key-20261113\\generation-result.json",
+      "sha256": "9b0837c2efb7651e6b87e5be6e9b63cc4fb0862aa89aa51d9df3b023691d99a3"
+    },
+    {
+      "path": "C:\\Users\\jiang\\mirum-evidence\\B13\\new-key-20261113\\metadata-reservation.json",
+      "sha256": "5f5e1cd39a1459bf822474408034ce181c89e24ffbfa16678194082806a58497"
+    },
+    {
+      "path": "C:\\Users\\jiang\\mirum-evidence\\B13\\new-key-20261113\\generation-reservation.json",
+      "sha256": "0f26bf9401d0bb6a6274a03a7141249fbfcbf202456da92e98317a6e0f9907c5"
+    }
+  ],
+  "offline_checks": {
+    "new_key_only_wiring": "passed with dummy stdin and fixture providers; zero live calls",
+    "one_generation_and_no_repeat_guard": "passed",
+    "privacy": "No dummy key in results; no supplied key persisted or echoed",
+    "repeat_check": "Reinvocation with network disabled rejected FileExistsError before reading stdin, creating a draft or issuing a call"
+  },
+  "interpretation": {
+    "observed": [
+      "The supplied key retrieved Gemini 3.6 Flash metadata in 0.218302 seconds.",
+      "Ordinary application gRPC generation on the 4096-token candidate returned through the provider in 7.358356 seconds, rather than a provider access error or timeout.",
+      "The one-call guard's local JSON/schema parse failed; schema_valid=false. No draft was accepted, finalized or executed.",
+      "No schema repair was attempted because the diagnostic budget explicitly allowed one initial call only."
+    ],
+    "completion_inference": "The ordinary Gemini provider returns ProviderReply only for one STOP candidate with nonempty text. Empty provider_failures plus schema_valid=false shows execution reached local parsing. Finish reason was not separately retained.",
+    "limitations": [
+      "The precise JSON/Pydantic validation errors were not retained by this guard, and the raw response was intentionally not persisted; the exact failing field cannot be identified retroactively.",
+      "Zero response/token counts in the audit result from the diagnostic guard raising before BriefProposer receives the reply, not proof of zero output or billing.",
+      "The normal workflow's single schema repair remains untested live for this key/configuration.",
+      "This changed both the key and (versus the earlier 1024-token attempts) the token allowance and ran at a later time; it does not establish that the old key was invalid or that provider high demand is permanently resolved.",
+      "This is one diagnostic case, not the 30-case qualification corpus."
+    ]
+  },
+  "ordinary_configuration": {
+    "model": "gemini-3.6-flash",
+    "max_tokens": 4096,
+    "temperature": 0.4,
+    "transport": "grpc_asyncio",
+    "sdk": "google-ai-generativelanguage/0.6.10",
+    "call_seconds": 45,
+    "structured_response_bytes": 16384,
+    "source_changed": false
+  },
+  "next_check": "Capture redacted validation locations/types before repair and test one normal initial-plus-at-most-one-schema-repair workflow under an explicit bounded diagnostic budget. Do not weaken strict validation or reset this case ledger.",
+  "release_decision": {
+    "B13": "blocked",
+    "B14": "blocked_before_release_work",
+    "E01_E02": "not_eligible",
+    "corpus_qualification": false,
+    "main_merged_or_deployed": false
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "task": "B11",
+  "starting_sha": "7b6853b4b8bea0b4bf77000c0b2df3fb2fc2a783",
+  "tested_implementation_sha": "84e89943c755e77ed04ff2526842e8b936ecd208",
+  "image_id": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "checks": [
+    {
+      "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly mirum-checked-b01:b9c5565 python -m pytest -q -p no:cacheprovider --tb=short backend/tests/test_engineering_api_v1.py backend/tests/test_engineering_api.py",
+      "result": "11 passed, 3 warnings in 58.20s",
+      "exit_code": 0,
+      "log_sha256": "31cc113473289bd82ac5b8911bce9515b99f2f7aebb95496b5c81ef9948a8fec"
+    },
+    {
+      "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly mirum-checked-b01:b9c5565 python -m pytest -q -p no:cacheprovider --tb=short backend/tests/test_engineering_api_v1.py backend/tests/test_engineering_api.py backend/tests/test_engineering_jobs.py backend/tests/test_engineering_store.py backend/tests/test_engineering_proposer.py backend/tests/test_native_api_hardening_ports.py",
+      "result": "90 passed, 18 warnings in 152.16s",
+      "exit_code": 0,
+      "tested_sha": "0242c2d219696b2561feebb53d49c9fcfdc73de1",
+      "note": "Before additive draft hash/review-field API view; final affected API and HTTP checks rerun."
+    },
+    {
+      "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B11,target=/evidence mirum-checked-b01:b9c5565 python scripts/checked_engineering_http_probe.py /evidence/final-http 84e89943c755e77ed04ff2526842e8b936ecd208",
+      "exit_code": 0,
+      "manifest": {
+        "tested_implementation_sha": "84e89943c755e77ed04ff2526842e8b936ecd208",
+        "transport": "real loopback HTTP",
+        "provider_calls": 0,
+        "provider_credentials_in_server": false,
+        "review": "Shared fixture and explicit HTTP caller, not a browser/human review",
+        "cases": [
+          {
+            "case": "accepted",
+            "outcome": "accepted",
+            "heights": [
+              5.0,
+              10.0,
+              15.0
+            ],
+            "files": {
+              "package.zip": {
+                "bytes": 16155,
+                "sha256": "bb42da79c940b788359ad0f6018a89ebc1870ebbc932e5e8efa25ab81315078d"
+              },
+              "brief.json": {
+                "bytes": 4327,
+                "sha256": "628a212f17de0e46a3685d45a6964e6baadfc75848b0566e60bbfbfbf1c0b08b"
+              },
+              "selected_spec.json": {
+                "bytes": 444,
+                "sha256": "4200354d4c34c18b3e6be2b35b976501c047d5b1aa88b48007ece8bb84d96e0d"
+              },
+              "model.py": {
+                "bytes": 105,
+                "sha256": "4c34a2b6a94ea9bb86ca05a0764ad1ab096e9eef071cb1a071ed93b3695ed0a8"
+              },
+              "model.step": {
+                "bytes": 15415,
+                "sha256": "4a924e6a1737a3f48726c3c4ec9718af27b4f6a8c26c3c89a337e44d39998a05"
+              },
+              "preview.glb": {
+                "bytes": 3300,
+                "sha256": "df341c8a183290eb5499a577e262868f4b700e83e99451b50ecca5b8618c70c5"
+              },
+              "attempts.json": {
+                "bytes": 84305,
+                "sha256": "3bb41e05f895d078a4fbdcc4c87f0fd95953993d3bde04db53d003a13375247c"
+              },
+              "report.json": {
+                "bytes": 61845,
+                "sha256": "c351c7f031e62223b3ce7600a9046e06f33bb556d9700c2cb937c251d116991d"
+              },
+              "report.md": {
+                "bytes": 749,
+                "sha256": "0dd627115daaf8898caa7d05712c54cce2a991b702136083b8f04c2955179ec6"
+              },
+              "manifest.json": {
+                "bytes": 1799,
+                "sha256": "393e6b30beb8889235ed2bd1176aebdd35700bf7d7cf82778e7413aea24ef82f"
+              }
+            }
+          },
+          {
+            "case": "rejected",
+            "outcome": "rejected",
+            "heights": [
+              5.0,
+              10.0,
+              15.0
+            ],
+            "files": {
+              "package.zip": {
+                "bytes": 10758,
+                "sha256": "4bee4fac303dd882d1a940f689f01427e41d9215dac7c9d3301508a70f004452"
+              },
+              "brief.json": {
+                "bytes": 4325,
+                "sha256": "44a53bac5a6dd756c12bf385e68cadf1aec8e94a8ceb90691532a5c9389844f7"
+              },
+              "attempts.json": {
+                "bytes": 83855,
+                "sha256": "417e9d22f6d9443ee515f10249d48f2045944835fda01631b1b235da98fdd0be"
+              },
+              "report.json": {
+                "bytes": 60611,
+                "sha256": "09d1d634a1387ce245aded3576ddb847a37136523a29103d3918fcb06abfd528"
+              },
+              "report.md": {
+                "bytes": 811,
+                "sha256": "599442a3efcd382d69a812b1077b6b587d4679581064bc4e0f0bb311a7b0ea64"
+              },
+              "manifest.json": {
+                "bytes": 1002,
+                "sha256": "d2b7b731065f11a983154e851fb22da889a81fa2f63d847406bf602b77b9271c"
+              }
+            }
+          },
+          {
+            "case": "cancelled",
+            "lifecycle": "cancelled"
+          }
+        ]
+      }
+    }
+  ],
+  "limitations": [
+    "AI HTTP parity uses offline provider oracle, not live extraction evidence.",
+    "Native HTTP review uses an explicit fixture caller; browser checks belong to B12.",
+    "Pinned SDK Python 3.10 warning remains; no scanner pass claimed."
+  ]
+}

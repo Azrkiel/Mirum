@@ -1,0 +1,19 @@
+{
+  "task": "B07",
+  "starting_commit": "5393017909a3f824cef7e945f395c4d7bc793a29",
+  "tested_implementation_commit": "618f148f72022987eeba289c863bc4ea00ce4579",
+  "image": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "runtime": "B01 Linux x86_64, Python 3.10.22, CadQuery 2.6.1, OCP 7.8.1.1.post1, NumPy 2.2.6, Pydantic 2.9.2, pytest 8.3.3; network none; source read-only",
+  "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly mirum-checked-b01:b9c5565 python -m pytest -q -p no:cacheprovider --tb=short backend/tests/test_engineering_search.py backend/tests/test_engineering_briefs.py backend/tests/test_engineering_contracts.py backend/tests/test_engineering_capabilities.py backend/tests/test_engineering_spec.py backend/tests/test_engineering_fea.py backend/tests/test_engineering_service.py backend/tests/test_engineering_api.py backend/tests/test_cem_requirements.py",
+  "exit_code": 0,
+  "result": "197 passed, 3 warnings in 129.10s (0:02:09)",
+  "scope": "Real adapter search for reference, low-allowable all-fail, fixed-design and early selection; existing legacy service/API native regressions. Cancellation/deadline/unavailable/observer tests use labelled async seams or replay real native evaluations; no durable lifecycle claim.",
+  "limitations": "No task blocker. B08 policy and B09/B10 durable lifecycle/publication remain required. Native-process cancellation/restart and overall packaging deadline qualification belong to B09/B13. No global optimization, physical or manufacturing claim.",
+  "source_sha256": {
+    "backend/engineering/search.py": "6cd5dcf7162a27f62c34978c9c70ea7e82f6ebce69cfd00886d5eeb1011b946c",
+    "backend/tests/test_engineering_search.py": "4f2d9125a43cf8cf0fc50989ed316f15263a284223230019d73a7081b0ae573a",
+    "docs/plans/checked-engineering-v1/SEARCH.md": "189c08fef122a05cfd7dfc5faf907311b38e2b7bc8564e99dd52ddbac32bb815",
+    "docs/plans/checked-engineering-v1/STATUS.md": "46c2950452630c5cc8567c29f83be63e884a10a973ea69947360540af7db4dfc"
+  },
+  "log_sha256": "7cb306ef16f57ffd7ff7cc18663d8f07707003bbdb35b5d0b8c76a1939928cc1"
+}

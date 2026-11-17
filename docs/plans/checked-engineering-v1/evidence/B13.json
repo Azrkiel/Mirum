@@ -1,0 +1,811 @@
+{
+  "task": "B13",
+  "state": "blocked",
+  "starting_sha": "53408cb4f4b88d35fae3ce5fdc3061144c31bc29",
+  "tested_implementation_sha": "ea721d90109e6a9fe0530fdf95132eeef70bb69d",
+  "image_id": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "checks": {
+    "regression": {
+      "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly mirum-checked-b01:b9c5565 python -m pytest -q -p no:cacheprovider --tb=short backend/tests/test_engineering_api.py backend/tests/test_engineering_api_v1.py backend/tests/test_engineering_briefs.py backend/tests/test_engineering_bundles.py backend/tests/test_engineering_cantilever.py backend/tests/test_engineering_capabilities.py backend/tests/test_engineering_contracts.py backend/tests/test_engineering_fea.py backend/tests/test_engineering_jobs.py backend/tests/test_engineering_native.py backend/tests/test_engineering_policy.py backend/tests/test_engineering_proposer.py backend/tests/test_engineering_qualification.py backend/tests/test_engineering_search.py backend/tests/test_engineering_service.py backend/tests/test_engineering_spec.py backend/tests/test_engineering_store.py backend/tests/test_process_lifecycle_ports.py backend/tests/test_process_descendant_ports.py backend/tests/test_cem_requirements.py backend/tests/test_cem_api.py backend/tests/test_glider_search.py backend/tests/test_native_api_hardening_ports.py frontend",
+      "started_sha": "aef716e5d514a2eb555cce8e2a79e8ec89424147",
+      "application_source_identical_to_final": true,
+      "result": "443 passed, 21 warnings in 796.99s",
+      "exit_code": 0,
+      "log_sha256": "fcabcb3f4d639c70563aaeac9d53386e6fbd52fdffd25760a8dca51a4a8d9d52"
+    },
+    "browser": {
+      "command": "node.exe scripts/checked_engineering_browser_probe.cjs C:/Users/jiang/mirum-evidence/B13/final-browser ea721d90109e6a9fe0530fdf95132eeef70bb69d",
+      "environment": {
+        "PLAYWRIGHT_MODULE": "C:/Users/jiang/mirum-evidence/browser-runtime-trusted/node_modules/playwright",
+        "PLAYWRIGHT_EXECUTABLE": "C:/Users/jiang/AppData/Local/ms-playwright/chromium_headless_shell-1254/chrome-headless-shell-win64/chrome-headless-shell.exe",
+        "CHECKED_CONTAINER": "mirum-checked-b12-ui"
+      },
+      "exit_code": 0,
+      "evidence": {
+        "tested_implementation_sha": "ea721d90109e6a9fe0530fdf95132eeef70bb69d",
+        "browser": "158.0.8127.18",
+        "playwright": "1.61.0",
+        "provider_calls": 0,
+        "network": "Browser external requests blocked; local HTTP only",
+        "scope": "Real browser/HTTP/native with explicit user-like review clicks; unsupported input seeded via HTTP",
+        "observations": [
+          {
+            "case": "accepted_reference",
+            "job_id": "191aaefe2e4f40eea33e6a0bcb7c30e8",
+            "url_during_job": "http://127.0.0.1:18501/?checked_workflow=1&checked_draft=ccca9040600f4676b0e288c938bf535c&checked_brief=769fa2218373436b83d0054edfc889d0&checked_job=191aaefe2e4f40eea33e6a0bcb7c30e8",
+            "url_after_refresh": "http://127.0.0.1:18501/?checked_workflow=1&checked_draft=ccca9040600f4676b0e288c938bf535c&checked_brief=769fa2218373436b83d0054edfc889d0&checked_job=191aaefe2e4f40eea33e6a0bcb7c30e8",
+            "mesh": {
+              "vertices": 24,
+              "triangles": 12,
+              "names": [
+                "Measured STEP preview",
+                "Reviewed force",
+                "+Z",
+                "Ideal clamp X=0"
+              ]
+            },
+            "files": {
+              "attempts.json": {
+                "bytes": 84149,
+                "sha256": "b28d3c6f47ffc3eaa4d1190b5ff46770bcf5f30bfb1f8db84bb26e2da9324cc1"
+              },
+              "brief.json": {
+                "bytes": 4290,
+                "sha256": "636e29ea8f0f639c5d52603625cfb373a2846996dbaa1a3b720046728f985b8b"
+              },
+              "model.py": {
+                "bytes": 105,
+                "sha256": "4c34a2b6a94ea9bb86ca05a0764ad1ab096e9eef071cb1a071ed93b3695ed0a8"
+              },
+              "model.step": {
+                "bytes": 15415,
+                "sha256": "7a4af34404c705d6de2c384242f96e1fdf23513cdbcd6aada9d7f783df99b22d"
+              },
+              "preview.glb": {
+                "bytes": 3300,
+                "sha256": "df341c8a183290eb5499a577e262868f4b700e83e99451b50ecca5b8618c70c5"
+              },
+              "report.json": {
+                "bytes": 61767,
+                "sha256": "3768b5b8ef55b269d72888f84e81b32671610f29f72f039d1a173d30a162aebc"
+              },
+              "report.md": {
+                "bytes": 723,
+                "sha256": "4180950ae4f96ec6f50a5f5a85e565c0e3a442c05e62006bcbbe77ce2353dfae"
+              },
+              "selected_spec.json": {
+                "bytes": 418,
+                "sha256": "ea59709d468313b79330ed4f941bdc1abc2b27c33ef86af351d9621a31776f5b"
+              },
+              "manifest.json": {
+                "bytes": 1799,
+                "sha256": "404d19b420e88c152f2d85b947bb00e738dd98f9275fc016f3f700f4a0e95854"
+              },
+              "package.zip": {
+                "bytes": 16060,
+                "sha256": "add817427e053019cf6f27711d9511d1a4837a2125568fadcbf59b3e9b0df8de"
+              }
+            }
+          },
+          {
+            "case": "edit_and_two_tabs",
+            "draft_id": "ccca9040600f4676b0e288c938bf535c",
+            "latest_revision": 3,
+            "old_job_id": "191aaefe2e4f40eea33e6a0bcb7c30e8",
+            "unreviewed_run_disabled": true
+          },
+          {
+            "case": "ai_unavailable",
+            "real_provider_calls": 0,
+            "unreviewed_run_disabled": true
+          },
+          {
+            "case": "unsupported_seeded_http",
+            "feature": "holes",
+            "silent_drop": false
+          },
+          {
+            "case": "cancelled",
+            "job_id": "9c0e686cbe504ec789c3cf8edb75c7b0"
+          },
+          {
+            "case": "rejected",
+            "job_id": "afb7d8e913774151a73b660b448bb587",
+            "accepted_geometry": false
+          },
+          {
+            "case": "unavailable_publication",
+            "job_id": "0703126e179841098cf391f05849084b",
+            "fault": "Actual directory write permission denied",
+            "accepted_geometry": false
+          },
+          {
+            "case": "expired",
+            "job_id": "191aaefe2e4f40eea33e6a0bcb7c30e8",
+            "clock": "Persisted timestamp accelerated; not a six-hour wall-clock wait",
+            "downloads_withheld": true
+          }
+        ],
+        "page_errors": []
+      }
+    },
+    "http": {
+      "exit_code": 0,
+      "evidence": {
+        "tested_implementation_sha": "21b52e6a2aa87ce936e5f13a73c26aa08a8b76ea",
+        "transport": "real loopback HTTP",
+        "provider_calls": 0,
+        "provider_credentials_in_server": false,
+        "review": "Shared fixture and explicit HTTP caller, not a browser/human review",
+        "cases": [
+          {
+            "case": "accepted",
+            "outcome": "accepted",
+            "heights": [
+              5.0,
+              10.0,
+              15.0
+            ],
+            "files": {
+              "package.zip": {
+                "bytes": 16162,
+                "sha256": "b3d99359f863c8af5d1dd7982767115d7e5775ec76a056fe5db7db9201b534b3"
+              },
+              "brief.json": {
+                "bytes": 4327,
+                "sha256": "007549b44b56f409c9b48279dcbef1bbbc75116ea97b5fd3636c520d429a8712"
+              },
+              "selected_spec.json": {
+                "bytes": 444,
+                "sha256": "4200354d4c34c18b3e6be2b35b976501c047d5b1aa88b48007ece8bb84d96e0d"
+              },
+              "model.py": {
+                "bytes": 105,
+                "sha256": "4c34a2b6a94ea9bb86ca05a0764ad1ab096e9eef071cb1a071ed93b3695ed0a8"
+              },
+              "model.step": {
+                "bytes": 15415,
+                "sha256": "2601be8096b87a3d5333900e97d3be09ea57e38c265581486424e3745532ca31"
+              },
+              "preview.glb": {
+                "bytes": 3300,
+                "sha256": "df341c8a183290eb5499a577e262868f4b700e83e99451b50ecca5b8618c70c5"
+              },
+              "attempts.json": {
+                "bytes": 84305,
+                "sha256": "21a2cedcca297df3b8972bd77d85b76678dc7217f4dae22d2a4ac2461752755f"
+              },
+              "report.json": {
+                "bytes": 61845,
+                "sha256": "8cc51ceef3b9dd2aad7561ee4a50dbba3279dd721bdc2233843c00590b7a8585"
+              },
+              "report.md": {
+                "bytes": 749,
+                "sha256": "1379a583048d4129a3f31aab691c38d8dc01513174eec19ce29993cb7ac62582"
+              },
+              "manifest.json": {
+                "bytes": 1799,
+                "sha256": "5728479d41dda49784aa30fca8627736df965f4598ed8ceae11e42a371726b7f"
+              }
+            }
+          },
+          {
+            "case": "rejected",
+            "outcome": "rejected",
+            "heights": [
+              5.0,
+              10.0,
+              15.0
+            ],
+            "files": {
+              "package.zip": {
+                "bytes": 10757,
+                "sha256": "225e6ab0cdaa4632c3fda46212723a39ab3c067fa74b106c18710499e3e9cd50"
+              },
+              "brief.json": {
+                "bytes": 4325,
+                "sha256": "5cc8393f1985db1cf352151b65c71054966d44e1d702145af18ed8c2a0119315"
+              },
+              "attempts.json": {
+                "bytes": 83855,
+                "sha256": "894a78248022a8449609e4d331a60146b511af5aee057938badc3849aa5063a2"
+              },
+              "report.json": {
+                "bytes": 60611,
+                "sha256": "873b35203837638e880825defafdc52f7eb94b4ee51bc32978031fef8e2c40df"
+              },
+              "report.md": {
+                "bytes": 811,
+                "sha256": "aed0f5cc9bd8718ac505fcaf6a26790146e1c1093dc59dc214bd4251926c771a"
+              },
+              "manifest.json": {
+                "bytes": 1002,
+                "sha256": "f04f2f1465d810c7f781bfc8ead484df20c8fee7ed2af2615f5eb71693a722f1"
+              }
+            }
+          },
+          {
+            "case": "cancelled",
+            "lifecycle": "cancelled"
+          }
+        ]
+      },
+      "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B13,target=/evidence mirum-checked-b01:b9c5565 python scripts/checked_engineering_http_probe.py /evidence/final-http 21b52e6a2aa87ce936e5f13a73c26aa08a8b76ea"
+    },
+    "replay": {
+      "exit_code": 0,
+      "evidence": {
+        "tested_implementation_sha": "ea721d90109e6a9fe0530fdf95132eeef70bb69d",
+        "provider_calls": 0,
+        "brief_sha256": "c97d641a2820f98f741910e8a0084167fc687da5758b23ca2702f7e63ad5815d",
+        "selected_candidate_sha256": "e782b4216c3c25d4f587535e7d15584ac844a33269c447624747722ef6a6d86c",
+        "verdicts": [
+          "rejected",
+          "rejected",
+          "accepted"
+        ],
+        "comparisons": [
+          {
+            "group": "measurements",
+            "name": "height_mm",
+            "before": 5.0,
+            "after": 5.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "length_mm",
+            "before": 200.0,
+            "after": 200.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "section_area_mm2",
+            "before": 49.99999999999999,
+            "after": 49.99999999999999,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "section_iy_mm4",
+            "before": 104.16666666666669,
+            "after": 104.16666666666669,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "surface_area_mm2",
+            "before": 6100.0,
+            "after": 6100.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "volume_mm3",
+            "before": 9999.999999999998,
+            "after": 9999.999999999998,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "width_mm",
+            "before": 10.0,
+            "after": 10.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "degrees_of_freedom",
+            "before": 32,
+            "after": 32,
+            "absolute_difference": 0
+          },
+          {
+            "group": "physics",
+            "name": "elements",
+            "before": 16,
+            "after": 16,
+            "absolute_difference": 0
+          },
+          {
+            "group": "physics",
+            "name": "relative_equilibrium_residual",
+            "before": 4.741688523305736e-12,
+            "after": 4.741688523305736e-12,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "root_bending_stress_mpa",
+            "before": 239.99999999963566,
+            "after": 239.99999999963566,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "root_reaction_force_n",
+            "before": -49.99999999979798,
+            "after": -49.99999999979798,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "root_reaction_moment_n_mm",
+            "before": -9999.99999998482,
+            "after": -9999.99999998482,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "second_moment_mm4",
+            "before": 104.16666666666669,
+            "after": 104.16666666666669,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "strain_energy_n_mm",
+            "before": 457.14285714060054,
+            "after": 457.14285714060054,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "tip_displacement_mm",
+            "before": 18.285714285689973,
+            "after": 18.285714285689973,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "tip_rotation_rad",
+            "before": 0.13714285714269894,
+            "after": 0.13714285714269894,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "height_mm",
+            "before": 10.0,
+            "after": 10.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "length_mm",
+            "before": 200.0,
+            "after": 200.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "section_area_mm2",
+            "before": 99.99999999999999,
+            "after": 99.99999999999999,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "section_iy_mm4",
+            "before": 833.3333333333335,
+            "after": 833.3333333333335,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "surface_area_mm2",
+            "before": 8200.0,
+            "after": 8200.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "volume_mm3",
+            "before": 19999.999999999996,
+            "after": 19999.999999999996,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "width_mm",
+            "before": 10.0,
+            "after": 10.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "degrees_of_freedom",
+            "before": 32,
+            "after": 32,
+            "absolute_difference": 0
+          },
+          {
+            "group": "physics",
+            "name": "elements",
+            "before": 16,
+            "after": 16,
+            "absolute_difference": 0
+          },
+          {
+            "group": "physics",
+            "name": "relative_equilibrium_residual",
+            "before": 4.741688523305736e-12,
+            "after": 4.741688523305736e-12,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "root_bending_stress_mpa",
+            "before": 59.999999999908916,
+            "after": 59.999999999908916,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "root_reaction_force_n",
+            "before": -49.99999999979798,
+            "after": -49.99999999979798,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "root_reaction_moment_n_mm",
+            "before": -9999.99999998482,
+            "after": -9999.99999998482,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "second_moment_mm4",
+            "before": 833.3333333333335,
+            "after": 833.3333333333335,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "strain_energy_n_mm",
+            "before": 57.14285714257507,
+            "after": 57.14285714257507,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "tip_displacement_mm",
+            "before": 2.2857142857112467,
+            "after": 2.2857142857112467,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "tip_rotation_rad",
+            "before": 0.017142857142837368,
+            "after": 0.017142857142837368,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "height_mm",
+            "before": 15.0,
+            "after": 15.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "length_mm",
+            "before": 200.0,
+            "after": 200.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "section_area_mm2",
+            "before": 150.0,
+            "after": 150.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "section_iy_mm4",
+            "before": 2812.5,
+            "after": 2812.5,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "surface_area_mm2",
+            "before": 10300.0,
+            "after": 10300.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "volume_mm3",
+            "before": 30000.0,
+            "after": 30000.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "measurements",
+            "name": "width_mm",
+            "before": 10.0,
+            "after": 10.0,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "degrees_of_freedom",
+            "before": 32,
+            "after": 32,
+            "absolute_difference": 0
+          },
+          {
+            "group": "physics",
+            "name": "elements",
+            "before": 16,
+            "after": 16,
+            "absolute_difference": 0
+          },
+          {
+            "group": "physics",
+            "name": "relative_equilibrium_residual",
+            "before": 2.9096725029376103e-12,
+            "after": 2.9096725029376103e-12,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "root_bending_stress_mpa",
+            "before": 26.66666666659267,
+            "after": 26.66666666659267,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "root_reaction_force_n",
+            "before": -49.999999999949466,
+            "after": -49.999999999949466,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "root_reaction_moment_n_mm",
+            "before": -9999.99999997225,
+            "after": -9999.99999997225,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "second_moment_mm4",
+            "before": 2812.5,
+            "after": 2812.5,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "strain_energy_n_mm",
+            "before": 16.93121693110831,
+            "after": 16.93121693110831,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "tip_displacement_mm",
+            "before": 0.6772486772477769,
+            "after": 0.6772486772477769,
+            "absolute_difference": 0.0
+          },
+          {
+            "group": "physics",
+            "name": "tip_rotation_rad",
+            "before": 0.00507936507935922,
+            "after": 0.00507936507935922,
+            "absolute_difference": 0.0
+          }
+        ],
+        "relative_tolerance": 1e-08,
+        "absolute_tolerance": 1e-06,
+        "delivered_archive_sha256": "d3f5222ecf449f7e031b3e2e8c889234988e50b1c2e8d89e1164d6b853abf5be",
+        "replay_artifacts": {
+          "model.py": {
+            "bytes": 105,
+            "sha256": "4c34a2b6a94ea9bb86ca05a0764ad1ab096e9eef071cb1a071ed93b3695ed0a8"
+          },
+          "model.step": {
+            "bytes": 15415,
+            "sha256": "408d9ca90428f422b7fce104b12c9f6c44abfcbec7f654d5230ca3c2b56ea168"
+          },
+          "preview.glb": {
+            "bytes": 3300,
+            "sha256": "df341c8a183290eb5499a577e262868f4b700e83e99451b50ecca5b8618c70c5"
+          }
+        },
+        "raw_byte_equality_required": false
+      },
+      "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B13,target=/evidence mirum-checked-b01:b9c5565 python scripts/checked_engineering_replay.py /evidence/replacement/package.zip /evidence/final-replay ea721d90109e6a9fe0530fdf95132eeef70bb69d"
+    },
+    "replacement": {
+      "before": {
+        "identity": {
+          "job_id": "c29259fdcdfb4327a110446261aefe29",
+          "zip_sha256": "d3f5222ecf449f7e031b3e2e8c889234988e50b1c2e8d89e1164d6b853abf5be"
+        },
+        "bytes": 16053,
+        "sha256": "d3f5222ecf449f7e031b3e2e8c889234988e50b1c2e8d89e1164d6b853abf5be",
+        "active_owned_workers": 0,
+        "source_sha": "ea721d90109e6a9fe0530fdf95132eeef70bb69d",
+        "phase": "before"
+      },
+      "after": {
+        "identity": {
+          "job_id": "c29259fdcdfb4327a110446261aefe29",
+          "zip_sha256": "d3f5222ecf449f7e031b3e2e8c889234988e50b1c2e8d89e1164d6b853abf5be"
+        },
+        "bytes": 16053,
+        "sha256": "d3f5222ecf449f7e031b3e2e8c889234988e50b1c2e8d89e1164d6b853abf5be",
+        "active_owned_workers": 0,
+        "source_sha": "ea721d90109e6a9fe0530fdf95132eeef70bb69d",
+        "phase": "after"
+      },
+      "commands": [
+        "python C:/Users/jiang/mirum-evidence/B13/replacement.py before",
+        "docker stop --timeout 20 mirum-checked-b12-ui",
+        "docker rm mirum-checked-b12-ui",
+        "docker run --name mirum-checked-b12-ui --init -d -p 127.0.0.1:18765:8000 -p 127.0.0.1:18501:8501 --tmpfs /tmp/mirum:rw,size=256m,uid=10001,gid=10001,mode=0700 --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B12,target=/evidence --mount type=volume,source=mirum-checked-b12-data,target=/tmp/mirum/engineering -e MIRUM_ENGINEERING_REQUIRE_VOLUME=1 mirum-checked-b01:b9c5565 python scripts/checked_engineering_ui_server.py",
+        "python C:/Users/jiang/mirum-evidence/B13/replacement.py after"
+      ],
+      "script_sha256": "27caa821da58d814e0a9891fde7c88e4644d3fe97ff5a68d3741f34886306f0d"
+    },
+    "live": {
+      "exit_code": 2,
+      "evidence": {
+        "tested_implementation_sha": "be4b60374b75bc1ed54d7feaacf8cf1689adce68",
+        "corpus_sha256": "7fb09dcc06626b7fbe31c0e9a2237792ded90ad292651b33e5d4db2ff29bcfea",
+        "provider": "gemini",
+        "maximum_calls": 60,
+        "maximum_calls_per_case": 2,
+        "credential_variable": "GEMINI_API_KEY",
+        "cases": [
+          {
+            "case_id": "C01",
+            "kind": "complete",
+            "expected_state": "proposed",
+            "state": "unavailable",
+            "accurate_reviewable_draft": false,
+            "silent_requirement_drop": false,
+            "review_blocked": true,
+            "expected_brief_sha256": "34aee33577a2ce2da90ed9c0e3727c53843cbcca26a4442632cd8d3bdcb5280e",
+            "actual_brief_sha256": null,
+            "audit": {
+              "draft_id": "a2f64724ae0844998ffef3bee57caa8a",
+              "draft_revision": 1,
+              "settings": {
+                "provider": "gemini",
+                "sdk_version": "google-ai-generativelanguage/0.6.10",
+                "model": "gemini-3.5-flash",
+                "temperature": 0.4,
+                "max_tokens": 1024
+              },
+              "prompt_version": "engineering_extraction_v1",
+              "schema_version": "engineering_proposal_v1",
+              "status": "unavailable",
+              "calls": 1,
+              "request_characters": 1958,
+              "request_sha256": "9d60c1975427f56013c493df15266a7afacee49a4fb289a6be9b26723cee46c9",
+              "response_bytes": 0,
+              "prompt_tokens": 0,
+              "output_tokens": 0
+            },
+            "provider_failures": [
+              {
+                "exception": "ServiceUnavailable",
+                "code": "HTTPStatus.SERVICE_UNAVAILABLE",
+                "tls_certificate_failure": true
+              }
+            ]
+          },
+          {
+            "case_id": "C02",
+            "kind": "complete",
+            "expected_state": "proposed",
+            "state": "unavailable",
+            "accurate_reviewable_draft": false,
+            "silent_requirement_drop": false,
+            "review_blocked": true,
+            "expected_brief_sha256": "f8c42187e3adc45647e1b568e326cdcb69cc67928253d018c44e5ef223b7fc00",
+            "actual_brief_sha256": null,
+            "audit": {
+              "draft_id": "e2dead706605469b88940444c16b51ed",
+              "draft_revision": 1,
+              "settings": {
+                "provider": "gemini",
+                "sdk_version": "google-ai-generativelanguage/0.6.10",
+                "model": "gemini-3.5-flash",
+                "temperature": 0.4,
+                "max_tokens": 1024
+              },
+              "prompt_version": "engineering_extraction_v1",
+              "schema_version": "engineering_proposal_v1",
+              "status": "unavailable",
+              "calls": 1,
+              "request_characters": 1957,
+              "request_sha256": "ee520dc18eb13bdeb161864e8f55819cd2c75fb88fa305487a142e7315239fec",
+              "response_bytes": 0,
+              "prompt_tokens": 0,
+              "output_tokens": 0
+            },
+            "provider_failures": []
+          },
+          {
+            "case_id": "C03",
+            "kind": "complete",
+            "expected_state": "proposed",
+            "state": "unavailable",
+            "accurate_reviewable_draft": false,
+            "silent_requirement_drop": false,
+            "review_blocked": true,
+            "expected_brief_sha256": "e6ed2595eace19c6a2be3c6af38654f18f1b5973478bbacd3473766efdb013ee",
+            "actual_brief_sha256": null,
+            "audit": {
+              "draft_id": "6429a6be913643b48935b22ef9796abf",
+              "draft_revision": 1,
+              "settings": {
+                "provider": "gemini",
+                "sdk_version": "google-ai-generativelanguage/0.6.10",
+                "model": "gemini-3.5-flash",
+                "temperature": 0.4,
+                "max_tokens": 1024
+              },
+              "prompt_version": "engineering_extraction_v1",
+              "schema_version": "engineering_proposal_v1",
+              "status": "unavailable",
+              "calls": 1,
+              "request_characters": 1958,
+              "request_sha256": "b8061ef87d5991d732df1cd8ab1c7cda9fe24efd3f0a3cd5c9fa3b444328e7bf",
+              "response_bytes": 0,
+              "prompt_tokens": 0,
+              "output_tokens": 0
+            },
+            "provider_failures": [
+              {
+                "exception": "DeadlineExceeded",
+                "code": "HTTPStatus.GATEWAY_TIMEOUT",
+                "tls_certificate_failure": false,
+                "credential_rejected": false,
+                "model_unavailable": false,
+                "schema_rejected": false,
+                "incomplete_response": false
+              }
+            ]
+          }
+        ],
+        "calls": 3,
+        "unreviewed_executions": 0,
+        "fixture_response_used": false,
+        "qualification": "blocked",
+        "settings": {
+          "provider": "gemini",
+          "sdk_version": "google-ai-generativelanguage/0.6.10",
+          "model": "gemini-3.5-flash",
+          "temperature": 0.4,
+          "max_tokens": 1024
+        },
+        "blocker": "Configured provider access/runtime failed: {\"exception\": \"DeadlineExceeded\", \"code\": \"HTTPStatus.GATEWAY_TIMEOUT\", \"tls_certificate_failure\": false, \"credential_rejected\": false, \"model_unavailable\": false, \"schema_rejected\": false, \"incomplete_response\": false}",
+        "complete_accurate": 0,
+        "silent_requirement_drops": 0
+      },
+      "unattempted_cases": 27,
+      "budget_volume": "mirum-checked-b13-live",
+      "trusted_ca_environment": "GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt",
+      "tls_verified": true,
+      "alpn": "h2",
+      "credential_contents_logged": false,
+      "command": "docker run --rm -e GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt --tmpfs /tmp/mirum:rw,size=256m,uid=10001,gid=10001,mode=0700 --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B13,target=/evidence --mount type=bind,source=<user-supplied-environment-file>,target=/run/existing-provider.env,readonly --mount type=volume,source=mirum-checked-b13-live,target=/tmp/mirum/v15 mirum-checked-b01:b9c5565 python scripts/checked_engineering_live_eval.py /evidence/live /tmp/mirum/v15 be4b60374b75bc1ed54d7feaacf8cf1689adce68 /run/existing-provider.env",
+      "credential_mount_source_redacted": true,
+      "initial_command_note": "Same image/mounts, without GRPC_DEFAULT_SSL_ROOTS_FILE_PATH, at aef716e5d514a2eb555cce8e2a79e8ec89424147; consumed C01 only."
+    }
+  },
+  "full_ai_release_qualified": false,
+  "b14_prerequisite_satisfied": false,
+  "source_equality_command": "git diff --quiet aef716e5d514a2eb555cce8e2a79e8ec89424147 ea721d90109e6a9fe0530fdf95132eeef70bb69d -- backend frontend"
+}

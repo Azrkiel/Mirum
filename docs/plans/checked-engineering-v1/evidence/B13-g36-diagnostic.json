@@ -1,0 +1,159 @@
+{
+  "task": "B13",
+  "date": "2026-11-12",
+  "state": "blocked_live_preparation_deadline",
+  "tested_implementation_sha": "0f1864adb06e548222265e9d8fd6377c47aad509",
+  "image_id": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "authorization": {
+    "id": "user-20261112-g36-one-call",
+    "user_statement": "can you switch to 3.6 flash and try please?",
+    "scope": "Switch checked preparation to Gemini 3.6 Flash and make one bounded diagnostic attempt; no full qualification rerun",
+    "maximum_generation_calls": 1,
+    "schema_repairs": 0,
+    "record_sha256": "a642069b2cf7a10b15a992d58369086bb7ba307305a12b4460a8362c0985654f"
+  },
+  "model_configuration": {
+    "setting": "GEMINI_MODEL_ENGINEERING_PREPARATION",
+    "model": "gemini-3.6-flash",
+    "legacy_model_defaults_changed": false,
+    "temperature": 0.4,
+    "max_tokens": 1024,
+    "sdk": "google-ai-generativelanguage/0.6.10",
+    "transport": "grpc_asyncio",
+    "sdk_retries": null,
+    "call_seconds": 45,
+    "dependencies_changed": false
+  },
+  "offline_regression": {
+    "passed": 84,
+    "warnings": 1,
+    "seconds": 36.92,
+    "exit_code": 0,
+    "network": "none",
+    "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583 python -m pytest -q -p no:cacheprovider --tb=short backend/tests/test_engineering_proposer.py backend/tests/test_engineering_qualification.py backend/tests/test_engineering_store.py",
+    "red_green": "Model selection and SDK request assertions failed on 3.5 and passed after explicit 3.6 selection",
+    "diagnostic_fixtures": "Valid output, invalid output, transport failure: one call, no schema repair, no repeat on restart; zero live requests",
+    "diagnostic_fixture_log_sha256": "2645b7bcd2e51c9df277cfb4797eab81a744261f91024ff5b00ead10fabfea99"
+  },
+  "local_evidence": "C:/Users/jiang/mirum-evidence/B13/g36-diagnostic-20261112",
+  "diagnostic_script_sha256": "d0e0acb79769835138eb2919a8b187b49d5e0790cdca7277c2ffe668376351b2",
+  "command": "docker run --rm --name mirum-checked-b13-g36-diag --init --read-only --tmpfs /tmp/mirum:rw,size=256m,uid=10001,gid=10001,mode=0700 --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B13/g36-diagnostic-20261112,target=/evidence --mount type=bind,source=<user-supplied-credential-file>,target=/run/existing-provider.env,readonly --mount type=volume,source=mirum-checked-b13-g36-diag-20261112,target=/tmp/mirum/diagnostic sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583 python /evidence/try_once.py /evidence /tmp/mirum/diagnostic 0f1864adb06e548222265e9d8fd6377c47aad509 sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583 /run/existing-provider.env",
+  "credential_path_redacted": true,
+  "exit_code": 2,
+  "diagnostic": {
+    "run_id": "b13-g36-diagnostic-20261112",
+    "authorization_id": "user-20261112-g36-one-call",
+    "tested_implementation_sha": "0f1864adb06e548222265e9d8fd6377c47aad509",
+    "image_id": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+    "corpus_sha256": "7fb09dcc06626b7fbe31c0e9a2237792ded90ad292651b33e5d4db2ff29bcfea",
+    "settings": {
+      "provider": "gemini",
+      "sdk_version": "google-ai-generativelanguage/0.6.10",
+      "model": "gemini-3.6-flash",
+      "temperature": 0.4,
+      "max_tokens": 1024
+    },
+    "credential_variable": "GEMINI_API_KEY",
+    "maximum_generation_calls": 1,
+    "schema_repairs_authorized": 0,
+    "qualification": false,
+    "fixture_response_used": false,
+    "native_execution_attempts": 0,
+    "draft_id": "6054c999d3604b10b6399b00c0d8a718",
+    "case_id": "C01",
+    "kind": "complete",
+    "expected_state": "proposed",
+    "state": "unavailable",
+    "accurate_reviewable_draft": false,
+    "silent_requirement_drop": false,
+    "review_blocked": true,
+    "expected_brief_sha256": "34aee33577a2ce2da90ed9c0e3727c53843cbcca26a4442632cd8d3bdcb5280e",
+    "actual_brief_sha256": null,
+    "audit": {
+      "draft_id": "6054c999d3604b10b6399b00c0d8a718",
+      "draft_revision": 1,
+      "settings": {
+        "provider": "gemini",
+        "sdk_version": "google-ai-generativelanguage/0.6.10",
+        "model": "gemini-3.6-flash",
+        "temperature": 0.4,
+        "max_tokens": 1024
+      },
+      "prompt_version": "engineering_extraction_v1",
+      "schema_version": "engineering_proposal_v1",
+      "status": "unavailable",
+      "calls": 1,
+      "request_characters": 1958,
+      "request_sha256": "9d60c1975427f56013c493df15266a7afacee49a4fb289a6be9b26723cee46c9",
+      "response_bytes": 0,
+      "prompt_tokens": 0,
+      "output_tokens": 0
+    },
+    "elapsed_seconds": 45.037221,
+    "generation_calls": 1,
+    "provider_failures": [],
+    "transport_failure": {
+      "exception": "CancelledError",
+      "grpc_status": null,
+      "tls_certificate_failure": false,
+      "dns_failure": false,
+      "connection_failure": false,
+      "http2_reset": false,
+      "proxy_indicated": false,
+      "credential_metadata_failure": false,
+      "overload_indicated": false,
+      "http_status_indicated": {
+        "400": false,
+        "401": false,
+        "403": false,
+        "404": false,
+        "429": false,
+        "500": false,
+        "502": false,
+        "503": false,
+        "504": false
+      }
+    },
+    "schema_valid": null
+  },
+  "result_sha256": "4ca6123f8c8edbf5ba39ced938e358894f8ca7b81f6cbde4f8a5edf26cdc72bc",
+  "live_log_sha256": "eeeee324f5f49592fa4de23a30d46818e43ab52a3eae3ffa51956a8718af1c86",
+  "restart_check": {
+    "network": "none",
+    "output": {
+      "state": "already_started",
+      "new_calls": 0
+    },
+    "exit_code": 2,
+    "primary_result_unchanged": true
+  },
+  "ledgers": {
+    "old": {
+      "calls": 3,
+      "volume": "mirum-checked-b13-live",
+      "database_sha256": "fa9908b94c76612b85e10682c625475e88f0ee55444f40a26b6545b44ece6290",
+      "unchanged": true
+    },
+    "r2": {
+      "calls": 1,
+      "volume": "mirum-checked-b13-live-20261112-r2",
+      "database_sha256": "a6fda7bdba436c588e1f3106977ac07d067ee0148d99be6f435215e33c737b2f",
+      "unchanged": true
+    },
+    "diagnostic": {
+      "calls": 1,
+      "volume": "mirum-checked-b13-g36-diag-20261112",
+      "database_sha256": "dddf391ceae66bb75a11fd5449102a5cd7bc76fa813e5ba24b0759d5e302be0d"
+    },
+    "total_initial_attempts_across_distinct_runs": 5,
+    "read_only_snapshot_verification_exit_code": 0
+  },
+  "interpretation": "The outer 45-second preparation deadline cancelled the provider coroutine; no completed provider reply or provider error classification was obtained. Changing the model did not unblock this request. No inference about credentials, actual serving model, billing or root cause follows.",
+  "release_decision": {
+    "B13": "blocked",
+    "B14": "blocked_before_release_work",
+    "V01_V15": "No qualification promotion; changed model requires fresh evidence",
+    "E01_E02": "not_eligible",
+    "main_merged_or_deployed": false
+  }
+}
