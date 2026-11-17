@@ -713,12 +713,43 @@ async def _apply_diff_and_export(
     return updated_manifest, new_scripts, step_files, parts_to_regenerate, parts_to_skip
 
 
+_ASSURANCE_UNVERIFIED = "unverified_geometry"
+
+
+def _rules_draft(capability_id: str, prompt: str) -> dict | None:
+    """Rules-only draft for a routed capability; None when it has no installed proposer.
+
+    Stdlib/rules proposers only: no provider, no key, no model call. Any failure omits
+    the draft and the UI opens the capability's form instead.
+    """
+    try:
+        from engineering import proposer as _proposer
+        payload, issues, provenance = _proposer.rules_proposer(capability_id).propose(prompt)
+        return {
+            'payload': payload,
+            'issues': [i.model_dump(mode='json') if hasattr(i, 'model_dump') else i for i in issues],
+            'provenance': (provenance.model_dump(mode='json')
+                           if hasattr(provenance, 'model_dump') else provenance),
+        }
+    except Exception:
+        return None
+
+
 async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = False) -> AsyncGenerator[str, None]:
     """Run the full pipeline, yielding SSE progress events."""
-    from dragsters.intent import detect
-    if detect(prompt).is_dragster:
-        yield 'data: ' + json.dumps({'step': 'route', 'status': 'done', 'workflow': 'co2_dragster',
-                                    'detail': 'Routed to the deterministic CO2 dragster workflow'}) + '\n\n'
+    from engineering.router import route as _route_capability
+    decision = _route_capability(prompt)
+    if decision.capability_id:
+        event = {'step': 'route', 'status': 'done', 'workflow': decision.capability_id,
+                 'capability_id': decision.capability_id, 'assurance': decision.assurance,
+                 'reason': decision.reason,
+                 'detail': ('Routed to the deterministic CO2 dragster workflow'
+                            if decision.capability_id == 'co2_dragster'
+                            else f'Routed to the {decision.capability_id} checked-design workflow')}
+        draft = _rules_draft(decision.capability_id, prompt)
+        if draft is not None:
+            event['draft'] = draft
+        yield 'data: ' + json.dumps(event) + '\n\n'
         return
 
     # --- Step 1: REA (parallel with Planner) + Planner ---
@@ -777,6 +808,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event(label, "error", _user_error(e))
             error_complete = {
                 "step": "complete",
+                "assurance": _ASSURANCE_UNVERIFIED,
                 "status": "error",
                 "message": _user_error(e),
                 "detail": _safe_error(e),   # operator-grade, redacted
@@ -794,6 +826,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event(label, "error", _safe_error(e))
             error_complete = {
                 "step": "complete",
+                "assurance": _ASSURANCE_UNVERIFIED,
                 "status": "error",
                 "message": _safe_error(e),
                 "script": getattr(e, "script", ""),
@@ -832,6 +865,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event("export", "error", safe_tb)
             error_complete = {
                 "step": "complete",
+                "assurance": _ASSURANCE_UNVERIFIED,
                 "status": "error",
                 "message": safe_tb,
                 "script": final_script,
@@ -911,6 +945,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                     yield _event("machinist", "error", _user_error(e))
                     error_complete = {
                         "step": "complete",
+                        "assurance": _ASSURANCE_UNVERIFIED,
                         "status": "error",
                         "message": _user_error(e),
                         "detail": _safe_error(e),   # operator-grade, redacted
@@ -925,6 +960,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                     yield _event("machinist", "error", _safe_error(e))
                     error_complete = {
                         "step": "complete",
+                        "assurance": _ASSURANCE_UNVERIFIED,
                         "status": "error",
                         "message": _safe_error(e),
                         "script": getattr(e, "script", ""),
@@ -952,6 +988,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event("assembler", "error", _safe_error(e))
             error_complete = {
                 "step": "complete",
+                "assurance": _ASSURANCE_UNVERIFIED,
                 "status": "error",
                 "message": _safe_error(e),
                 "script": e.script,
@@ -964,6 +1001,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event("assembler", "error", _safe_error(e))
             error_complete = {
                 "step": "complete",
+                "assurance": _ASSURANCE_UNVERIFIED,
                 "status": "error",
                 "message": _safe_error(e),
                 "script": getattr(e, "script", ""),
@@ -990,6 +1028,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event("assembler", "error", safe_tb)
             error_complete = {
                 "step": "complete",
+                "assurance": _ASSURANCE_UNVERIFIED,
                 "status": "error",
                 "message": safe_tb,
                 "script": final_script,
@@ -1008,7 +1047,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             failures = "; ".join(assembly_joint_report.get("failures", [])[:5]) or "unavailable"
             msg = _safe_error(f"Assembly joint verification failed: {failures}")
             yield _event("assembler", "error", msg)
-            yield f"data: {json.dumps({'step': 'complete', 'status': 'error', 'message': msg, 'script': final_script})}\n\n"
+            yield f"data: {json.dumps({'step': 'complete', 'assurance': _ASSURANCE_UNVERIFIED, 'status': 'error', 'message': msg, 'script': final_script})}\n\n"
             return
         yield _event("assembler", "done")
 
@@ -1034,6 +1073,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         yield _event("export", "error", msg)
         error_complete = {
             "step": "complete",
+            "assurance": _ASSURANCE_UNVERIFIED,
             "status": "error",
             "message": msg,
             "script": final_script,
@@ -1395,7 +1435,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     if geometry_certificate is None or geometry_certificate.get("passed") is not True:
         message = "Required geometry validation failed or was unavailable."
         yield _event("geometry", "error", message)
-        yield f"data: {json.dumps({'step': 'complete', 'status': 'error', 'message': message, 'script': final_script})}\n\n"
+        yield f"data: {json.dumps({'step': 'complete', 'assurance': _ASSURANCE_UNVERIFIED, 'status': 'error', 'message': message, 'script': final_script})}\n\n"
         return
 
     # Bill of materials (assemblies): identical parts collapse into quantities;
@@ -1440,6 +1480,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         run_id, downloads = "", {}
     complete_payload = {
         "step": "complete",
+        "assurance": _ASSURANCE_UNVERIFIED,
         "status": "done",
         "run_id": run_id,
         "downloads": downloads,
