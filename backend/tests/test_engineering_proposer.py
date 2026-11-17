@@ -331,6 +331,14 @@ def test_no_key_in_exceptions_or_logs(monkeypatch, caplog):
     rendered = repr(caught.value) + str(caught.value) + "".join(traceback.format_exception(caught.value)) + caplog.text
     rendered += result.model_dump_json() + ledger.read(draft.draft_id, 1).model_dump_json()
     assert key not in rendered and 'x-goog-api-key' not in rendered
+    chain, seen = [caught.value], set()
+    while chain:
+        error = chain.pop()
+        if id(error) in seen or error is None: continue
+        seen.add(id(error))
+        assert key not in str(error) + repr(error) + repr(error.args)
+        chain += [error.__cause__, error.__context__]
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
 
 
 def test_missing_key_builds_no_client(monkeypatch):
