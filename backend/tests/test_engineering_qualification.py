@@ -210,3 +210,21 @@ def test_shared_blocker_on_last_case_cannot_qualify(tmp_path, monkeypatch):
     report = result_file(tmp_path)
     assert len(report['cases']) == 30 and report['complete_accurate'] == 10
     assert report['qualification'] == 'blocked'
+
+
+def test_evidence_keeps_validation_locations_but_never_raw_replies(tmp_path, monkeypatch):
+    marker = 'RAW-REPLY-MARKER-must-stay-in-ledger'
+    outputs = ['{"not valid json ' + marker] + [json.dumps(c['fixture_response']) for c in corpus()]
+    provider = EvaluationFixture(outputs)
+    run_evaluation(tmp_path, monkeypatch, provider)
+    text = (tmp_path/'output'/'live.json').read_text()
+    assert marker not in text
+    failures = result_file(tmp_path)['cases'][0]['audit']['validation_failures']
+    assert failures and failures[0]['errors'][0]['type'] == 'json_invalid'
+    assert 'raw_reply' not in failures[0] and failures[0]['raw_reply_characters'] > 0
+    from engineering.store import SQLiteStore, SQLiteProposalLedger
+    store = SQLiteStore(tmp_path/'state')
+    try:
+        audit = SQLiteProposalLedger(store).read(result_file(tmp_path)['cases'][0]['audit']['draft_id'], 1)
+        assert marker in audit.validation_failures[0].raw_reply  # ledger keeps it for local diagnosis
+    finally: store.close()
