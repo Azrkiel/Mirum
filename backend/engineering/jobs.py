@@ -51,19 +51,25 @@ class Admitted(NamedTuple):
     owner: object
 
 
+class UnavailableCapability(RuntimeError):
+    """A reviewed capability has no registered adapter in this runtime."""
+
+
 class JobController:
     """Publisher: reserve/cleanup, async publish(job, brief, search_result), validate.
 
     B10 supplies durable publication. No publisher means no accepted terminal
     commit. Polling/read never starts work; only submit creates an owned task.
     """
-    def __init__(self, store, *, publisher=None, adapter=None, overall_seconds=420, fairness=None):
+    def __init__(self, store, *, publisher=None, adapter=None, overall_seconds=420, fairness=None, generators=None):
         if isinstance(overall_seconds, bool) or not math.isfinite(overall_seconds) or not 0 < overall_seconds <= 420:
             raise ValueError('Overall deadline must be positive and at most 420 seconds')
         if getattr(store, '_controller_created', False):
             raise RuntimeError('Engineering store already has a controller owner')
         store._controller_created = True
         self.store, self.publisher, self.adapter = store, publisher, adapter
+        # ``{capability id: adapter}`` for registry generators; the beam keeps ``adapter``.
+        self.generators = dict(generators or {})
         # Direct (non-API) use is unrestricted; the API runtime supplies configured fairness.
         self.fairness = fairness or ClientFairness.unlimited()
         self.seconds, self.tasks = overall_seconds, {}
@@ -217,6 +223,15 @@ class JobController:
                         time.time()+CAPABILITY.resources.bundle_retention_seconds, job_id))
             return run
 
+    def _adapter_for(self, brief):
+        """The beam keeps ``self.adapter``; a generator without a registered adapter is unavailable."""
+        capability_id = brief.content.capability.id
+        if capability_id in self.generators:
+            return self.generators[capability_id]
+        if capability_id == CAPABILITY.id:
+            return self.adapter
+        raise UnavailableCapability('No adapter registered for this capability')
+
     async def _run(self, job, brief, owner, deadline):
         from process_runner import process_owner
         token = process_owner.set(self.process_owner)
@@ -226,7 +241,7 @@ class JobController:
                 if event.attempt:
                     current = self.read(job.job_id)
                     self._update(job.job_id, attempts=(*current.attempts, event.attempt))
-            result = await search(brief, adapter=self.adapter, cancelled=lambda: self._cancelled(job.job_id),
+            result = await search(brief, adapter=self._adapter_for(brief), cancelled=lambda: self._cancelled(job.job_id),
                                   deadline=deadline-min(1, self.seconds*.1), on_progress=progress)
             self._update(job.job_id, attempts=result.attempts)
             if result.state == 'selected':

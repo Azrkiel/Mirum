@@ -163,7 +163,10 @@ def _verification_warning(cert: dict | None) -> str:
 async def _lifespan(application: FastAPI):
     from process_runner import ProcessRunner
     from engineering.api_v1 import create_runtime
-    application.state.engineering = create_runtime()
+    # Registry generators share the old endpoints' runners (and their single slot). The getter is
+    # late-bound: regen_lifespan below sets app.state.regen_runner.
+    application.state.engineering = create_runtime(
+        generators={"regen_chamber": lambda: application.state.regen_runner})
     application.state.dragster_runner = ProcessRunner(max_processes=3, timeout=30, memory_mb=1536)
     cleanup_tmp_parts()
     logger.info("Startup: cleared stale tmp_parts")
