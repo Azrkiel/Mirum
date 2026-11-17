@@ -189,16 +189,20 @@ class GeminiProposalProvider:
                     max_output_tokens=settings.max_tokens, response_mime_type='application/json',
                     response_schema=types.Schema(**_sdk_schema(schema)),
                     thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel(settings.thinking_level.upper())))
+                leaked = False
                 try:
                     reply = await asyncio.wait_for(client.aio.models.generate_content(
                         model=settings.model.removeprefix('models/'), contents=prompt, config=generation), CALL_SECONDS)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     raise
                 except Exception as error:
-                    if key in str(error) or key in repr(error):
-                        # Never let a credential escape through an SDK message.
-                        raise RuntimeError('AI preparation provider call failed') from None
-                    raise
+                    leaked = key in str(error) or key in repr(error)
+                    if not leaked:
+                        raise
+                if leaked:
+                    # Raised outside the except block so no key-bearing exception stays
+                    # reachable through __context__ or __cause__.
+                    raise RuntimeError('AI preparation provider call failed')
                 if reply.candidates is None or len(reply.candidates) != 1 or reply.candidates[0].finish_reason != types.FinishReason.STOP:
                     raise RuntimeError('AI preparation did not return a complete candidate')
                 parts = reply.candidates[0].content.parts if reply.candidates[0].content else None
