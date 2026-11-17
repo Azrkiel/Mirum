@@ -32,7 +32,8 @@ Provider prompts are not executable Python and are not sent to a compiler.
 ## Provider and operational bounds
 
 The default `GeminiProposalProvider` uses the dedicated
-`GEMINI_MODEL_ENGINEERING_PREPARATION` setting (`gemini-3.6-flash`), the dedicated
+`GEMINI_MODEL_ENGINEERING_PREPARATION` setting (`gemini-4-hydrogen` since 2026-11-17;
+previously `gemini-3.6-flash`, which returned HTTP 503 "high demand"), the dedicated
 `GEMINI_ENGINEERING_MAX_OUTPUT_TOKENS` allowance (4096), and the existing
 `clarifier` ModelRegistry temperature. The model and output allowance are separate
 from legacy CAD agents; their registry model/token changes do not change this
