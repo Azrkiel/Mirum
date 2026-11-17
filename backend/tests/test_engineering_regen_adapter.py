@@ -182,6 +182,8 @@ def test_real_rejected_report_is_a_rejection_with_diagnostics_only():
     assert states['circuit_coverage'] == states['wall_thickness'] == 'failed'    # not_evaluated -> failed
     assert states['evidence_binding'] == 'failed' and states['components'] == 'passed'
     assert evaluation['artifacts'] == {}
+    # no derived identity for bytes that are not delivered
+    assert all(c.artifacts == () for c in evaluation['checks'])
     assert set(evaluation['diagnostics']) == {'generator-report.json', 'generator-spec.canonical.json'}
     assert json.loads(evaluation['diagnostics']['generator-report.json']) == report
 
@@ -352,6 +354,34 @@ def test_evaluate_without_a_runner_is_unavailable():
     from engineering.regen_adapter import RegenAdapter, RegenUnavailable
     with pytest.raises(RegenUnavailable):
         asyncio.run(RegenAdapter().evaluate(candidate()))
+
+
+def test_accepted_checks_carry_the_delivered_stl_identity_and_the_policy_requires_it():
+    cand = candidate()
+    evaluation = build(cand, accepted_report(), accepted=True)
+    assert all(c.artifacts and c.artifacts[0].path == 'generator-cleaned.stl' for c in evaluation['checks'])
+    from engineering.contracts import GeneratorCheckResult
+    stripped = tuple(GeneratorCheckResult.model_validate(dict(c.model_dump(), artifacts=()))
+                     for c in evaluation['checks'])
+    assert not assess(cand, dict(evaluation, checks=stripped)).available
+
+
+def test_bounded_read_rejects_oversize_and_symlinks(tmp_path):
+    from engineering import regen_adapter
+    (tmp_path / 'a.bin').write_bytes(b'x' * 10)
+    assert regen_adapter.read_bounded(tmp_path / 'a.bin', 10) == b'x' * 10
+    with pytest.raises(regen_adapter.RegenUnavailable):
+        regen_adapter.read_bounded(tmp_path / 'a.bin', 9)
+    with pytest.raises(regen_adapter.RegenUnavailable):
+        regen_adapter.read_bounded(tmp_path / 'missing.bin', 10)
+    with pytest.raises(regen_adapter.RegenUnavailable):
+        regen_adapter.read_bounded(tmp_path, 10)
+    try:
+        (tmp_path / 'link.bin').symlink_to(tmp_path / 'a.bin')
+    except (OSError, NotImplementedError):
+        pytest.skip('symlinks unavailable')
+    with pytest.raises(regen_adapter.RegenUnavailable):
+        regen_adapter.read_bounded(tmp_path / 'link.bin', 10)
 
 
 # --- CI only: identity of the old endpoint and /engineering/v1 -----------------------------
@@ -527,3 +557,39 @@ def test_cancelling_a_v1_run_discards_the_result(stack, monkeypatch):
     result = v1_wait(client, job_id)
     assert result['lifecycle'] == 'cancelled', result
     assert v1_file(client, job_id, 'generator-cleaned-stl').status_code in (404, 410, 503)
+    # the worker is killed and the shared slot is free again: the old endpoint is not 409
+    runner = app.state.regen_runner
+    assert not any(j['status'] in ('queued', 'running') for j in runner.jobs.values())
+    assert client.post('/engineering/regen/jobs', json=regen_spec()).status_code == 202
+
+
+@posix_only
+def test_runner_cancel_frees_the_slot_and_keeps_other_semantics(stack, monkeypatch):
+    client, app, web, tmp_path = stack
+    accepted_worker(web, monkeypatch, tmp_path, delay=30)
+    runner = app.state.regen_runner
+    job = runner.submit(web.BrowserSpec.model_validate(regen_spec()))
+    for _ in range(100):
+        if runner.get(job['id'])['status'] == 'running' and runner.process is not None:
+            break
+        time.sleep(0.1)
+    assert runner.cancel(job['id']) is True
+    assert runner.get(job['id'])['status'] == 'cancelled'
+    assert runner.cancel(job['id']) is False and runner.cancel('nope') is False
+    runner.submit(web.BrowserSpec.model_validate(regen_spec()))    # not 409
+    for _ in range(100):
+        if runner.get(job['id'])['status'] == 'cancelled':
+            time.sleep(0.05)
+        else:
+            break
+    assert runner.get(job['id'])['status'] == 'cancelled'          # a late worker exit never overwrites it
+
+
+@posix_only
+def test_a_generator_with_no_registered_adapter_is_unavailable_not_the_beam_adapter(stack, monkeypatch):
+    client, app, web, tmp_path = stack
+    accepted_worker(web, monkeypatch, tmp_path)
+    assert app.state.engineering.jobs.generators.pop('regen_chamber') is not None
+    result = v1_wait(client, v1_submit(client, regen_spec(), 'no-adapter'))
+    assert result['lifecycle'] == 'unavailable' and result['outcome'] == 'not_evaluated', result
+    assert not any(j['status'] != 'x' for j in app.state.regen_runner.jobs.values())    # never reached the runner
