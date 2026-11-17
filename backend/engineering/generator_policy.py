@@ -7,11 +7,24 @@ An adapter's ``evaluate()`` returns a dict with these keys:
 - ``outcome`` / ``passed``: the adapter's verdict and the generator's own pass flag.
 - ``spec_sha256``: the specification digest the generator's report states.
 - ``report`` / ``report_sha256``: the generator's report and its ``policy.report_digest``.
+- ``report_bytes``: the generator's own report as captured. Its canonical JSON (sorted
+  keys, exact types: ``true`` is not ``1``, ``1`` is not ``1.0``) must equal that of ``report``.
 - ``artifacts``: captured ``generator-*`` bytes (accepted only; empty when rejected).
 - ``diagnostics``: captured diagnostic bytes (rejected only).
 - ``stated_digests``: the SHA-256 the generator states for every captured byte string.
 - ``extra_digests``: ``(bytes, stated_sha256)`` pairs for bytes derived from a payload
   (for example each part read from inside a glider zip).
+
+Trust model. No state is taken from the adapter:
+
+- Closed limit table: each check's limits must equal ``descriptor.expected_limits(spec)``
+  exactly (names, comparison, unit, value, tolerance; nothing extra, nothing missing). A
+  check with no pinned table entry is unavailable. Each adapter PR completes its table.
+- Pass or fail is recomputed from the measurements with the beam's comparison and must
+  equal the check state.
+- Measurement binding: the adapter (resolved through the registry; not installed means
+  unavailable) parses ``report_bytes`` with ``measurements(report_bytes)``, and the typed
+  checks' measurements must equal that result.
 
 Anything missing, extra, duplicated or inconsistent is unavailable, never accepted.
 Digests give consistency, not authenticity.
@@ -21,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 
+from cem.core import canonical_json
 from .contracts import (ArtifactIdentity, CheckState, GeneratorCandidate, GeneratorCheckResult, Outcome)
 
 
@@ -66,7 +80,7 @@ def _validate(candidate: GeneratorCandidate, evaluation: dict):
         _require(passes == (check.state == CheckState.PASSED), 'Check state contradicts its measurements')
     # Measurements are bound to the generator's own report, parsed by its adapter.
     report_bytes = evaluation['report_bytes']
-    _require(type(report_bytes) is bytes and json.loads(report_bytes) == evaluation['report'],
+    _require(type(report_bytes) is bytes and canonical_json(json.loads(report_bytes)) == canonical_json(evaluation['report']),
              'Report bytes differ from the captured report')
     adapter = capabilities.get_adapter(descriptor.id, descriptor.version,
                                        numerical_policy_version=descriptor.numerical_version,

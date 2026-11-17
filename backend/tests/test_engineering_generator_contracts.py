@@ -751,3 +751,15 @@ def test_report_markdown_escapes_the_trailing_reasons_too():
     result = type('R', (), dict(attempts=(), evaluations=(), reasons=('bad | reason\nnext',)))()
     out = BundlePublisher._generator_reports(object.__new__(BundlePublisher), 'a' * 32, brief, result, 'rejected')
     assert 'bad \\| reason next' in out['report.md'].decode()
+
+
+@pytest.mark.parametrize('captured,raw', [('1', 'true'), ('1', '1.0'), ('0', 'false')])
+def test_report_bytes_must_match_the_report_with_exact_json_types(captured, raw):
+    from engineering.policy import report_digest
+    candidate, assess = candidate_and_assess()
+
+    def swap(e):
+        e['report']['flag'] = json.loads(captured)
+        e['report_sha256'] = report_digest(e['report'])
+        e['report_bytes'] = json.dumps(e['report']).replace('"flag": ' + captured, '"flag": ' + raw).encode()
+    assert not assess(make_evaluation(candidate, tamper=swap)).available
