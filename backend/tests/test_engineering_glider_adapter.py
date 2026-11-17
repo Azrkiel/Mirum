@@ -95,6 +95,8 @@ def discovery_report(candidate, candidates=(ELITE_LOW, ELITE_HIGH), **changes):
     report = dict(requirements_sha256=candidate.candidate_sha256,
                   calibration_version=candidate.content.specification['calibration_version'],
                   output_id='0123456789ab', cem_version='c' * 64, status='completed', candidates=elites,
+                  requirements=candidate.content.specification['requirements'],
+                  calibration=dict(state='fake', version=candidate.content.specification['calibration_version']),
                   per_process=dict(balsa=dict(archive=list(elites)), sheet_foam=dict(archive=[])))
     report.update(changes)
     return report
@@ -293,8 +295,11 @@ def test_a_part_that_differs_from_the_stated_part_digest_is_unavailable():
 
 
 def test_a_report_for_another_specification_is_unavailable():
-    candidate, evaluation = assembled(design_changes=dict(requirements_sha256='b' * 64))
-    assert not assess(candidate, evaluation).available
+    from engineering.glider_adapter import GliderInconsistent
+    with pytest.raises(GliderInconsistent):   # the binding tally fails a screened report
+        assembled(design_changes=dict(requirements_sha256='b' * 64))
+    candidate, evaluation = assembled()
+    assert not assess(candidate, dict(evaluation, spec_sha256='b' * 64)).available
 
 
 def test_changed_result_bytes_are_unavailable():
@@ -436,7 +441,7 @@ def test_evaluate_selects_the_highest_objective_elite_and_runs_discovery_then_de
     assert jobs.jobs == {}   # the adapter removes its own jobs from the shared manager
 
 
-def test_the_selection_rule_is_first_maximum_like_gliderc_em_size(fake_cem):
+def test_the_selection_rule_is_first_maximum_like_glider_cem_size(fake_cem):
     jobs = fake_cem.install(candidates=(ELITE_HIGH, ELITE_LOW))
     run(adapter().evaluate(fake_cem.candidate))
     assert jobs.payloads[1]['elite']['elite_id'] == ELITE_HIGH
