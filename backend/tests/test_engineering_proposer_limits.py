@@ -46,34 +46,29 @@ def test_in_flight_slot_is_released_after_a_failed_call():
     assert budget.reserve()
 
 
-def test_default_tls_uses_bundled_grpc_roots_and_never_reads_the_os_store(monkeypatch):
+def test_default_tls_uses_sdk_bundled_roots_and_never_reads_the_os_store(monkeypatch):
     import ssl
-    import grpc
-    from google.ai import generativelanguage_v1beta as glm
+    from backend.tests.test_engineering_proposer import FakeGenai
     from engineering.proposer import GeminiProposalProvider, provider_schema
     import config
-    seen = {}
 
-    class Transport:
-        async def close(self): seen['closed'] = True
-
-    class Client:
-        transport = Transport()
-        def __init__(self, **kwargs): seen['kwargs'] = kwargs
-        async def generate_content(self, request, **kwargs): raise RuntimeError('offline provider failure')
+    async def failing():
+        raise RuntimeError('offline provider failure')
 
     def forbidden(*args, **kwargs):
         raise AssertionError('OS trust store or custom credentials used by default')
 
+    fake = FakeGenai(monkeypatch, behaviour=failing)
     monkeypatch.setattr(config, 'ENGINEERING_TLS_OS_TRUST', False)
     monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'offline-placeholder')
     monkeypatch.setattr(ssl, 'create_default_context', forbidden)
-    monkeypatch.setattr(grpc, 'ssl_channel_credentials', forbidden)
-    monkeypatch.setattr(glm, 'GenerativeServiceAsyncClient', Client)
     provider = GeminiProposalProvider()
     with pytest.raises(RuntimeError, match='offline provider failure'):
         asyncio.run(provider.generate('fixture', provider_schema(), provider.settings()))
-    assert set(seen['kwargs']) == {'client_options'} and seen['closed'] is True
+    options = fake.clients[0]['http_options']
+    assert set(fake.clients[0]) == {'api_key', 'vertexai', 'http_options'}
+    assert options.httpx_async_client is None and options.async_client_args is None
+    assert fake.events == ['called', 'closed']
 
 
 def test_os_trust_opt_in_with_an_empty_store_fails_closed(monkeypatch):

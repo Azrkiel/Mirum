@@ -267,7 +267,7 @@ class GliderCapabilitySpec(StrictModel):
 
 # Closed limit tables: ``(limit name, unit, comparison, pinned constant name | literal)``.
 # They hold only what section 5.3 and the pinned constants already fix. Each adapter PR
-# completes its own table (the glider's is U6.2): a check missing
+# completes its own table (all three are now complete): a check missing
 # here cannot be accepted until then, so nothing is ever approved on a guessed limit.
 DRAGSTER_STYLE_INDEX = {'wedge': 0, 'teardrop': 1, 'narrow_waist': 2}   # pinned to ``styles.REGISTRY`` by a test
 
@@ -335,13 +335,45 @@ def _regen_limits(spec: dict) -> dict:
 
 
 def _glider_limits(spec: dict) -> dict:
-    return {
+    """Every glider check, from the ``cem/evidence.validate`` floors (pinned names) and the spec.
+
+    Literals not in ``GLIDER.numerical`` carry their ``backend/cem/evidence.py`` line:
+    spar enclosure tolerance 2e-7 (:67), root inertia floor 1e-16 (:264), stress slack
+    ``1+1e-5`` (:263). Counts of 0 are "no failure" tallies of the report's own flags.
+    """
+    construction = _leaf(spec, 'requirements.construction')
+    max_mass = _leaf(spec, 'requirements.constraints.max_mass_kg')
+    table = {
+        'discovery_archive': (('archive_elites', 'count', 'ge', 1),),
         'candidate_selection': (('candidates', 'count', 'ge', 1),),
+        'design_binding': (('binding_mismatches', 'count', 'eq', 0),),
+        'closure': (('closure_failures', 'count', 'eq', 0),),
+        'part_accounting': (('bundle_parts', 'count', 'ge', 'parts_min'),
+                            ('part_count_headroom', 'count', 'ge', 0),
+                            ('part_accounting_failures', 'count', 'eq', 0)),
+        'spar_enclosure': (('spar_enclosure_tolerance_m', 'm', 'le', 2e-7),
+                           ('spar_enclosure_excess_m', 'm', 'le', 0),
+                           ('spar_enclosure_failures', 'count', 'eq', 0)),
         'mass_closure': (('mass_relative_error', 'ratio', 'le', 'mass_relative_error_max'),),
+        'measured_mass_aero': (('measured_mass_kg', 'kg', 'le', max_mass if isinstance(max_mass, (int, float)) else 0.5),
+                               ('measured_mass_aero_invalid', 'count', 'eq', 0)),
         'validity_envelope': (('min_station_reynolds', 'ratio', 'ge', 'min_station_reynolds'),
                               ('min_confidence', 'ratio', 'ge', 'min_confidence')),
-        'uncertainty_bands': (('uncertainty_samples', 'count', 'eq', 'uncertainty_samples'),),
+        'spar_structure': (('spar_stress_to_allowable', 'ratio', 'le', 1.0 + 1e-5),
+                           ('measured_spar_root_inertia_m4', 'm4', 'ge', 1e-16),
+                           ('spar_structure_failures', 'count', 'eq', 0)),
+        'uncertainty_bands': (('uncertainty_samples', 'count', 'eq', 'uncertainty_samples'),
+                              ('sustained_samples', 'count', 'eq', 0),
+                              ('band_violations', 'count', 'eq', 0)),
+        'minimum_performance': (('minimum_performance_failures', 'count', 'eq', 0),),
+        'artifact_binding': (('artifact_hash_mismatches', 'count', 'eq', 0),
+                             ('bundle_bytes', 'count', 'le', 'artifact_bytes_max')),
     }
+    if construction == 'foam_core_wing_v1':
+        table['foam_core'] = (('foam_core_failures', 'count', 'eq', 0),)
+    if construction == 'segmented_foam_wing_v1':
+        table['segmented_structure'] = (('segmented_structure_failures', 'count', 'eq', 0),)
+    return table
 
 
 _LIMIT_TABLE = {'co2_dragster': _dragster_limits, 'regen_chamber': _regen_limits, 'glider_cem': _glider_limits}

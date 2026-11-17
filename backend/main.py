@@ -167,6 +167,8 @@ async def _lifespan(application: FastAPI):
     # late-bound: regen_lifespan below sets app.state.regen_runner; dragster_runner is set just after.
     application.state.engineering = create_runtime(
         generators={"regen_chamber": lambda: application.state.regen_runner,
+                    # glider runs through the shared cem.api.jobs singleton; no runner to hand over
+                    "glider_cem": lambda: None,
                     "co2_dragster": lambda: application.state.dragster_runner})
     application.state.dragster_runner = ProcessRunner(max_processes=3, timeout=30, memory_mb=1536)
     cleanup_tmp_parts()
