@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import traceback
 
 import pytest
 
@@ -327,7 +328,7 @@ def test_no_key_in_exceptions_or_logs(monkeypatch, caplog):
             asyncio.run(provider.generate('fixture', provider_schema(), provider.settings()))
         _, draft, proposer, ledger = setup(GeminiProposalProvider())
         result = propose(proposer, draft)
-    rendered = repr(caught.value) + str(caught.value) + repr(caught.getrepr()) + caplog.text
+    rendered = repr(caught.value) + str(caught.value) + "".join(traceback.format_exception(caught.value)) + caplog.text
     rendered += result.model_dump_json() + ledger.read(draft.draft_id, 1).model_dump_json()
     assert key not in rendered and 'x-goog-api-key' not in rendered
 
