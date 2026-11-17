@@ -23,6 +23,8 @@ import asyncio
 import hashlib
 import json
 import math
+import os
+import stat
 
 from pydantic import ValidationError
 
@@ -35,7 +37,6 @@ from .regen_spec import RegenChamberSpec, canonical_spec, specification_digest
 POLL_SECONDS = 0.25
 METHOD = 'regen_mesh.verify'
 METHOD_VERSION = REGEN.numerical_version
-STL_HEADER_BYTES, STL_TRIANGLE_BYTES = 84, 50     # binary STL: 80 + 4, then 50 per triangle
 STL, REPORT, SPEC = 'generator-cleaned.stl', 'generator-report.json', 'generator-spec.canonical.json'
 VERIFY_CHECKS = ('components', 'edge_manifold', 'winding', 'bbox', 'volume', 'channel_count', 'hot_wall',
                  'cold_wall', 'rib', 'circuit_fidelity', 'circuit_coverage', 'wall_thickness')
@@ -182,6 +183,23 @@ def parse_report(report: dict) -> dict:
     return out
 
 
+def read_bounded(path, limit: int) -> bytes:
+    """Read a regular file (never a symlink) of at most ``limit`` bytes."""
+    try:
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            raise RegenUnavailable('Regen output is not a regular file')
+        fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+        with os.fdopen(fd, 'rb') as source:
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                raise RegenUnavailable('Regen output is not a regular file')
+            data = source.read(limit + 1)
+    except OSError:
+        raise RegenUnavailable('Regen output unreadable') from None
+    if len(data) > limit:
+        raise RegenUnavailable('Regen output exceeds the run budget')
+    return data
+
+
 def rejected_report_bytes(report: dict) -> bytes:
     """Exactly what ``regen_cli`` writes for ``rejected_report.json``."""
     return (json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + '\n').encode()
@@ -216,16 +234,8 @@ def build_evaluation(candidate: GeneratorCandidate, report: dict, *, report_byte
     if accepted and report.get('stl_sha256') != _sha(stl_bytes):
         raise RegenUnavailable('Mesh digest mismatch')
     parsed = parse_report(report)
-    if accepted:
-        primary = ArtifactIdentity(path=STL, sha256=_sha(stl_bytes), bytes=len(stl_bytes))
-    else:
-        measured = report.get('measurements')
-        triangles = measured.get('cleaned_triangles') if isinstance(measured, dict) else None
-        if isinstance(triangles, bool) or not isinstance(triangles, int) or triangles < 1:
-            raise RegenUnavailable('Report lacks the measured mesh size')
-        # Measured but not retained: identity from the verifier's own digest and the binary STL size.
-        primary = ArtifactIdentity(path=STL, sha256=report.get('stl_sha256', ''),
-                                   bytes=STL_HEADER_BYTES + STL_TRIANGLE_BYTES * triangles)
+    # Only delivered bytes get an identity: a rejected package carries no geometry.
+    identities = (ArtifactIdentity(path=STL, sha256=_sha(stl_bytes), bytes=len(stl_bytes)),) if accepted else ()
     limits = REGEN.expected_limits(candidate.content.specification)
     checks = []
     for check_id in (*VERIFY_CHECKS, 'evidence_binding'):
@@ -245,7 +255,7 @@ def build_evaluation(candidate: GeneratorCandidate, report: dict, *, report_byte
             method=METHOD, method_version=METHOD_VERSION, brief_sha256=candidate.brief_sha256,
             candidate_sha256=candidate.candidate_sha256,
             measurements=tuple(Measurement(name=n, value=v, unit=UNITS[n]) for n, v in values.items()),
-            limits=limits[check_id], artifacts=(primary,), reason=reason))
+            limits=limits[check_id], artifacts=identities, reason=reason))
     failed = [c for c in checks if c.state == CheckState.FAILED]
     if accepted and (failed or report.get('passed') is not True):
         raise RegenUnavailable('Accepted job report fails its own checks')
@@ -283,6 +293,15 @@ class RegenAdapter:
     def measurements(self, report_bytes: bytes) -> dict:
         return parse_report(json.loads(report_bytes))
 
+    @staticmethod
+    async def _discard(runner, submit, job_id):
+        try:
+            if job_id is None:
+                job_id = (await asyncio.shield(submit))['id']
+            await asyncio.to_thread(runner.cancel, job_id)
+        except Exception:
+            pass
+
     async def evaluate(self, candidate: GeneratorCandidate) -> dict:
         if self._runner is None:
             raise RegenUnavailable('Regen runner unavailable')
@@ -298,12 +317,22 @@ class RegenAdapter:
         if not _ready():
             raise RegenUnavailable('PicoGK runtime unavailable')
         runner = self._runner()
+        submit = asyncio.ensure_future(asyncio.to_thread(runner.submit, browser))   # a busy slot (409) is unavailable
+        job_id = None
         try:
-            job = await asyncio.to_thread(runner.submit, browser)     # a busy slot (409) is unavailable
+            job = await asyncio.shield(submit)
+            job_id = job['id']
             while job['status'] in ('queued', 'running'):
-                await asyncio.sleep(POLL_SECONDS)                       # cancellation discards the result
-                job = await asyncio.to_thread(runner.get, job['id'])
+                await asyncio.sleep(POLL_SECONDS)
+                job = await asyncio.to_thread(runner.get, job_id)
         except asyncio.CancelledError:
+            # Discard the result and free the shared slot: kill this job's worker, then re-raise.
+            cleanup = asyncio.ensure_future(self._discard(runner, submit, job_id))
+            while not cleanup.done():
+                try:
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError:
+                    continue
             raise
         except Exception:
             raise RegenUnavailable('Regen runner could not complete the job') from None
@@ -317,14 +346,12 @@ class RegenAdapter:
         limit = REGEN.resources.run_bytes
 
         def read():
-            paths = {name: folder / FILES[name] for name in ('stl', 'report', 'spec')}
-            if sum(p.stat().st_size for p in paths.values()) > limit:
-                raise RegenUnavailable('Regen output exceeds the run budget')
-            return {name: p.read_bytes() for name, p in paths.items()}
-        try:
-            files = await asyncio.to_thread(read)
-        except OSError:
-            raise RegenUnavailable('Regen output was pruned') from None
+            files, remaining = {}, limit
+            for name in ('stl', 'report', 'spec'):
+                files[name] = read_bounded(folder / FILES[name], remaining)
+                remaining -= len(files[name])
+            return files
+        files = await asyncio.to_thread(read)
         report = json.loads(files['report'])
         if report != job.get('report') or files['spec'] != spec_bytes:
             raise RegenUnavailable('Regen output differs from the reviewed specification')

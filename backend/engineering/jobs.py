@@ -51,6 +51,10 @@ class Admitted(NamedTuple):
     owner: object
 
 
+class UnavailableCapability(RuntimeError):
+    """A reviewed capability has no registered adapter in this runtime."""
+
+
 class JobController:
     """Publisher: reserve/cleanup, async publish(job, brief, search_result), validate.
 
@@ -219,6 +223,15 @@ class JobController:
                         time.time()+CAPABILITY.resources.bundle_retention_seconds, job_id))
             return run
 
+    def _adapter_for(self, brief):
+        """The beam keeps ``self.adapter``; a generator without a registered adapter is unavailable."""
+        capability_id = brief.content.capability.id
+        if capability_id in self.generators:
+            return self.generators[capability_id]
+        if capability_id == CAPABILITY.id:
+            return self.adapter
+        raise UnavailableCapability('No adapter registered for this capability')
+
     async def _run(self, job, brief, owner, deadline):
         from process_runner import process_owner
         token = process_owner.set(self.process_owner)
@@ -228,7 +241,7 @@ class JobController:
                 if event.attempt:
                     current = self.read(job.job_id)
                     self._update(job.job_id, attempts=(*current.attempts, event.attempt))
-            result = await search(brief, adapter=self.generators.get(brief.content.capability.id, self.adapter), cancelled=lambda: self._cancelled(job.job_id),
+            result = await search(brief, adapter=self._adapter_for(brief), cancelled=lambda: self._cancelled(job.job_id),
                                   deadline=deadline-min(1, self.seconds*.1), on_progress=progress)
             self._update(job.job_id, attempts=result.attempts)
             if result.state == 'selected':

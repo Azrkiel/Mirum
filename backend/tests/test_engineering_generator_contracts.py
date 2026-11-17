@@ -230,7 +230,7 @@ def test_generator_check_result_validation():
             dict(capability_id='nope'),
             dict(measurements=()),
             dict(limits=()),
-            dict(artifacts=()),
+            # artifacts=() is allowed by the contract: assess_generator requires the primary identity for accepted runs
             dict(artifacts=(ArtifactIdentity(path='model.step', sha256=SHA, bytes=1),)),
             dict(state=CheckState.FAILED, reason=None),
             dict(state=CheckState.UNAVAILABLE, reason=None)):
