@@ -165,14 +165,16 @@ async def _lifespan(application: FastAPI):
     application.state.dragster_runner = ProcessRunner(max_processes=3, timeout=30, memory_mb=1536)
     cleanup_tmp_parts()
     logger.info("Startup: cleared stale tmp_parts")
-    try:
-        yield
-    finally:
-        await application.state.dragster_runner.close()
-        from gliders.api import jobs as glider_jobs
-        await glider_jobs.close()
-        from cem.api import jobs as cem_jobs
-        await cem_jobs.close()
+    from engineering.regen_web import regen_lifespan
+    async with regen_lifespan(application):
+        try:
+            yield
+        finally:
+            await application.state.dragster_runner.close()
+            from gliders.api import jobs as glider_jobs
+            await glider_jobs.close()
+            from cem.api import jobs as cem_jobs
+            await cem_jobs.close()
 
 
 limiter = Limiter(key_func=client_key)
