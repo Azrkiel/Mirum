@@ -50,6 +50,60 @@ GitHub stores the code and runs contract tests; a long-lived server is still
 needed to keep an app online. Deployment and a public URL are separate from
 committing this feature.
 
+## Main Mirum workflow
+
+The main Streamlit app now includes **Deterministic rocket nozzle** in its
+**Design workflow** selector. It uses the same fixed chamber/nozzle builder,
+strict specification, serial job runner and acceptance checks as the standalone
+browser. It does not call a model or produce STEP/GLB files. The independent
+cantilever endpoint `/engineering/generate` retains its existing contract.
+
+On a Linux x86-64 host, install the runtime with `bash codex-cloud/setup.sh`.
+Start the main backend in its normal Python/CadQuery environment with
+`REGEN_BUILDER=/opt/regen/app/builder` and `REGEN_GCC_LIB=/opt/regen/lib` in its
+environment (adjust both paths for a custom install prefix). Keep the main
+server's existing environment configuration; this workflow makes no Gemini
+calls, but the full server still checks its existing Gemini configuration at
+startup. Start the regular Streamlit frontend against that backend. No separate
+regen web server is needed. Use one Uvicorn worker so in-memory job IDs stay
+with their owning runner.
+
+The default backend Docker image does **not** include PicoGK. A host installation
+is not visible inside a container unless explicitly mounted with its compatible
+native libraries and the two environment paths. The UI reports an unavailable
+runtime and disables generation until the backend installation is ready. The
+native builder and worker require Linux; a Windows-hosted API cannot run the
+Linux builder directly. The existing standalone Linux launcher remains supported.
+
+Select a small or reference preset, edit the dimensions and cooling-channel
+parameters, and press **Generate nozzle mesh**. Status refreshes every two seconds.
+Only an accepted result exposes the interactive preview and STL, geometry-report,
+and canonical-parameter downloads. Changing the form does not change the accepted
+result's parameters; those remain visible with its report. Starting a new job
+clears the previous result's downloads and preview. The preview samples up to
+60,000 triangles, while the STL download remains complete. The main UI limits
+mesh transfers to 256 MiB and each JSON artifact to 4 MiB; use the standalone
+browser for larger accepted meshes.
+
+The main server exposes these authenticated routes under its existing access-token
+gate when `MIRUM_ACCESS_TOKEN` is configured:
+
+| Route | Purpose |
+|---|---|
+| `GET /engineering/regen/config` | Public presets, strict browser schema, runtime readiness |
+| `POST /engineering/regen/jobs` | Submit the specification directly; HTTP 202 and a job ID |
+| `GET /engineering/regen/jobs/{id}` | Poll job status and accepted artifact references |
+| `GET /engineering/regen/jobs/{id}/artifacts/{name}` | Download `stl`, `report` or `spec` after acceptance |
+
+Streamlit forwards the user's access token in server-side HTTP headers. The
+offline preview contains only sampled mesh data and the shared local WebGL code.
+The main route limits generation to two submissions per minute; one job executes
+at a time. The runner closes and terminates its active worker on application
+shutdown. The standalone `/api/*` routes and assets keep their existing paths.
+
+Acceptance remains geometry-only. Neither interface evaluates heat transfer,
+coolant flow, combustion, strength, manufacturing, or firing safety.
+
 ## Execution and acceptance
 
 - `POST /api/jobs` accepts a strict `RegenChamberSpec` JSON object and returns
@@ -88,7 +142,7 @@ source /opt/regen/env.sh  # or /workspace/regen-runtime/env.sh
 cd backend
 OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 python -m pytest \
   tests/test_regen_spec.py tests/test_regen_mesh.py tests/test_regen_cli.py \
-  tests/test_regen_budget.py tests/test_regen_web.py \
+  tests/test_regen_budget.py tests/test_regen_web.py tests/test_regen_integration.py \
   -q -k 'not adv' -p no:cacheprovider
 ```
 

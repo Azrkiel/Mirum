@@ -25,6 +25,9 @@ class EngineeringRequest(BaseModel):
 
 
 def attach_engineering_routes(app, limiter):
+    from .regen_web import attach_regen_routes
+    attach_regen_routes(app, limiter=limiter)
+
     @app.post('/engineering/generate')
     @limiter.limit('2/minute')
     async def engineering_generate(body: EngineeringRequest, request: Request):
