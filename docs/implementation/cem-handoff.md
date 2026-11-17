@@ -349,10 +349,9 @@ coverage tests run in CI.
 is also **not run in CI: it needs the receipt's runtime**. `installed_sha256` hashes
 exact float coordinates, and aerosandbox's NACA coordinates differ in the last bits
 (up to 5.6e-17, 23 of 798 values for NACA 2412 on Windows/numpy 2.4.6) across numpy
-builds and CPU SIMD paths. The test rebuilds each installed state and skips
-when the rebuilt section coordinates do not hash to that state's recorded `foils`
-digests. If they all match, an identity change fails as before. (2026-11-16: an earlier
-single-foil probe on `naca2412` was not enough. It matched on one hosted runner while
-other foils differed, and `main` failed.) To run it, use the receipt's recorded runtime (Python 3.12.14,
-numpy 2.2.6, aerosandbox 4.2.10; see `runtime` in the receipt) on a machine that
-reproduces those digests.
+builds and CPU SIMD paths. The test rebuilds each installed state. If the
+rebuilt foil digests differ from the receipt it skips (the historical windows cannot be
+matched). If they match, it replays the coverage check; the exact `installed_sha256` is
+asserted only in the receipt's own runtime (Python 3.12.14, numpy 2.2.6, scipy 1.15.3,
+aerosandbox 4.2.10), because other floats in the payload also differ in the last bits
+between runners (2026-11-17: a foils-only skip still turned `main` red).

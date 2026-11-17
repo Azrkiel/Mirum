@@ -10,36 +10,46 @@ spec = importlib.util.spec_from_file_location('window_diagnostic', ROOT / 'scrip
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
-def _skip_unless_runtime_reproduces_receipt_floats(state):
-    """Skip when this runtime cannot regenerate the receipt's exact coordinates.
+def _runtime_matches(recorded):
+    import platform
+    from importlib.metadata import version
+    return (platform.python_version() == recorded['python'] and
+            all(version(name) == recorded['packages'][name]
+                for name in ('numpy', 'scipy', 'aerosandbox')))
 
-    installed_sha256 hashes full-precision floats. Airfoil coordinate generation
-    differs in the last bits across numpy builds and CPU features, and hosted CI
-    runners differ from run to run, so the same commit can match on one machine
-    and not on another. The foil digests are compared per state: if the rebuilt
-    coordinates do not hash to the receipt's foil digests, the identity cannot
-    match and the replay is skipped. If they do match, an identity change is a
-    real regression and diagnose() fails the test.
+
+def _replayable_state(state, strict_identity):
+    """Return the state to replay, or skip if this runtime cannot reproduce its foils.
+
+    installed_sha256 hashes full-precision floats (coordinates, leading edges,
+    reference values). They differ in the last bits across Python/numpy builds and
+    CPU paths, and hosted CI runners vary from run to run. The coverage check only
+    needs the foil digests to match the historical windows, so:
+    - foil digests differ: skip, the windows cannot be matched at all;
+    - foils match, runtime is the receipt's: the identity must match exactly;
+    - foils match, other runtime: replay under the freshly computed identity.
     """
     from cem.core import digest
     from cem.glider.families.coordinate_polars import coordinates_payload
-    from cem.glider.families.installed import freeze
-    payload = freeze(state['archive'], state['controls'])['payload']
+    installed = module.freeze(state['archive'], state['controls'])
     rebuilt = {digest(coordinates_payload(section['coordinates']))
-               for wing in payload['wings'] for section in wing['sections']}
-    recorded = set(state['foils'])
-    if rebuilt != recorded:
-        pytest.skip('Runtime does not reproduce the receipt float output for '
-                    f"{state['family']}: rebuilt foil digests {sorted(d[:12] for d in rebuilt)}, "
-                    f'receipt {sorted(d[:12] for d in recorded)}; installed-state identity cannot match')
+               for wing in installed['payload']['wings'] for section in wing['sections']}
+    if rebuilt != set(state['foils']):
+        pytest.skip('Runtime does not reproduce the receipt foil coordinates for '
+                    f"{state['family']} (rebuilt {sorted(d[:12] for d in rebuilt)}, receipt "
+                    f"{sorted(d[:12] for d in state['foils'])}); historical windows cannot match")
+    if strict_identity:
+        assert installed['installed_sha256'] == state['installed_sha256']
+        return state
+    return dict(state, installed_sha256=installed['installed_sha256'])
 
 
 def test_actual_installed_states_are_not_covered_by_historical_narrow_windows():
     receipt = json.loads((ROOT / 'docs/testing/cem-coordinate-window-results.json').read_text())
     assert receipt['installed_states'] and all(s['foils'] for s in receipt['installed_states'])
-    for state in receipt['installed_states']:
-        _skip_unless_runtime_reproduces_receipt_floats(state)
-    for state in receipt['installed_states']:
+    strict = _runtime_matches(receipt['runtime'])
+    states = [_replayable_state(s, strict) for s in receipt['installed_states']]
+    for state in states:
         result = module.diagnose(state, receipt['windows'])
         assert json.loads(json.dumps(result, allow_nan=False)) == result
         assert result['outside_count'] > 0

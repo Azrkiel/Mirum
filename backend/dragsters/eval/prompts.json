@@ -1,0 +1,17 @@
+[
+  {"id":"dragster-01","prompt":"CO2 wedge, 220 mm long","expected_style":"wedge","expected_fields":{"length_mm":220}},
+  {"id":"dragster-02","prompt":"CO₂ teardrop, 24 cm long","expected_style":"teardrop","expected_fields":{"length_mm":240}},
+  {"id":"dragster-03","prompt":"CO2 wedge, 8.5 inches long","expected_style":"wedge","expected_fields":{"length_mm":215.9}},
+  {"id":"dragster-04","prompt":"narrow waist CO2 dragster, front width 42 mm","expected_style":"narrow_waist","expected_fields":{"front_width_mm":42}},
+  {"id":"dragster-05","prompt":"tear-drop CO2 racer, rear wheels 32 mm diameter","expected_style":"teardrop","expected_fields":{"wheels.rear_diameter_mm":32}},
+  {"id":"dragster-06","prompt":"tear drop CO2 car, side height fraction 0.55","expected_style":"teardrop","expected_fields":{"side_height_frac":0.55}},
+  {"id":"dragster-07","prompt":"waisted CO2 dragster, waist width 24 mm","expected_style":"narrow_waist","expected_fields":{"waist_width_mm":24}},
+  {"id":"dragster-08","prompt":"coke bottle CO2 car, housing width 46 mm","expected_style":"narrow_waist","expected_fields":{"housing_width_mm":46}},
+  {"id":"dragster-09","prompt":"raised rear housing CO2 dragster, housing length 82 mm","expected_style":"narrow_waist","expected_fields":{"housing_length_mm":82}},
+  {"id":"dragster-10","prompt":"wedge CO2 car, cartridge pocket 5 cm deep","expected_style":"wedge","expected_fields":{"pocket_depth_mm":50}},
+  {"id":"dragster-11","prompt":"teardrop CO2 dragster, crown exponent 3.2","expected_style":"teardrop","expected_fields":{"crown_exponent":3.2}},
+  {"id":"dragster-12","prompt":"wedge CO2 dragster, wheel width 0.25 inches","expected_style":"wedge","expected_fields":{"wheels.width_mm":6.35}},
+  {"id":"dragster-13","prompt":"low wedge CO2 racer, width 46 mm","expected_style":"wedge","expected_fields":{"width_mm":46}},
+  {"id":"dragster-14","prompt":"smooth teardrop CO2 vehicle, tail width 46 mm","expected_style":"teardrop","expected_fields":{"tail_width_mm":46}},
+  {"id":"dragster-15","prompt":"narrow waist CO2 car, nose width 16 mm","expected_style":"narrow_waist","expected_fields":{"nose_width_mm":16}}
+]

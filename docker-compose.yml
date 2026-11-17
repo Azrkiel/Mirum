@@ -41,6 +41,11 @@ services:
       - /tmp/mirum:size=256M,uid=10001,gid=10001,mode=0700
     env_file:
       - .env
+    # Leave MIRUM_TRUSTED_CLIENT_HEADER off here: port 8000 is published, so
+    # any caller could forge X-Mirum-Client-IP. Enable only behind a private
+    # network where just the frontend reaches the backend:
+    # environment:
+    #   MIRUM_TRUSTED_CLIENT_HEADER: "1"
     restart: unless-stopped
 
   frontend:
@@ -52,6 +57,8 @@ services:
     volumes:
       - ./frontend/app.py:/app/app.py:ro
       - ./frontend/glider_ui.py:/app/glider_ui.py:ro
+      - ./frontend/regen_ui.py:/app/regen_ui.py:ro
+      - ./frontend/regen:/app/regen:ro
       - ./frontend/glider_explorer.py:/app/glider_explorer.py:ro
       - ./frontend/vn_diagram.py:/app/vn_diagram.py:ro
       - ./frontend/engineering_ui.py:/app/engineering_ui.py:ro

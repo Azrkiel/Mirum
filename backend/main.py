@@ -26,7 +26,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
+from client_key import client_key
 
 from agents import (
     ScriptError,
@@ -167,22 +167,24 @@ async def _lifespan(application: FastAPI):
     application.state.dragster_runner = ProcessRunner(max_processes=3, timeout=30, memory_mb=1536)
     cleanup_tmp_parts()
     logger.info("Startup: cleared stale tmp_parts")
-    try:
-        yield
-    finally:
+    from engineering.regen_web import regen_lifespan
+    async with regen_lifespan(application):
         try:
-            await application.state.engineering.jobs.close()
+            yield
         finally:
-            application.state.engineering.store.close()
-            application.state.engineering = None
-        await application.state.dragster_runner.close()
-        from gliders.api import jobs as glider_jobs
-        await glider_jobs.close()
-        from cem.api import jobs as cem_jobs
-        await cem_jobs.close()
+            try:
+                await application.state.engineering.jobs.close()
+            finally:
+                application.state.engineering.store.close()
+                application.state.engineering = None
+            await application.state.dragster_runner.close()
+            from gliders.api import jobs as glider_jobs
+            await glider_jobs.close()
+            from cem.api import jobs as cem_jobs
+            await cem_jobs.close()
 
 
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_key)
 app = FastAPI(title="Text-to-CAD API", version="0.1.0", lifespan=_lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -708,6 +710,11 @@ async def _apply_diff_and_export(
 
 async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = False) -> AsyncGenerator[str, None]:
     """Run the full pipeline, yielding SSE progress events."""
+    from dragsters.intent import detect
+    if detect(prompt).is_dragster:
+        yield 'data: ' + json.dumps({'step': 'route', 'status': 'done', 'workflow': 'co2_dragster',
+                                    'detail': 'Routed to the deterministic CO2 dragster workflow'}) + '\n\n'
+        return
 
     # --- Step 1: REA (parallel with Planner) + Planner ---
     yield _event("planner", "running")
@@ -1586,6 +1593,7 @@ async def _execute_accepted(script: str, output_path: str, output_variable: str 
 # A dedicated fixed worker consumes only the strict spec, never Python source.
 from dragsters.spec import DragsterSpec
 from dragsters.api import stream as dragster_stream
+from dragsters.spec_v2 import DragsterSpecV2
 
 
 @app.post("/dragsters/generate")
@@ -1595,6 +1603,25 @@ async def generate_dragster(body: DragsterSpec, request: Request):
     return StreamingResponse(dragster_stream(body, request, _safe_error, request.app.state.dragster_runner),
                              media_type="text/event-stream",
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+class DragsterInterpretRequest(BaseModel):
+    model_config = {'extra': 'forbid', 'strict': True}
+    prompt: str = Field(min_length=1, max_length=2000)
+    base_spec: DragsterSpecV2 | None = None
+
+
+@app.post("/dragsters/interpret")
+@limiter.limit("10/minute")
+async def interpret_dragster(body: DragsterInterpretRequest, request: Request):
+    from dragsters.extraction import interpret, ExtractionUnavailable, InvalidBaseSpec, UNAVAILABLE_MESSAGE
+    try:
+        return await interpret(body.prompt, body.base_spec)
+    except InvalidBaseSpec:
+        return JSONResponse(status_code=422, content={'detail': [
+            {'loc': ['body', 'base_spec'], 'msg': 'base_spec failed validation', 'type': 'value_error'}]})
+    except ExtractionUnavailable:
+        return JSONResponse(status_code=503, content={'message': _safe_error(UNAVAILABLE_MESSAGE)})
 
 
 @app.post("/generate")

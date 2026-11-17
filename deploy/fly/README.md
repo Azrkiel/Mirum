@@ -34,6 +34,24 @@ fly deploy . -c deploy/fly/frontend.fly.toml --dockerfile deploy/fly/frontend.Do
 Later deploys need only the two `fly deploy` lines. (`MIRUM_ACCESS_TOKEN` is
 optional; leave it out for open access.)
 
+## Per-visitor rate limits (trust boundary)
+
+The Streamlit server makes every backend call, so the private backend sees one
+peer address for all visitors. Without help, every "per-IP" slowapi limit is one
+global bucket and a single visitor can exhaust it for everyone.
+
+The frontend reads the visitor's address from the request headers (`Fly-Client-IP`,
+else the first `X-Forwarded-For` hop) and sends it as `X-Mirum-Client-IP`. The
+backend uses it as the limiter key only when `MIRUM_TRUSTED_CLIENT_HEADER=1`
+(set in `backend.fly.toml`). The default is off, and then the header is ignored.
+
+Turn it on ONLY when the backend is unreachable from the public internet, as in
+this setup (private backend, public frontend). Anyone who can call the backend
+directly could otherwise forge the header to dodge or poison the limits. If
+`mirum-api` ever gets a public IP, or you run the backend publicly elsewhere,
+leave the setting off. `docker-compose.yml` publishes port 8000, so it stays off
+there.
+
 ## Limits
 
 Generated CadQuery runs in a resource-bounded subprocess (AST allowlist, audit

@@ -38,6 +38,9 @@ class EngineeringRequest(BaseModel):
 
 
 def attach_engineering_routes(app, limiter):
+    from .regen_web import attach_regen_routes
+    attach_regen_routes(app, limiter=limiter)
+
     router = APIRouter(route_class=BodyLimitedRoute)
 
     @router.post('/engineering/generate')

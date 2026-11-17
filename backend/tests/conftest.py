@@ -1,8 +1,6 @@
 """Shared fixtures for the CEM native-tool tests."""
 import pytest
 
-from cem.aero.native import NativeFailure, resolve
-
 ELF_MAGIC = b'\x7fELF'
 
 
@@ -16,6 +14,9 @@ def native_xfoil():
     these tests require. A compiled executable (ELF) is the capability check
     a script cannot satisfy. Build: python scripts/cem/build_native_aero.py
     """
+    # Imported here, not at module level: this conftest also loads for suites
+    # (e.g. the regen browser job) whose environment has no aerosandbox.
+    from cem.aero.native import NativeFailure, resolve
     try:
         path, _ = resolve('xfoil')
     except NativeFailure:
