@@ -53,6 +53,10 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+# Process-wide cap on provider calls per rolling 24 h for POST /dragsters/interpret
+# (in addition to the per-IP rate limit). 0 disables the endpoint's provider path.
+DRAGSTER_INTERPRET_DAILY_CAP: int = max(0, _env_int("MIRUM_DRAGSTER_INTERPRET_DAILY_CAP", 200))
+
 # Maximum Machinist retries per part before the Critic Loop gives up
 CRITIC_MAX_RETRIES: int = _env_int("MIRUM_CRITIC_MAX_RETRIES", 3)
 
