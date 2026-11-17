@@ -1271,7 +1271,7 @@ _KEYWORD_TRIGGERS = {
         "m3 ", "m4 ", "m5 ", "m6 ", "m8 ", "m10", "m12", "m14", "m16", "m20",
     ],
     "rule_co2_dragster": [
-        "dragster", "co2 car", "derby car", "race car",
+        "co2 dragster", "co₂ dragster", "co2 car", "carbon dioxide dragster",
     ],
     "rule_feature_vocabulary": [
         "boss", "pocket", "bore", "counterbore", "countersink", "flange",
