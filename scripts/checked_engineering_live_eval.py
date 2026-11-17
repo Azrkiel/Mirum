@@ -60,6 +60,14 @@ class ObservedProvider(GeminiProposalProvider):
             raise
 
 
+def safe_audit(audit):
+    """Evidence keeps validation locations/types; raw replies stay in the local ledger only."""
+    data=audit.model_dump(mode='json')
+    for failure in data.get('validation_failures',()):
+        failure['raw_reply_characters']=len(failure.pop('raw_reply',''))
+    return data
+
+
 def score(case,result):
     prepared=result.prepared
     content=prepared.draft.content
@@ -176,7 +184,7 @@ async def main(output,state_root,sha,credentials=None,*,run_id,authorization,pre
             failures=list(provider.failures[failure_start:])
             classification=('preparation_deadline' if result.state=='unavailable' and any('timed out' in r for r in result.reasons)
                 else failures[-1]['exception'] if failures else None)
-            measured=dict(score(case,result),audit=audit.model_dump(mode='json'),provider_failures=failures,
+            measured=dict(score(case,result),audit=safe_audit(audit),provider_failures=failures,
                 elapsed_seconds=round(time.monotonic()-started,6),error_classification=classification,
                 native_execution_attempts=len(native_calls))
             if native_calls:
