@@ -1,0 +1,50 @@
+{
+  "draft_id": "beam-draft-1",
+  "revision": 1,
+  "content": {
+    "schema_version": "engineering_brief_v1",
+    "capability": {
+      "id": "rectangular_cantilever",
+      "version": "1.0.0",
+      "numerical_policy_version": "beam_numerical_v1",
+      "resource_policy_version": "engineering_resources_v1"
+    },
+    "requirements": {
+      "units": "mm_N_MPa",
+      "length_mm": 200.0,
+      "width_mm": 10.0,
+      "dimensional_tolerance_mm": 0.01,
+      "tip_force_n": 50.0,
+      "max_tip_deflection_mm": 1.0,
+      "material": {
+        "youngs_modulus_mpa": 70000.0,
+        "allowable_stress_mpa": 120.0,
+        "source_kind": "illustrative",
+        "reference": "User-reviewed illustrative aluminium inputs; not certified stock properties"
+      },
+      "assumptions": "ideal_clamp_end_force_linear_elastic"
+    },
+    "mode": "bounded_thickness",
+    "candidate_heights_mm": [5.0, 10.0, 15.0]
+  },
+  "clarifications": [],
+  "provenance": {
+    "record_id": "form-record-1",
+    "created_at": "2026-11-12T12:00:00Z",
+    "input_mode": "form",
+    "field_origins": [
+      {"field": "length_mm", "origin": "user_supplied", "reference": "Reviewed form"},
+      {"field": "width_mm", "origin": "user_supplied", "reference": "Reviewed form"},
+      {"field": "dimensional_tolerance_mm", "origin": "user_supplied", "reference": "Reviewed form"},
+      {"field": "tip_force_n", "origin": "user_supplied", "reference": "Reviewed form"},
+      {"field": "max_tip_deflection_mm", "origin": "user_supplied", "reference": "Reviewed form"},
+      {"field": "material.youngs_modulus_mpa", "origin": "user_supplied", "reference": "Illustrative input"},
+      {"field": "material.allowable_stress_mpa", "origin": "user_supplied", "reference": "Illustrative input"},
+      {"field": "material.reference", "origin": "user_supplied", "reference": "Illustrative input"},
+      {"field": "material.source_kind", "origin": "user_supplied", "reference": "Illustrative input"},
+      {"field": "assumptions", "origin": "policy", "reference": "Capability 1.0.0"},
+      {"field": "mode", "origin": "user_supplied", "reference": "Reviewed form"},
+      {"field": "candidate_heights_mm", "origin": "user_supplied", "reference": "Reviewed form"}
+    ]
+  }
+}

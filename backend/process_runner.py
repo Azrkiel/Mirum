@@ -8,6 +8,22 @@ import pathlib
 import secrets
 import signal
 import sys
+from contextvars import ContextVar
+
+process_owner = ContextVar('mirum_process_owner', default=None)
+
+
+def recover_process_owner(owner):
+    """Reap only descendants tagged by a former exclusive volume owner."""
+    needle = b'MIRUM_ENGINEERING_OWNER=' + owner.encode('ascii')
+    for entry in pathlib.Path('/proc').iterdir():
+        if not entry.name.isdecimal() or int(entry.name) == os.getpid():
+            continue
+        try:
+            if needle in (entry / 'environ').read_bytes().split(b'\0'):
+                ProcessRunner._kill_token_process(int(entry.name))
+        except (OSError, ProcessLookupError):
+            continue
 
 _KILL_ROUNDS = 5      # bounded rescans for token-bearing processes after the first kill
 _KILL_PAUSE = 0.01    # seconds between rescans; yields to the event loop
@@ -141,6 +157,8 @@ class ProcessRunner:
         self._tasks.add(task)
         token = secrets.token_hex(16)
         child_env = dict(os.environ if env is None else env, MIRUM_PROCESS_TOKEN=token)
+        if process_owner.get():
+            child_env['MIRUM_ENGINEERING_OWNER'] = process_owner.get()
         try:
             async with self._slots:
                 limited_command=[sys.executable,'-I',os.path.join(os.path.dirname(__file__),'_memory_entry.py'),

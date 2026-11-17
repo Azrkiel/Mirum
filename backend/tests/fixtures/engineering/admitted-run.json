@@ -1,0 +1,20 @@
+{
+  "schema_version": "engineering_run_v1",
+  "job_id": "run-fixture-1",
+  "capability": {
+    "id": "rectangular_cantilever",
+    "version": "1.0.0",
+    "numerical_policy_version": "beam_numerical_v1",
+    "resource_policy_version": "engineering_resources_v1"
+  },
+  "brief_sha256": "c4badb1233b61663b6ad9df6a3bc1b6693a1a646d2351b6f3d92ad65145cd2fb",
+  "fixed_requirements_sha256": "ff35e6e33e1c72b0dd9d6ba8bb9cd7ffe952a7150b3c09de14fa5d50f6c79617",
+  "lifecycle": "admitted",
+  "outcome": "not_evaluated",
+  "attempts": [],
+  "created_at": "2026-11-12T12:05:00Z",
+  "updated_at": "2026-11-12T12:05:00Z",
+  "selected_candidate_sha256": null,
+  "bundle": null,
+  "failures": []
+}

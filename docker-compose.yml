@@ -9,9 +9,36 @@ services:
       - ./analysis:/opt/analysis:ro   # Phase 3: standalone XFOIL analysis package. Mounted outside /app to avoid nested-bind-mount on read-only rootfs. PYTHONPATH adds /opt in the Dockerfile.
       - backend_tmp_parts:/app/tmp_parts
       - backend_telemetry:/app/telemetry_logs
+      - engineering_data:/tmp/mirum/engineering
+    environment:
+      MIRUM_ENGINEERING_DATA_DIR: /tmp/mirum/engineering
+      WEB_CONCURRENCY: "1"
+      MIRUM_API_REPLICAS: "1"
+      MIRUM_ENGINEERING_REQUIRE_VOLUME: "1"
+      # Checked-beam AI draft mode is OFF by default and not live-qualified.
+      # Set to "1" or "true" to enable POST /engineering/v1/drafts with mode "ai".
+      # MIRUM_ENGINEERING_AI_DRAFTS: "1"
+      # Abuse limits for the public checked-beam API (defaults shown; all optional):
+      # MIRUM_ENGINEERING_AI_DAILY_CALLS: "200"        # provider calls per rolling 24 h, 0 = none
+      # MIRUM_ENGINEERING_AI_CONCURRENCY: "2"          # provider calls in flight
+      # MIRUM_ENGINEERING_JOBS_PER_CLIENT_HOUR: "6"    # job submissions per client per hour
+      # MIRUM_ENGINEERING_REFUSAL_MEMORY_SECONDS: "120"
+      # MIRUM_ENGINEERING_DRAFT_TTL_SECONDS: "14400"   # unfinalized draft expiry
+      # MIRUM_ENGINEERING_MAX_DRAFTS: "500"
+      # MIRUM_ENGINEERING_MAX_DRAFT_BYTES: "16777216"
+      # MIRUM_ENGINEERING_MAX_DRAFTS_PER_CLIENT: "20"
+      # MIRUM_ENGINEERING_MAX_AUDITS: "1000"
+      # MIRUM_ENGINEERING_MAX_AUDIT_BYTES: "33554432"
+      # MIRUM_ENGINEERING_MAX_BRIEFS: "2000"
+      # MIRUM_ENGINEERING_MAX_BRIEFS_PER_CLIENT: "100"
+      # MIRUM_ENGINEERING_MAX_BODY_BYTES: "65536"
+      # Local diagnostic only (TLS-intercepting antivirus); lets any locally added root
+      # read the API key, so leave unset in production:
+      # MIRUM_ENGINEERING_TLS_OS_TRUST: "1"
     read_only: true
     tmpfs:
       - /tmp:size=256M
+      - /tmp/mirum:size=256M,uid=10001,gid=10001,mode=0700
     env_file:
       - .env
     # Leave MIRUM_TRUSTED_CLIENT_HEADER off here: port 8000 is published, so
@@ -34,6 +61,8 @@ services:
       - ./frontend/regen:/app/regen:ro
       - ./frontend/glider_explorer.py:/app/glider_explorer.py:ro
       - ./frontend/vn_diagram.py:/app/vn_diagram.py:ro
+      - ./frontend/engineering_ui.py:/app/engineering_ui.py:ro
+      - ./frontend/engineering_state.py:/app/engineering_state.py:ro
     depends_on:
       - backend
     restart: unless-stopped
@@ -41,3 +70,4 @@ services:
 volumes:
   backend_tmp_parts:
   backend_telemetry:
+  engineering_data:

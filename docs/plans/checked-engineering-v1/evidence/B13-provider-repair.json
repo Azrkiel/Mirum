@@ -1,0 +1,108 @@
+{
+  "task": "B13",
+  "state": "blocked_pending_separate_live_authorization",
+  "date": "2026-11-12",
+  "starting_sha": "a75136119342c3dee59cadac23f4dd19520f86f2",
+  "tested_implementation_sha": "2ce8f217cff8c64c2fa91226b1de67e006a6493c",
+  "image_id": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "source_mode": "read-only checkout mount; identical tested tree committed before live qualification",
+  "local_evidence": "C:/Users/jiang/mirum-evidence/B13-provider-repair-20261112",
+  "offline_regression": {
+    "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly mirum-checked-b01:b9c5565 python -m pytest -q -p no:cacheprovider --tb=short backend/tests/test_engineering_proposer.py backend/tests/test_engineering_qualification.py backend/tests/test_engineering_store.py",
+    "exit_code": 0,
+    "passed": 83,
+    "warnings": 1,
+    "seconds": 35.62,
+    "baseline_passed": 68,
+    "log_sha256": "20df23bf181b41831c742d71b4feb471edf67f5f85c038c2d2f125c74cfec112",
+    "red_green_observed": [
+      "Missing explicit installed OS trust",
+      "Missing frozen evaluation identity",
+      "Restart continued after shared runtime/native blocker",
+      "Shared blocker on case 30 could incorrectly qualify"
+    ]
+  },
+  "runtime": {
+    "python": "3.10.22",
+    "sdk": "google-ai-generativelanguage/0.6.10",
+    "google_api_core": "2.30.3",
+    "grpcio": "1.84.0",
+    "cadquery": "2.6.1",
+    "ocp": "7.8.1.1.post1",
+    "numpy": "2.2.6",
+    "model": "gemini-3.5-flash",
+    "temperature": 0.4,
+    "max_tokens": 1024,
+    "call_seconds": 45,
+    "sdk_retries": null,
+    "dependency_changes": false,
+    "python_support_warning": "Further Google API Core updates will not support Python 3.10; installed package requirements permit it. This warning does not establish the deadline cause.",
+    "system_ca_sha256": "f03ef7f21bbfd617e0a647219a2b98d4158183cdbba5604e44dd463ea8bbd276",
+    "installed_roots": 151,
+    "schema_proto_valid": true,
+    "real_sdk_transport_construction_offline": "passed; RPC replaced with fixture; no network",
+    "trust_repair": "Explicit per-client gRPC credentials use ssl.create_default_context roots; TLS verification enabled; no process-global override"
+  },
+  "unauthenticated_non_model_checks": {
+    "offline_command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B13-provider-repair-20261112,target=/evidence,readonly --mount type=volume,source=mirum-checked-b13-live,target=/old-state,readonly mirum-checked-b01:b9c5565 python /evidence/diagnose.py",
+    "transport_command": "docker run --rm -e GRPC_VERBOSITY=NONE --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B13-provider-repair-20261112,target=/evidence,readonly --mount type=volume,source=mirum-checked-b13-live,target=/old-state,readonly mirum-checked-b01:b9c5565 python /evidence/diagnose.py --network",
+    "exit_codes": [0, 0],
+    "credentials_used": false,
+    "generation_calls": 0,
+    "default_grpc_roots": "certificate verification failed; channel readiness timed out",
+    "installed_system_roots": "channel ready; nonexistent non-model RPC returned UNIMPLEMENTED",
+    "scope": "TLS and gRPC framing/reachability only; no configured-model access, credential validation, extraction accuracy or GenerateContent latency qualification",
+    "diagnostic_script_sha256": "784cd1d0837e003c78774e4fe4080213c6b33fd3eeb6d7c84ce3d007d4f37f2b",
+    "offline_json_sha256": "2680e249e8233661f91d466d672733b8e43e61336639c9fca586c1e7fe633df1",
+    "transport_json_sha256": "8875909698321eb5d342f300e49e1779841dfaa23f69c108d61b18dbfe4aa3cf"
+  },
+  "historical_run": {
+    "volume": "mirum-checked-b13-live",
+    "access": "read-only mount; temporary SQLite snapshot",
+    "database_sha256_before_and_after": "fa9908b94c76612b85e10682c625475e88f0ee55444f40a26b6545b44ece6290",
+    "calls": 3,
+    "repairs": 0,
+    "failed_complete_cases": [
+      "C01",
+      "C02",
+      "C03"
+    ],
+    "unattempted_cases": 27,
+    "remaining_complete_cases": 7,
+    "can_meet_8_of_10_gate": false,
+    "evidence_preserved": true
+  },
+  "evaluator_changes": [
+    "Frozen durable run/authorization/previous-run/source/image/runtime/settings/version identity; reject changed or relabelled historical stores",
+    "Current-case error slices and elapsed seconds; outer deadline distinguished from SDK classifications",
+    "Count durable reservations after interruption; never repeat claimed cases",
+    "Shared-stop reasons survive restart; native guard restored on every exit",
+    "Atomic result JSON replacement; shared blockers prevent qualification",
+    "Exact semantic oracle hashes and corpus unchanged; fixture_response excluded from provider input and scoring"
+  ],
+  "corpus_sha256": "7fb09dcc06626b7fbe31c0e9a2237792ded90ad292651b33e5d4db2ff29bcfea",
+  "credential_preflight": {
+    "network": "none",
+    "variable": "GEMINI_API_KEY",
+    "value_logged": false,
+    "generation_calls": 0
+  },
+  "proposed_fresh_evaluation": {
+    "authorized": false,
+    "run_id": "b13-v15-20261112-r2",
+    "volume_to_create_only_after_authorization": "mirum-checked-b13-live-20261112-r2",
+    "maximum_cases": 30,
+    "maximum_calls": 60,
+    "maximum_calls_per_case": 2,
+    "additional_to_prior_attempts": 3,
+    "first_call": "Original C01; also endpoint/configuration check; no extra probe",
+    "shared_blocker": "Stop and retain partial evidence/budget; no automatic resume, retry reset or fallback"
+  },
+  "limitations": [
+    "GenerateContent deadlines remain unexplained; no new authenticated RPC or generation",
+    "Python/dependencies/model/prompt/physical policies/deadlines/response bounds unchanged",
+    "83 targeted regressions do not refresh historical 443-test broad results or V01-V15",
+    "B13 remains blocked; B14 and E01/E02 not started; no merge/deployment",
+    "Manual correctness/privacy/cleanup review only; no separate reviewer or automated security scanner claimed"
+  ]
+}

@@ -26,6 +26,11 @@ GEMINI_MODEL_HEAVY: str = "gemini-3.5-flash"
 # migrated to gemini-3.5-flash (same as Heavy) — the cheapest reachable model.
 GEMINI_MODEL_LITE: str = "gemini-3.5-flash"
 
+# Checked beam preparation has its own qualification/configuration boundary.
+GEMINI_MODEL_ENGINEERING_PREPARATION: str = "gemini-3.6-flash"
+# Separate from legacy clarifier limits; live requalification is required.
+GEMINI_ENGINEERING_MAX_OUTPUT_TOKENS: int = 4096
+
 # ---------------------------------------------------------------------------
 # Pipeline tuning knobs
 # ---------------------------------------------------------------------------
@@ -56,6 +61,47 @@ def _env_float(name: str, default: float) -> float:
 # Process-wide cap on provider calls per rolling 24 h for POST /dragsters/interpret
 # (in addition to the per-IP rate limit). 0 disables the endpoint's provider path.
 DRAGSTER_INTERPRET_DAILY_CAP: int = max(0, _env_int("MIRUM_DRAGSTER_INTERPRET_DAILY_CAP", 200))
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """Read a boolean env var; only "1"/"true" (any case) count as on."""
+    raw = _os_cfg.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true")
+
+
+# Checked-beam AI draft preparation (POST /engineering/v1/drafts with mode "ai").
+# OFF by default: not live-qualified. When off, no provider is constructed and
+# no API key is read for this feature. Typed/form mode is unaffected.
+ENGINEERING_AI_DRAFTS: bool = _env_flag("MIRUM_ENGINEERING_AI_DRAFTS", False)
+
+# --- Checked-beam abuse limits (public, anonymous API). Every value is a
+# deliberate quota; none changes an engineering tolerance or acceptance rule.
+# AI provider spend: calls (including repair calls) per rolling 24 h, process-wide.
+# 0 means no provider calls at all.
+ENGINEERING_AI_DAILY_CALLS: int = max(0, _env_int("MIRUM_ENGINEERING_AI_DAILY_CALLS", 200))
+# Provider calls allowed in flight at once (process-wide).
+ENGINEERING_AI_CONCURRENCY: int = max(1, _env_int("MIRUM_ENGINEERING_AI_CONCURRENCY", 2))
+# Local diagnostic only: build gRPC roots from the OS trust store instead of
+# gRPC's bundled roots (needed behind TLS-intercepting antivirus). Default off.
+ENGINEERING_TLS_OS_TRUST: bool = _env_flag("MIRUM_ENGINEERING_TLS_OS_TRUST", False)
+# Native-slot fairness: jobs one client may submit per rolling hour, and how long
+# a refused submit is remembered when deciding whether to re-admit another client.
+ENGINEERING_JOBS_PER_CLIENT_HOUR: int = max(1, _env_int("MIRUM_ENGINEERING_JOBS_PER_CLIENT_HOUR", 6))
+ENGINEERING_REFUSAL_MEMORY_SECONDS: int = max(1, _env_int("MIRUM_ENGINEERING_REFUSAL_MEMORY_SECONDS", 120))
+# Unfinalized drafts: expiry, global and per-client caps. Audit and finalized-brief
+# records have their own caps, accounted apart from job artifact storage.
+ENGINEERING_DRAFT_TTL_SECONDS: int = max(60, _env_int("MIRUM_ENGINEERING_DRAFT_TTL_SECONDS", 4 * 3600))
+ENGINEERING_MAX_DRAFTS: int = max(1, _env_int("MIRUM_ENGINEERING_MAX_DRAFTS", 500))
+ENGINEERING_MAX_DRAFT_BYTES: int = max(1, _env_int("MIRUM_ENGINEERING_MAX_DRAFT_BYTES", 16 * 1024**2))
+ENGINEERING_MAX_DRAFTS_PER_CLIENT: int = max(1, _env_int("MIRUM_ENGINEERING_MAX_DRAFTS_PER_CLIENT", 20))
+ENGINEERING_MAX_AUDITS: int = max(1, _env_int("MIRUM_ENGINEERING_MAX_AUDITS", 1000))
+ENGINEERING_MAX_AUDIT_BYTES: int = max(1, _env_int("MIRUM_ENGINEERING_MAX_AUDIT_BYTES", 32 * 1024**2))
+ENGINEERING_MAX_BRIEFS: int = max(1, _env_int("MIRUM_ENGINEERING_MAX_BRIEFS", 2000))
+ENGINEERING_MAX_BRIEFS_PER_CLIENT: int = max(1, _env_int("MIRUM_ENGINEERING_MAX_BRIEFS_PER_CLIENT", 100))
+# Largest request body accepted on /engineering/v1 before parsing (JSON overhead
+# included; the brief itself is bounded to 16 KiB and prompts to 8000 characters).
+ENGINEERING_MAX_BODY_BYTES: int = max(1024, _env_int("MIRUM_ENGINEERING_MAX_BODY_BYTES", 64 * 1024))
 
 # Maximum Machinist retries per part before the Critic Loop gives up
 CRITIC_MAX_RETRIES: int = _env_int("MIRUM_CRITIC_MAX_RETRIES", 3)

@@ -1,0 +1,177 @@
+{
+  "task": "B13",
+  "date": "2026-11-12",
+  "state": "blocked_incomplete_generation_max_tokens",
+  "application_implementation_sha": "0f1864adb06e548222265e9d8fd6377c47aad509",
+  "starting_documentation_head": "a65e16c3b687970e2cec4b46142c3ea887ef1664",
+  "application_source_changed": false,
+  "image_id": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "local_evidence": "C:/Users/jiang/mirum-evidence/B13/transport-comparison-20261112",
+  "authorization": {
+    "user_statement": "can you test it please?",
+    "id": "user-20261112-transport-test",
+    "scope": "The proposed bounded gRPC-versus-REST diagnostic: two model metadata requests and at most one original C01 REST generation",
+    "maximum_metadata_requests": 2,
+    "maximum_generation_calls": 1,
+    "maximum_logical_sdk_requests": 3,
+    "consumed_metadata_requests": 2,
+    "consumed_generation_calls": 1,
+    "schema_repairs": 0,
+    "retries": null,
+    "record_sha256": "5237ee27a67251909cc52986de7efd666c2ce5485aa1b5a4f66c6b11c55bb685"
+  },
+  "requests": {
+    "grpc_metadata": {
+      "transport": "grpc",
+      "method": "GetModel",
+      "model": "gemini-3.6-flash",
+      "requests": 1,
+      "generation_requests": 0,
+      "retries": null,
+      "timeout_seconds": 15,
+      "tls_verification": true,
+      "credential_variable": "GEMINI_API_KEY",
+      "metadata": {
+        "name_matches_request": true,
+        "supports_generate_content": true,
+        "input_token_limit": 1048576,
+        "output_token_limit": 65536
+      },
+      "status": "passed",
+      "elapsed_seconds": 0.637708
+    },
+    "rest_metadata": {
+      "transport": "rest",
+      "method": "GetModel",
+      "model": "gemini-3.6-flash",
+      "requests": 1,
+      "generation_requests": 0,
+      "retries": null,
+      "timeout_seconds": 15,
+      "tls_verification": true,
+      "credential_variable": "GEMINI_API_KEY",
+      "metadata": {
+        "name_matches_request": true,
+        "supports_generate_content": true,
+        "input_token_limit": 1048576,
+        "output_token_limit": 65536
+      },
+      "status": "passed",
+      "elapsed_seconds": 0.608386
+    },
+    "rest_generation": {
+      "method": "GenerateContent",
+      "transport": "rest",
+      "settings": {
+        "provider": "gemini",
+        "sdk_version": "google-ai-generativelanguage/0.6.10",
+        "model": "gemini-3.6-flash",
+        "temperature": 0.4,
+        "max_tokens": 1024
+      },
+      "case_id": "C01",
+      "corpus_sha256": "7fb09dcc06626b7fbe31c0e9a2237792ded90ad292651b33e5d4db2ff29bcfea",
+      "request_sha256": "9d60c1975427f56013c493df15266a7afacee49a4fb289a6be9b26723cee46c9",
+      "calls": 1,
+      "sdk_retries": null,
+      "schema_repairs": 0,
+      "call_seconds": 45,
+      "sdk_timeout_seconds": 40,
+      "credential_variable": "GEMINI_API_KEY",
+      "fixture_response_used": false,
+      "unreviewed_execution": 0,
+      "qualification": false,
+      "candidate_count": 1,
+      "finish_reason": "MAX_TOKENS",
+      "status": "failed",
+      "failure": {
+        "exception": "RuntimeError",
+        "grpc_status": null,
+        "http_response_status": null,
+        "tls_certificate_failure": false,
+        "dns_failure": false,
+        "connection_failure": false,
+        "http2_reset": false,
+        "proxy_indicated": false,
+        "credential_metadata_failure": false,
+        "credential_rejected": false,
+        "permission_denied": false,
+        "model_unavailable": false,
+        "overload_indicated": false,
+        "quota_indicated": false,
+        "billing_indicated": false,
+        "credit_indicated": false,
+        "schema_indicated": false,
+        "candidate_parameter_indicated": true
+      },
+      "elapsed_seconds": 5.137554
+    }
+  },
+  "hashes": {
+    "compare.py": "310b2314bd5183bb7eb896dff17863bfa3eb3aa2715243dda81eca46fcc4a6c0",
+    "rest_generation.py": "e2e014981a7cabaf058f151df652d5d460f9213cd59f00735c34234a544d11c2",
+    "grpc-result.json": "86626b20c6506cb908ff1c42d80b620cb4bce8c01512585ad739b7eb5f077ab4",
+    "rest-result.json": "e7164b013e267b958201812dbea3dd6de914a80fccb2d62026d99599a38e053d",
+    "rest-generation-result.json": "1df21d20c0a5fa7e1fb47aeed673856f44ea18df9f72c0fe1d924f8a3695446f"
+  },
+  "offline_checks": {
+    "metadata_reservation_and_privacy": "passed with fixture transports; zero external calls",
+    "generation_common_validation_and_one_call_reservation": "passed with fixture response; zero external calls",
+    "initial_harness_failure": "A local fixture harness had a syntax error before execution; corrected and passed before the live generation request.",
+    "sdk_generation_config_has_thinking_config": false,
+    "method": "Inspected installed GenerationConfig protobuf descriptor with networking disabled"
+  },
+  "generation_controls": {
+    "method": "Installed SDK synchronous REST GenerateContent; diagnostic only",
+    "tls": "Installed OS CA bundle; verification enabled",
+    "credential_mount": "read-only",
+    "sdk_timeout_seconds": 40,
+    "external_process_timeout_seconds": 45,
+    "watchdog_cleanup_seconds": 5,
+    "automatic_auth_refresh_reissues_disabled": true,
+    "run_volume": "mirum-checked-b13-rest-diag-20261112",
+    "native_execution": 0,
+    "raw_prompts_keys_responses_logged": false
+  },
+  "commands": {
+    "metadata": "docker run --rm --read-only --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B13/transport-comparison-20261112,target=/evidence --mount type=bind,source=<user-supplied-credential-file>,target=/run/existing-provider.env,readonly sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583 python /evidence/compare.py <grpc-or-rest> /evidence /run/existing-provider.env",
+    "generation": "docker run --rm --init --read-only --tmpfs /tmp/mirum:rw,size=256m,uid=10001,gid=10001,mode=0700 --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B13/transport-comparison-20261112,target=/evidence --mount type=bind,source=<user-supplied-credential-file>,target=/run/existing-provider.env,readonly --mount type=volume,source=mirum-checked-b13-rest-diag-20261112,target=/tmp/mirum/state sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583 timeout --signal=TERM --kill-after=5s 45s python /evidence/rest_generation.py /evidence /tmp/mirum/state /run/existing-provider.env"
+  },
+  "exit_codes": {
+    "grpc_metadata": 0,
+    "rest_metadata": 0,
+    "rest_generation": 2
+  },
+  "interpretation": {
+    "established": [
+      "The supplied key retrieved the requested Gemini 3.6 Flash metadata over both transports; GetModel advertises generateContent.",
+      "The REST generation request obtained one model candidate in 5.137554 seconds, ending MAX_TOKENS at the configured 1024-token cap.",
+      "The diagnostic rejected the incomplete candidate and performed no repair/native execution.",
+      "The installed SDK GenerationConfig has no thinking_config field."
+    ],
+    "not_established": [
+      "Why earlier gRPC generation timed out",
+      "That changing only transports fixes production",
+      "How many tokens were used for thinking or output; incomplete-candidate usage was not retained",
+      "An accurate reviewable draft or any full-corpus qualification",
+      "That a particular larger output cap will suffice"
+    ],
+    "local_guard_note": "The RuntimeError and candidate_parameter_indicated flag in the generation result came from the local incomplete-candidate guard. They are not a provider rejection of candidate_count."
+  },
+  "source_reference": {
+    "MAX_TOKENS": "https://ai.google.dev/api/generate-content#FinishReason"
+  },
+  "preservation": {
+    "stopped_evaluation_ledgers_mounted": false,
+    "previous_call_counts_reset": false,
+    "reservations": "Exclusive-created JSON files flushed and fsynced before each request; repeat reservation rejected",
+    "full_corpus_evaluation_started": false
+  },
+  "release_decision": {
+    "B13": "blocked",
+    "B14": "blocked_before_release_work",
+    "E01_E02": "not_eligible",
+    "main_merged_or_deployed": false
+  },
+  "next_candidate": "Test a bounded output-token increase or explicit thinking control, and any cancellation-safe production REST implementation, offline first. Further live testing requires a separately bounded diagnostic decision; preserve all old qualification ledgers."
+}

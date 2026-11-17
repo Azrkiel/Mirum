@@ -1,0 +1,128 @@
+{
+  "task": "B10",
+  "starting_sha": "cede83c6fcc7a7abfa725c4f11d9522a9f6be5f7",
+  "tested_implementation_sha": "73578d7d4560391545dc8b3f8764068fafe93080",
+  "image_id": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "checks": [
+    {
+      "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly mirum-checked-b01:b9c5565 python -m pytest -q -p no:cacheprovider --tb=short backend/tests/test_engineering_bundles.py backend/tests/test_engineering_store.py",
+      "result": "16 passed in 64.98s",
+      "exit_code": 0,
+      "log_sha256": "7e53a12c407f1fc829c386845b8671c954d135a2e6f386791381c561ec1015c6"
+    },
+    {
+      "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly mirum-checked-b01:b9c5565 python -m pytest -q -p no:cacheprovider --tb=short backend/tests/test_engineering_bundles.py backend/tests/test_engineering_jobs.py backend/tests/test_engineering_store.py backend/tests/test_engineering_briefs.py backend/tests/test_engineering_proposer.py backend/tests/test_engineering_contracts.py backend/tests/test_engineering_policy.py backend/tests/test_engineering_api.py backend/tests/test_me_readiness.py",
+      "result": "282 passed, 18 warnings in 161.44s",
+      "exit_code": 0,
+      "source_note": "Started at 535954a310fcc02433dd971b26971fad055438a4. Only later source edit initializes the standalone probe directory; application/test source unchanged.",
+      "log_sha256": "f8bd4f31fcdd6724be7842311dca03beec35ab03380823ef16cac7c8ae7d4eb9"
+    },
+    {
+      "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B10,target=/evidence mirum-checked-b01:b9c5565 python scripts/checked_engineering_package_probe.py /evidence/native 73578d7d4560391545dc8b3f8764068fafe93080",
+      "exit_code": 0
+    }
+  ],
+  "native": {
+    "files": {
+      "package.zip": {
+        "bytes": 16155,
+        "sha256": "a4d98d555c987c0076de51b3c25f3052af3f4d28735eb4a468b7f1e237c8a30c"
+      },
+      "brief.json": {
+        "bytes": 4327,
+        "sha256": "448503f9ed6bd22a2a602e29a4dfcbd76c1f34c8360e1bb5308922a56c546a53"
+      },
+      "selected_spec.json": {
+        "bytes": 444,
+        "sha256": "4200354d4c34c18b3e6be2b35b976501c047d5b1aa88b48007ece8bb84d96e0d"
+      },
+      "model.py": {
+        "bytes": 105,
+        "sha256": "4c34a2b6a94ea9bb86ca05a0764ad1ab096e9eef071cb1a071ed93b3695ed0a8"
+      },
+      "model.step": {
+        "bytes": 15415,
+        "sha256": "82338ae849301554e0ff111d62d3a5ec27dd1c4336dc5b6989e844fbff00ea60"
+      },
+      "preview.glb": {
+        "bytes": 3300,
+        "sha256": "df341c8a183290eb5499a577e262868f4b700e83e99451b50ecca5b8618c70c5"
+      },
+      "attempts.json": {
+        "bytes": 84305,
+        "sha256": "3fcf12a27c1e792980ed7eafdb5d4823b0767df0ec3c85ee07846a37a7bafc63"
+      },
+      "report.json": {
+        "bytes": 61845,
+        "sha256": "ea0b71d88ea8004dd5ba10bda3f15da0bc81f56c3422e97ed281bff9182a96e1"
+      },
+      "report.md": {
+        "bytes": 749,
+        "sha256": "21d711b6eab9048ce34a361b4d00959c939d926849ac8dc0c8c31a5fa8750f97"
+      },
+      "manifest.json": {
+        "bytes": 1799,
+        "sha256": "28783a2a42e258b3cbd8b740a9eea97796a22183c46255d62dc8564f7a9ad89f"
+      }
+    },
+    "bundle": {
+      "payloads": [
+        {
+          "path": "attempts.json",
+          "sha256": "3fcf12a27c1e792980ed7eafdb5d4823b0767df0ec3c85ee07846a37a7bafc63",
+          "bytes": 84305
+        },
+        {
+          "path": "brief.json",
+          "sha256": "448503f9ed6bd22a2a602e29a4dfcbd76c1f34c8360e1bb5308922a56c546a53",
+          "bytes": 4327
+        },
+        {
+          "path": "model.py",
+          "sha256": "4c34a2b6a94ea9bb86ca05a0764ad1ab096e9eef071cb1a071ed93b3695ed0a8",
+          "bytes": 105
+        },
+        {
+          "path": "model.step",
+          "sha256": "82338ae849301554e0ff111d62d3a5ec27dd1c4336dc5b6989e844fbff00ea60",
+          "bytes": 15415
+        },
+        {
+          "path": "preview.glb",
+          "sha256": "df341c8a183290eb5499a577e262868f4b700e83e99451b50ecca5b8618c70c5",
+          "bytes": 3300
+        },
+        {
+          "path": "report.json",
+          "sha256": "ea0b71d88ea8004dd5ba10bda3f15da0bc81f56c3422e97ed281bff9182a96e1",
+          "bytes": 61845
+        },
+        {
+          "path": "report.md",
+          "sha256": "21d711b6eab9048ce34a361b4d00959c939d926849ac8dc0c8c31a5fa8750f97",
+          "bytes": 749
+        },
+        {
+          "path": "selected_spec.json",
+          "sha256": "4200354d4c34c18b3e6be2b35b976501c047d5b1aa88b48007ece8bb84d96e0d",
+          "bytes": 444
+        }
+      ],
+      "manifest_sha256": "28783a2a42e258b3cbd8b740a9eea97796a22183c46255d62dc8564f7a9ad89f",
+      "manifest_bytes": 1799,
+      "zip_sha256": "a4d98d555c987c0076de51b3c25f3052af3f4d28735eb4a468b7f1e237c8a30c",
+      "zip_bytes": 16155,
+      "stored_bytes": 1237020
+    },
+    "heights": [
+      5.0,
+      10.0,
+      15.0
+    ]
+  },
+  "limitations": [
+    "Review uses shared fixture and explicit caller acknowledgement; no new HTTP/browser observation.",
+    "Cancellation-after-publication test replays captured real native evaluations; labelled replay seam.",
+    "No provider calls or physical qualification."
+  ]
+}

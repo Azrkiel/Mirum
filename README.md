@@ -149,6 +149,7 @@ and rendered, not a second execution of the script. Files are kept for 6 hours.
 | `/engineering/regen/jobs` | POST | Submit a typed regenerative cooling chamber/nozzle mesh job; no LLM |
 | `/engineering/regen/jobs/{id}` | GET | Poll nozzle generation and geometry acceptance |
 | `/engineering/regen/jobs/{id}/artifacts/{name}` | GET | Download accepted `stl`, `report` or `spec` |
+| `/engineering/v1/*` | GET, POST, PATCH | Checked cantilever design: reviewed typed brief, deterministic no-LLM solver, evidence-gated package. Typed path available; AI draft mode off by default (see below) |
 | `/plan` | POST | Planner only, returns the manifest |
 | `/requirements` | POST | Requirements extraction only |
 | `/clarify` | POST | Returns clarifying questions for a vague prompt |
@@ -160,6 +161,14 @@ and rendered, not a second execution of the script. Files are kept for 6 hours.
 | `/analysis/plots`, `/analysis/pdf` | POST | XFOIL results as plots or a PDF |
 | `/stats` | GET | Failure rates by domain and operation |
 | `/admin/model-config` | GET, POST | Read or change which model each agent uses |
+
+### Checked cantilever design (`/engineering/v1`)
+
+The typed path (form in the "Checked beam" page, or `POST /engineering/v1/drafts` with form input) is available: a human reviews the exact revision, then a deterministic solver with no model produces an evidence-gated package.
+
+AI draft mode, where a model proposes the brief, is **off by default and not live-qualified**. To turn it on, set `MIRUM_ENGINEERING_AI_DRAFTS=1` (or `true`) on the backend, plus `GEMINI_API_KEY_HEAVY`. With it off, an AI-mode request returns 503 "AI draft preparation is not enabled", `GET /engineering/v1/capabilities` reports `ai_enabled: false`, and the UI shows form mode only. AI proposals still need the same human review; failed model replies are kept in an internal audit ledger only (7-day retention).
+
+Abuse limits (all environment variables, read once at start; defaults in brackets): `MIRUM_ENGINEERING_AI_DAILY_CALLS` [200 provider calls per rolling 24 h across the process, 0 disables calls], `MIRUM_ENGINEERING_AI_CONCURRENCY` [2], `MIRUM_ENGINEERING_JOBS_PER_CLIENT_HOUR` [6], `MIRUM_ENGINEERING_REFUSAL_MEMORY_SECONDS` [120], `MIRUM_ENGINEERING_DRAFT_TTL_SECONDS` [14400, unfinalized drafts], `MIRUM_ENGINEERING_MAX_DRAFTS` [500], `MIRUM_ENGINEERING_MAX_DRAFT_BYTES` [16 MiB], `MIRUM_ENGINEERING_MAX_DRAFTS_PER_CLIENT` [20], `MIRUM_ENGINEERING_MAX_AUDITS` [1000], `MIRUM_ENGINEERING_MAX_AUDIT_BYTES` [32 MiB], `MIRUM_ENGINEERING_MAX_BRIEFS` [2000], `MIRUM_ENGINEERING_MAX_BRIEFS_PER_CLIENT` [100], `MIRUM_ENGINEERING_MAX_BODY_BYTES` [65536]. `MIRUM_ENGINEERING_TLS_OS_TRUST=1` is a local diagnostic only (trust the OS certificate store for the provider connection, for TLS-intercepting antivirus); it is off by default because any locally added root could then read the API key.
 
 ## What doesn't work yet
 
