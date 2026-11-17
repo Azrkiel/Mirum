@@ -30,9 +30,7 @@ on:
         default: C01
         type: string
 
-permissions:
-  contents: write   # only to create the atomic reservation tag
-  actions: read
+permissions: {}
 
 concurrency:
   group: b13-live
@@ -42,6 +40,9 @@ jobs:
   live:
     if: github.ref == 'refs/heads/main'
     environment: b13-live
+    permissions:
+      contents: write   # only to create the atomic reservation tag
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -74,6 +75,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Build the verification image at this commit
