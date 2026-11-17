@@ -502,10 +502,10 @@ class GeneratorCheckResult(ContractModel):
             raise ValueError('Check is not declared by the capability version')
         if any(a.path not in descriptor.payloads for a in self.artifacts):
             raise ValueError('Check artifact is not a payload of this capability')
-        if self.state == CheckState.PASSED and not (
-                self.measurements and self.limits
-                and any(a.path == descriptor.primary_artifact for a in self.artifacts)):
-            raise ValueError('Passed checks require measurements, limits and the measured primary artifact identity')
+        # The primary artifact identity of a passed check is required by ``assess_generator`` for
+        # accepted runs; a rejected package delivers no geometry, so its checks carry none.
+        if self.state == CheckState.PASSED and not (self.measurements and self.limits):
+            raise ValueError('Passed checks require measurements and limits')
         _evidence_common(self)
         return self
 

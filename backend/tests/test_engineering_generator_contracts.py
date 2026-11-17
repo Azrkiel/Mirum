@@ -230,7 +230,7 @@ def test_generator_check_result_validation():
             dict(capability_id='nope'),
             dict(measurements=()),
             dict(limits=()),
-            dict(artifacts=()),
+            # artifacts=() is allowed by the contract: assess_generator requires the primary identity for accepted runs
             dict(artifacts=(ArtifactIdentity(path='model.step', sha256=SHA, bytes=1),)),
             dict(state=CheckState.FAILED, reason=None),
             dict(state=CheckState.UNAVAILABLE, reason=None)):
@@ -712,7 +712,10 @@ def test_a_check_whose_limits_are_not_pinned_yet_is_never_accepted(monkeypatch):
     evaluation = make_evaluation(candidate)
     assert assess(evaluation).available
     monkeypatch.setattr(_Descriptor, 'expected_limits', REAL_EXPECTED_LIMITS)
-    assert not assess(evaluation).available   # most regen checks lack a pinned table until U6.1
+    real = _capabilities._LIMIT_TABLE['regen_chamber']
+    monkeypatch.setitem(_capabilities._LIMIT_TABLE, 'regen_chamber',
+                        lambda spec: {k: v for k, v in real(spec).items() if k != 'rib'})
+    assert not assess(evaluation).available   # a check with no pinned limit entry is never accepted
 
 
 def test_check_measurements_must_equal_what_the_adapter_parses_from_the_report(monkeypatch):

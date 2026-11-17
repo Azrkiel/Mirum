@@ -334,6 +334,11 @@ async def _stage(jobs, payload: dict, validate, owned: list):
 class GliderAdapter:
     descriptor = GLIDER
 
+    def __init__(self, runner=None):
+        # ``create_runtime`` passes a runner getter to every generator; the glider uses the
+        # shared ``cem.api.jobs`` manager (and its solver slot) instead.
+        self._runner = runner
+
     def candidates(self, brief) -> tuple[GeneratorCandidate, ...]:
         content = getattr(brief, 'content', None)
         if not isinstance(content, GeneratorBriefContent) or content.capability.id != GLIDER.id:

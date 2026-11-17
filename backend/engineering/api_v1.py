@@ -16,7 +16,7 @@ from pydantic import Field,BeforeValidator,field_validator
 from .admission import AdmissionBusy,ClientFairness
 from .briefs import BriefService,RevisionConflict
 from .bundles import BundlePublisher,FORMATS,ALL_FORMATS
-from .capabilities import CAPABILITY,CapabilityDescriptor,adapter_installed,get_capability,get_generator,list_capabilities
+from .capabilities import CAPABILITY,CapabilityDescriptor,adapter_installed,get_capability,get_generator,list_capabilities,resolve
 from .contracts import ContractModel,ReviewAcknowledgement,Text,REVIEW_FIELDS
 from .jobs import JobController,compact_run
 from .limits import AiCallBudget,run_in_thread_owned
@@ -141,7 +141,8 @@ def generator_entry(c):
         review_fields=[],review_fields_prefix='specification.')
 
 
-def create_runtime():
+def create_runtime(generators=None):
+    """``generators``: ``{capability id: runner getter}``; getters are late-bound (the app owns the runners)."""
     root=Path(os.environ.get('MIRUM_ENGINEERING_DATA_DIR','/tmp/mirum/engineering'))
     scratch=Path(os.environ.get('MIRUM_WORK_DIR','/tmp/mirum/work')).resolve()
     resolved=root.resolve()
@@ -160,7 +161,12 @@ def create_runtime():
         publisher=BundlePublisher(store)
         briefs=BriefService(SQLiteBriefRepository(store))
         fairness=ClientFairness(config.ENGINEERING_JOBS_PER_CLIENT_HOUR,config.ENGINEERING_REFUSAL_MEMORY_SECONDS)
-        jobs=JobController(store,publisher=publisher,fairness=fairness)
+        adapters={}
+        for capability_id,getter in (generators or {}).items():
+            descriptor=get_generator(capability_id)
+            if descriptor is None: raise ValueError('Unknown generator capability')
+            adapters[capability_id]=resolve(descriptor.adapter)(getter)
+        jobs=JobController(store,publisher=publisher,fairness=fairness,generators=adapters)
         ledger=SQLiteProposalLedger(store)
         budget=None
         if ai_enabled:

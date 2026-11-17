@@ -619,3 +619,34 @@ def test_v1_adapter_matches_the_old_cem_endpoints_byte_for_byte(monkeypatch, tmp
             if name == 'old':
                 old_parts = parts
         assert parts == old_parts and old_parts
+
+
+# --- runtime wiring (CI native gate, Linux only: SQLiteStore refuses other hosts) ---
+
+@pytest.mark.skipif(os.name != 'posix', reason='the engineering store needs Linux')
+def test_a_glider_brief_reaches_glider_adapter_through_create_runtime_not_the_beam(monkeypatch, tmp_path):
+    from engineering.api_v1 import create_runtime
+    from engineering.cantilever import CantileverAdapter
+    from engineering.glider_adapter import GliderAdapter
+    from engineering.jobs import UnavailableCapability
+    from engineering.regen_adapter import RegenAdapter
+    from tests.test_engineering_generator_contracts import regen_spec
+
+    monkeypatch.setenv('MIRUM_ENGINEERING_DATA_DIR', str(tmp_path / 'engineering'))
+    monkeypatch.setenv('MIRUM_WORK_DIR', str(tmp_path / 'work'))
+    glider = brief_for(content('glider_cem', glider_spec()))
+    regen = brief_for(content('regen_chamber', regen_spec()))
+    wired = create_runtime(generators={'glider_cem': lambda: None, 'regen_chamber': lambda: None})
+    try:
+        chosen = wired.jobs._adapter_for(glider)
+        assert type(chosen) is GliderAdapter and not isinstance(chosen, CantileverAdapter)
+        assert chosen.descriptor.id == 'glider_cem'
+        assert type(wired.jobs._adapter_for(regen)) is RegenAdapter
+    finally:
+        wired.store.close()
+    unwired = create_runtime(generators={'regen_chamber': lambda: None})
+    try:
+        with pytest.raises(UnavailableCapability):
+            unwired.jobs._adapter_for(glider)
+    finally:
+        unwired.store.close()

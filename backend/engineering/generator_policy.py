@@ -109,6 +109,8 @@ def _validate(candidate: GeneratorCandidate, evaluation: dict):
     else:
         _require(not diagnostics and set(artifacts) == set(descriptor.payloads), 'Captured artifacts incomplete')
         for check in checks:
+            _require(any(i.path == descriptor.primary_artifact for i in check.artifacts),
+                     'Passed check lacks the measured primary artifact identity')
             for identity in check.artifacts:
                 _require(identity == ArtifactIdentity(path=identity.path, sha256=_sha(artifacts[identity.path]),
                                                       bytes=len(artifacts[identity.path])),

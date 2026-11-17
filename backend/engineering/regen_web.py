@@ -112,11 +112,30 @@ class JobRunner:
 
     def _update(self, job_id, **fields):
         with self.lock:
+            if self.jobs[job_id]['status'] == 'cancelled':
+                return    # a cancelled job never changes again (late worker exit, timeout)
             self.jobs[job_id].update(fields, updated=time.time())
+
+    def cancel(self, job_id: str) -> bool:
+        """Stop a queued or running job and free the slot. False when there is nothing to cancel."""
+        with self.lock:
+            job = self.jobs.get(job_id)
+            if job is None or job['status'] not in ('queued', 'running'):
+                return False
+            running = job['status'] == 'running'
+            job.update(status='cancelled', message='Generation cancelled.', report=None, artifacts={},
+                       updated=time.time())
+            proc = self.process if running else None
+        if proc is not None:
+            self._kill(proc)
+        return True
 
     def _run(self, job_id):
         folder = self.root / job_id
         out = folder / 'output'
+        with self.lock:
+            if self.jobs[job_id]['status'] == 'cancelled':
+                return
         out.mkdir()
         self._update(job_id, status='running', message='Building and checking geometry')
         # Do not pass provider credentials or unrelated process variables to the worker.
