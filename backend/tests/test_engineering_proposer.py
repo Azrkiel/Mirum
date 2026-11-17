@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -172,29 +173,187 @@ def test_finalized_revision_cannot_start_proposal_and_execution_has_no_provider(
     assert result.state == 'cancelled' and provider.calls == []
 
 
-def test_sdk_schema_builds_offline_and_transport_disables_retries(monkeypatch):
+class FakeGenai:
+    """Offline stand-in for ``google.genai.Client``. Records every constructor call and request."""
+    def __init__(self, monkeypatch, behaviour=None):
+        from google import genai
+        self.clients, self.requests, self.events = [], [], []
+        self.behaviour = behaviour or (lambda: self.reply())
+        fake = self
+        class Models:
+            async def generate_content(self, *, model, contents, config):
+                fake.requests.append(dict(model=model, contents=contents, config=config))
+                fake.events.append('called')
+                return await fake.behaviour()
+        class Aio:
+            models = Models()
+            async def aclose(self):
+                fake.events.append('closed')
+        class Client:
+            def __init__(self, **kwargs):
+                fake.clients.append(kwargs)
+                self.aio = Aio()
+        monkeypatch.setattr(genai, 'Client', Client)
+
+    async def reply(self, text=None, finish='STOP', parts=None):
+        from google.genai import types
+        if parts is None:
+            parts = [types.Part(text=response() if text is None else text)]
+        return types.GenerateContentResponse(
+            candidates=[types.Candidate(finish_reason=types.FinishReason[finish], content=types.Content(role='model', parts=parts))],
+            usage_metadata=types.GenerateContentResponseUsageMetadata(prompt_token_count=10, candidates_token_count=20))
+
+
+def test_sdk_schema_builds_offline_and_request_pins_every_limit(monkeypatch):
+    from google.genai import types
     from engineering.proposer import GeminiProposalProvider, provider_schema
-    from google.ai import generativelanguage_v1beta as glm
-    assert glm.Schema(provider_schema())
-    captured = []
-    class Transport:
-        async def close(self): captured.append('closed')
-    class Client:
-        transport = Transport()
-        def __init__(self, **kwargs): pass
-        async def generate_content(self, request, **kwargs):
-            assert kwargs == {'retry': None, 'timeout': 45}
-            assert request.model == 'models/gemini-4-hydrogen'
-            assert request.generation_config.max_output_tokens == 4096
-            captured.append(request)
-            return glm.GenerateContentResponse(candidates=[dict(finish_reason='STOP', content=dict(parts=[dict(text=response())]))],
-                usage_metadata=dict(prompt_token_count=10, candidates_token_count=20))
+    fake = FakeGenai(monkeypatch)
     monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'offline-placeholder')
-    monkeypatch.setattr(glm, 'GenerativeServiceAsyncClient', Client)
     provider = GeminiProposalProvider()
     result = asyncio.run(provider.generate('fixture', provider_schema(), provider.settings()))
     assert result.prompt_tokens == 10 and result.output_tokens == 20
-    assert captured[-1] == 'closed'
+    assert fake.events == ['called', 'closed']
+    (kwargs,) = fake.clients
+    assert kwargs['api_key'] == 'offline-placeholder' and kwargs['vertexai'] is False
+    options = kwargs['http_options']
+    assert options.timeout == 45000                       # milliseconds, never longer than the 45 s deadline
+    assert options.retry_options.attempts == 1            # SDK retries disabled: exactly one attempt
+    assert options.httpx_async_client is None and options.async_client_args is None
+    (request,) = fake.requests
+    assert request['model'] == 'gemini-4-hydrogen'
+    assert request['contents'] == 'fixture'
+    config = request['config']
+    assert config.temperature == 0.4 and config.max_output_tokens == 4096 and config.candidate_count == 1
+    assert config.response_mime_type == 'application/json'
+    assert config.thinking_config.thinking_level == types.ThinkingLevel.LOW
+    assert not config.thinking_config.include_thoughts
+    assert config.response_schema.type == types.Type.OBJECT
+    assert config.response_schema.properties['state'].type == types.Type.STRING
+    assert config.response_schema.properties['fields'].properties['mode'].nullable is True
+
+
+def test_provider_schema_converts_to_the_current_sdk_type():
+    from google.genai import types
+    from engineering.proposer import provider_schema, _sdk_schema
+    assert types.Schema(**_sdk_schema(provider_schema()))
+    assert 'type_' not in json.dumps(_sdk_schema(provider_schema()))
+
+
+def test_thinking_level_is_an_explicit_recorded_setting():
+    import config
+    from engineering.proposer import GeminiProposalProvider
+    assert config.GEMINI_ENGINEERING_THINKING_LEVEL == 'low'
+    assert GeminiProposalProvider().settings().thinking_level == 'low'
+    assert GeminiProposalProvider().settings().sdk_version.startswith('google-genai/')
+
+
+def test_hung_call_is_cancelled_at_the_deadline_and_the_client_closed(monkeypatch):
+    from engineering import proposer as module
+    async def hang():
+        await asyncio.sleep(3600)
+    fake = FakeGenai(monkeypatch, behaviour=hang)
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'offline-placeholder')
+    monkeypatch.setattr(module, 'CALL_SECONDS', 0.05)
+    provider = module.GeminiProposalProvider()
+    started = time.monotonic()
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(provider.generate('fixture', module.provider_schema(), provider.settings()))
+    assert time.monotonic() - started < 5
+    assert fake.events == ['called', 'closed']
+
+
+def test_deadline_constant_is_45_seconds_and_sdk_timeout_matches():
+    from engineering import proposer as module
+    assert module.CALL_SECONDS == 45
+
+
+def test_outer_cancellation_closes_the_client(monkeypatch):
+    from engineering import proposer as module
+    async def hang():
+        await asyncio.sleep(3600)
+    fake = FakeGenai(monkeypatch, behaviour=hang)
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'offline-placeholder')
+    provider = module.GeminiProposalProvider()
+    async def run():
+        task = asyncio.ensure_future(provider.generate('fixture', module.provider_schema(), provider.settings()))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    asyncio.run(run())
+    assert fake.events == ['called', 'closed']
+
+
+def test_invalid_reply_triggers_exactly_one_repair_and_records_the_failure(monkeypatch):
+    replies = ['{"state": "bogus"}', response()]
+    fake = FakeGenai(monkeypatch)
+    async def behaviour():
+        return await fake.reply(text=replies.pop(0))
+    fake.behaviour = behaviour
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'offline-placeholder')
+    from engineering.proposer import GeminiProposalProvider, REPAIR_PROMPT
+    _, draft, proposer, ledger = setup(GeminiProposalProvider())
+    result = propose(proposer, draft)
+    assert result.state == 'proposed'
+    assert len(fake.requests) == 2 and fake.events == ['called', 'closed', 'called', 'closed']
+    assert REPAIR_PROMPT not in fake.requests[0]['contents'] and fake.requests[1]['contents'].endswith(REPAIR_PROMPT)
+    audit = ledger.read(draft.draft_id, 1)
+    assert audit.calls == 2 and len(audit.validation_failures) == 1 and audit.validation_failures[0].attempt == 1
+    assert audit.settings.thinking_level == 'low'
+
+
+def test_a_second_invalid_reply_makes_no_third_call(monkeypatch):
+    fake = FakeGenai(monkeypatch)
+    async def behaviour():
+        return await fake.reply(text='not json')
+    fake.behaviour = behaviour
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'offline-placeholder')
+    from engineering.proposer import GeminiProposalProvider
+    _, draft, proposer, ledger = setup(GeminiProposalProvider())
+    assert propose(proposer, draft).state == 'unavailable'
+    assert len(fake.requests) == 2 and len(ledger.read(draft.draft_id, 1).validation_failures) == 2
+
+
+def test_no_key_in_exceptions_or_logs(monkeypatch, caplog):
+    key = 'AIzaSy-offline-secret-key-0123456789'
+    async def leak():
+        raise RuntimeError('request failed with x-goog-api-key: ' + key)
+    FakeGenai(monkeypatch, behaviour=leak)
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', key)
+    from engineering.proposer import GeminiProposalProvider, provider_schema
+    provider = GeminiProposalProvider()
+    with caplog.at_level('DEBUG'):
+        with pytest.raises(Exception) as caught:
+            asyncio.run(provider.generate('fixture', provider_schema(), provider.settings()))
+        _, draft, proposer, ledger = setup(GeminiProposalProvider())
+        result = propose(proposer, draft)
+    rendered = repr(caught.value) + str(caught.value) + repr(caught.getrepr()) + caplog.text
+    rendered += result.model_dump_json() + ledger.read(draft.draft_id, 1).model_dump_json()
+    assert key not in rendered and 'x-goog-api-key' not in rendered
+
+
+def test_missing_key_builds_no_client(monkeypatch):
+    from engineering.proposer import GeminiProposalProvider, provider_schema
+    fake = FakeGenai(monkeypatch)
+    monkeypatch.delenv('GEMINI_API_KEY_HEAVY', raising=False)
+    monkeypatch.setenv('GEMINI_API_KEY', 'must-not-be-used')
+    monkeypatch.setenv('GOOGLE_API_KEY', 'must-not-be-used')
+    provider = GeminiProposalProvider()
+    assert not provider.available
+    with pytest.raises(RuntimeError, match='credentials unavailable'):
+        asyncio.run(provider.generate('fixture', provider_schema(), provider.settings()))
+    assert fake.clients == []
+
+
+def test_only_the_heavy_key_is_used(monkeypatch):
+    from engineering.proposer import GeminiProposalProvider, provider_schema
+    fake = FakeGenai(monkeypatch)
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'heavy-key')
+    monkeypatch.setenv('GEMINI_API_KEY', 'other-key')
+    monkeypatch.setenv('GOOGLE_API_KEY', 'other-key')
+    provider = GeminiProposalProvider()
+    asyncio.run(provider.generate('fixture', provider_schema(), provider.settings()))
+    assert fake.clients[0]['api_key'] == 'heavy-key'
 
 
 def test_checked_preparation_selects_36_flash_without_changing_legacy_models():
@@ -211,65 +370,75 @@ def test_checked_preparation_selects_36_flash_without_changing_legacy_models():
     assert {name: registry.get(name).model_id for name in legacy} == legacy
 
 
-def test_gemini_truncated_candidate_stops_without_schema_repair(monkeypatch):
-    from google.ai import generativelanguage_v1beta as glm
+@pytest.mark.parametrize('finish', ['MAX_TOKENS', 'SAFETY', 'OTHER'])
+def test_gemini_truncated_candidate_stops_without_schema_repair(monkeypatch, finish):
     from engineering.proposer import GeminiProposalProvider
-    events = []
-    class Transport:
-        async def close(self): events.append('closed')
-    class Client:
-        transport = Transport()
-        def __init__(self, **kwargs): pass
-        async def generate_content(self, request, **kwargs):
-            events.append('called')
-            assert kwargs == {'retry': None, 'timeout': 45}
-            return glm.GenerateContentResponse(candidates=[dict(finish_reason='MAX_TOKENS',
-                content=dict(parts=[dict(text='private incomplete provider reply')]))])
+    fake = FakeGenai(monkeypatch)
+    async def behaviour():
+        return await fake.reply(text='private incomplete provider reply', finish=finish)
+    fake.behaviour = behaviour
     monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'offline-placeholder')
-    monkeypatch.setattr(glm, 'GenerativeServiceAsyncClient', Client)
     _, draft, proposer, ledger = setup(GeminiProposalProvider())
     result = propose(proposer, draft)
     assert result.state == 'unavailable'
-    assert events == ['called', 'closed'] and ledger.read(draft.draft_id, 1).calls == 1
+    assert fake.events == ['called', 'closed'] and ledger.read(draft.draft_id, 1).calls == 1
     assert 'private incomplete' not in str(result) + ledger.read(draft.draft_id, 1).model_dump_json()
 
 
+def test_gemini_candidate_without_text_fails_visibly(monkeypatch):
+    from engineering.proposer import GeminiProposalProvider, provider_schema
+    from google.genai import types
+    fake = FakeGenai(monkeypatch)
+    async def behaviour():
+        return await fake.reply(parts=[types.Part(text='ok'), types.Part()])
+    fake.behaviour = behaviour
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'offline-placeholder')
+    provider = GeminiProposalProvider()
+    with pytest.raises(RuntimeError, match='no JSON data'):
+        asyncio.run(provider.generate('fixture', provider_schema(), provider.settings()))
+    assert fake.events == ['called', 'closed']
+
+
+def test_gemini_zero_candidates_fail_visibly(monkeypatch):
+    from engineering.proposer import GeminiProposalProvider, provider_schema
+    from google.genai import types
+    fake = FakeGenai(monkeypatch)
+    async def behaviour():
+        return types.GenerateContentResponse(candidates=[])
+    fake.behaviour = behaviour
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'offline-placeholder')
+    provider = GeminiProposalProvider()
+    with pytest.raises(RuntimeError, match='complete candidate'):
+        asyncio.run(provider.generate('fixture', provider_schema(), provider.settings()))
+
+
 def test_gemini_os_trust_opt_in_uses_installed_os_trust_without_global_override(monkeypatch):
+    import os
     import ssl
-    import grpc
-    from google.ai import generativelanguage_v1beta as glm
-    from google.ai.generativelanguage_v1beta.services.generative_service import transports
+    import httpx
     from engineering.proposer import GeminiProposalProvider, provider_schema
     import config
     monkeypatch.setattr(config, 'ENGINEERING_TLS_OS_TRUST', True)  # explicit local-diagnostic opt-in
-    captured = {}
-    roots = ssl.create_default_context().get_ca_certs(binary_form=True)
-    expected = ''.join(ssl.DER_cert_to_PEM_cert(root) for root in roots).encode('ascii')
-    sentinel = object()
-    def credentials(*, root_certificates):
-        captured['roots'] = root_certificates
-        return sentinel
-    class Transport:
-        def __init__(self, **kwargs): captured['transport'] = kwargs
-        async def close(self): captured['closed'] = True
-    class Client:
-        def __init__(self, *, transport, client_options):
-            self.transport = transport(host='offline.invalid', credentials='sdk-owned')
-        async def generate_content(self, request, **kwargs):
-            raise RuntimeError('offline provider failure')
-    monkeypatch.delenv('GRPC_DEFAULT_SSL_ROOTS_FILE_PATH', raising=False)
+    contexts = []
+    real = ssl.create_default_context
+    def tracking(*args, **kwargs):
+        contexts.append(real(*args, **kwargs))
+        return contexts[-1]
+    seen = {}
+    async def behaviour():
+        seen['open_during_call'] = not fake.clients[0]['http_options'].httpx_async_client.is_closed
+        raise RuntimeError('offline provider failure')
+    fake = FakeGenai(monkeypatch, behaviour=behaviour)
+    monkeypatch.delenv('SSL_CERT_FILE', raising=False)
     monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'offline-placeholder')
-    monkeypatch.setattr(grpc, 'ssl_channel_credentials', credentials)
-    monkeypatch.setattr(transports, 'GenerativeServiceGrpcAsyncIOTransport', Transport)
-    monkeypatch.setattr(glm, 'GenerativeServiceAsyncClient', Client)
+    monkeypatch.setattr(ssl, 'create_default_context', tracking)
     provider = GeminiProposalProvider()
     with pytest.raises(RuntimeError, match='offline provider failure'):
         asyncio.run(provider.generate('fixture', provider_schema(), provider.settings()))
-    assert captured['roots'] == expected and expected
-    assert captured['transport']['ssl_channel_credentials'] is sentinel
-    assert captured['closed'] is True
-    import os
-    assert 'GRPC_DEFAULT_SSL_ROOTS_FILE_PATH' not in os.environ
+    client = fake.clients[0]['http_options'].httpx_async_client
+    assert isinstance(client, httpx.AsyncClient) and client.is_closed and seen['open_during_call']
+    assert contexts and contexts[0].get_ca_certs(binary_form=True)
+    assert 'SSL_CERT_FILE' not in os.environ and fake.events == ['called', 'closed']
 
 
 def test_versioned_corpus_has_ten_complete_ten_ambiguous_ten_unsupported():
@@ -410,7 +579,7 @@ import sys
 from engineering.proposer import ProposalResponse, provider_schema
 ProposalResponse.model_json_schema()
 provider_schema()
-assert not any(n in sys.modules for n in ['agents', 'google.generativeai', 'google.ai.generativelanguage_v1beta', 'cadquery', 'OCP', 'numpy'])
+assert not any(n in sys.modules for n in ['agents', 'google.generativeai', 'google.ai.generativelanguage_v1beta', 'google.genai', 'grpc', 'cadquery', 'OCP', 'numpy'])
 '''
     result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -472,3 +641,41 @@ def test_flag_off_builds_no_provider_and_reads_no_key(monkeypatch):
     assert built == [] and reads == []
     on = module.make_proposer(service, ledger=module.MemoryProposalLedger(), enabled=True)
     assert on is not None and built == [1]
+
+
+@pytest.mark.parametrize('make,expected', [
+    (lambda e: e.ServerError(503, {'error': {'code': 503, 'message': 'The model is overloaded', 'status': 'UNAVAILABLE'}}),
+     dict(exception='ServerError', code='503')),
+    (lambda e: e.ClientError(400, {'error': {'code': 400, 'message': 'API key not valid. Please pass a valid API key.', 'status': 'INVALID_ARGUMENT'}}),
+     dict(exception='ClientError', code='400', credential_rejected=True)),
+    (lambda e: e.ClientError(404, {'error': {'code': 404, 'message': 'models/x is not found for API version', 'status': 'NOT_FOUND'}}),
+     dict(exception='ClientError', code='404', model_unavailable=True)),
+    (lambda e: e.ClientError(400, {'error': {'code': 400, 'message': 'response_schema is invalid', 'status': 'INVALID_ARGUMENT'}}),
+     dict(exception='ClientError', code='400', schema_rejected=True)),
+    (lambda e: RuntimeError('[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed'),
+     dict(exception='RuntimeError', code=None, tls_certificate_failure=True)),
+    (lambda e: RuntimeError('AI preparation did not return a complete candidate'),
+     dict(exception='RuntimeError', code=None, incomplete_response=True)),
+])
+def test_observed_provider_classifies_google_genai_errors_safely(monkeypatch, make, expected):
+    from google.genai import errors
+    from scripts.checked_engineering_live_eval import ObservedProvider
+    async def failing():
+        raise make(errors)
+    FakeGenai(monkeypatch, behaviour=failing)
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'offline-placeholder')
+    from engineering.proposer import provider_schema
+    provider = ObservedProvider()
+    with pytest.raises(Exception):
+        asyncio.run(provider.generate('fixture', provider_schema(), provider.settings()))
+    (entry,) = provider.failures
+    flags = dict(tls_certificate_failure=False, credential_rejected=False, model_unavailable=False,
+                 schema_rejected=False, incomplete_response=False)
+    flags.update(expected)
+    assert entry == flags
+    assert 'overloaded' not in json.dumps(entry) and 'offline-placeholder' not in json.dumps(entry)
+
+
+def test_live_eval_identity_lists_google_genai_not_the_old_sdk():
+    source = (Path(__file__).parents[2]/'scripts'/'checked_engineering_live_eval.py').read_text()
+    assert "'google-genai'" in source and "'google-ai-generativelanguage'" not in source and "'grpcio'" not in source
