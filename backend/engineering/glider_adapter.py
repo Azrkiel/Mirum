@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import importlib
 import io
 import json
 import math
@@ -359,7 +360,7 @@ class GliderAdapter:
         if refused:
             raise UnsupportedCapability(refused[0][1])
         try:
-            from cem import api
+            api = importlib.import_module('cem.api')   # honours sys.modules, unlike ``from cem import api``
             from cem.evidence import validate
             from cem.glider import calibration
             loaded = calibration.load(spec['calibration_version'])
