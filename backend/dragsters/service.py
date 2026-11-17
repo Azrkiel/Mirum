@@ -17,6 +17,7 @@ else:
     from process_runner import ProcessRunner
     from compiler import _WORK_DIR
 from .spec import DragsterSpec, canonical_spec
+from .spec_v2 import DragsterSpecV2, canonical_spec_v2, parse_any
 
 
 class GenerationError(RuntimeError):
@@ -41,9 +42,11 @@ def worker_env() -> dict:
     return env
 
 
-async def generate(spec: DragsterSpec, *, runner=None) -> dict:
+async def generate(spec: DragsterSpec | DragsterSpecV2, *, runner=None) -> dict:
     """Retain scratch ownership until worker cleanup and publication settle."""
-    spec = DragsterSpec.model_validate_json(canonical_spec(spec))
+    canonical = canonical_spec if spec.schema_version == 1 else canonical_spec_v2
+    spec = parse_any(canonical(spec))
+    payload = canonical(spec).encode()
     own_runner = runner is None
     runner = runner or ProcessRunner(timeout=30, memory_mb=1536, output_limit=1048576)
     _WORK_DIR.mkdir(parents=True, exist_ok=True)
@@ -52,7 +55,7 @@ async def generate(spec: DragsterSpec, *, runner=None) -> dict:
         with tempfile.TemporaryDirectory(prefix='dragster-', dir=_WORK_DIR) as temporary:
             stage = Path(temporary)
             native = await runner.run([sys.executable, str(Path(__file__).with_name('worker.py')),
-                                      str(stage)], input=canonical_spec(spec).encode(), cwd=str(stage),
+                                      str(stage)], input=payload, cwd=str(stage),
                                       env=worker_env())
             if native.get('code') or native.get('returncode') != 0:
                 reason = native.get('code') or native.get('stderr', '').strip()[-1200:] or 'native generation failed'
@@ -68,7 +71,7 @@ async def generate(spec: DragsterSpec, *, runner=None) -> dict:
                     raise GenerationError('Required artifact missing or exceeds delivery budget')
             data = {fmt: (result / name).read_bytes() for fmt, name in files.items()}
             report = json.loads(data['report'])
-            if (report.get('passed') is not True or data['spec'] != canonical_spec(spec).encode()
+            if (report.get('passed') is not True or data['spec'] != payload
                     or report.get('spec_sha256') != digest(data['spec'])
                     or report.get('step_sha256') != digest(data['step'])
                     or report.get('preview', {}).get('source_step_sha256') != digest(data['step'])
