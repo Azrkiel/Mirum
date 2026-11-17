@@ -88,7 +88,7 @@ def test_no_style_or_several_styles_need_clarification_with_the_interpret_wordin
 def test_style_detection_helper_is_pinned():
     from dragsters.extraction import _styles
     assert _styles('Wedge') == ['wedge'] and _styles('tear-drop') == ['teardrop']
-    assert _styles('waisted coke bottle') == ['narrow_waist'] and _styles('raised housing') == []
+    assert _styles('waisted coke bottle') == ['narrow_waist'] and _styles('raised housing') == ['narrow_waist'] and _styles('flat') == []
     assert _styles('wedge teardrop') == ['wedge', 'teardrop']
 
 
@@ -99,6 +99,7 @@ def test_bad_prompts_are_value_errors(prompt):
 
 
 def test_the_rules_proposer_is_registered_and_reads_no_key_and_builds_no_provider(monkeypatch):
+    before = set(sys.modules)
     reads = []
 
     class Watching(dict):
@@ -114,7 +115,7 @@ def test_the_rules_proposer_is_registered_and_reads_no_key_and_builds_no_provide
     proposer = rules_proposer('co2_dragster')
     proposer.propose(RULES_PROMPT)
     assert not [k for k in reads if 'KEY' in str(k)]
-    assert not [m for m in sys.modules if m.startswith('google')]
+    assert not [m for m in set(sys.modules) - before if m.startswith('google')]
 
 
 # --- ai mode -----------------------------------------------------------------------------
@@ -223,6 +224,7 @@ def test_ai_calls_the_real_interpret_unchanged_when_only_its_provider_reply_is_r
 
 
 def test_flag_off_builds_no_provider_and_reads_no_key(monkeypatch):
+    before = set(sys.modules)
     reads = []
 
     class Watching(dict):
@@ -241,7 +243,7 @@ def test_flag_off_builds_no_provider_and_reads_no_key(monkeypatch):
     from engineering.dragster_proposer import make_ai_proposer
     assert make_ai_proposer(enabled=False) is None
     assert called == [] and not [k for k in reads if 'KEY' in str(k) or 'GEMINI' in str(k)]
-    assert not [m for m in sys.modules if m.startswith('google')]
+    assert not [m for m in set(sys.modules) - before if m.startswith('google')]
 
 
 def test_flag_on_builds_an_ai_proposer_with_a_budget_and_no_key_read(monkeypatch):

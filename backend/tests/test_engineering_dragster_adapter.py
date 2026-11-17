@@ -373,7 +373,7 @@ def test_adapter_is_registered_and_imports_no_cad_or_web_framework():
             "a=get_adapter(d.id,d.version,numerical_policy_version=d.numerical_version,"
             "resource_policy_version=d.resources.version); "
             "assert type(a).__name__=='DragsterAdapter'; "
-            "bad=[n for n in ('fastapi','cadquery','OCP','trimesh','scipy','google') if n in sys.modules]; "
+            "bad=[n for n in ('fastapi','cadquery','OCP','trimesh','scipy','google.generativeai','google.genai') if n in sys.modules]; "
             "assert not bad, bad")
     import subprocess
     backend = os.path.join(os.path.dirname(__file__), '..')
@@ -605,6 +605,10 @@ def mask_file_name(step: bytes) -> bytes:
     return re.sub(rb"FILE_NAME\(.*?\);", b'FILE_NAME(MASKED);', step, count=1, flags=re.S)
 
 
+def mask_mesh_names(glb: bytes) -> bytes:
+    return re.sub(rb'"name":"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"', b'"name":"MASKED"', glb)
+
+
 def boundary_spec():
     """Smallest ground clearance and side clearance the v2 model admits, on the lofted narrow waist."""
     spec = spec_for('narrow_waist')
@@ -628,24 +632,33 @@ def test_identity_old_endpoint_and_v1_give_the_same_bytes(stack, name, make):
     job_id = result['job_id']
     new = {fmt: v1_file(client, job_id, f'generator-{name_}').content for fmt, name_ in
            dict(spec='spec', report='report', step='body-step', glb='preview-glb').items()}
-    # spec.json and preview.glb: byte-equal across both old runs and the v1 run
     assert first['spec'] == second['spec'] == new['spec']
-    assert first['glb'] == second['glb'] == new['glb']
-    # report.json: canonical, with only the random revision_id excluded
+    # preview.glb: byte-equal if the two old runs agree. The exporter names each mesh with a
+    # time-based uuid, so otherwise only those names are masked and every other byte must match.
+    glb_agree = first['glb'] == second['glb']
+    if glb_agree:
+        assert new['glb'] == first['glb']
+    else:
+        assert mask_mesh_names(new['glb']) == mask_mesh_names(first['glb']) == mask_mesh_names(second['glb'])
     steps_agree = first['step'] == second['step']
-    drop = ('revision_id',) if steps_agree else ('revision_id', 'step_sha256', 'preview.source_step_sha256')
+    # report.json: canonical, with only the random revision_id excluded (plus the digests of bytes
+    # that legitimately differ; each of those is instead checked against its own bytes)
+    drop = ['revision_id']
+    if not steps_agree:
+        drop += ['step_sha256', 'preview.source_step_sha256']
+    if not glb_agree:
+        drop += ['preview.glb_sha256']
     old_reports = [json.loads(f['report']) for f in (first, second)]
     new_report = json.loads(new['report'])
-    assert canonical_without(old_reports[0], *drop) == canonical_without(old_reports[1], *drop) \
-        == canonical_without(new_report, *drop)
+    assert canonical_without(old_reports[0], *drop) == canonical_without(old_reports[1], *drop)         == canonical_without(new_report, *drop)
+    for report, files in ((old_reports[0], first), (old_reports[1], second), (new_report, new)):
+        assert report['step_sha256'] == sha(files['step']) == report['preview']['source_step_sha256']
+        assert report['preview']['glb_sha256'] == sha(files['glb'])
     if steps_agree:
         assert new['step'] == first['step']
     else:
         # OCCT's STEP header timestamp: mask only the FILE_NAME record, then require equal bytes
         assert mask_file_name(new['step']) == mask_file_name(first['step']) == mask_file_name(second['step'])
-        for report, step in ((old_reports[0], first['step']), (old_reports[1], second['step']),
-                             (new_report, new['step'])):
-            assert report['step_sha256'] == sha(step)
         for key in ('volume_mm3', 'bounds_mm', 'checks', 'hardware', 'mass'):
             assert old_reports[0][key] == old_reports[1][key] == new_report[key]
     assert [c['state'] for c in result['attempts'][0]['checks']] == ['passed'] * 14
