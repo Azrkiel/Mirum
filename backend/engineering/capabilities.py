@@ -267,7 +267,7 @@ class GliderCapabilitySpec(StrictModel):
 
 # Closed limit tables: ``(limit name, unit, comparison, pinned constant name | literal)``.
 # They hold only what section 5.3 and the pinned constants already fix. Each adapter PR
-# completes its own table (TODO U6.3 dragster, U6.1 regen, U6.2 glider): a check missing
+# completes its own table (TODO U6.3 dragster, U6.2 glider): a check missing
 # here cannot be accepted until then, so nothing is ever approved on a guessed limit.
 def _dragster_limits(spec: dict) -> dict:
     wedge = spec.get('style') == 'wedge'
@@ -283,10 +283,28 @@ def _dragster_limits(spec: dict) -> dict:
 
 
 def _regen_limits(spec: dict) -> dict:
+    pinned = {r.name: r.value for r in REGEN.numerical}
+    voxel = spec.get('voxel_size_mm', 0)
+    # Same expression as ``RegenChamberSpec.min_feature_mm - voxel_size_mm`` in regen_mesh.
+    floor = max(0.5, 4.0 * voxel) - voxel
+    unresolved = ('unresolved', 'count', 'le', 0)
+    wall = (('floor_applied', 'mm', 'eq', floor), ('stations_below_floor', 'count', 'le', 0), unresolved)
+    channels = spec.get('channel_count', 0)
     return {
+        'components': (('unexpected_components', 'count', 'le', 0),),
+        'edge_manifold': (('edges_not_used_twice', 'count', 'le', 0),),
+        'winding': (('directed_edge_conflicts', 'count', 'le', 0), ('non_positive_volume', 'count', 'le', 0)),
+        'bbox': (('bbox_max_error', 'mm', 'le', pinned['BBOX_TOLERANCE_VOXELS'] * voxel),),
         'volume': (('volume_relative_error', 'ratio', 'le', 'VOLUME_TOLERANCE'),),
-        'bbox': (('bbox_error_voxels', 'count', 'le', 'BBOX_TOLERANCE_VOXELS'),),
-        'channel_count': (('channel_count', 'count', 'eq', spec.get('channel_count', 0)),),
+        'channel_count': (('channel_count', 'count', 'eq', channels), ('channel_count_max', 'count', 'eq', channels)),
+        'hot_wall': wall, 'cold_wall': wall, 'rib': wall,
+        'circuit_fidelity': (('nonconforming_patches', 'count', 'le', 0),
+                             ('unsplit_over_radius_target', 'count', 'le', 0), unresolved),
+        'circuit_coverage': (('failed_samples', 'count', 'le', 0), ('void_components', 'count', 'eq', 1), unresolved),
+        'wall_thickness': (('violations', 'count', 'le', 0), ('marginal', 'count', 'le', 0),
+                           ('too_deep', 'count', 'le', 0), ('exhausted', 'count', 'le', 0), unresolved),
+        'evidence_binding': (('passed', 'count', 'eq', 1), ('geometry_source_picogk_builder', 'count', 'eq', 1),
+                             ('not_certified', 'count', 'eq', 1)),
     }
 
 

@@ -57,13 +57,15 @@ class JobController:
     B10 supplies durable publication. No publisher means no accepted terminal
     commit. Polling/read never starts work; only submit creates an owned task.
     """
-    def __init__(self, store, *, publisher=None, adapter=None, overall_seconds=420, fairness=None):
+    def __init__(self, store, *, publisher=None, adapter=None, overall_seconds=420, fairness=None, generators=None):
         if isinstance(overall_seconds, bool) or not math.isfinite(overall_seconds) or not 0 < overall_seconds <= 420:
             raise ValueError('Overall deadline must be positive and at most 420 seconds')
         if getattr(store, '_controller_created', False):
             raise RuntimeError('Engineering store already has a controller owner')
         store._controller_created = True
         self.store, self.publisher, self.adapter = store, publisher, adapter
+        # ``{capability id: adapter}`` for registry generators; the beam keeps ``adapter``.
+        self.generators = dict(generators or {})
         # Direct (non-API) use is unrestricted; the API runtime supplies configured fairness.
         self.fairness = fairness or ClientFairness.unlimited()
         self.seconds, self.tasks = overall_seconds, {}
@@ -226,7 +228,7 @@ class JobController:
                 if event.attempt:
                     current = self.read(job.job_id)
                     self._update(job.job_id, attempts=(*current.attempts, event.attempt))
-            result = await search(brief, adapter=self.adapter, cancelled=lambda: self._cancelled(job.job_id),
+            result = await search(brief, adapter=self.generators.get(brief.content.capability.id, self.adapter), cancelled=lambda: self._cancelled(job.job_id),
                                   deadline=deadline-min(1, self.seconds*.1), on_progress=progress)
             self._update(job.job_id, attempts=result.attempts)
             if result.state == 'selected':
