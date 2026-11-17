@@ -3,7 +3,9 @@
 Both modes return what ``BriefService.create`` takes: a payload, issues and provenance. Nothing
 here finalizes a brief, runs native work or builds a provider.
 
-- ``RulesProposer`` (stdlib, no model, no key, allowed with the AI flag off): the preset for the
+- ``RulesProposer`` (no model, no key, no network; allowed with the AI flag off). It uses the
+  repo's ``dragsters`` intent rules, ``extraction._styles`` and the preset loader (pydantic, no
+  CadQuery), not the standard library alone. It drafts the preset for the
   one style the prompt names, every field marked ``policy``. A prompt that states any digit gets a
   blocking clarification: stated values are never silently ignored.
 - ``AiProposer`` (built only when ``MIRUM_ENGINEERING_AI_DRAFTS`` is on): reserves one call in the

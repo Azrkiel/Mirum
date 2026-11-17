@@ -34,7 +34,7 @@ from pydantic import ValidationError
 from cem.core import canonical_json
 from dragsters.spec_v2 import canonical_spec_v2, parse_v2, specification_digest_v2
 from dragsters.styles import REGISTRY
-from .capabilities import DRAGSTER, UnsupportedCapability
+from .capabilities import DRAGSTER, DRAGSTER_STYLE_INDEX, UnsupportedCapability
 from .contracts import (ArtifactIdentity, CheckState, EngineeringBrief, GeneratorBriefContent,
                         GeneratorCandidate, GeneratorCheckResult, Measurement)
 
@@ -52,7 +52,10 @@ UNITS = {
     'solid_count': 'count', 'bounds_deviation': 'mm', 'ymin_plus_ymax': 'mm', 'centroid_y': 'mm',
     'volume_relative_error': 'ratio', 'residual_void': 'mm3', 'min_wall_mm': 'mm', 'revalidated': 'count',
     'min_distance_mm': 'mm', 'max_intersection_volume_mm3': 'mm3', 'zmin_mm': 'mm',
+    'volume_excess_mm3': 'mm3', 'zmin_positive': 'count', 'style_index': 'count', 'required_wall_echo': 'mm',
+    'side_clearance_echo': 'mm', 'ground_clearance_echo': 'mm',
 }
+PINNED = {r.name: r.value for r in DRAGSTER.numerical}
 _FAILED = re.compile(r'STEP checks failed: ([a-z_]+(?:, [a-z_]+)*)\s*$')
 
 
@@ -116,7 +119,13 @@ def parse_report(report: dict) -> dict:
             expected = _num(_get(c, 'expected_mm3'))
             if expected <= 0:
                 raise DragsterUnavailable('Report check lacks its measurements')
-            out[name] = dict(volume_relative_error=abs(_num(_get(c, 'deviation_mm3'))) / expected)
+            deviation = abs(_num(_get(c, 'deviation_mm3')))
+            if report.get('style') == 'wedge':
+                # The verifier's own rule: |volume - expected| <= max(0.1, 1e-6 * expected) in mm3.
+                tolerance = max(PINNED['WEDGE_VOLUME_ABS_TOL_MM3'], PINNED['WEDGE_VOLUME_REL_TOL'] * expected)
+                out[name] = dict(volume_excess_mm3=deviation - tolerance)
+            else:
+                out[name] = dict(volume_relative_error=deviation / expected)
         elif name in VOID_CHECKS:
             out[name] = dict(residual_void=abs(_num(_get(c, 'residual_body_mm3'))))
         elif name in WALL_CHECKS:
@@ -127,15 +136,21 @@ def parse_report(report: dict) -> dict:
             worst = min(_num(_mapping(a).get('wall_mm')) for a in axes)
             if worst != _num(_get(measured, 'min_wall_mm')):
                 raise DragsterUnavailable('Report wall minimum differs from its axes')
-            out[name] = dict(min_wall_mm=worst)
+            out[name] = dict(min_wall_mm=worst, required_wall_echo=_num(_get(c, 'min_wall_mm')))
         elif name == 'spec_revalidation':
-            out[name] = dict(revalidated=1.0 if c['passed'] else 0.0)
+            if report.get('style') not in DRAGSTER_STYLE_INDEX:
+                raise DragsterUnavailable('Report style is unknown')
+            out[name] = dict(revalidated=1.0 if c['passed'] else 0.0,
+                             style_index=float(DRAGSTER_STYLE_INDEX[report['style']]))
         elif name in ('wheel_clearance_front', 'wheel_clearance_rear'):
             distances, volumes = _sides(c, 'measured_distance_mm'), _sides(c, 'intersection_volume_mm3')
             out[name] = dict(min_distance_mm=min(_num(v) for v in distances.values()),
-                             max_intersection_volume_mm3=max(_num(v) for v in volumes.values()))
+                             max_intersection_volume_mm3=max(_num(v) for v in volumes.values()),
+                             side_clearance_echo=_num(_get(c, 'side_clearance_mm')))
         else:
-            out[name] = dict(zmin_mm=_num(_get(c, 'zmin_mm')))
+            zmin = _num(_get(c, 'zmin_mm'))
+            out[name] = dict(zmin_mm=zmin, zmin_positive=1.0 if zmin > 0 else 0.0,
+                             ground_clearance_echo=_num(_get(c, 'ground_clearance_mm')))
     return out
 
 
@@ -308,14 +323,18 @@ class DragsterAdapter:
             finally:
                 artifacts.discard(run_id)
         files = await asyncio.to_thread(read)
-        digests = result.get('digests')
-        report = result.get('report')
-        if (not isinstance(digests, dict) or any(digests.get(f) != _sha(files[f]) for f in FORMATS)
-                or not isinstance(report, dict)):
-            raise DragsterUnavailable('Dragster output differs from the service result')
-        spec_bytes = canonical_spec_v2(parse_v2(files['spec'].decode('utf-8'))).encode()
-        if files['spec'] != spec_bytes or specification_digest_v2(parse_v2(files['spec'].decode('utf-8'))) \
-                != candidate.candidate_sha256:
-            raise DragsterUnavailable('Dragster output differs from the reviewed specification')
-        return build_evaluation(candidate, report, report_bytes=files['report'], spec_bytes=files['spec'],
-                                step_bytes=files['step'], glb_bytes=files['glb'])
+        try:
+            digests, report = result.get('digests'), result.get('report')
+            if (not isinstance(digests, dict) or any(digests.get(f) != _sha(files[f]) for f in FORMATS)
+                    or not isinstance(report, dict)):
+                raise DragsterUnavailable('Dragster output differs from the service result')
+            served = parse_v2(files['spec'].decode('utf-8'))
+            if (files['spec'] != canonical_spec_v2(served).encode()
+                    or specification_digest_v2(served) != candidate.candidate_sha256):
+                raise DragsterUnavailable('Dragster output differs from the reviewed specification')
+            return build_evaluation(candidate, report, report_bytes=files['report'], spec_bytes=files['spec'],
+                                    step_bytes=files['step'], glb_bytes=files['glb'])
+        except DragsterUnavailable:
+            raise
+        except Exception:
+            raise DragsterUnavailable('Dragster output is malformed') from None

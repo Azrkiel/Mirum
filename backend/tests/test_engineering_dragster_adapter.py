@@ -115,7 +115,9 @@ def test_limit_values_come_from_the_pinned_constants_and_the_reviewed_spec():
         assert by['symmetry']['ymin_plus_ymax'].value == bounds_tol
         assert by['symmetry']['ymin_plus_ymax'].comparison == 'abs_le'
         assert by['symmetry']['centroid_y'].value == pinned['CENTROID_Y_TOL_MM']
-        assert by['reference_volume']['volume_relative_error'].value == tolerances.LOFT_VOLUME_REL_TOL
+        assert by['reference_volume'].keys() == ({'volume_excess_mm3'} if style == 'wedge' else {'volume_relative_error'})
+        if style != 'wedge':
+            assert by['reference_volume']['volume_relative_error'].value == tolerances.LOFT_VOLUME_REL_TOL
         for check in ('pocket_void', 'front_axle_void', 'rear_axle_void'):
             assert by[check]['residual_void'].value == tolerances.VOID_TOLERANCE_MM3
         floor = spec['min_wall_mm'] - tolerances.WALL_DISTANCE_TOL_MM
@@ -249,7 +251,11 @@ def test_the_policy_itself_enforces_the_report_echoes_not_only_build_evaluation(
     cand = candidate()
     report = recorded_report()
     tamper(report)
-    decision = assess(cand, build(cand, report, accepted=True))
+    try:
+        evaluation = build(cand, report, accepted=True)
+    except ValueError:      # an echo that cannot even form typed evidence (wrong style's rows) is refused too
+        return
+    decision = assess(cand, evaluation)
     assert not decision.available and decision.outcome.value == 'not_evaluated'
 
 

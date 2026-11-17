@@ -269,26 +269,42 @@ class GliderCapabilitySpec(StrictModel):
 # They hold only what section 5.3 and the pinned constants already fix. Each adapter PR
 # completes its own table (the glider's is U6.2): a check missing
 # here cannot be accepted until then, so nothing is ever approved on a guessed limit.
+DRAGSTER_STYLE_INDEX = {'wedge': 0, 'teardrop': 1, 'narrow_waist': 2}   # pinned to ``styles.REGISTRY`` by a test
+
+
 def _dragster_limits(spec: dict) -> dict:
     """The 14 required checks, from ``dragsters.tolerances``, the ``validation_v2`` constants and the spec."""
     pinned = {r.name: r.value for r in DRAGSTER.numerical}
     bounds_tol = pinned['WEDGE_BOUNDS_TOL_MM' if spec.get('style') == 'wedge' else 'LOFT_BOUNDS_TOL_MM']
     wall_tol = pinned['WALL_DISTANCE_TOL_MM']
     # Same expressions the verifiers use: ``t - WALL_DISTANCE_TOL_MM`` and ``g - tol``.
-    wall = (('min_wall_mm', 'mm', 'ge', float(spec.get('min_wall_mm', 0)) - wall_tol),)
+    # The ``*_echo`` rows bind a value the report repeats to the reviewed spec, so the policy
+    # (not only the adapter's constructor) refuses a report that echoes anything else.
+    wall = (('min_wall_mm', 'mm', 'ge', float(spec.get('min_wall_mm', 0)) - wall_tol),
+            ('required_wall_echo', 'mm', 'eq', float(spec.get('min_wall_mm', 0))))
     void = (('residual_void', 'mm3', 'le', 'VOID_TOLERANCE_MM3'),)
-    clearance = (('min_distance_mm', 'mm', 'ge', float((spec.get('wheels') or {}).get('side_clearance_mm', 0)) - wall_tol),
-                 ('max_intersection_volume_mm3', 'mm3', 'le', 'VOID_TOLERANCE_MM3'))
+    side = float((spec.get('wheels') or {}).get('side_clearance_mm', 0))
+    clearance = (('min_distance_mm', 'mm', 'ge', side - wall_tol),
+                 ('max_intersection_volume_mm3', 'mm3', 'le', 'VOID_TOLERANCE_MM3'),
+                 ('side_clearance_echo', 'mm', 'eq', side))
+    # validation_v2 checks the wedge volume against max(0.1, 1e-6 * expected) in mm3 and the loft
+    # styles against LOFT_VOLUME_REL_TOL * expected; the measurement is the excess over that threshold.
+    volume = ((('volume_excess_mm3', 'mm3', 'le', 0.0),) if spec.get('style') == 'wedge'
+              else (('volume_relative_error', 'ratio', 'le', 'LOFT_VOLUME_REL_TOL'),))
     return {
         'single_valid_solid': (('solid_count', 'count', 'eq', 1),),
         'absolute_bounds': (('bounds_deviation', 'mm', 'le', bounds_tol),),
         'symmetry': (('ymin_plus_ymax', 'mm', 'abs_le', bounds_tol), ('centroid_y', 'mm', 'abs_le', 'CENTROID_Y_TOL_MM')),
-        'reference_volume': (('volume_relative_error', 'ratio', 'le', 'LOFT_VOLUME_REL_TOL'),),
+        'reference_volume': volume,
         'pocket_void': void, 'front_axle_void': void, 'rear_axle_void': void,
         'pocket_wall': wall, 'front_bore_wall': wall, 'rear_bore_wall': wall,
-        'spec_revalidation': (('revalidated', 'count', 'eq', 1),),
+        'spec_revalidation': (('revalidated', 'count', 'eq', 1),
+                              ('style_index', 'count', 'eq', DRAGSTER_STYLE_INDEX.get(spec.get('style'), -1))),
         'wheel_clearance_front': clearance, 'wheel_clearance_rear': clearance,
-        'body_above_ground': (('zmin_mm', 'mm', 'ge', float(spec.get('ground_clearance_mm', 0)) - bounds_tol),),
+        # hardware.py: ``zmin >= g - tol and zmin > 0``; the strict part is its own 0/1 row.
+        'body_above_ground': (('zmin_mm', 'mm', 'ge', float(spec.get('ground_clearance_mm', 0)) - bounds_tol),
+                              ('zmin_positive', 'count', 'eq', 1),
+                              ('ground_clearance_echo', 'mm', 'eq', float(spec.get('ground_clearance_mm', 0)))),
     }
 
 
@@ -400,7 +416,9 @@ DRAGSTER = GeneratorDescriptor(
         _ref('PLANE_TOL_MM', 'dragsters.validation_v2', 'PLANE_TOL_MM', 1e-4, _VAL),
         _ref('PARALLEL_TOL', 'dragsters.validation_v2', 'PARALLEL_TOL', 1e-9, _VAL),
         _ref('SAMPLE_STEP_MM', 'dragsters.validation_v2', 'SAMPLE_STEP_MM', 0.25, _VAL),
-        _ref('PROBE_MARGIN_MM', 'dragsters.validation_v2', 'PROBE_MARGIN_MM', 0.05, _VAL)),
+        _ref('PROBE_MARGIN_MM', 'dragsters.validation_v2', 'PROBE_MARGIN_MM', 0.05, _VAL),
+        _inline('WEDGE_VOLUME_ABS_TOL_MM3', 0.1, _VAL + ':197'),
+        _inline('WEDGE_VOLUME_REL_TOL', 1e-6, _VAL + ':197')),
     runtime_limits=(
         _inline('ProcessRunner.timeout_s', 30, 'backend/dragsters/service.py:48'),
         _inline('ProcessRunner.memory_mb', 1536, 'backend/dragsters/service.py:48'),
