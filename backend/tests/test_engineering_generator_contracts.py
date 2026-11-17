@@ -533,10 +533,12 @@ def test_resource_policy_is_unchanged():
 
 
 def test_importing_the_registry_loads_no_provider_native_or_web_modules():
+    # a site .pth can preload a namespace package such as google, so measure what the import adds
     code = ('import sys\n'
+            'before = set(sys.modules)\n'
             'import engineering.capabilities as c\n'
             'assert len(c.list_capabilities()) == 4\n'
-            'bad = sorted(m for m in sys.modules if m.split(".")[0] in '
+            'bad = sorted(m for m in set(sys.modules) - before if m.split(".")[0] in '
             '("google", "cadquery", "OCP", "aerosandbox", "trimesh", "scipy", "fastapi"))\n'
             'assert not bad, bad\n')
     env = dict(os.environ, PYTHONPATH=os.pathsep.join([BACKEND, SEARCH_DIR]))

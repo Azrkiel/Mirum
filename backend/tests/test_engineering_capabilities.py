@@ -101,9 +101,10 @@ def test_ambiguous_or_invalid_choices_cannot_be_reviewed(changes):
 
 def test_metadata_import_does_not_initialize_native_or_ai_runtime():
     code = '''import sys
+before = set(sys.modules)
 from engineering.capabilities import CAPABILITY, list_capabilities
 assert list_capabilities()[0] == CAPABILITY
-assert not any(m.split('.')[0] in ('google', 'agents', 'cadquery', 'OCP', 'numpy', 'aerosandbox', 'trimesh', 'scipy', 'fastapi') for m in sys.modules)
+assert not any(m.split('.')[0] in ('google', 'agents', 'cadquery', 'OCP', 'numpy', 'aerosandbox', 'trimesh', 'scipy', 'fastapi') for m in set(sys.modules) - before)
 '''
     subprocess.run([sys.executable, '-c', code], check=True)
 
