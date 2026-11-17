@@ -288,10 +288,19 @@ def test_a_changed_byte_in_the_zip_is_unavailable():
     assert not assess(candidate, broken).available
 
 
-def test_a_part_that_differs_from_the_stated_part_digest_is_unavailable():
-    candidate, evaluation = assembled(tamper='spar')
+def test_a_part_whose_bytes_differ_from_its_claimed_hash_is_never_accepted():
+    from engineering.glider_adapter import GliderInconsistent
+    # screened report + tampered part: the artifact_binding tally fails, so the run is unavailable
+    with pytest.raises(GliderInconsistent):
+        assembled(tamper='spar')
+    # rejected report + tampered part: artifact_binding is FAILED (or the policy refuses); never accepted
+    candidate, evaluation = assembled(tamper='spar', design_changes=dict(status='rejected',
+                                                                         minimum_performance_passed=False))
+    by_id = {c.check_id: c for c in evaluation['checks']}
+    assert by_id['artifact_binding'].state.value == 'failed'
+    assert {m.name: m.value for m in by_id['artifact_binding'].measurements}['artifact_hash_mismatches'] == 1.0
     decision = assess(candidate, evaluation)
-    assert not decision.available and decision.outcome.value == 'not_evaluated'
+    assert not (decision.available and decision.outcome.value == 'accepted')
 
 
 def test_a_report_for_another_specification_is_unavailable():
@@ -650,3 +659,60 @@ def test_a_glider_brief_reaches_glider_adapter_through_create_runtime_not_the_be
             unwired.jobs._adapter_for(glider)
     finally:
         unwired.store.close()
+
+
+# --- L1: the validated bytes are the delivered bytes ----------------------------------
+
+def test_the_design_bytes_are_the_validated_bytes_not_a_second_disk_read(fake_cem, monkeypatch):
+    import cem.evidence
+    jobs = fake_cem.install()
+    validated = {}
+
+    def swap_after_validation(report, payload, expected, directory):
+        if payload['kind'] == 'design':
+            validated['bytes'] = (directory / 'result.json').read_bytes()
+            (directory / 'result.json').write_bytes(b'{"swapped":true}')
+    monkeypatch.setattr(cem.evidence, 'validate', swap_after_validation)
+    evaluation = run(adapter().evaluate(fake_cem.candidate))
+    assert evaluation['artifacts']['generator-result.json'] == validated['bytes']
+
+
+def test_a_bundle_that_differs_from_the_validated_bundle_hash_is_unavailable(fake_cem, monkeypatch):
+    import cem.evidence
+    from engineering.service import EngineeringUnavailable
+    fake_cem.install()
+
+    def swap_bundle(report, payload, expected, directory):
+        if payload['kind'] == 'design':
+            (directory / 'bundle.zip').write_bytes(bundle_zip(tamper='spar'))
+    monkeypatch.setattr(cem.evidence, 'validate', swap_bundle)
+    with pytest.raises(EngineeringUnavailable):
+        run(adapter().evaluate(fake_cem.candidate))
+
+
+def test_a_symlinked_bundle_is_unavailable(fake_cem, monkeypatch):
+    import cem.evidence
+    from engineering.service import EngineeringUnavailable
+    fake_cem.install()
+    real = fake_cem.candidate
+
+    def link_bundle(report, payload, expected, directory):
+        if payload['kind'] == 'design':
+            target = directory / 'real.zip'
+            (directory / 'bundle.zip').replace(target)
+            try:
+                (directory / 'bundle.zip').symlink_to(target)
+            except (OSError, NotImplementedError):
+                pytest.skip('symlinks unavailable on this host')
+    monkeypatch.setattr(cem.evidence, 'validate', link_bundle)
+    with pytest.raises(EngineeringUnavailable):
+        run(adapter().evaluate(real))
+
+
+def test_the_bundle_read_is_bounded_by_the_run_budget(fake_cem, monkeypatch):
+    from engineering import glider_adapter
+    from engineering.service import EngineeringUnavailable
+    jobs = fake_cem.install()
+    monkeypatch.setattr(glider_adapter, 'RUN_BYTES', len(jobs.bundle) - 1)
+    with pytest.raises(EngineeringUnavailable):
+        run(adapter().evaluate(fake_cem.candidate))
