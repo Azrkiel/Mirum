@@ -228,3 +228,23 @@ def test_evidence_keeps_validation_locations_but_never_raw_replies(tmp_path, mon
         audit = SQLiteProposalLedger(store).read(result_file(tmp_path)['cases'][0]['audit']['draft_id'], 1)
         assert marker in audit.validation_failures[0].raw_reply  # ledger keeps it for local diagnosis
     finally: store.close()
+
+
+def test_live_diagnostic_is_bounded_safe_and_never_repeats(tmp_path, monkeypatch):
+    from scripts import checked_engineering_live_diagnostic as diagnostic
+    marker = 'RAW-REPLY-MARKER-diagnostic'
+    case = corpus()[0]
+    provider = EvaluationFixture(['{"broken ' + marker, json.dumps(case['fixture_response'])])
+    monkeypatch.setattr(diagnostic, 'ObservedProvider', lambda: provider)
+    run = lambda: asyncio.run(diagnostic.main(tmp_path/'out', tmp_path/'state', case_id=case['id'],
+                                              authorization='offline-fixtures-only'))
+    assert run() == 0
+    text = (tmp_path/'out'/'diagnostic.json').read_text()
+    assert marker not in text
+    report = json.loads(text)
+    assert report['brief_matches_expected'] and report['audit']['calls'] == 2
+    assert report['native_execution_attempts'] == 0
+    assert report['audit']['validation_failures'][0]['errors'][0]['type'] == 'json_invalid'
+    with pytest.raises(ValueError, match='never repeated'):
+        run()
+    assert len(provider.calls) == 2
