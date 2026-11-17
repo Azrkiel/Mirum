@@ -32,6 +32,10 @@ GEMINI_MODEL_LITE: str = "gemini-3.5-flash"
 GEMINI_MODEL_ENGINEERING_PREPARATION: str = "gemini-4-hydrogen"
 # Separate from legacy clarifier limits; live requalification is required.
 GEMINI_ENGINEERING_MAX_OUTPUT_TOKENS: int = 4096
+# google-genai ThinkingLevel for checked preparation. Qualification calls stalled to the 45 s
+# deadline on the old SDK, which cannot cap thinking. "low" is the lowest level every Gemini 3+
+# family accepts; "minimal" is not accepted by every model, so it is not used until requalified.
+GEMINI_ENGINEERING_THINKING_LEVEL: str = "low"
 
 # ---------------------------------------------------------------------------
 # Pipeline tuning knobs

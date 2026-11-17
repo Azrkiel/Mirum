@@ -26,6 +26,7 @@ from .contracts import (CapabilityReference, ContractModel, FieldOrigin, Provena
                         Sha256, Text)
 from .search import _controlled, _Stopped
 
+CALL_SECONDS = 45
 PROMPT_VERSION = 'engineering_extraction_v1'
 SCHEMA_VERSION = 'engineering_proposal_v1'
 EXTRACTION_PROMPT = '''engineering_extraction_v1: Extract reviewable DATA ONLY, never Python/code.
@@ -90,7 +91,7 @@ class ProposalResponse(ContractModel):
 
 
 def provider_schema() -> dict:
-    """Project our strict local model to the installed Gemini proto's subset.
+    """Project our strict local model to the Gemini schema subset.
 
     Only nullable Optional unions occur here. Local validation keeps every
     constraint omitted by that subset (bounds, unknown fields, strict types).
@@ -121,6 +122,7 @@ class ProviderSettings(ContractModel):
     model: Text
     temperature: float = Field(ge=0, le=2)
     max_tokens: int = Field(gt=0, le=4096)
+    thinking_level: Text | None = None
 
 
 class ProviderReply(ContractModel):
@@ -136,60 +138,85 @@ class ProposalProvider(Protocol):
     async def generate(self, prompt: str, schema: dict, settings: ProviderSettings) -> ProviderReply: ...
 
 
+def _sdk_schema(node):
+    """Rename the projected schema's proto-style ``type_`` keys to ``google-genai`` ``type``."""
+    if isinstance(node, dict):
+        return {('type' if key == 'type_' else key): _sdk_schema(value) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_sdk_schema(value) for value in node]
+    return node
+
+
 class GeminiProposalProvider:
     @property
     def available(self):
         return bool(os.environ.get('GEMINI_API_KEY_HEAVY', '').strip())
 
     def settings(self):
-        from config import GEMINI_MODEL_ENGINEERING_PREPARATION, GEMINI_ENGINEERING_MAX_OUTPUT_TOKENS
+        from config import (GEMINI_MODEL_ENGINEERING_PREPARATION, GEMINI_ENGINEERING_MAX_OUTPUT_TOKENS,
+                            GEMINI_ENGINEERING_THINKING_LEVEL)
         from subagents.model_registry import ModelRegistry
         cfg = ModelRegistry.instance().get('clarifier')
-        return ProviderSettings(provider='gemini', sdk_version='google-ai-generativelanguage/'+version('google-ai-generativelanguage'),
+        return ProviderSettings(provider='gemini', sdk_version='google-genai/'+version('google-genai'),
             model=GEMINI_MODEL_ENGINEERING_PREPARATION, temperature=cfg.temperature,
-            max_tokens=GEMINI_ENGINEERING_MAX_OUTPUT_TOKENS)
+            max_tokens=GEMINI_ENGINEERING_MAX_OUTPUT_TOKENS, thinking_level=GEMINI_ENGINEERING_THINKING_LEVEL)
 
     async def generate(self, prompt, schema, settings):
-        from functools import partial
         import ssl
-        import grpc
-        from google.ai import generativelanguage_v1beta as glm
-        from google.ai.generativelanguage_v1beta.services.generative_service.transports import GenerativeServiceGrpcAsyncIOTransport
-        from google.api_core.client_options import ClientOptions
+        from google import genai
+        from google.genai import types
         key = os.environ.get('GEMINI_API_KEY_HEAVY', '').strip()
         if not key:
             raise RuntimeError('AI preparation credentials unavailable')
         import config
+        http_client = None
         if config.ENGINEERING_TLS_OS_TRUST:
             # Explicit local diagnostic opt-in (MIRUM_ENGINEERING_TLS_OS_TRUST): trust the
             # OS store, e.g. behind TLS-intercepting antivirus. Any locally added root
             # could then read the API key, so this is never the default.
-            roots = ssl.create_default_context().get_ca_certs(binary_form=True)
-            if not roots:
+            context = ssl.create_default_context()
+            if not context.get_ca_certs(binary_form=True):
                 raise RuntimeError('AI preparation trusted roots unavailable')
-            certificates = ''.join(ssl.DER_cert_to_PEM_cert(root) for root in roots).encode('ascii')
-            transport = partial(GenerativeServiceGrpcAsyncIOTransport,
-                ssl_channel_credentials=grpc.ssl_channel_credentials(root_certificates=certificates))
-            client = glm.GenerativeServiceAsyncClient(transport=transport, client_options=ClientOptions(api_key=key))
-        else:
-            # Default: the SDK's own gRPC channel with gRPC's bundled roots.
-            client = glm.GenerativeServiceAsyncClient(client_options=ClientOptions(api_key=key))
+            import httpx
+            http_client = httpx.AsyncClient(verify=context)
         try:
-            request = glm.GenerateContentRequest(model='models/'+settings.model.removeprefix('models/'),
-                contents=[glm.Content(role='user', parts=[glm.Part(text=prompt)])],
-                generation_config=glm.GenerationConfig(candidate_count=1, temperature=settings.temperature,
-                    max_output_tokens=settings.max_tokens, response_mime_type='application/json', response_schema=glm.Schema(schema)))
-            reply = await client.generate_content(request, retry=None, timeout=45)
-            if len(reply.candidates) != 1 or reply.candidates[0].finish_reason.name != 'STOP':
-                raise RuntimeError('AI preparation did not return a complete candidate')
-            parts = reply.candidates[0].content.parts
-            if not parts or any(not part.text for part in parts):
-                raise RuntimeError('AI preparation returned no JSON data')
-            text = ''.join(part.text for part in parts)
-            usage = reply.usage_metadata
-            return ProviderReply(text=text, prompt_tokens=usage.prompt_token_count, output_tokens=usage.candidates_token_count)
+            # The SDK deadline is in milliseconds and a single attempt: no SDK retries.
+            options = types.HttpOptions(timeout=int(CALL_SECONDS * 1000),
+                retry_options=types.HttpRetryOptions(attempts=1), httpx_async_client=http_client)
+            client = genai.Client(api_key=key, vertexai=False, http_options=options)
+            try:
+                generation = types.GenerateContentConfig(candidate_count=1, temperature=settings.temperature,
+                    max_output_tokens=settings.max_tokens, response_mime_type='application/json',
+                    response_schema=types.Schema(**_sdk_schema(schema)),
+                    thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel(settings.thinking_level.upper())))
+                leaked = False
+                try:
+                    reply = await asyncio.wait_for(client.aio.models.generate_content(
+                        model=settings.model.removeprefix('models/'), contents=prompt, config=generation), CALL_SECONDS)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    raise
+                except Exception as error:
+                    leaked = key in str(error) or key in repr(error)
+                    if not leaked:
+                        raise
+                if leaked:
+                    # Raised outside the except block so no key-bearing exception stays
+                    # reachable through __context__ or __cause__.
+                    raise RuntimeError('AI preparation provider call failed')
+                if reply.candidates is None or len(reply.candidates) != 1 or reply.candidates[0].finish_reason != types.FinishReason.STOP:
+                    raise RuntimeError('AI preparation did not return a complete candidate')
+                parts = reply.candidates[0].content.parts if reply.candidates[0].content else None
+                if not parts or any(not part.text or part.thought for part in parts):
+                    raise RuntimeError('AI preparation returned no JSON data')
+                text = ''.join(part.text for part in parts)
+                usage = reply.usage_metadata
+                return ProviderReply(text=text, prompt_tokens=(usage.prompt_token_count or 0) if usage else 0,
+                                     output_tokens=(usage.candidates_token_count or 0) if usage else 0)
+            finally:
+                await client.aio.aclose()
         finally:
-            await client.transport.close()
+            if http_client is not None:
+                await http_client.aclose()
 
 
 RAW_REPLY_AUDIT_CHARACTERS = 16384

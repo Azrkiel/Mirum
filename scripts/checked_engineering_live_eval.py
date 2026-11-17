@@ -113,7 +113,7 @@ async def main(output,state_root,sha,credentials=None,*,run_id,authorization,pre
     identity=dict(run_id=run_id,authorization=authorization,previous_failed_run=previous_run,
         tested_implementation_sha=sha,image_id=image_id,corpus_sha256=CORPUS_SHA256,
         settings=evidence['settings'],python=platform.python_version(),
-        packages={name:version(name) for name in ('google-ai-generativelanguage','google-api-core','grpcio','cadquery','cadquery-ocp','numpy','pydantic')},
+        packages={name:version(name) for name in ('google-genai','google-auth','httpx','cadquery','cadquery-ocp','numpy','pydantic')},
         prompt_version=PROMPT_VERSION,schema_version=SCHEMA_VERSION,
         capability=CAPABILITY.id,capability_version=CAPABILITY.version,
         numerical_policy_version=CAPABILITY.numerical.version,resource_policy_version=CAPABILITY.resources.version,
