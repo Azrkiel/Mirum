@@ -16,7 +16,7 @@ from pydantic import Field,BeforeValidator,field_validator
 from .admission import AdmissionBusy,ClientFairness
 from .briefs import BriefService,RevisionConflict
 from .bundles import BundlePublisher,FORMATS,ALL_FORMATS
-from .capabilities import CAPABILITY,CapabilityDescriptor,adapter_installed,get_generator,list_capabilities
+from .capabilities import CAPABILITY,CapabilityDescriptor,adapter_installed,get_capability,get_generator,list_capabilities
 from .contracts import ContractModel,ReviewAcknowledgement,Text,REVIEW_FIELDS
 from .jobs import JobController,compact_run
 from .limits import AiCallBudget,run_in_thread_owned
@@ -34,7 +34,7 @@ def _bounded_input(value):
 
 class DraftCreate(ContractModel):
     mode: Literal['form','ai','rules']='form'
-    capability: str=CAPABILITY.id
+    capability: str=Field(default=CAPABILITY.id,min_length=1,max_length=64)
     input: dict = Field(default_factory=dict)
     prompt: str | None = Field(default=None,max_length=8000)
 
@@ -128,6 +128,18 @@ class CheckedRoute(APIRoute):
         return guarded
 
 
+def generator_entry(c):
+    """Explicit allowlist: no import strings, module names or source paths leave the server."""
+    return dict(id=c.id,version=c.version,label=c.label,numerical_version=c.numerical_version,
+        base_checks=list(c.base_checks),conditional_checks=[x.model_dump(mode='json') for x in c.conditional_checks],
+        unsupported_features=list(c.unsupported_features),selection_rule=c.selection_rule,
+        limitations=list(c.limitations),primary_artifact=c.primary_artifact,payloads=list(c.payloads),
+        engineering_certified=c.engineering_certified,standards=c.standards,
+        limits=[dict(name=r.name,value=r.value) for r in c.numerical+c.runtime_limits],
+        resources=c.resources.model_dump(mode='json'),available=adapter_installed(c),
+        review_fields=[],review_fields_prefix='specification.')
+
+
 def create_runtime():
     root=Path(os.environ.get('MIRUM_ENGINEERING_DATA_DIR','/tmp/mirum/engineering'))
     scratch=Path(os.environ.get('MIRUM_WORK_DIR','/tmp/mirum/work')).resolve()
@@ -195,7 +207,7 @@ def attach_v1_routes(app,limiter):
                 entry.update(review_fields=list(REVIEW_FIELDS),available=bool(native))
             else:
                 # A generator's review fields are the leaves of its normalized specification.
-                entry.update(review_fields=[],review_fields_prefix='specification.',available=adapter_installed(c))
+                entry=generator_entry(c)
             entries.append(entry)
         return dict(capabilities=entries,
             native_available=bool(native),ai_enabled=value.ai_enabled,
@@ -208,21 +220,29 @@ def attach_v1_routes(app,limiter):
     @limiter.limit('10/minute')
     async def create_draft(body:DraftCreate,request:Request):
         value=await asyncio.to_thread(clean,request)
+        given=body.input.get('capability')
+        if given is not None and not (isinstance(given,dict) and given.get('id')==body.capability):
+            raise ValueError('Input must name the requested capability')
         if body.capability!=CAPABILITY.id:
             if get_generator(body.capability) is None: raise ValueError('Unknown capability')
             if body.mode=='ai': raise ValueError('AI drafts are not offered for this capability')
-            given=body.input.get('capability')
-            if body.mode=='form' and not (isinstance(given,dict) and given.get('id')==body.capability):
-                raise ValueError('Input must name the requested capability')
+            if body.mode=='form':
+                if not isinstance(given,dict): raise ValueError('Input must name the requested capability')
+                # Resolve the exact versions before admission: an unknown version is a 422, not a draft.
+                get_capability(given.get('id'),given.get('version'),
+                    numerical_policy_version=given.get('numerical_policy_version'),
+                    resource_policy_version=given.get('resource_policy_version'))
         elif body.mode=='rules': raise ValueError('The beam has no rules proposer')
         if body.mode=='rules':
             # Stdlib proposer: no provider, no key; allowed with the AI flag off.
             if body.prompt is None or body.input: raise ValueError('Rules entry requires a prompt and empty initial input')
-            payload,issues,provenance=rules_proposer(body.capability).propose(body.prompt)
+            proposer=rules_proposer(body.capability)
             size=len(body.prompt.encode())
             client=client_key(request)
+            # Admission (quota) comes before any proposer work.
+            await asyncio.to_thread(value.quota.admit_draft,client,ai=False,size=size)
+            payload,issues,provenance=proposer.propose(body.prompt)
             def create_rules():
-                value.quota.admit_draft(client,ai=False,size=size)
                 created=value.briefs.create(payload,provenance=provenance,extra_issues=tuple(issues))
                 value.quota.record_draft(created.draft.draft_id,client,len(created.model_dump_json()))
                 return created

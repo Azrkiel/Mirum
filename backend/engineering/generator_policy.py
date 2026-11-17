@@ -53,6 +53,18 @@ def _validate(candidate: GeneratorCandidate, evaluation: dict):
                  and c.candidate_sha256 == candidate.candidate_sha256 for c in checks),
              'Check evidence belongs to another brief or candidate')
     _require(all(c.state in (CheckState.PASSED, CheckState.FAILED) for c in checks), 'Unexpected check state')
+    from .policy import _comparison
+    pins = {r.name: r.value for r in descriptor.numerical + descriptor.runtime_limits}
+    for check in checks:
+        measured = {m.name: m.value for m in check.measurements}
+        # Limits the descriptor pins must equal its snapshot; the state is recomputed, never trusted.
+        _require(all(l.name not in pins or l.value == pins[l.name] for l in check.limits),
+                 'Check limit differs from the pinned policy')
+        if check.limits:
+            passes = all(_comparison(measured[l.name], l) for l in check.limits)
+            _require(passes == (check.state == CheckState.PASSED), 'Check state contradicts its measurements')
+        else:
+            _require(check.state == CheckState.FAILED, 'A passed check needs limits')
     failed = [c for c in checks if c.state == CheckState.FAILED]
     expected = Outcome.REJECTED if failed else Outcome.ACCEPTED
     _require(Outcome(evaluation['outcome']) == expected and evaluation['passed'] is (not failed),

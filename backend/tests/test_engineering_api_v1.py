@@ -245,3 +245,25 @@ def test_generator_draft_refuses_unsupported_and_rules_mode_needs_a_declared_pro
                  {'capability':'regen_chamber','mode':'rules','prompt':'x','input':{}},
                  {'capability':'rectangular_cantilever','mode':'rules','prompt':'x','input':{}}):
         assert client.post('/engineering/v1/drafts',json=body).status_code==422,body
+
+
+def test_capabilities_do_not_leak_internal_import_strings_or_paths(client):
+    body=client.get('/engineering/v1/capabilities').text
+    assert 'backend/' not in body and 'engineering.' not in body and 'refuse_with' not in body
+    entry=client.get('/engineering/v1/capabilities').json()['capabilities'][1]
+    assert set(entry)=={'id','version','label','numerical_version','base_checks','conditional_checks','unsupported_features',
+        'selection_rule','limitations','primary_artifact','payloads','available','review_fields','review_fields_prefix',
+        'engineering_certified','standards','limits','resources'}
+    assert all(set(l)=={'name','value'} for l in entry['limits'])
+
+
+def test_draft_capability_is_bounded_matched_and_versions_are_resolved(client):
+    from backend.tests.test_engineering_generator_contracts import regen_spec,reference
+    from engineering.capabilities import get_generator
+    ref=reference(get_generator('regen_chamber'))
+    post=lambda body:client.post('/engineering/v1/drafts',json=body).status_code
+    assert post({'capability':'x'*65,'input':{}})==422
+    # the beam capability with another capability's input, and the reverse
+    assert post({'input':{'capability':ref,'specification':regen_spec()}})==422
+    assert post({'capability':'regen_chamber','input':{'capability':dict(ref,id='glider_cem'),'specification':regen_spec()}})==422
+    assert post({'capability':'regen_chamber','input':{'capability':dict(ref,version='9.9.9'),'specification':regen_spec()}})==422

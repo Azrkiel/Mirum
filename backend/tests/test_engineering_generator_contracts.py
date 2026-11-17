@@ -76,7 +76,7 @@ def candidate_for(brief):
     return GeneratorCandidate.from_brief(brief, sha(b'spec:' + brief.brief_sha256.encode()))
 
 
-def make_check(candidate, check_id, *, state='passed', artifact_bytes=None):
+def make_check(candidate, check_id, *, state='passed', artifact_bytes=None, value=None, limit=2.0, limit_name='value'):
     from engineering.contracts import (ArtifactIdentity, CheckState, ComparisonLimit,
                                        GeneratorCheckResult, Measurement)
     descriptor = candidate.content.descriptor
@@ -86,13 +86,13 @@ def make_check(candidate, check_id, *, state='passed', artifact_bytes=None):
         capability_id=descriptor.id, check_id=check_id, state=CheckState(state),
         method='fixture', method_version='1', brief_sha256=candidate.brief_sha256,
         candidate_sha256=candidate.candidate_sha256,
-        measurements=(Measurement(name='value', value=1.0, unit='count'),),
-        limits=(ComparisonLimit(name='value', value=2.0, unit='count', comparison='le'),),
+        measurements=(Measurement(name=limit_name, value=(1.0 if passed else 3.0) if value is None else value, unit='count'),),
+        limits=(ComparisonLimit(name=limit_name, value=limit, unit='count', comparison='le'),),
         artifacts=(ArtifactIdentity(path=descriptor.primary_artifact, sha256=sha(primary), bytes=len(primary)),),
         reason=None if passed else f'{check_id} out of tolerance')
 
 
-def make_evaluation(candidate, *, failed=(), drop=(), duplicate=(), extra=(), tamper=None, report_flag=None):
+def make_evaluation(candidate, *, bad_checks=None, failed=(), drop=(), duplicate=(), extra=(), tamper=None, report_flag=None):
     """A fake generator evaluation in the shape ``assess_generator`` documents."""
     from engineering.policy import report_digest
     descriptor = candidate.content.descriptor
@@ -103,7 +103,7 @@ def make_evaluation(candidate, *, failed=(), drop=(), duplicate=(), extra=(), ta
     diagnostics = {n: f'bytes:{n}'.encode() for n in descriptor.diagnostic_payloads} if rejected else {}
     stated = {n: sha(v) for n, v in {**artifacts, **diagnostics}.items()}
     checks = tuple(make_check(candidate, i, state='failed' if i in failed else 'passed',
-                              artifact_bytes=artifacts) for i in ids)
+                              artifact_bytes=artifacts, **(bad_checks or {}).get(i, {})) for i in ids)
     report = dict(failures=[c.reason for c in checks if c.reason])
     result = dict(candidate=candidate, checks=checks, outcome='rejected' if rejected else 'accepted',
                   passed=(not rejected) if report_flag is None else report_flag,
@@ -605,3 +605,28 @@ def test_generator_package_publishes_exact_bytes_and_diagnostics_hold_no_geometr
     names = {p['path'] for p in diagnostic['payloads']}
     assert descriptor.primary_artifact not in names and 'generator-report.json' in names
     store.close()
+
+
+# --- review findings ----------------------------------------------------------------
+
+def test_a_passed_state_cannot_override_a_measurement_outside_its_limit():
+    candidate, assess = candidate_and_assess()
+    # PASSED with value 5 against limit le 2
+    assert not assess(make_evaluation(candidate, bad_checks={'hot_wall': dict(value=5.0)})).available
+    # FAILED with value inside the limit contradicts the measurement as well
+    inside = make_evaluation(candidate, failed=('hot_wall',), bad_checks={'hot_wall': dict(value=1.0)})
+    assert not assess(inside).available
+
+
+def test_limits_named_by_a_policy_reference_must_equal_its_pinned_value():
+    candidate, assess = candidate_and_assess()
+    ref = next(r for r in candidate.content.descriptor.numerical if r.name == 'VOLUME_TOLERANCE')
+    good = dict(limit_name='VOLUME_TOLERANCE', limit=ref.value, value=ref.value / 2)
+    assert assess(make_evaluation(candidate, bad_checks={'volume': good})).available
+    loosened = dict(good, limit=ref.value * 10)
+    assert not assess(make_evaluation(candidate, bad_checks={'volume': loosened})).available
+
+
+def test_report_markdown_escapes_pipes_and_newlines_in_reasons():
+    from engineering.bundles import md_cell
+    assert md_cell('a|b\nc\r\nd') == 'a\\|b c d'

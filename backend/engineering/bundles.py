@@ -77,6 +77,11 @@ class BundleManifest(ContractModel):
         return self
 
 
+def md_cell(value):
+    """One Markdown table cell: no pipe or line break can end or split the row."""
+    return ' '.join(str(value).replace('|','\\|').split())
+
+
 def encode(value):
     return (json.dumps(value,sort_keys=True,indent=2,allow_nan=False)+'\n').encode()
 
@@ -202,7 +207,7 @@ class BundlePublisher:
             f'Selection: {descriptor.selection_rule}.','',
             '| Check | State | Reason |','|---|---|---|']
         for a in result.attempts:
-            rows += [f'| {c.check_id} | {c.state.value} | {c.reason or "Passed"} |' for c in a.checks]
+            rows += [f'| {md_cell(c.check_id)} | {c.state.value} | {md_cell(c.reason or "Passed")} |' for c in a.checks]
         rows += ['',*result.reasons]
         return {'brief.json':encode(brief.model_dump(mode='json')),
             'attempts.json':encode([a.model_dump(mode='json') for a in result.attempts]),
