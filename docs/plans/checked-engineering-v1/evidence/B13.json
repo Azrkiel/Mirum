@@ -807,5 +807,29 @@
   },
   "full_ai_release_qualified": false,
   "b14_prerequisite_satisfied": false,
-  "source_equality_command": "git diff --quiet aef716e5d514a2eb555cce8e2a79e8ec89424147 ea721d90109e6a9fe0530fdf95132eeef70bb69d -- backend frontend"
+  "source_equality_command": "git diff --quiet aef716e5d514a2eb555cce8e2a79e8ec89424147 ea721d90109e6a9fe0530fdf95132eeef70bb69d -- backend frontend",
+  "live_qualification_2026_11_18": {
+    "run_id": "qual-20261118-k6",
+    "actions_run": 44358308796,
+    "tested_implementation_sha": "f11cf90ff299ec8feb2775bf7096cfd2d4bd63cc",
+    "image_id": "sha256:3527bfa6cb569d6f655054e080904a99f37427c9682c1706d53227d4e2a44f86",
+    "model": "gemini-4-hydrogen",
+    "sdk": "google-genai/2.8.0",
+    "thinking_level": "low",
+    "max_tokens": 4096,
+    "provider_failure_policy": "b13-unavailable-429-503-504-v2",
+    "credential": "k6 (owner-supplied 2026-11-18; value never recorded)",
+    "qualification": "passed",
+    "calls": 30,
+    "cases_accounted": 30,
+    "complete_accurate": 10,
+    "silent_requirement_drops": 0,
+    "unreviewed_executions": 0,
+    "provider_unavailable_cases": 0,
+    "deadline_cases": 0,
+    "ambiguous_clarification_required": 10,
+    "unsupported_blocked": 10,
+    "notes": "U07 (unsupported) returned clarification_required: blocked from finalization, not a pass/fail criterion. Steps 12-13 of the finish-B13 plan remain.",
+    "safe_evidence_local": "C:/Users/jiang/mirum-evidence/B13/u5-20261117/actions-qual-k6/"
+  }
 }

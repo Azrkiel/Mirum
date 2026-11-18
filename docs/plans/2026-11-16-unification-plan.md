@@ -469,7 +469,7 @@ Original questions, kept for the record:
 | U3 regen wiring | **merged** 2026-11-17 | #36 |
 | U4 checked design + flag | **merged** 2026-11-17 (two security rounds) | #38 |
 | — client key behind proxy | **merged** 2026-11-17 (limits were one shared bucket) | #39 |
-| U5 B13 | **blocked: provider capacity.** Owner Q1(b) (2026-11-17): 429/503 mark one case unavailable and the run continues; up to 3 deadline cases continue; other failures stop (#63). Owner 2026-11-18: 504 also unavailable, policy v2, cap 4 (#68). Run 3 (`qual-20261118-k3-unavail`, `d6dacf2`): stopped at C04 on HTTP 504 (4 calls). Run 4 (`qual-20261118-k3-504v2`, `554b442`): all 30 cases accounted for, all unavailable (9x429, 13x503, 7x504, 1 deadline), 0/10 complete accurate -> blocked (30 calls). 60 live calls total. Qualification cap 4/4 used | #44 #47 #49 #50 #53 #59 #60 #63 #68 |
+| U5 B13 | **live corpus qualification PASSED** 2026-11-18: run 5 (`qual-20261118-k6`, `f11cf90`, new key k6, policy v2): 10/10 complete accurate, all ambiguous cases clarified, unsupported cases blocked (U07 as clarification), 0 drops, 0 unreviewed, 30 calls. Runs 1-4 blocked on provider 429/503/504 (k3). 90 live calls total; qual cap 5/5. Remaining: finish-b13 steps 12-13 (live proposal in the real UI, V01-V15) | #44 #47 #49 #50 #53 #59 #60 #63 #68 #72 |
 | U6.0 core | **merged** 2026-11-17 (beam bytes pinned; closed limit tables; measurements bound to the generator report; two security rounds) | #48 |
 | D7 backend split | **merged** 2026-11-17 (v2 generation on main; #31 keeps the UI half) | #46 |
 | U6.1 regen adapter | **merged** 2026-11-17 (identity tests pass natively; `JobRunner.cancel` frees the shared slot) | #52 |
