@@ -140,7 +140,7 @@ $("spec-form").addEventListener("submit", async (event) => {
     lastSpec = specification();
     status(
       "running",
-      "Building and checking geometry. This usually takes a few minutes…",
+      "Building and checking geometry. This may take a few minutes.",
     );
     let job = await jsonRequest("/api/jobs", {
       method: "POST",
@@ -155,7 +155,7 @@ $("spec-form").addEventListener("submit", async (event) => {
     showReport(job);
     if (job.status === "accepted") {
       for (const [key, title] of [
-        ["stl", "Download STL ↗"],
+        ["stl", "Download STL"],
         ["report", "Report JSON"],
         ["spec", "Parameters JSON"],
       ]) {
@@ -208,7 +208,7 @@ jsonRequest("/api/config")
     status(
       data.ready ? "ready" : "unavailable",
       data.ready
-        ? "Generator ready. Choose dimensions to begin."
+        ? "Generator ready."
         : "PicoGK runtime is not installed. Run the repository setup script on the server.",
     );
   })

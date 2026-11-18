@@ -619,8 +619,7 @@ def test_flag_on_returns_a_per_capability_dispatcher_keeping_the_beam_proposer_a
     assert dispatcher.ai.provider is fixture
     with pytest.raises(UnsupportedCapability):
         dispatcher.rules('glider_cem')           # declares no rules proposer
-    with pytest.raises(UnsupportedCapability, match='adapter not installed|proposer'):
-        dispatcher.rules('co2_dragster')         # declared, module not installed in U6.0
+    assert hasattr(dispatcher.rules('co2_dragster'), 'propose')     # declared and installed by U6.3
     with pytest.raises(UnsupportedCapability):
         dispatcher.rules('rectangular_cantilever')
 

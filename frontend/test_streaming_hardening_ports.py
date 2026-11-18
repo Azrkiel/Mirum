@@ -6,6 +6,7 @@ terminal completion from a broken transport. HTTP responses below are fixtures.
 import ast
 import base64
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
@@ -13,6 +14,7 @@ from unittest.mock import MagicMock, Mock
 import pytest
 
 APP = Path(__file__).with_name('app.py')
+sys.path.insert(0, str(APP.parent))
 
 
 class State(dict):
@@ -33,7 +35,7 @@ def run_stream(events):
     response.iter_lines.return_value = [e if isinstance(e,str) else 'data: '+json.dumps(e) for e in events]
     requests = SimpleNamespace(post=Mock(return_value=response), ConnectionError=ConnectionError, Timeout=TimeoutError, RequestException=RuntimeError)
     # expander/code: failure details render in a collapsible block.
-    st = SimpleNamespace(session_state=state, error=Mock(), expander=MagicMock(), code=Mock())
+    st = SimpleNamespace(session_state=state, error=Mock(), expander=MagicMock(), code=Mock(), rerun=Mock())
     ns = dict(st=st, requests=requests, BACKEND_URL='http://fixture', _auth_headers=lambda: {}, json=json, base64=base64,
               _progress_md=lambda steps: str(steps), _step_label=lambda step: step)
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(APP), 'exec'), ns)
@@ -90,3 +92,29 @@ def test_malformed_event_after_completion_cannot_publish_partial_result(bad):
     assert state.script_code == 'accepted source'
     assert state.geometry_certificate == {'passed':True}
     assert state.status.startswith('Error')
+
+
+def test_route_event_switches_workflow_and_sets_notice():
+    route = {'step':'route','status':'done','workflow':'regen_chamber','capability_id':'regen_chamber',
+             'assurance':'checked_design','reason':'r','detail':'d'}
+    state, _, st = run_stream([route])
+    assert state.pending_workflow == 'Deterministic rocket nozzle'
+    assert state.route_notice == 'Checked design: Deterministic rocket nozzle'
+    st.rerun.assert_called_once()
+    assert state.glb_bytes == b'accepted'
+
+
+def test_legacy_dragster_route_maps_to_dragster_tab():
+    route = {'step':'route','status':'done','workflow':'co2_dragster','detail':'d'}
+    state, _, _ = run_stream([route])
+    assert state.pending_workflow == 'CO2 dragster'
+
+
+def test_complete_assurance_is_stored_and_labelled():
+    from route_labels import assurance_label
+    state, _, _ = run_stream([{'step':'complete','status':'done','glb':base64.b64encode(b'new').decode(),
+                               'assurance':'unverified_geometry'}])
+    assert state.assurance == 'unverified_geometry'
+    assert assurance_label('unverified_geometry') == 'Unverified geometry'
+    assert assurance_label('checked_design') == 'Checked design'
+    assert assurance_label(None) is None

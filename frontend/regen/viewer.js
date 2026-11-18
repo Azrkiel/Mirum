@@ -28,7 +28,7 @@ function makeViewer(canvas) {
     program,
     shader(
       gl.FRAGMENT_SHADER,
-      "precision mediump float;varying vec3 normal;void main(){float d=abs(dot(normalize(normal),normalize(vec3(.4,.8,.6))));vec3 c=mix(vec3(.14,.28,.18),vec3(.69,.88,.50),.25+.75*d);gl_FragColor=vec4(c,1.);}",
+      "precision mediump float;varying vec3 normal;void main(){float d=abs(dot(normalize(normal),normalize(vec3(.4,.8,.6))));vec3 c=mix(vec3(.12,.20,.40),vec3(.48,.65,1.),.25+.75*d);gl_FragColor=vec4(c,1.);}",
     ),
   );
   gl.linkProgram(program);
@@ -50,7 +50,7 @@ function makeViewer(canvas) {
       canvas.height = height;
     }
     gl.viewport(0, 0, width, height);
-    gl.clearColor(0.065, 0.1, 0.075, 1);
+    gl.clearColor(0.047, 0.067, 0.106, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     if (!count) return;
     const cy = Math.cos(yaw),
