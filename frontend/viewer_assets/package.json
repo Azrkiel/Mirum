@@ -1,0 +1,11 @@
+{
+  "name": "mirum-viewer-assets",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vendored Babylon.js bundles served locally by the Streamlit frontend (no CDN at runtime).",
+  "dependencies": {
+    "babylonjs": "9.37.1",
+    "babylonjs-loaders": "9.37.1",
+    "babylonjs-materials": "9.37.1"
+  }
+}
