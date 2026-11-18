@@ -99,9 +99,9 @@ def test_main_workflow_selector_opens_nozzle_generator(service, monkeypatch):
     app.session_state['access_token'] = 'private-test-token'
     app.run()
     assert not app.exception
-    next(r for r in app.radio if r.label == 'Design workflow').set_value('Deterministic rocket nozzle').run()
+    app.sidebar.radio(key='workflow').set_value('Deterministic rocket nozzle').run()
     assert not app.exception
-    assert any(t.value == 'Regenerative cooling rocket nozzle' for t in app.title)
+    assert any('Regenerative cooling rocket nozzle' in m.value for m in app.markdown)
     assert next(b for b in app.button if b.label == 'Generate nozzle mesh')
 
 

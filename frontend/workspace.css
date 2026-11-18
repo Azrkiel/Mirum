@@ -1,0 +1,94 @@
+:root {
+  --mirum-bg: #0c111b;
+  --mirum-panel: #121b2a;
+  --mirum-panel-raised: #182337;
+  --mirum-line: #2b3950;
+  --mirum-text: #edf3ff;
+  --mirum-muted: #a0aec2;
+  --mirum-blue: #386bff;
+}
+html, body, [data-testid="stAppViewContainer"], .stApp {
+  background: var(--mirum-bg); color: var(--mirum-text);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+[data-testid="stHeader"] { background: var(--mirum-bg); }
+[data-testid="stAppDeployButton"], #MainMenu { display: none; }
+[data-testid="stMainBlockContainer"], .main .block-container {
+  max-width: 1600px; padding: 2.6rem 2.5rem 3rem;
+}
+[data-testid="stSidebar"] {
+  background: #0f1622; border-right: 1px solid var(--mirum-line);
+  min-width: 228px; max-width: 250px;
+}
+[data-testid="stSidebarUserContent"] { padding: 1.6rem 1.2rem; }
+.mirum-brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 33px; }
+.mirum-brand span { font-size: 25px; font-weight: 650; letter-spacing: -.8px; }
+.nav-label { color: var(--mirum-muted); font-size: 10px; font-weight: 650; letter-spacing: 1.5px; margin: 0 12px 12px; }
+[data-testid="stSidebar"] [role="radiogroup"] { gap: 7px; }
+[data-testid="stSidebar"] label[data-baseweb="radio"] {
+  margin: 0; padding: 12px 14px; border: 1px solid transparent; border-radius: 7px;
+  background: transparent; transition: background .15s, border-color .15s;
+}
+[data-testid="stSidebar"] label[data-baseweb="radio"] > div:first-child { display: none; }
+[data-testid="stSidebar"] label[data-baseweb="radio"] > div { margin: 0; }
+[data-testid="stSidebar"] label[data-baseweb="radio"] p { font-size: 13px; font-weight: 550; }
+[data-testid="stSidebar"] label[data-baseweb="radio"]:hover { background: #182337; }
+[data-testid="stSidebar"] label[data-baseweb="radio"]:has(input:checked) {
+  background: #192c50; border-color: #30558e; box-shadow: inset 3px 0 #628cff;
+}
+[data-testid="stSidebar"] label[data-baseweb="radio"]:has(input:focus-visible) { outline: 2px solid #8aaaff; outline-offset: 2px; }
+.sidebar-note { margin: 42px 12px 0; font-size: 9px; line-height: 2.2; letter-spacing: 1px; color: var(--mirum-muted); }
+.sidebar-note small { font-size: 11px; letter-spacing: 0; }
+.sidebar-rule { display: block; width: 28px; height: 2px; background: #386bff; margin-bottom: 14px; }
+.workspace-heading { padding: 0 0 24px; border-bottom: 1px solid var(--mirum-line); margin-bottom: 8px; }
+.eyebrow { color: #83a4ff; font-size: 10px; font-weight: 600; letter-spacing: 1.7px; margin-bottom: 10px; }
+.workspace-heading h1 { font-size: 30px; line-height: 1.2; letter-spacing: -.8px; font-weight: 600; margin: 0; padding: 0; }
+.workspace-heading p { color: var(--mirum-muted); font-size: 13px; margin: 11px 0 0; }
+.section-heading { margin: 0 0 10px; }
+.section-heading h3 { margin: 0; padding: 0; font-size: 15px; font-weight: 600; letter-spacing: -.15px; }
+.section-heading p { margin: 6px 0 0; font-size: 12px; color: var(--mirum-muted); line-height: 1.6; }
+h2 { font-size: 20px !important; font-weight: 600 !important; letter-spacing: -.4px; }
+h3 { font-size: 16px !important; font-weight: 600 !important; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { color: var(--mirum-muted); font-size: 12px; line-height: 1.6; }
+[data-testid="stWidgetLabel"] p { font-size: 12px; font-weight: 500; }
+[data-testid="stVerticalBlock"] { gap: .85rem; }
+[data-testid="stVerticalBlockBorderWrapper"] > div { border-color: var(--mirum-line) !important; border-radius: 9px !important; }
+textarea, input { font-size: 13px !important; }
+[data-baseweb="input"], [data-baseweb="textarea"], [data-baseweb="select"] > div {
+  background: #101827; border-color: var(--mirum-line); border-radius: 6px;
+}
+[data-baseweb="input"]:focus-within, [data-baseweb="textarea"]:focus-within { border-color: #83a4ff; }
+.stButton > button, .stDownloadButton > button, [data-testid="stFormSubmitButton"] > button {
+  min-height: 37px; font-size: 12px; border: 1px solid #364761; border-radius: 6px; font-weight: 550;
+}
+.stButton > button[kind="primary"], [data-testid="stFormSubmitButton"] > button[kind="primary"] {
+  background: var(--mirum-blue); border-color: var(--mirum-blue); color: white;
+}
+.stButton > button:hover, .stDownloadButton > button:hover { border-color: #83a4ff; color: var(--mirum-text); }
+button:focus-visible, a:focus-visible { outline: 2px solid #8aaaff !important; outline-offset: 3px; }
+button:disabled { opacity: .5; }
+[data-baseweb="tab-list"] { gap: 24px; border-bottom: 1px solid var(--mirum-line); }
+[data-baseweb="tab"] { padding: 0 0 12px; font-size: 12px; }
+[data-baseweb="tab"] p { font-size: 12px; }
+[data-baseweb="tab-highlight"] { background: #628cff; }
+[data-baseweb="tab"][aria-selected="true"] { color: #a0bbff; }
+[data-testid="stMetricValue"] { font-size: 25px; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+[data-testid="stMetricLabel"] p { font-size: 11px; color: var(--mirum-muted); }
+[data-testid="stExpander"] { border-color: var(--mirum-line); border-radius: 7px; }
+[data-testid="stExpander"] summary p { font-size: 12px; }
+[data-testid="stAlert"] { border-radius: 7px; font-size: 12px; }
+[data-testid="stAlert"] p { font-size: 12px; line-height: 1.6; }
+[data-testid="stCode"] { border: 1px solid var(--mirum-line); border-radius: 7px; }
+.model-empty { min-height: 345px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0e1725; border: 1px solid #26364e; border-radius: 8px; padding: 24px; text-align: center; }
+.model-empty svg { margin-bottom: 22px; }
+.model-empty h3 { font-size: 15px !important; margin: 0 0 8px; padding: 0; }
+.model-empty p { color: var(--mirum-muted); font-size: 12px; line-height: 1.6; margin: 0; max-width: 330px; }
+iframe[title="streamlit.components.v1.html"] { border-radius: 8px; }
+@media (max-width: 900px) {
+  [data-testid="stMainBlockContainer"], .main .block-container { padding: 2rem 1.1rem; }
+  [data-testid="stHorizontalBlock"] { flex-wrap: wrap; }
+  [data-testid="stHorizontalBlock"] > [data-testid="column"],
+  [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { min-width: min(100%, 330px); }
+  .workspace-heading h1 { font-size: 26px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

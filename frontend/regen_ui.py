@@ -151,7 +151,6 @@ def _render_job(backend, headers):
 
 
 def render_regen(backend, headers):
-    st.title('Regenerative cooling rocket nozzle')
     st.write('Deterministic PicoGK geometry: chamber, convergent section, throat, divergent nozzle, '
              'cooling channels, and inlet/outlet manifolds. No model API is used.')
     st.warning('Geometry checks only. No gas dynamics, thermal, structural, or manufacturing analysis was done. '
