@@ -93,9 +93,9 @@ _VIEWER_TEMPLATE = """<!doctype html>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0e1725; }
   #renderCanvas { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
 </style>
-<script src="https://cdn.babylonjs.com/babylon.js"></script>
-<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-<script src="https://cdn.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
+<script src="/app/static/babylon/babylon.js"></script>
+<script src="/app/static/babylon/babylonjs.loaders.min.js"></script>
+<script src="/app/static/babylon/babylonjs.materials.min.js"></script>
 </head><body>
 <canvas id="renderCanvas"></canvas>
 <script>
