@@ -339,6 +339,28 @@ def test_503_on_complete_case_is_unavailable_not_accurate_and_still_qualifies(tm
     assert len(report['cases']) == 30 and len(provider.calls) == 30 and report['calls'] == 30
 
 
+def test_504_on_complete_case_is_unavailable_and_run_continues(tmp_path, monkeypatch):
+    bad = indexes('complete')[0]
+    provider = Scripted({bad: failure_record('ServerError', '504')})
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 0
+    report = result_file(tmp_path)
+    case = report['cases'][bad]
+    assert case['provider_unavailable'] is True and case['unavailable_reason'] == 'http_504'
+    assert case['accurate_reviewable_draft'] is False
+    assert len(report['cases']) == 30 and len(provider.calls) == 30 and report['calls'] == 30
+    assert report['provider_unavailable_cases'] == 1 and report['provider_unavailable_case_ids'] == [case['case_id']]
+
+
+def test_policy_v2_digest_differs_from_v1_table():
+    import hashlib
+    v1 = json.dumps([sorted([list(i) for i in {('ClientError', '429'), ('ServerError', '503')}]),
+                     evaluation.MAXIMUM_DEADLINE_CASES, list(evaluation.STOP_FLAGS)],
+                    sort_keys=True, separators=(',', ':'))
+    assert evaluation.policy_digest() != hashlib.sha256(v1.encode()).hexdigest()
+    assert evaluation.policy_digest() == '4b2f7ed38eaa4a8a38b29c689c693cf4adb1a4de5d3634ff0f9d6be712fa488e'
+    assert ('ServerError', '504') in evaluation.TRANSIENT_PROVIDER_FAILURES
+
+
 def test_429_on_three_complete_cases_fails_the_unchanged_accuracy_gate(tmp_path, monkeypatch):
     bad = indexes('complete')[:3]
     provider = Scripted({i: failure_record('ClientError', '429') for i in bad})
@@ -404,6 +426,10 @@ def test_unavailable_case_is_not_called_again_on_resume(tmp_path, monkeypatch):
     failure_record('ServerError', '503', model_unavailable=True),
     failure_record('ConnectError', None, tls_certificate_failure=True),
     failure_record('ClientError', '429', tls_certificate_failure=True),
+    failure_record('ServerError', '504', credential_rejected=True),
+    failure_record('ServerError', '504', model_unavailable=True),
+    failure_record('ServerError', '504', tls_certificate_failure=True),
+    failure_record('ServerError', '504', provider_error_masked=True),
 ])
 def test_credential_model_and_tls_failures_stop_the_run(tmp_path, monkeypatch, record):
     provider = Scripted({0: record})
@@ -418,6 +444,7 @@ def test_credential_model_and_tls_failures_stop_the_run(tmp_path, monkeypatch, r
     failure_record('ClientError', '400'),
     failure_record('ClientError', '403'),
     failure_record('ServerError', '500'),
+    failure_record('ServerError', '502'),
     failure_record('ClientError', None),
 ])
 def test_other_provider_failures_still_stop_the_run(tmp_path, monkeypatch, record):
@@ -433,7 +460,7 @@ def test_evidence_and_identity_carry_the_failure_policy(tmp_path, monkeypatch):
     assert run_evaluation(tmp_path, monkeypatch, provider) == 0
     report = result_file(tmp_path)
     for holder in (report, report['candidate']):
-        assert holder['provider_failure_policy'] == 'b13-unavailable-429-503-v1'
+        assert holder['provider_failure_policy'] == 'b13-unavailable-429-503-504-v2'
         assert holder['maximum_deadline_cases'] == 3
     assert report['provider_unavailable_cases'] == 0 and report['provider_unavailable_case_ids'] == []
     assert report['deadline_cases'] == 0
@@ -491,7 +518,7 @@ def test_observed_provider_records_exception_name_and_code_string(monkeypatch, n
     assert record['provider_error_masked'] is False
 
 
-@pytest.mark.parametrize('name,code', [('ClientError', 429), ('ServerError', 503)])
+@pytest.mark.parametrize('name,code', [('ClientError', 429), ('ServerError', 503), ('ServerError', 504)])
 def test_observed_provider_records_real_genai_errors(monkeypatch, name, code):
     errors = pytest.importorskip('google.genai.errors')
     error = getattr(errors, name)(code, {'error': {'code': code, 'message': 'quota', 'status': 'RESOURCE_EXHAUSTED'}})
@@ -540,6 +567,33 @@ def test_real_exception_429_flows_through_observed_provider_and_run_continues(tm
     assert case['provider_unavailable'] is True and case['unavailable_reason'] == 'http_429'
     assert case['provider_failures'][0]['exception'] == 'ClientError' and case['provider_failures'][0]['code'] == '429'
     assert len(report['cases']) == 30 and len(provider.calls) == 30 and 'blocker' not in report
+
+
+def test_real_exception_504_flows_through_observed_provider_and_run_continues(tmp_path, monkeypatch):
+    errors = pytest.importorskip('google.genai.errors')
+    error = errors.ServerError(504, {'error': {'code': 504, 'message': 'deadline', 'status': 'DEADLINE_EXCEEDED'}})
+    bad = indexes('ambiguous')[2]
+    provider = end_to_end_provider(monkeypatch, bad, error)
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 0
+    report = result_file(tmp_path)
+    case = report['cases'][bad]
+    assert case['provider_unavailable'] is True and case['unavailable_reason'] == 'http_504'
+    assert case['provider_failures'][0]['exception'] == 'ServerError' and case['provider_failures'][0]['code'] == '504'
+    assert len(report['cases']) == 30 and len(provider.calls) == 30 and 'blocker' not in report
+
+
+def test_real_504_with_credential_rejection_message_stops_the_run(tmp_path, monkeypatch):
+    errors = pytest.importorskip('google.genai.errors')
+    error = errors.ServerError(504, {'error': {'code': 504, 'message': 'API key not valid. Please pass a valid API key.',
+                                               'status': 'INVALID_ARGUMENT'}})
+    bad = indexes('ambiguous')[2]
+    provider = end_to_end_provider(monkeypatch, bad, error)
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 2
+    report = result_file(tmp_path)
+    case = report['cases'][-1]
+    assert case['provider_unavailable'] is False and case['stop_reason']
+    assert case['provider_failures'][0]['credential_rejected'] is True
+    assert len(report['cases']) == bad + 1 and len(provider.calls) == bad + 1
 
 
 def test_policy_digest_is_in_identity_and_changing_the_table_changes_it(tmp_path, monkeypatch):
