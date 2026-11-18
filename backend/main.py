@@ -2192,8 +2192,8 @@ async def annotate_step_with_pmi(body: PMIAnnotateRequest, request: Request):
 
     Falls back to writing a .pmi.json sidecar if XCAF is unavailable.
     """
-    # Pure regex, run first so a no-PMI prompt answers identically whether or
-    # not the run id exists (no existence oracle).
+    # Pure regex, run first so a no-PMI prompt does not reveal whether the run
+    # id exists. (A prompt with PMI still does; acceptable for a uuid4 id.)
     pmi = extract_pmi_from_prompt(body.prompt, body.part_id)
     if pmi is None:
         return {
@@ -2210,26 +2210,27 @@ async def annotate_step_with_pmi(body: PMIAnnotateRequest, request: Request):
         return {"status": "error", "detail": "Artifact not found or expired."}
 
     output_path = _work_path(uuid.uuid4().hex + "_pmi.step")
-    result_path = output_path
-    success = False
     try:
         success, result_path = attach_pmi_to_step(str(step_resolved), [pmi], output_path)
         if not success:
             logger.warning("PMI attach failed: %s", _safe_error(result_path))
             return {"status": "error", "detail": "PMI annotation failed"}
+        if result_path != output_path:
+            # Fail closed: only the fresh work file is ever read or removed, so
+            # a stray result path (e.g. the stored artifact) cannot be returned
+            # or deleted.
+            logger.warning("PMI attach returned an unexpected output path")
+            return {"status": "error", "detail": "PMI annotation failed"}
         try:
-            with open(result_path, "rb") as f:
+            with open(output_path, "rb") as f:
                 data_b64 = base64.b64encode(f.read()).decode("utf-8")
         except Exception as e:
             logger.warning("PMI output unreadable: %s", _safe_error(e))
             return {"status": "error", "detail": "Could not read annotated output"}
     finally:
-        # Always remove the output copy and any sidecar (_attach_pmi_fallback),
-        # on success and failure alike.
-        leftovers = {output_path, output_path.replace(".step", ".pmi.json")}
-        if success:
-            leftovers |= {result_path, result_path.replace(".step", ".pmi.json").replace(".STEP", ".pmi.json")}
-        for leftover in leftovers:
+        # Remove only our own output copy and its fallback sidecar
+        # (_attach_pmi_fallback), on success and failure alike.
+        for leftover in (output_path, output_path.replace(".step", ".pmi.json")):
             try:
                 os.remove(leftover)
             except OSError:

@@ -86,8 +86,8 @@ def test_legacy_step_path_rejected_422(client, work):
 @pytest.mark.parametrize("bad", ["../x", "/etc/passwd", "a/b", "a" * 65, "", "A" * 32, ("a" * 32) + "\n", "a" * 31])
 def test_malformed_run_id_generic(client, bad):
     r = post(client, bad)
-    if r.status_code == 422:  # over max_length is a validation error; no echo either way
-        assert bad not in r.text or bad == ""
+    if r.status_code == 422:  # over max_length: FastAPI echoes the client's own input; that is fine
+        assert "/tmp" not in r.text and "Traceback" not in r.text
         return
     assert_rejected(r, "Traceback")
     assert r.json()["detail"] == "Artifact not found or expired."
@@ -196,3 +196,12 @@ def test_overlong_part_id_rejected(client, runs):
     run_id, _ = make_run(runs)
     r = post(client, run_id, part_id="p" * 129)
     assert r.status_code == 422
+
+
+def test_result_path_pointing_at_artifact_fails_closed(client, runs, monkeypatch):
+    run_id, art = make_run(runs)
+    monkeypatch.setattr(main, "attach_pmi_to_step", lambda src, pmi, dst: (True, src))
+    r = post(client, run_id)
+    assert_rejected(r, run_id)
+    assert "data_b64" not in r.text
+    assert art.read_bytes() == b"ISO-10303-21;ORIGINAL"
