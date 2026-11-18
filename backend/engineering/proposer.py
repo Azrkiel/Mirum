@@ -90,11 +90,19 @@ class ProposalResponse(ContractModel):
     contradictions: tuple[Text, ...] = Field(max_length=16)
 
 
+# Server constants: capability identity, brief schema version and required checks are
+# fixed by the registry, not extracted from the request. The model is never asked for
+# them (B13 2026-11-17: live replies failed the exact CapabilityReference validator),
+# and any value a reply carries for them is discarded before strict validation.
+SERVER_CONSTANT_FIELDS = ('schema_version', 'capability', 'required_checks')
+
+
 def provider_schema() -> dict:
     """Project our strict local model to the Gemini schema subset.
 
     Only nullable Optional unions occur here. Local validation keeps every
     constraint omitted by that subset (bounds, unknown fields, strict types).
+    Server constants in ``fields`` are omitted; the server fills them.
     """
     schema = ProposalResponse.model_json_schema()
     definitions = schema.get('$defs', {})
@@ -113,7 +121,13 @@ def provider_schema() -> dict:
         if 'enum' in node: result['enum'] = node['enum']
         if 'const' in node: result['enum'] = [node['const']]
         return result
-    return convert(schema)
+    converted = convert(schema)
+    fields = converted['properties']['fields']
+    for name in SERVER_CONSTANT_FIELDS:
+        fields.get('properties', {}).pop(name, None)
+    if 'required' in fields:
+        fields['required'] = [n for n in fields['required'] if n not in SERVER_CONSTANT_FIELDS]
+    return converted
 
 
 class ProviderSettings(ContractModel):
@@ -315,6 +329,9 @@ def _parse(text):
         return result
     decoded = json.loads(text, object_pairs_hook=unique,
                          parse_constant=lambda _: (_ for _ in ()).throw(ValueError('Nonfinite extraction')))
+    if isinstance(decoded, dict) and isinstance(decoded.get('fields'), dict):
+        for name in SERVER_CONSTANT_FIELDS:
+            decoded['fields'].pop(name, None)  # server constants: defaults come from the registry
     return ProposalResponse.model_validate_json(json.dumps(decoded, allow_nan=False))
 
 
