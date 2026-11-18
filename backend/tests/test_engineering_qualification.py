@@ -339,6 +339,27 @@ def test_503_on_complete_case_is_unavailable_not_accurate_and_still_qualifies(tm
     assert len(report['cases']) == 30 and len(provider.calls) == 30 and report['calls'] == 30
 
 
+def test_504_on_complete_case_is_unavailable_and_run_continues(tmp_path, monkeypatch):
+    bad = indexes('complete')[0]
+    provider = Scripted({bad: failure_record('ServerError', '504')})
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 0
+    report = result_file(tmp_path)
+    case = report['cases'][bad]
+    assert case['provider_unavailable'] is True and case['unavailable_reason'] == 'http_504'
+    assert case['accurate_reviewable_draft'] is False
+    assert len(report['cases']) == 30 and len(provider.calls) == 30 and report['calls'] == 30
+    assert report['provider_unavailable_cases'] == 1 and report['provider_unavailable_case_ids'] == [case['case_id']]
+
+
+def test_policy_v2_digest_differs_from_v1_table():
+    import hashlib
+    v1 = json.dumps([sorted([list(i) for i in {('ClientError', '429'), ('ServerError', '503')}]),
+                     evaluation.MAXIMUM_DEADLINE_CASES, list(evaluation.STOP_FLAGS)],
+                    sort_keys=True, separators=(',', ':'))
+    assert evaluation.policy_digest() != hashlib.sha256(v1.encode()).hexdigest()
+    assert ('ServerError', '504') in evaluation.TRANSIENT_PROVIDER_FAILURES
+
+
 def test_429_on_three_complete_cases_fails_the_unchanged_accuracy_gate(tmp_path, monkeypatch):
     bad = indexes('complete')[:3]
     provider = Scripted({i: failure_record('ClientError', '429') for i in bad})
@@ -418,6 +439,7 @@ def test_credential_model_and_tls_failures_stop_the_run(tmp_path, monkeypatch, r
     failure_record('ClientError', '400'),
     failure_record('ClientError', '403'),
     failure_record('ServerError', '500'),
+    failure_record('ServerError', '502'),
     failure_record('ClientError', None),
 ])
 def test_other_provider_failures_still_stop_the_run(tmp_path, monkeypatch, record):
@@ -433,7 +455,7 @@ def test_evidence_and_identity_carry_the_failure_policy(tmp_path, monkeypatch):
     assert run_evaluation(tmp_path, monkeypatch, provider) == 0
     report = result_file(tmp_path)
     for holder in (report, report['candidate']):
-        assert holder['provider_failure_policy'] == 'b13-unavailable-429-503-v1'
+        assert holder['provider_failure_policy'] == 'b13-unavailable-429-503-504-v2'
         assert holder['maximum_deadline_cases'] == 3
     assert report['provider_unavailable_cases'] == 0 and report['provider_unavailable_case_ids'] == []
     assert report['deadline_cases'] == 0

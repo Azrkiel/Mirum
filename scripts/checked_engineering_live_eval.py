@@ -20,10 +20,10 @@ from engineering.capabilities import CAPABILITY
 from engineering.store import SQLiteStore,SQLiteBriefRepository,SQLiteProposalLedger
 
 # Owner Q1(b), 2026-11-17: HTTP 429/503 on a case mark that one case unavailable and the run
-# continues (no retry, scoring unchanged). Any other provider failure still stops the run.
-TRANSIENT_PROVIDER_FAILURES={('ClientError','429'),('ServerError','503')}
+# continues (no retry, scoring unchanged). Extended to HTTP 504 on 2026-11-18 (policy v2). Any other provider failure still stops the run.
+TRANSIENT_PROVIDER_FAILURES={('ClientError','429'),('ServerError','503'),('ServerError','504')}
 MAXIMUM_DEADLINE_CASES=3
-PROVIDER_FAILURE_POLICY='b13-unavailable-429-503-v1'
+PROVIDER_FAILURE_POLICY='b13-unavailable-429-503-504-v2'
 # Any of these flags stops the run. provider_error_masked is the proposer's key-echo replacement
 # RuntimeError, which hides the real 429/credential/model class, so it cannot be trusted.
 STOP_FLAGS=('tls_certificate_failure','credential_rejected','model_unavailable','provider_error_masked')
