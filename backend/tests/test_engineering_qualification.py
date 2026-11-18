@@ -248,3 +248,25 @@ def test_live_diagnostic_is_bounded_safe_and_never_repeats(tmp_path, monkeypatch
     with pytest.raises(ValueError, match='never repeated'):
         run()
     assert len(provider.calls) == 2
+
+
+def test_pacing_pauses_between_cases_without_changing_calls_or_scoring(tmp_path, monkeypatch):
+    """B13 2026-11-17: a live run hit HTTP 429 at case 16. A fixed pause between
+    cases respects the key's rate limit; it never retries and never changes scoring."""
+    pauses = []
+    async def fake_sleep(seconds):
+        pauses.append(seconds)
+    monkeypatch.setattr(evaluation.asyncio, 'sleep', fake_sleep)
+    provider = EvaluationFixture([json.dumps(c['fixture_response']) for c in corpus()])
+    assert run_evaluation(tmp_path, monkeypatch, provider, pace_seconds=12) == 0
+    report = result_file(tmp_path)
+    assert report['calls'] == 30 and report['complete_accurate'] == 10
+    assert report['pace_seconds'] == 12
+    assert pauses == [12] * 29  # between cases only, never before the first
+
+
+def test_pacing_rejects_negative_or_huge_values(tmp_path, monkeypatch):
+    provider = EvaluationFixture([])
+    for bad in (-1, 121):
+        with pytest.raises(ValueError):
+            run_evaluation(tmp_path, monkeypatch, provider, pace_seconds=bad)
