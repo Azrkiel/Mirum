@@ -123,9 +123,12 @@ def test_attach_failure_is_generic(client, runs, monkeypatch):
 
 def test_read_failure_is_generic(client, work, runs, monkeypatch):
     run_id, _ = make_run(runs)
+    # Report success for the real output path but never write it, so the
+    # read-back itself fails (not the path-mismatch branch).
     monkeypatch.setattr(main, "attach_pmi_to_step",
-                        lambda *a, **k: (True, str(work / "missing_out.step")))
-    assert_rejected(post(client, run_id), "missing_out", "No such file", "Errno", run_id)
+                        lambda _inp, _pmi, out, *a, **k: (True, out))
+    assert_rejected(post(client, run_id), "_pmi.step", "No such file", "Errno", run_id)
+    assert list(work.iterdir()) == []
 
 
 def test_part_id_sanitised(client, runs, monkeypatch):
