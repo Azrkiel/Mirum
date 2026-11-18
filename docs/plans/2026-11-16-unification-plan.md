@@ -474,9 +474,9 @@ Original questions, kept for the record:
 | D7 backend split | **merged** 2026-11-17 (v2 generation on main; #31 keeps the UI half) | #46 |
 | U6.1 regen adapter | **merged** 2026-11-17 (identity tests pass natively; `JobRunner.cancel` frees the shared slot) | #52 |
 | U6.2 glider adapter | **merged** 2026-11-17 (identity byte-for-byte, 75 s locally; registered in lifespan) | #51 |
-| U6.3 dragster adapter + rules proposer | open; security LOWs fixed; merged with main; CI running | #55 |
+| U6.3 dragster adapter + rules proposer | **merged** 2026-11-17 (identity: 3 presets + boundary; limit table matches verifier; AI mode flag-gated) | #55 |
 | U7a router | **merged** 2026-11-17 (provider-free; 0 of 88 eval prompts reroute) | #54 |
-| U7b `/generate` routing + assurance labels | in progress | |
-| U7c workspace UI (`feat/professional-workspace`) | after U7b | |
+| U7b `/generate` routing + assurance labels | **merged** 2026-11-17 (routed prompts never reach the Machinist; every LLM result is `unverified_geometry`) | #56 |
+| U7c workspace UI (`feat/professional-workspace`) | **merged** 2026-11-17 (ported by path; no browser screenshots, Docker down) | #57 |
 
-Handoff for the next session: [`.claude/handoffs/2026-11-17-1130.md`](../../.claude/handoffs/2026-11-17-1130.md).
+Handoff for the next session: [`.claude/handoffs/2026-11-17-2000.md`](../../.claude/handoffs/2026-11-17-2000.md).
