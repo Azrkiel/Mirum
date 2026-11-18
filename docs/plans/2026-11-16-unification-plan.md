@@ -483,4 +483,4 @@ Original questions, kept for the record:
 | v1 UI generators | **merged** 2026-11-18: one "Checked design" view lists beam + dragster/regen/glider; form/rules drafts (never AI), review, finalize, run, downloads; routed prompts open it preselected (no browser screenshots) | #65 |
 | CI | **merged** 2026-11-18: native gate timeout 30 -> 45 min (#64); crash-recovery test race fixed (#66) | #64 #66 |
 
-Handoff for the next session: [`.claude/handoffs/2026-11-18-0205.md`](../../.claude/handoffs/2026-11-18-0205.md).
+Handoff for the next session: [`.claude/handoffs/2026-11-18-1700.md`](../../.claude/handoffs/2026-11-18-1700.md) (next: RC1, a provider-free release candidate verified in CI).
