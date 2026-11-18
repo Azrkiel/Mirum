@@ -1,8 +1,9 @@
 name: Build release images
 description: >-
-  Build the pinned backend (release, b13-eval) and frontend images from a clean checkout,
-  check Python 3.10.22, pip check, a no-network CadQuery STEP smoke test and local Babylon
-  serving, then record image IDs, base digests and lock hashes as JSON.
+  Build the pinned backend (release with the PicoGK regen builder, b13-eval) and frontend images from a
+  clean checkout, check Python 3.10.22, pip check, a no-network CadQuery STEP smoke test, an accepted
+  regen reference job through the release container's API and local Babylon serving, then record image
+  IDs, base digests, sizes and lock hashes as JSON. Inputs and outputs are unchanged.
 inputs:
   evidence-path:
     description: File the JSON record is written to (relative to the workspace).
@@ -15,13 +16,50 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Build backend release image
-      shell: bash
-      run: docker build --pull --no-cache -f backend/Dockerfile --target release -t mirum-backend:release .
+    # The backend images are built through picogk-builder/docker-bake.hcl so the PicoGK runtime and the
+    # regen payload (named context "picogk-regen") come from the same graph and the same GitHub Actions
+    # cache scopes as .github/workflows/picogk-runtime.yml. use: false keeps the plain `docker build`
+    # below on the default builder (images land in the local daemon as before). No registry push.
+    - name: Set up Buildx (not made the default builder)
+      id: buildx
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      with:
+        use: false
 
-    - name: Build backend b13-eval image
+    - name: Compute PicoGK cache scopes
+      id: scope
       shell: bash
-      run: docker build -f backend/Dockerfile --target b13-eval -t mirum-backend:b13-eval .
+      run: |
+        echo "rt=picogk-runtime-${{ hashFiles('spike-picogk/Dockerfile.runtime') }}" >> "$GITHUB_OUTPUT"
+        echo "bd=picogk-regen-${{ hashFiles('picogk-builder/Dockerfile', 'picogk-builder/Program.cs', 'picogk-builder/builder.csproj') }}" >> "$GITHUB_OUTPUT"
+        echo "jobs=$(nproc)" >> "$GITHUB_OUTPUT"
+        echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+    - name: Build backend release and b13-eval images (PicoGK stages cached)
+      uses: docker/bake-action@5be5f02ff8819ecd3092ea6b2e6261c31774f2b4 # v6
+      env:
+        BUILD_JOBS: ${{ steps.scope.outputs.jobs }}
+      with:
+        builder: ${{ steps.buildx.outputs.name }}
+        files: picogk-builder/docker-bake.hcl
+        targets: |
+          backend-release
+          backend-b13-eval
+        load: true
+        pull: true
+        set: |
+          runtime.cache-from=type=gha,scope=${{ steps.scope.outputs.rt }}
+          runtime.cache-to=type=gha,mode=max,scope=${{ steps.scope.outputs.rt }}
+          regen.cache-from=type=gha,scope=${{ steps.scope.outputs.bd }}
+          regen.cache-to=type=gha,mode=max,scope=${{ steps.scope.outputs.bd }}
+
+    - name: Record backend build time
+      shell: bash
+      env:
+        EVIDENCE_PATH: ${{ inputs.evidence-path }}
+      run: |
+        mkdir -p "$(dirname "$EVIDENCE_PATH")"
+        echo "{\"backend_build_seconds\": $(( $(date +%s) - ${{ steps.scope.outputs.start }} ))}" > "$(dirname "$EVIDENCE_PATH")/backend-build-time.json"
 
     - name: Build frontend image
       shell: bash
@@ -75,6 +113,52 @@ runs:
         docker run --rm --network none --entrypoint sh mirum-backend:release -c \
           'test -x /usr/bin/xfoil && cd /app/backend && python -c "import main"'
 
+    - name: Regen builder is in the release image (paths, runtime sha256, libraries, uid 10001)
+      shell: bash
+      run: |
+        set -euo pipefail
+        recorded=$(cut -d' ' -f1 picogk-builder/picogk-runtime.sha256)
+        docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+          --entrypoint sh -e RECORDED="$recorded" mirum-backend:release -c '
+            set -eu
+            test "$(id -u)" = 10001
+            test -x /opt/regen/app/builder
+            actual=$(sha256sum /opt/regen/app/picogk.26.2.so | cut -d" " -f1)
+            echo "picogk.26.2.so sha256 $actual"
+            test "$actual" = "$RECORDED"
+            test "$(cut -d" " -f1 /opt/regen/app/picogk.26.2.so.sha256)" = "$actual"
+            test -f /opt/regen/lib/libstdc++.so.6 && test -f /opt/regen/lib/libgcc_s.so.1
+            test -f /licenses/PicoGKRuntime-LICENSE && test -f /licenses/OpenVDB-LICENSE
+            ! LD_LIBRARY_PATH=/opt/regen/lib ldd /opt/regen/app/picogk.26.2.so | grep "not found"
+            env | grep -c "^LD_LIBRARY_PATH=" | grep -qx 0
+            python -c "import os; assert os.environ.get(\"MIRUM_DEPLOYMENT\") == \"release\""
+          '
+
+    - name: Regen smoke in the release container (read-only, no network, release env)
+      shell: bash
+      env:
+        EVIDENCE_PATH: ${{ inputs.evidence-path }}
+      run: |
+        set -euo pipefail
+        out_dir="$(dirname "$EVIDENCE_PATH")"
+        mkdir -p "$out_dir"
+        token=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')   # throwaway, never a real secret
+        vol="mirum-smoke-eng-$RANDOM"
+        docker volume create "$vol" >/dev/null
+        # The engineering volume must be owned by uid 10001 and not group/world writable.
+        docker run --rm --user 0 -v "$vol:/v" --entrypoint sh mirum-backend:release -c 'chown 10001:10001 /v && chmod 700 /v'
+        cid=$(docker run -d --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+          --memory 4g --memory-swap 4g --pids-limit 512 \
+          --tmpfs /tmp:rw,size=1g,mode=1777 --tmpfs /tmp/mirum/work:rw,size=2g,mode=1777 \
+          --tmpfs /tmp/mirum/telemetry:rw,size=64m,mode=1777 -v "$vol:/tmp/mirum/engineering" \
+          -e MIRUM_ACCESS_TOKEN="$token" -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent \
+          mirum-backend:release)
+        cleanup() { docker logs "$cid" > "$out_dir/regen-smoke-container.log" 2>&1 || true; docker rm -f "$cid" >/dev/null 2>&1 || true; docker volume rm -f "$vol" >/dev/null 2>&1 || true; }
+        trap cleanup EXIT
+        docker exec -i -e SMOKE_TOKEN="$token" -e SMOKE_SPEC="$(cat picogk-builder/examples/reference.json)" "$cid" \
+          python - < scripts/regen_release_smoke.py > "$out_dir/regen-release-smoke.json" \n          || { cat "$out_dir/regen-release-smoke.json"; exit 1; }
+        cat "$out_dir/regen-release-smoke.json"
+
     - name: Frontend serves Babylon locally
       shell: bash
       run: |
@@ -107,6 +191,9 @@ runs:
         out = {
           'source_sha': os.environ.get('GITHUB_SHA'),
           'python_base_digest': sorted(base),
+          'regen_runtime_sha256': open('picogk-builder/picogk-runtime.sha256').read().split()[0],
+          'image_sizes_bytes': {t: int(sh('docker', 'image', 'inspect', t, '--format', '{{.Size}}'))
+                                for t in ('mirum-backend:release', 'mirum-backend:b13-eval', 'mirum-frontend:release')},
           'images': {t: sh('docker', 'image', 'inspect', t, '--format', '{{.Id}}')
                      for t in ('mirum-backend:release', 'mirum-backend:b13-eval', 'mirum-frontend:release')},
           'lock_sha256': {p: sha(p) for p in ('requirements-release.lock', 'frontend/requirements.lock',

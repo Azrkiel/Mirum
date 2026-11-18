@@ -54,7 +54,7 @@ def dockerfile_problems(text: str) -> list[str]:
         if up == "FROM":
             toks = [t for t in ln.split()[1:] if not t.startswith("--")]
             image = toks[0]
-            if image not in stages and not DIGEST.search(image):
+            if image not in stages and image != "scratch" and not DIGEST.search(image):
                 problems.append(f"unpinned FROM: {ln}")
             if len(toks) >= 3 and toks[1].lower() == "as":
                 stages.add(toks[2])
@@ -348,3 +348,102 @@ def test_reference_anchors_source_and_image():
     for mod, rel in files.items():
         assert hashlib.sha256((ROOT / rel).read_bytes()).hexdigest() == q["source_sha256"][mod], \
             f"{rel} changed since the qualified commit; update the reference deliberately"
+
+
+# ---- regen builder in the release image (RC1 R2b part 2) ---------------------------
+
+def stage_lines(text: str, stage: str) -> list[str]:
+    """Logical lines of one named stage (FROM ... AS <stage> up to the next FROM)."""
+    out: list[str] = []
+    inside = False
+    for ln in logical_lines(text):
+        up = ln.split(None, 1)[0].upper()
+        if up == "FROM":
+            toks = ln.split()
+            inside = len(toks) >= 4 and toks[-2].lower() == "as" and toks[-1] == stage
+            continue
+        if inside:
+            out.append(ln)
+    return out
+
+
+REGEN_WEB = ROOT / "backend" / "engineering" / "regen_web.py"
+RECORDED_SO = ROOT / "picogk-builder" / "picogk-runtime.sha256"
+
+
+def regen_defaults() -> tuple[str, str]:
+    src = REGEN_WEB.read_text(encoding="utf-8")
+    builder = re.search(r"'REGEN_BUILDER',\s*'([^']+)'", src).group(1)
+    gcc = re.search(r"'REGEN_GCC_LIB',\s*'([^']+)'", src).group(1)
+    return builder, gcc
+
+
+def test_release_stage_ships_builder_and_libs_at_the_paths_regen_web_expects():
+    builder, gcc = regen_defaults()
+    assert builder == "/opt/regen/app/builder" and gcc == "/opt/regen/lib"
+    text = (ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8")
+    release = stage_lines(text, "release")
+    copies = [ln for ln in release if ln.split(None, 1)[0].upper() == "COPY" and "--from=picogk-regen" in ln]
+    dests = {ln.split()[-1].rstrip("/") for ln in copies}
+    assert {"/opt/regen/app", "/opt/regen/lib", "/licenses"} <= dests, copies
+    # REGEN_BUILDER / REGEN_GCC_LIB are either left to the defaults or set to exactly those paths.
+    env = stage_env(text, "release")
+    assert env.get("REGEN_BUILDER", builder) == builder
+    assert env.get("REGEN_GCC_LIB", gcc) == gcc
+    # LD_LIBRARY_PATH is set per builder subprocess by regen_cli, never globally.
+    assert "LD_LIBRARY_PATH" not in env and "LD_LIBRARY_PATH" not in " ".join(
+        ln for ln in release if ln.split(None, 1)[0].upper() == "ENV")
+
+
+def test_release_stage_verifies_the_runtime_sha256_and_is_not_empty():
+    text = (ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8")
+    recorded = RECORDED_SO.read_text(encoding="utf-8").split()[0]
+    assert re.fullmatch(r"[0-9a-f]{64}", recorded), recorded
+    release = " ".join(stage_lines(text, "release"))
+    assert "picogk-runtime.sha256" in release and "sha256sum -c" in release
+    assert "picogk.26.2.so" in release and "test -x /opt/regen/app/builder" in release
+    # The fallback stage for a plain `docker build` is empty on purpose; the check above fails it closed.
+    assert re.search(r"^FROM scratch AS picogk-regen\b", text, re.M)
+
+
+def test_regen_payload_is_built_from_pinned_bookworm_images_with_optional_ca_only():
+    for rel in ("spike-picogk/Dockerfile.runtime", "picogk-builder/Dockerfile"):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert dockerfile_problems_digest_only(text) == [], rel
+        assert "trixie" not in re.sub(r"(?m)^#.*$", "", text), f"{rel}: the release base is bookworm; a trixie build needs glibc 2.38+"
+        assert "avast-ca.pem" not in re.sub(r"(?m)^#.*$", "", text)
+    rt = (ROOT / "spike-picogk" / "Dockerfile.runtime").read_text(encoding="utf-8")
+    assert re.search(r"^FROM gcc:15-bookworm@sha256:[0-9a-f]{64}", rt, re.M)
+    release = " ".join(stage_lines((ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8"), "release"))
+    assert "extra_ca" not in release and ".pem" not in release
+
+
+def dockerfile_problems_digest_only(text: str) -> list[str]:
+    internal = {"picogk-runtime"}
+    return [p for p in dockerfile_problems(text)
+            if p.startswith(("unpinned FROM", "unpinned COPY")) and not any(f"--from={i}" in p for i in internal)]
+
+
+def test_release_regen_runtime_libs_are_apt_pinned():
+    text = (ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8")
+    release = " ".join(stage_lines(text, "release"))
+    for pkg in ("libtbb12", "libblosc1", "libboost-iostreams1.74.0", "libsnappy1v5"):
+        assert re.search(rf"\b{re.escape(pkg)}=\S+", release), pkg
+
+
+def test_release_action_builds_through_bake_with_the_picogk_cache_and_smokes_regen():
+    action = (ROOT / ".github" / "actions" / "build-release-images" / "action.yml").read_text(encoding="utf-8")
+    runtime_wf = (ROOT / ".github" / "workflows" / "picogk-runtime.yml").read_text(encoding="utf-8")
+    # Same cache scopes as picogk-runtime.yml, so the PicoGK stages are built once per source change.
+    for expr in ("picogk-runtime-${{ hashFiles('spike-picogk/Dockerfile.runtime') }}",
+                 "picogk-regen-${{ hashFiles('picogk-builder/Dockerfile', 'picogk-builder/Program.cs', 'picogk-builder/builder.csproj') }}"):
+        assert expr in action and expr in runtime_wf
+    assert "backend-release" in action and "backend-b13-eval" in action
+    assert "regen_release_smoke.py" in action and "--read-only" in action and "--network none" in action
+    assert re.search(r"uses: docker/bake-action@[0-9a-f]{40}", action)
+    assert "load: true" in action  # nothing is pushed to a registry
+    assert not re.search(r"push:\s*true|--push", action)
+    # Inputs/outputs unchanged for other workflows that use the action.
+    nl = chr(10)
+    assert nl + "inputs:" + nl + "  evidence-path:" in nl + action
+    assert nl + "outputs:" + nl + "  evidence-path:" in nl + action

@@ -52,7 +52,7 @@ def _external_refs(path):
         m = re.match(r'COPY\s+.*?--from=(\S+)', line, re.I)
         if m and m.group(1) not in stages:
             refs.append(m.group(1))
-    return [r for r in refs if r not in INTERNAL]
+    return [r for r in refs if r not in INTERNAL and r != 'scratch']  # scratch is the empty base, not an image
 
 
 def test_dockerfiles_exist():
@@ -114,7 +114,7 @@ def test_every_network_run_has_optional_ca_handling():
                 assert 'rm -f /tmp/ca-bundle.crt' in line, f'{p.name}: bundle not removed: {line[:90]}'
                 if 'apt-get' in line:
                     assert 'Acquire::https::CaInfo' in line, f'{p.name}: apt ignores the CA: {line[:90]}'
-    assert seen >= 4  # apt + git (runtime), dotnet (builder), apt (builder runtime stage)
+    assert seen >= 3  # apt + git (runtime image), dotnet restore/publish (builder)
 
 
 def test_nuget_restore_is_locked_and_sources_are_pinned():
@@ -145,16 +145,20 @@ def test_workflow_pip_installs_require_hashes_and_containers_are_hardened():
     runs = [shlex.split(l) for l in wf.replace(chr(92) + chr(10), ' ').splitlines() if 'docker run ' in l]
     assert len(runs) == 2, runs
     for argv in runs:
-        i = argv.index('docker')
-        assert argv[i + 1] == 'run'
-        opts = argv[i + 2:argv.index('picogk-regen:slice')]
-        flags = set(opts)
-        assert {'--read-only', '--cap-drop', '--user', '--network', '--security-opt', '--memory'} <= flags, opts
-        assert opts[opts.index('--network') + 1] == 'none'
-        assert opts[opts.index('--cap-drop') + 1] == 'ALL'
-        assert opts[opts.index('--security-opt') + 1] == 'no-new-privileges'
-        assert opts[opts.index('--memory') + 1] == '3g'
-        assert opts[opts.index('--user') + 1] == '$(id -u):$(id -g)'
+        opts = argv[argv.index('run') + 1:argv.index('mirum-backend:release')]
+        # Each required flag exactly once, with its value.
+        for flag, value in (('--network', 'none'), ('--cap-drop', 'ALL'), ('--security-opt', 'no-new-privileges'),
+                            ('--memory', '3g'), ('--user', '$(id -u):$(id -g)')):
+            assert opts.count(flag) == 1, (flag, opts)
+            assert opts[opts.index(flag) + 1] == value, (flag, opts)
+        assert opts.count('--read-only') == 1, opts
+        # Nothing that widens the sandbox.
+        joined = ' '.join(opts)
+        for bad in ('--privileged', '--cap-add', '--pid host', '--pid=host', '--ipc host', '--ipc=host',
+                    '--network host', '--network=host', '--net host', '--net=host', 'seccomp=unconfined',
+                    'apparmor=unconfined', '--device', '/var/run/docker.sock'):
+            assert bad not in joined, (bad, opts)
+        assert opts.count('--security-opt') == 1  # a second --security-opt could carry seccomp=unconfined
 
 
 def test_ci_wires_the_skip_marker_and_the_always_run_job():
