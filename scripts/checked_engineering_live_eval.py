@@ -83,11 +83,13 @@ def score(case,result):
         actual_brief_sha256=content.brief_sha256 if content else None)
 
 
-async def main(output,state_root,sha,credentials=None,*,run_id,authorization,previous_run,image_id):
+async def main(output,state_root,sha,credentials=None,*,run_id,authorization,previous_run,image_id,pace_seconds=0):
     if (not all(isinstance(value,str) and value.strip() for value in (run_id,authorization,previous_run,image_id))
             or re.fullmatch(r'[0-9a-f]{40}',sha) is None
             or re.fullmatch(r'sha256:[0-9a-f]{64}',image_id) is None):
         raise ValueError('A distinct authorized run identity and immutable candidate are required')
+    if not (isinstance(pace_seconds,(int,float)) and 0<=pace_seconds<=120):
+        raise ValueError('pace_seconds must be between 0 and 120')
     output=Path(output); output.mkdir(parents=True,exist_ok=True)
     credential_variable=None
     if credentials:
@@ -101,7 +103,8 @@ async def main(output,state_root,sha,credentials=None,*,run_id,authorization,pre
     evidence=dict(tested_implementation_sha=sha,corpus_sha256=CORPUS_SHA256,
         run_id=run_id,authorization=authorization,previous_failed_run=previous_run,image_id=image_id,
         maximum_calls=60,maximum_calls_per_case=2,credential_variable=credential_variable,
-        cases=[],calls=0,unreviewed_executions=0,fixture_response_used=False,qualification='blocked')
+        cases=[],calls=0,unreviewed_executions=0,fixture_response_used=False,qualification='blocked',
+        pace_seconds=pace_seconds)
     def save():
         temporary=output/'live.json.tmp'
         temporary.write_text(json.dumps(evidence,indent=2)+'\n')
@@ -152,6 +155,7 @@ async def main(output,state_root,sha,credentials=None,*,run_id,authorization,pre
             native_calls.append(True)
             raise AssertionError('Live preparation cannot execute native work')
         ProcessRunner.run=forbidden_native
+        paced=False
         for case in cases:
             with store.transaction() as db:
                 row=db.execute('SELECT * FROM v15_cases WHERE id=?',(case['id'],)).fetchone()
@@ -177,6 +181,9 @@ async def main(output,state_root,sha,credentials=None,*,run_id,authorization,pre
                     db.execute('INSERT INTO v15_cases VALUES (?,?,NULL)',(case['id'],draft_id))
             failure_start=len(provider.failures)
             started=time.monotonic()
+            if paced and pace_seconds:
+                await asyncio.sleep(pace_seconds)  # respect the key's rate limit; never a retry
+            paced=True
             result=await proposer.propose(draft_id,expected_revision=1,prompt=case['prompt'])
             audit=ledger.read(draft_id,1)
             assert audit.calls<=2
@@ -229,4 +236,5 @@ if __name__=='__main__':
     for name in ('output','state_root','sha'): parser.add_argument(name)
     parser.add_argument('credentials',nargs='?')
     for name in ('run-id','authorization','previous-run','image-id'): parser.add_argument('--'+name,required=True)
+    parser.add_argument('--pace-seconds',type=float,default=0)
     sys.exit(asyncio.run(main(**vars(parser.parse_args()))))
