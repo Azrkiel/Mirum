@@ -24,6 +24,16 @@ from engineering.store import SQLiteStore,SQLiteBriefRepository,SQLiteProposalLe
 TRANSIENT_PROVIDER_FAILURES={('ClientError','429'),('ServerError','503')}
 MAXIMUM_DEADLINE_CASES=3
 PROVIDER_FAILURE_POLICY='b13-unavailable-429-503-v1'
+# Any of these flags stops the run. provider_error_masked is the proposer's key-echo replacement
+# RuntimeError, which hides the real 429/credential/model class, so it cannot be trusted.
+STOP_FLAGS=('tls_certificate_failure','credential_rejected','model_unavailable','provider_error_masked')
+
+
+def policy_digest():
+    """Binds the policy itself, not only its label, into the run identity."""
+    canonical=json.dumps([sorted([list(item) for item in TRANSIENT_PROVIDER_FAILURES]),MAXIMUM_DEADLINE_CASES,list(STOP_FLAGS)],
+        sort_keys=True,separators=(',',':'))
+    return hashlib.sha256(canonical.encode()).hexdigest()
 CORPUS_SHA256='7fb09dcc06626b7fbe31c0e9a2237792ded90ad292651b33e5d4db2ff29bcfea'
 
 
@@ -61,7 +71,8 @@ class ObservedProvider(GeminiProposalProvider):
                 credential_rejected='api key not valid' in message or 'api_key_invalid' in message,
                 model_unavailable='model' in message and ('not found' in message or 'not supported' in message),
                 schema_rejected='response_schema' in message and 'invalid' in message,
-                incomplete_response='did not return a complete candidate' in message))
+                incomplete_response='did not return a complete candidate' in message,
+                provider_error_masked='ai preparation provider call failed' in message))
             raise
 
 
@@ -133,6 +144,7 @@ async def main(output,state_root,sha,credentials=None,*,run_id,authorization,pre
         numerical_policy_version=CAPABILITY.numerical.version,resource_policy_version=CAPABILITY.resources.version,
         maximum_calls=60,maximum_calls_per_case=2,call_seconds=45,
         provider_failure_policy=PROVIDER_FAILURE_POLICY,maximum_deadline_cases=MAXIMUM_DEADLINE_CASES,
+        provider_failure_policy_sha256=policy_digest(),
         prompt_characters=8000,response_bytes=16384)
     evidence['candidate']=identity
     store=SQLiteStore(state_root)
@@ -209,7 +221,7 @@ async def main(output,state_root,sha,credentials=None,*,run_id,authorization,pre
             unavailable_reason=None; stop_reason=None
             if native_calls:
                 stop_reason='Native execution attempted during preparation'
-            elif any(f.get(flag) for f in failures for flag in ('tls_certificate_failure','credential_rejected','model_unavailable')):
+            elif any(f.get(flag) for f in failures for flag in STOP_FLAGS):
                 stop_reason='Configured provider access/runtime failed: '+str(classification)
             elif classification=='preparation_deadline':
                 deadline_cases+=1
