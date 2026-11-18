@@ -163,3 +163,36 @@ def test_overlong_prompt_and_run_id_rejected(client):
     assert r.status_code == 422
     r = client.post("/pmi/annotate", json={"prompt": "Ra 0.8", "part_id": "a", "run_id": "a" * 65})
     assert r.status_code == 422
+
+
+def test_attach_failure_leaves_no_files(client, work, runs, monkeypatch):
+    run_id, art = make_run(runs)
+
+    def stub(src, pmi, dst):
+        Path(dst).write_bytes(b"PARTIAL")
+        Path(dst.replace(".step", ".pmi.json")).write_text("{}")
+        return False, "/tmp/mirum/work/x.step: boom"
+
+    monkeypatch.setattr(main, "attach_pmi_to_step", stub)
+    r = post(client, run_id)
+    assert_rejected(r, "boom", run_id)
+    assert list(work.iterdir()) == []
+    assert art.read_bytes() == b"ISO-10303-21;ORIGINAL"
+
+
+def test_no_pmi_prompt_not_an_existence_oracle(client, runs):
+    run_id, _ = make_run(runs)
+    mk = lambda rid: client.post("/pmi/annotate", json={"prompt": "plain box", "part_id": "a", "run_id": rid})
+    assert mk(run_id).json() == mk(uuid.uuid4().hex).json()
+
+
+def test_overlong_run_id_422_no_server_paths(client):
+    r = post(client, "a" * 65)
+    assert r.status_code == 422
+    assert "/tmp" not in r.text and "Traceback" not in r.text
+
+
+def test_overlong_part_id_rejected(client, runs):
+    run_id, _ = make_run(runs)
+    r = post(client, run_id, part_id="p" * 129)
+    assert r.status_code == 422
