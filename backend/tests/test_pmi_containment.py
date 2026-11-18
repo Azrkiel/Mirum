@@ -25,7 +25,7 @@ def client(work):
         yield c
 
 
-PROMPT = "bracket with a hole diameter 10 mm +/-0.05"
+PROMPT = "bracket bore with surface finish Ra 0.8 and ISO 2768-m"
 
 
 def post(client, step_path, part_id="bracket"):
