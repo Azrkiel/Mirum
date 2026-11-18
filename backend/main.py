@@ -19,6 +19,7 @@ from collections.abc import AsyncGenerator
 
 from contextlib import asynccontextmanager
 
+import config
 import google.generativeai as genai
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -1671,6 +1672,8 @@ class DragsterInterpretRequest(BaseModel):
 @limiter.limit("10/minute")
 async def interpret_dragster(body: DragsterInterpretRequest, request: Request):
     from dragsters.extraction import interpret, ExtractionUnavailable, InvalidBaseSpec, UNAVAILABLE_MESSAGE
+    if not config.ENGINEERING_AI_DRAFTS:  # flag is read once at import (config); the attribute is checked per request; restart to change
+        return JSONResponse(status_code=503, content={'message': _safe_error(UNAVAILABLE_MESSAGE)})
     try:
         return await interpret(body.prompt, body.base_spec)
     except InvalidBaseSpec:
@@ -1947,10 +1950,10 @@ async def refine_assembly(body: RefineRequest, request: Request):
 
 class PMIRequest(BaseModel):
     """Request body for /pmi/extract and /pmi/annotate endpoints."""
-    prompt: str
+    prompt: str = Field(..., max_length=5000)   # same limit as GenerateRequest
     part_id: str
     script: str = ""
-    step_path: str = ""        # Server-side path; only valid within /tmp/mirum/work/
+    step_path: str = Field("", max_length=4096)        # Server-side path; only valid within /tmp/mirum/work/
 
 
 @app.post("/pmi/extract")
@@ -2183,13 +2186,19 @@ async def annotate_step_with_pmi(body: PMIRequest, request: Request):
     if not body.step_path:
         return {"status": "error", "detail": "step_path is required"}
 
-    # Security: only allow paths under _WORK_DIR
-    step_resolved = pathlib.Path(body.step_path).resolve()
-    if not str(step_resolved).startswith(str(_WORK_DIR.resolve())):
+    # Security: only allow regular .step/.stp files that resolve inside _WORK_DIR
+    # (symlinks and ../ are resolved first; sibling-prefix dirs fail is_relative_to).
+    try:
+        step_resolved = pathlib.Path(body.step_path).resolve()
+        inside = step_resolved.is_relative_to(_WORK_DIR.resolve())
+    except (OSError, ValueError):
+        inside = False
+    if not inside:
         return {"status": "error", "detail": "step_path must be within the work directory"}
-
-    if not step_resolved.exists():
-        return {"status": "error", "detail": f"STEP file not found: {body.step_path}"}
+    if step_resolved.suffix.lower() not in (".step", ".stp"):
+        return {"status": "error", "detail": "step_path must be a STEP file"}
+    if not step_resolved.is_file():
+        return {"status": "error", "detail": "STEP file not found"}
 
     # Extract PMI
     pmi = extract_pmi_from_prompt(body.prompt, body.part_id)
@@ -2205,25 +2214,29 @@ async def annotate_step_with_pmi(body: PMIRequest, request: Request):
     success, result_path = attach_pmi_to_step(str(step_resolved), [pmi], output_path)
 
     if not success:
-        return {"status": "error", "detail": result_path}
+        logger.warning("PMI attach failed: %s", _safe_error(result_path))
+        return {"status": "error", "detail": "PMI annotation failed"}
 
     try:
         with open(result_path, "rb") as f:
             data_b64 = base64.b64encode(f.read()).decode("utf-8")
     except Exception as e:
-        return {"status": "error", "detail": f"Could not read output file: {e}"}
+        logger.warning("PMI output unreadable: %s", _safe_error(e))
+        return {"status": "error", "detail": "Could not read annotated output"}
     finally:
-        try:
-            os.remove(result_path)
-        except OSError:
-            pass
+        # Also remove the fallback sidecar written by _attach_pmi_fallback.
+        for leftover in (result_path, result_path.replace(".step", ".pmi.json").replace(".STEP", ".pmi.json")):
+            try:
+                os.remove(leftover)
+            except OSError:
+                pass
 
     return {
         "status": "ok",
         "has_pmi": True,
         "n_annotations": len(pmi.annotations),
         "data_b64": data_b64,
-        "filename": f"{body.part_id}_pmi.step",
+        "filename": f"{_sanitize_part_id(body.part_id)}_pmi.step",
         "format": "step_ap242",
         "annotations_summary": [
             {"face": a.face_selector, "type": a.tolerance_type, "value": a.value}

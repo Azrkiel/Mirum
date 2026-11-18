@@ -469,7 +469,7 @@ Original questions, kept for the record:
 | U3 regen wiring | **merged** 2026-11-17 | #36 |
 | U4 checked design + flag | **merged** 2026-11-17 (two security rounds) | #38 |
 | — client key behind proxy | **merged** 2026-11-17 (limits were one shared bucket) | #39 |
-| U5 B13 | **blocked on the provider.** Owner approved (≤ 60 calls + diagnostics). Evaluator evidence fix #44; GitHub Actions runner #47 (manual, env `b13-live`, main only, atomic reservation tags, caps #50); model → `gemini-4-hydrogen` #49; SDK → `google-genai` 2.8.0, thinking `low` #53. 6 diagnostic calls (2 SDKs × 2 keys × 2 models, laptop + Actions) all ended in HTTP 503 or the 45 s limit; `countTokens` works. The 30-case run has not started. Needs a key/model the provider serves. Evidence: `C:/Users/jiang/mirum-evidence/B13/u5-20261117/summary.json` | #44 #47 #49 #50 #53 |
+| U5 B13 | **code + model work; one full run still needed.** k3 + `gemini-4-hydrogen` + server-filled constants (#59): qualification run 1 scored 10/10 complete-accurate, A01–A05 clarification, 0 silent drops, then HTTP 429 at A06; paced run 2 hit HTTP 503 at C01 (#60). 26 calls total. Next run needs the owner's run-policy decision (handoff 2026-11-17-2207 Q1) | #44 #47 #49 #50 #53 #59 #60 |
 | U6.0 core | **merged** 2026-11-17 (beam bytes pinned; closed limit tables; measurements bound to the generator report; two security rounds) | #48 |
 | D7 backend split | **merged** 2026-11-17 (v2 generation on main; #31 keeps the UI half) | #46 |
 | U6.1 regen adapter | **merged** 2026-11-17 (identity tests pass natively; `JobRunner.cancel` frees the shared slot) | #52 |
@@ -479,4 +479,4 @@ Original questions, kept for the record:
 | U7b `/generate` routing + assurance labels | **merged** 2026-11-17 (routed prompts never reach the Machinist; every LLM result is `unverified_geometry`) | #56 |
 | U7c workspace UI (`feat/professional-workspace`) | **merged** 2026-11-17 (ported by path; no browser screenshots, Docker down) | #57 |
 
-Handoff for the next session: [`.claude/handoffs/2026-11-17-2000.md`](../../.claude/handoffs/2026-11-17-2000.md).
+Handoff for the next session: [`.claude/handoffs/2026-11-17-2207.md`](../../.claude/handoffs/2026-11-17-2207.md).
