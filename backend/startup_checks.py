@@ -1,6 +1,7 @@
 """Release startup guards (RC1 R3). Stdlib only.
 
-``enforce()`` is a no-op unless ``MIRUM_DEPLOYMENT == 'release'``. In release mode it
+``enforce()`` is a no-op when ``MIRUM_DEPLOYMENT`` is unset, '' or 'development', and refuses
+any value other than 'release' (code ``unknown_deployment``). In release mode it
 evaluates every guard, logs ``MIRUM_STARTUP_REFUSED code=<c>: <msg>`` per failure and raises
 ``StartupRefused``. It adds coded, earlier failures on top of the checks that already live in
 ``engineering/store.py`` (worker count, uid, flock owner) and ``engineering/api_v1.py``
@@ -14,12 +15,14 @@ import logging
 import os
 import posixpath
 import re
+import shlex
 import sys
 from dataclasses import dataclass
 
 logger = logging.getLogger('mirum.startup')
 
 _TOKEN_MIN_LEN = 32
+_TOKEN_MIN_DISTINCT = 10
 _VOLUME_PARENT = '/tmp/mirum'
 _WORKER_ENV = ('WEB_CONCURRENCY', 'UVICORN_WORKERS', 'MIRUM_API_REPLICAS')
 
@@ -62,10 +65,12 @@ def _worker_count_bad(argv) -> bool:
     args = list(argv or [])
     for i, arg in enumerate(args):
         value = None
-        if arg in ('--workers', '-w') and i + 1 < len(args):
-            value = args[i + 1]
+        if arg in ('--workers', '-w'):
+            value = args[i + 1] if i + 1 < len(args) else ''
         elif arg.startswith('--workers='):
             value = arg.split('=', 1)[1]
+        elif arg.startswith('-w') and not arg.startswith('--'):
+            value = arg[2:].lstrip('=')
         if value is not None:
             try:
                 if int(value) != 1:
@@ -112,7 +117,11 @@ def evaluate(env, *, mountinfo, stat, euid, egid, argv, try_lock):
 
     # workers
     bad_env = [name for name in _WORKER_ENV if env.get(name, '1') != '1']
-    if bad_env or _worker_count_bad(argv):
+    try:
+        gunicorn_args = shlex.split(env.get('GUNICORN_CMD_ARGS', ''))
+    except ValueError:
+        gunicorn_args = ['--workers', 'unparseable']
+    if bad_env or _worker_count_bad(argv) or _worker_count_bad(gunicorn_args):
         fail('multiple_workers',
              'engineering supports a single API process/replica'
              + (f' (set: {", ".join(bad_env)})' if bad_env else ''))
@@ -128,9 +137,14 @@ def evaluate(env, *, mountinfo, stat, euid, egid, argv, try_lock):
         fail('scratch_overlap', f'scratch dir {scratch} and engineering data dir {data} must not overlap')
 
     # access token (value never echoed)
-    if len(env.get('MIRUM_ACCESS_TOKEN', '')) < _TOKEN_MIN_LEN:
+    token = env.get('MIRUM_ACCESS_TOKEN', '')
+    if len(token) < _TOKEN_MIN_LEN:
         fail('access_token_missing',
              f'MIRUM_ACCESS_TOKEN must be set and at least {_TOKEN_MIN_LEN} characters')
+    elif len(set(token)) < _TOKEN_MIN_DISTINCT or any(c.isspace() for c in token):
+        fail('access_token_weak',
+             f'MIRUM_ACCESS_TOKEN must have at least {_TOKEN_MIN_DISTINCT} distinct characters '
+             'and no whitespace')
 
     # read-only root
     root = by_point.get('/')
@@ -172,8 +186,15 @@ def _default_try_lock(path: str) -> bool:
 
 
 def enforce(env=os.environ) -> None:
-    if env.get('MIRUM_DEPLOYMENT') != 'release':
+    deployment = env.get('MIRUM_DEPLOYMENT')
+    if deployment in (None, '', 'development'):
         return
+    if deployment != 'release':
+        failure = GuardFailure('unknown_deployment',
+                               "MIRUM_DEPLOYMENT must be unset, '' or 'development' (no guards) "
+                               "or 'release' (guards enforced)")
+        logger.error('MIRUM_STARTUP_REFUSED code=%s: %s', failure.code, failure.message)
+        raise StartupRefused([failure])
     resolved = dict(env)
     for name, default in (('MIRUM_ENGINEERING_DATA_DIR', _VOLUME_PARENT + '/engineering'),
                           ('MIRUM_WORK_DIR', _VOLUME_PARENT + '/work')):

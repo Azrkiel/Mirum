@@ -17,7 +17,7 @@ import pytest
 import startup_checks
 from startup_checks import GuardFailure, StartupRefused, enforce, evaluate
 
-TOKEN = 'x' * 32
+TOKEN = 'k3Jx9QmZ7wLp2VnB8sTd4RfY6hGc1AeU'
 DATA = '/tmp/mirum/engineering'
 WORK = '/tmp/mirum/work'
 
@@ -110,9 +110,24 @@ def test_multiple_workers_env(name):
     ['uvicorn', 'main:app', '--workers=3'],
     ['gunicorn', '-w', '4', 'main:app'],
     ['uvicorn', '--workers', 'many'],
+    ['gunicorn', '-w2', 'main:app'],
+    ['gunicorn', '-w=2', 'main:app'],
 ])
 def test_multiple_workers_argv(argv):
     assert 'multiple_workers' in codes(run(argv=argv))
+
+
+@pytest.mark.parametrize('args', ['-w 2', '-w2', '--workers=3', '--bind 0.0.0.0:8000 --workers 4'])
+def test_multiple_workers_gunicorn_cmd_args(args):
+    env = good_env()
+    env['GUNICORN_CMD_ARGS'] = args
+    assert 'multiple_workers' in codes(run(env))
+
+
+def test_gunicorn_cmd_args_one_worker_is_fine():
+    env = good_env()
+    env['GUNICORN_CMD_ARGS'] = '--workers 1 --bind 0.0.0.0:8000'
+    assert run(env) == []
 
 
 def test_one_worker_argv_is_fine():
@@ -149,6 +164,24 @@ def test_access_token_missing(token):
         assert all(token not in f.message for f in failures)
 
 
+@pytest.mark.parametrize('token', ['a' * 40, 'ab' * 20, 'abcdefghi' * 5,
+                                   'abcdefghij klmnopqrstuvwxyz0123456789',
+                                   'abcdefghijklmnopqrstuvwxyz012345\n'])
+def test_access_token_weak(token):
+    env = good_env()
+    env['MIRUM_ACCESS_TOKEN'] = token
+    failures = run(env)
+    assert 'access_token_weak' in codes(failures)
+    assert 'access_token_missing' not in codes(failures)
+    assert all(token not in f.message for f in failures)
+
+
+def test_access_token_with_ten_distinct_chars_is_fine():
+    env = good_env()
+    env['MIRUM_ACCESS_TOKEN'] = 'abcdefghij' * 4
+    assert run(env) == []
+
+
 def test_root_writable():
     info = GOOD_MOUNTINFO.replace('/ / ro,relatime', '/ / rw,relatime')
     assert 'root_writable' in codes(run(mountinfo=info))
@@ -181,6 +214,21 @@ def test_enforce_is_noop_outside_release(deployment, monkeypatch):
         raise AssertionError('evaluate must not run')
     monkeypatch.setattr(startup_checks, 'evaluate', explode)
     enforce(env)
+
+
+@pytest.mark.parametrize('value', ['prod', 'Release', 'production', 'release ', 'staging'])
+def test_enforce_refuses_unknown_deployment(value, monkeypatch, caplog):
+    def explode(*a, **k):
+        raise AssertionError('guards must not run for an unknown value')
+    monkeypatch.setattr(startup_checks, 'evaluate', explode)
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(StartupRefused) as err:
+            enforce({'MIRUM_DEPLOYMENT': value})
+    assert codes(err.value.failures) == ['unknown_deployment']
+    message = err.value.failures[0].message
+    assert 'release' in message and 'development' in message
+    assert 'MIRUM_STARTUP_REFUSED code=unknown_deployment:' in caplog.text
+    assert repr(value) not in caplog.text and repr(value) not in str(err.value)
 
 
 def test_enforce_logs_codes_and_raises(monkeypatch, caplog):
@@ -246,3 +294,27 @@ def test_lifespan_refuses_release_with_bad_env_and_dev_is_unchanged(monkeypatch,
     with TestClient(main.app):
         pass
     assert called == [1]
+
+
+def test_lifespan_real_noop_when_deployment_unset(monkeypatch, tmp_path):
+    pytest.importorskip('fastapi')
+    from fastapi.testclient import TestClient
+    import main
+
+    monkeypatch.delenv('MIRUM_DEPLOYMENT', raising=False)
+    monkeypatch.setenv('MIRUM_ENGINEERING_DATA_DIR', str(tmp_path / 'eng'))
+    monkeypatch.setenv('MIRUM_WORK_DIR', str(tmp_path / 'work'))
+    with TestClient(main.app):
+        pass
+
+
+def test_lifespan_refuses_unknown_deployment(monkeypatch):
+    pytest.importorskip('fastapi')
+    from fastapi.testclient import TestClient
+    import main
+
+    monkeypatch.setenv('MIRUM_DEPLOYMENT', 'prod')
+    with pytest.raises(StartupRefused) as err:
+        with TestClient(main.app):
+            pass
+    assert codes(err.value.failures) == ['unknown_deployment']
