@@ -688,3 +688,54 @@ def test_observed_provider_classifies_google_genai_errors_safely(monkeypatch, ma
 def test_live_eval_identity_lists_google_genai_not_the_old_sdk():
     source = (Path(__file__).parents[2]/'scripts'/'checked_engineering_live_eval.py').read_text()
     assert "'google-genai'" in source and "'google-ai-generativelanguage'" not in source and "'grpcio'" not in source
+
+
+SERVER_CONSTANTS = ('schema_version', 'capability', 'required_checks')
+
+
+def test_provider_schema_never_asks_the_model_for_server_constants():
+    """B13 2026-11-17: the live model returned replies whose fields.capability failed
+    the exact registry validator twice. Capability identity, brief schema version and
+    required checks are server constants, so the model is never asked for them."""
+    from engineering.proposer import provider_schema
+    fields = provider_schema()['properties']['fields']
+    for name in SERVER_CONSTANTS:
+        assert name not in fields['properties']
+        assert name not in fields.get('required', [])
+
+
+@pytest.mark.parametrize('echo', ['omitted', 'guessed'])
+def test_server_constants_are_filled_by_the_server_not_the_reply(echo):
+    from engineering.proposer import _parse, ProposalFields
+    reply = _valid_reply()
+    if echo == 'omitted':
+        for name in SERVER_CONSTANTS: reply['fields'].pop(name, None)
+    else:
+        reply['fields']['capability'] = {'id': 'cantilever_beam', 'version': '1', 'numerical_policy_version': 'v1',
+                                         'resource_policy_version': 'v1'}
+        reply['fields']['required_checks'] = ['looks_fine']
+        reply['fields']['schema_version'] = 'engineering_brief_v9'
+    parsed = _parse(json.dumps(reply))
+    defaults = ProposalFields()
+    assert parsed.fields.capability == defaults.capability
+    assert parsed.fields.required_checks == defaults.required_checks
+    assert parsed.fields.schema_version == defaults.schema_version
+
+
+def test_user_requirements_stay_strict_after_constants_are_server_filled():
+    from engineering.proposer import _parse
+    reply = _valid_reply()
+    reply['fields']['requirements']['length_mm'] = -1
+    with pytest.raises(Exception):
+        _parse(json.dumps(reply))
+    reply = _valid_reply()
+    reply['fields']['requirements']['surprise'] = 1
+    with pytest.raises(Exception):
+        _parse(json.dumps(reply))
+
+
+def _valid_reply():
+    from engineering.proposer import ProposalFields
+    return {'schema_version': 'engineering_proposal_v1', 'state': 'clarification_required',
+            'fields': json.loads(ProposalFields().model_dump_json()),
+            'questions': ['What tip force?'], 'unsupported_features': [], 'contradictions': []}
