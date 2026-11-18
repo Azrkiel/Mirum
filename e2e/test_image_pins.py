@@ -116,6 +116,15 @@ def plain_pins(path: Path) -> dict[str, str]:
     return pins
 
 
+def _extra_pins() -> dict[str, str]:
+    """Transitive packages the source locks omit (see scripts/make_release_lock.py)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("make_release_lock", ROOT / "scripts" / "make_release_lock.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return dict(mod.EXTRA_PINS)
+
+
 # ---- tests against the repository -------------------------------------------
 
 def test_shipped_dockerfiles_are_pinned():
@@ -135,12 +144,13 @@ def test_release_locks_have_hashes():
     assert lock_problems(FRONTEND_LOCK.read_text(encoding="utf-8")) == []
 
 
-def test_release_lock_equals_union_of_backend_locks():
+def test_release_lock_equals_union_of_backend_locks_plus_extras():
     union: dict[str, str] = {}
     for name in BACKEND_LOCKS:
         for k, v in plain_pins(ROOT / name).items():
             assert union.get(k, v) == v, f"conflicting pins for {k}"
             union[k] = v
+    union.update({norm(k): v for k, v in _extra_pins().items()})
     assert lock_pins(RELEASE_LOCK.read_text(encoding="utf-8")) == union
 
 
