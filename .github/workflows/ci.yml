@@ -78,7 +78,7 @@ jobs:
   native-integration:
     name: Native CAD and offline API regression gate
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45  # 30 -> 45 on 2026-11-18: suite takes 22-26 min; slow runners hit 30 twice
     steps:
       - uses: actions/checkout@v4
       - name: Build the native verification image
