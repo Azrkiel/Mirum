@@ -165,7 +165,9 @@ asyncio.run(main())
         assert job.lifecycle == 'unavailable' and job.bundle is None
         for _ in range(100):
             path = Path(f'/proc/{pid}/stat')
-            if not path.exists() or path.read_text().split(') ',1)[1][0] == 'Z': break
+            try: state = path.read_text().split(') ',1)[1][0]
+            except (FileNotFoundError, ProcessLookupError): break  # reaped between checks: gone
+            if state == 'Z': break
             await asyncio.sleep(.01)
         else: pytest.fail('Owned worker remained alive after recovery')
         await jobs.close()

@@ -174,10 +174,44 @@ def _result(client,state):
             key=f'checked_download_{state.job_id}_{format}')
 
 
+def _choose_capability(client):
+    """Capability picker for the v1 view. Returns (metadata, entry, is_generator, pending) or None after an error."""
+    from engineering_v1 import BEAM_ID,capability_options,find_capability,is_generator
+    metadata=st.session_state.get('checked_capabilities')
+    if metadata is None:
+        try: metadata=client.request('GET','/capabilities')
+        except APIError as error: st.error(str(error)); return None
+        st.session_state['checked_capabilities']=metadata
+    options=capability_options(metadata)
+    ids=[o['id'] for o in options]
+    pending=st.session_state.pop('pending_v1',None)
+    if isinstance(pending,dict) and pending.get('capability_id') in ids:
+        st.session_state['checked_capability']=pending['capability_id']
+    else: pending=None
+    if len(options)>1 and any(o['kind']=='generator' for o in options):
+        if st.session_state.get('checked_capability') not in ids:
+            st.session_state['checked_capability']=BEAM_ID if BEAM_ID in ids else ids[0]
+        labels={o['id']:o['label'] for o in options}
+        chosen=st.radio('Capability',ids,format_func=lambda i:_plain(labels[i]),horizontal=True,key='checked_capability')
+    else: chosen=BEAM_ID
+    entry=find_capability(metadata,chosen)
+    return metadata,entry,bool(entry and is_generator(entry)),pending
+
+
 def render_checked(backend,headers):
+    client=CheckedClient(backend,headers)
+    picked=_choose_capability(client)
+    if picked is None: return
+    metadata,entry,generator,pending=picked
+    if generator:
+        from engineering_v1_ui import render_generator,adopt_routed_draft,_states
+        st.query_params['checked_workflow']='1'
+        if pending and pending.get('prompt'):
+            adopt_routed_draft(client,entry,_states().setdefault(entry['id'],CheckedState()),pending['prompt'])
+        render_generator(client,entry,metadata)
+        return
     st.caption('One solid rectangular cantilever. Review requirements, run deterministic checks, inspect one complete evidence package.')
     st.info('Digital model only: ideal clamp, homogeneous linear elasticity, static end force. No physical testing, manufacturing release or standards certification.')
-    client=CheckedClient(backend,headers)
     state=st.session_state.setdefault('checked_state',CheckedState())
     if state.job_id is None: state.job_id=_refs().get('checked_job')
     st.query_params['checked_workflow']='1'
