@@ -42,10 +42,15 @@ The spike parameters (N=48, rc=1.1, throat 15, wall 5) are rejected (tests): the
 ## Build and run
 
 ```
-cp spike-picogk/avast-ca.pem picogk-builder/avast-ca.pem     # machine-local, gitignored
-docker build -f picogk-builder/Dockerfile -t picogk-regen:slice .   # needs picogk-runtime:26.2
+# Builds runtime (long: OpenVDB) and builder in one graph; no avast-ca.pem is needed anymore.
+BUILD_JOBS=3 docker buildx bake -f picogk-builder/docker-bake.hcl regen --load
+# Behind a TLS-intercepting proxy (e.g. Avast), pass the CA as an optional build secret.
+# It is never copied into a layer and TLS verification stays on:
+BUILD_JOBS=3 docker buildx bake -f picogk-builder/docker-bake.hcl regen --load \n  --set '*.secrets=id=extra_ca,src=spike-picogk/avast-ca.pem'
 docker run --rm --name picogk-regen-x --network none -v <dir with spec.json>:/in:ro picogk-regen:slice /in/spec.json /out/o
 ```
+
+CI (`.github/workflows/picogk-runtime.yml`) does the same with a GitHub Actions cache, runs `backend/tests/test_regen_native.py` and the reference/small specs inside the image with `--network none --memory 3g`, and uploads the builder, `picogk.26.2.so` (+ sha256), gcc libs, licenses, apt package manifests and a sha256 manifest as artifacts. Base images are digest-pinned; apt versions are recorded in `apt-packages.json`, not pinned.
 
 Exit 0 accepted (writes `cleaned.stl`, `report.json`, `spec.canonical.json`); 2 rejected (invalid spec, or mesh checks failed; writes only `rejected_report.json` for mesh failures); 1 unavailable (builder crash, 600 s timeout, malformed output, missing runtime `.so`; writes nothing); 3 a `--prebuilt-stl` mesh passed the checks but is not accepted because the builder did not make it (writes only `prebuilt_report.json`). `report.json` is written last. `LD_LIBRARY_PATH` is set only in the builder subprocess environment, never globally. `--prebuilt-stl PATH` verifies an existing STL (test hook).
 
@@ -144,7 +149,7 @@ Historical host tests for that earlier implementation: 72 passed (`test_regen_sp
 ## Limitations
 
 - No STEP, no route, no physics, not in the pipeline or Fly.
-- Base images (`dotnet/sdk:9.0`, `debian:trixie-slim`) and apt packages are unpinned. Hashes are valid only for the same cached images on one machine; Linux and Windows meshes differ (see `spike-picogk/RESULTS.md`).
+- Base images are digest-pinned; apt packages float and are recorded in `apt-packages.json`. Hashes are valid only for the same cached images on one machine; Linux and Windows meshes differ (see `spike-picogk/RESULTS.md`).
 - PicoGKRuntime PR #115 (bool marshalling) is not applied; this builder does not call the affected API.
 - The builder reflects on the private field `Library.m_oTimerMemCheck` of NuGet PicoGK 2.3.0 to stop the memory timer (PicoGKRuntime #31). It fails loudly if the field is missing, but a PicoGK upgrade may break it.
 - Soak (crash rate) was not re-run for this builder; the timer is always stopped as in the spike's 400-run clean arm.

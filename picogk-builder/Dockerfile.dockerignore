@@ -2,7 +2,6 @@
 *
 !picogk-builder/Program.cs
 !picogk-builder/builder.csproj
-!picogk-builder/avast-ca.pem
 !picogk-builder/THIRD_PARTY_NOTICES.md
 !backend/engineering/__init__.py
 !backend/engineering/regen_spec.py
