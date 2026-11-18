@@ -46,7 +46,7 @@ The spike parameters (N=48, rc=1.1, throat 15, wall 5) are rejected (tests): the
 BUILD_JOBS=3 docker buildx bake -f picogk-builder/docker-bake.hcl regen --load
 # Behind a TLS-intercepting proxy (e.g. Avast), pass the CA as an optional build secret.
 # It is never copied into a layer and TLS verification stays on:
-BUILD_JOBS=3 docker buildx bake -f picogk-builder/docker-bake.hcl regen --load \n  --set '*.secrets=id=extra_ca,src=spike-picogk/avast-ca.pem'
+BUILD_JOBS=3 docker buildx bake -f picogk-builder/docker-bake.hcl regen --load --set '*.secrets=id=extra_ca,src=spike-picogk/avast-ca.pem'
 docker run --rm --name picogk-regen-x --network none -v <dir with spec.json>:/in:ro picogk-regen:slice /in/spec.json /out/o
 ```
 
