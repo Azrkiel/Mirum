@@ -240,3 +240,35 @@ def test_mutation_lock_line_without_hash_fails():
     assert lock_problems(f"foo==1.0 \\\n    {h}\n") == []
     assert lock_problems("foo==1.0\n")
     assert lock_problems(f"foo>=1.0 \\\n    {h}\n")
+
+
+# ---- release guards need the deployment marker --------------------------------
+
+def stage_env(text: str, stage: str) -> dict[str, str]:
+    """ENV key=value pairs set directly in one named stage (later ENV wins)."""
+    env: dict[str, str] = {}
+    current = None
+    for ln in logical_lines(text):
+        up = ln.split(None, 1)[0].upper()
+        if up == "FROM":
+            toks = ln.split()[1:]
+            current = toks[toks.index("AS") + 1] if "AS" in toks else None
+        elif up == "ENV" and current == stage:
+            for tok in ln.split()[1:]:
+                if "=" in tok:
+                    k, v = tok.split("=", 1)
+                    env[k] = v
+    return env
+
+
+def test_release_stage_sets_deployment_release():
+    text = (ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8")
+    assert stage_env(text, "release").get("MIRUM_DEPLOYMENT") == "release"
+    # b13-eval inherits it and must not override it.
+    assert "MIRUM_DEPLOYMENT" not in stage_env(text, "b13-eval")
+
+
+def test_mutation_missing_deployment_marker_is_detected():
+    text = "FROM x@sha256:" + "a" * 64 + " AS release\nENV MIRUM_DEPLOYMENT=Release A=b\n"
+    assert stage_env(text, "release").get("MIRUM_DEPLOYMENT") != "release"
+    assert stage_env("FROM x AS release\nENV A=b\n", "release").get("MIRUM_DEPLOYMENT") is None
