@@ -244,7 +244,7 @@ def test_enforce_logs_codes_and_raises(monkeypatch, caplog):
     assert 'access_token_missing' in str(err.value)
 
 
-# DIAG-skipif
+@pytest.mark.skipif(not sys.platform.startswith('linux'), reason='needs /proc/self/mountinfo and flock')
 def test_real_mountinfo_and_tmp_dirs(tmp_path):
     info = startup_checks._read_mountinfo()
     assert info.strip()
@@ -262,7 +262,7 @@ def test_real_mountinfo_and_tmp_dirs(tmp_path):
     assert 'scratch_overlap' not in found
 
 
-# DIAG-skipif
+@pytest.mark.skipif(not sys.platform.startswith('linux'), reason='needs flock')
 def test_default_lock_probe_detects_holder(tmp_path):
     import fcntl
     held = (tmp_path / 'owner.lock').open('a+b')
@@ -275,7 +275,7 @@ def test_default_lock_probe_detects_holder(tmp_path):
 
 
 def test_lifespan_refuses_release_with_bad_env_and_dev_is_unchanged(monkeypatch, tmp_path):
-    import fastapi  # DIAG
+    pytest.importorskip('fastapi')
     from fastapi.testclient import TestClient
     import main
 
@@ -297,7 +297,7 @@ def test_lifespan_refuses_release_with_bad_env_and_dev_is_unchanged(monkeypatch,
 
 
 def test_lifespan_real_noop_when_deployment_unset(monkeypatch, tmp_path):
-    import fastapi  # DIAG
+    pytest.importorskip('fastapi')
     from fastapi.testclient import TestClient
     import main
 
@@ -309,7 +309,7 @@ def test_lifespan_real_noop_when_deployment_unset(monkeypatch, tmp_path):
 
 
 def test_lifespan_refuses_unknown_deployment(monkeypatch):
-    import fastapi  # DIAG
+    pytest.importorskip('fastapi')
     from fastapi.testclient import TestClient
     import main
 
