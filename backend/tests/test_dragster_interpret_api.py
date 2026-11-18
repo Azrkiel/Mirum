@@ -54,10 +54,13 @@ def test_flag_off_makes_no_provider_call_and_returns_unavailable(client, monkeyp
     monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'unit-test-placeholder')
     interpreter = AsyncMock(side_effect=AssertionError('provider called with AI drafts off'))
     monkeypatch.setattr(extraction, 'interpret', interpreter)
+    constructed = []
+    monkeypatch.setattr(main.genai, 'GenerativeModel', lambda *a, **k: constructed.append(1))
     response = client.post('/dragsters/interpret', json={'prompt': 'CO2 wedge'})
     assert response.status_code == 503
     assert response.json() == {'message': 'Text interpretation is unavailable right now; the parameter form still works.'}
     interpreter.assert_not_awaited()
+    assert constructed == []
 
 
 def test_invalid_base_spec_is_clean_422(client, monkeypatch):

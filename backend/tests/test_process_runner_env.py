@@ -41,3 +41,15 @@ async def test_explicit_env_is_honoured():
     child = await run(env={"PATH": os.environ.get("PATH", ""), "CUSTOM_FLAG": "1"})
     assert child["CUSTOM_FLAG"] == "1"
     assert "MIRUM_PROCESS_TOKEN" in child
+
+
+async def test_mirum_secret_like_names_dropped(monkeypatch):
+    for name in ("MIRUM_DB_PASS", "MIRUM_DATABASE_URL", "MIRUM_X_DSN", "MIRUM_AUTH_HEADER",
+                 "MIRUM_PRIVATE_BLOB", "MIRUM_SIGNING", "MIRUM_COOKIE_JAR", "MIRUM_SESSION_ID",
+                 "MIRUM_CRED_FILE", "MIRUM_REDIS_URI"):
+        monkeypatch.setenv(name, "leak")
+    monkeypatch.setenv("MIRUM_WORK_DIR", "/tmp/mirum/work")
+    child = await run()
+    assert not [k for k in child if k.startswith("MIRUM_") and child[k] == "leak"]
+    assert child["MIRUM_WORK_DIR"] == "/tmp/mirum/work"
+    assert "MIRUM_PROCESS_TOKEN" in child

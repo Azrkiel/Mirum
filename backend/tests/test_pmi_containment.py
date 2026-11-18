@@ -116,3 +116,30 @@ def test_valid_file_works_and_part_id_sanitised(client, work, monkeypatch):
     name = body["filename"]
     assert "/" not in name and "\\" not in name and "\n" not in name and ".." not in name
     assert name.endswith("_pmi.step")
+
+
+def test_sidecar_and_output_both_removed(client, work, monkeypatch):
+    f = work / "ok.step"
+    f.write_text("ISO-10303-21;")
+    written = []
+
+    def stub(src, pmi, dst):
+        Path(dst).write_bytes(b"STEPDATA")
+        sidecar = dst.replace(".step", ".pmi.json")
+        Path(sidecar).write_text("{}")
+        written.extend([dst, sidecar])
+        return True, dst
+
+    monkeypatch.setattr(main, "attach_pmi_to_step", stub)
+    assert post(client, str(f)).json()["status"] == "ok"
+    assert len(written) == 2
+    assert not any(Path(p).exists() for p in written)
+
+
+def test_overlong_prompt_and_step_path_rejected(client):
+    r = client.post("/pmi/annotate", json={"prompt": "x" * 5001, "part_id": "a", "step_path": "a.step"})
+    assert r.status_code == 422
+    r = client.post("/pmi/extract", json={"prompt": "x" * 5001, "part_id": "a"})
+    assert r.status_code == 422
+    r = client.post("/pmi/annotate", json={"prompt": "Ra 0.8", "part_id": "a", "step_path": "a" * 4097})
+    assert r.status_code == 422
