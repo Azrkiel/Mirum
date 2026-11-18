@@ -1,9 +1,9 @@
 # B13 release qualification
 
-**Full AI-assisted V1: BLOCKED. B14 prerequisite: not satisfied.**
+**Live corpus qualification: PASSED (2026-11-18, run `qual-20261118-k6`). B13 steps 12-13 (live proposal reviewed in the real UI, V01-V15 requalification) remain; B14 prerequisite not yet satisfied.**
 
 **2026-11-17/18, GitHub Actions runner (`.github/workflows/b13-live.yml`), key k3, `gemini-4-hydrogen`, google-genai 2.8.0, thinking low.**
-Four qualification runs; none qualified. Raw replies are kept out of evidence; safe JSON is under
+Five qualification runs; run 5 qualified. Raw replies are kept out of evidence; safe JSON is under
 `C:/Users/jiang/mirum-evidence/B13/u5-20261117/`.
 
 | Run | Commit | Result |
@@ -12,6 +12,7 @@ Four qualification runs; none qualified. Raw replies are kept out of evidence; s
 | `qual-20261117-hydrogen-k3-paced` | `83c946c` | stopped at C01 on HTTP 503 (1 call) |
 | `qual-20261118-k3-unavail` | `d6dacf2` | policy `b13-unavailable-429-503-v1` (owner Q1(b)): C01 deadline -> unavailable (1 of 3 allowed), C02/C03 accurate (22 s each), stopped at C04 on HTTP 504 (4 calls) |
 | `qual-20261118-k3-504v2` | `554b442` | policy `b13-unavailable-429-503-504-v2` (owner, 2026-11-18): all 30 cases accounted for but every one unavailable (9 HTTP 429, 13 HTTP 503, 7 HTTP 504, 1 deadline); 0/10 complete accurate, 0 silent drops, 0 unreviewed executions -> blocked (30 calls) |
+| `qual-20261118-k6` | `f11cf90` | **PASSED.** Policy v2, new key k6 (owner, 2026-11-18). 30/30 cases accounted for, 0 unavailable, 0 deadlines; **10/10 complete accurate**; A01-A10 all `clarification_required` as expected; U01-U10 9 `unsupported` + U07 `clarification_required` (blocked, not finalizable); 0 silent drops, 0 unreviewed executions. 30 calls, 5.5-25.8 s per case. Image `sha256:3527bfa6...` |
 
 The scoring, corpus, 45 s deadline, 4096 tokens and no-SDK-retry rules are unchanged. No V-row is promoted.
 
