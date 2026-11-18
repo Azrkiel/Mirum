@@ -277,7 +277,8 @@ def test_pacing_rejects_negative_or_huge_values(tmp_path, monkeypatch):
 
 def failure_record(exception, code, **flags):
     record = dict(exception=exception, code=code, tls_certificate_failure=False, credential_rejected=False,
-                  model_unavailable=False, schema_rejected=False, incomplete_response=False)
+                  model_unavailable=False, schema_rejected=False, incomplete_response=False,
+                  provider_error_masked=False)
     record.update(flags)
     return record
 
@@ -442,6 +443,112 @@ def test_evidence_and_identity_carry_the_failure_policy(tmp_path, monkeypatch):
         old = json.loads(raw)
         del old['provider_failure_policy'], old['maximum_deadline_cases']
         db.execute("UPDATE metadata SET value=? WHERE key='v15_identity'", (json.dumps(old, sort_keys=True),))
+    with pytest.raises(ValueError, match='identity'):
+        run_evaluation(tmp_path, monkeypatch, provider)
+    assert len(provider.calls) == 30
+
+
+# --- Security review fix round (PR #63): masked errors, real exceptions, policy digest ---
+
+def test_masked_provider_error_stops_but_incomplete_candidate_runtime_error_continues(tmp_path, monkeypatch):
+    # The proposer replaces any key-echoing provider error with this exact RuntimeError, which hides
+    # 429/credential/model class; the run cannot trust it, so it stops.
+    provider = Scripted({0: failure_record('RuntimeError', None, provider_error_masked=True)})
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 2
+    report = result_file(tmp_path)
+    assert len(report['cases']) == 1 and len(provider.calls) == 1
+    assert report['cases'][0]['stop_reason'].startswith('Configured provider access/runtime failed')
+    assert report['cases'][0]['provider_unavailable'] is False
+    # Other RuntimeErrors (model output problems) keep today's behaviour: blocked case, run continues.
+    tmp_path2 = tmp_path/'incomplete'; tmp_path2.mkdir()
+    provider = Scripted({indexes('ambiguous')[0]: failure_record('RuntimeError', None)})
+    assert run_evaluation(tmp_path2, monkeypatch, provider) == 0
+    report = result_file(tmp_path2)
+    assert len(report['cases']) == 30 and report['provider_unavailable_cases'] == 0
+
+
+def standin(name, code):
+    error = type(name, (Exception,), {})('private failure')
+    error.code = code
+    return error
+
+
+def observed_failure(monkeypatch, error):
+    async def stub(self, *args, **kwargs):
+        raise error
+    monkeypatch.setattr(evaluation.GeminiProposalProvider, 'generate', stub)
+    provider = evaluation.ObservedProvider()
+    with pytest.raises(type(error)):
+        asyncio.run(provider.generate('prompt', {}, None))
+    assert len(provider.failures) == 1
+    return provider.failures[0]
+
+
+@pytest.mark.parametrize('name,code', [('ClientError', 429), ('ServerError', 503), ('ClientError', 400)])
+def test_observed_provider_records_exception_name_and_code_string(monkeypatch, name, code):
+    record = observed_failure(monkeypatch, standin(name, code))
+    assert record['exception'] == name and record['code'] == str(code)
+    assert record['provider_error_masked'] is False
+
+
+@pytest.mark.parametrize('name,code', [('ClientError', 429), ('ServerError', 503)])
+def test_observed_provider_records_real_genai_errors(monkeypatch, name, code):
+    errors = pytest.importorskip('google.genai.errors')
+    error = getattr(errors, name)(code, {'error': {'code': code, 'message': 'quota', 'status': 'RESOURCE_EXHAUSTED'}})
+    record = observed_failure(monkeypatch, error)
+    assert record['exception'] == name and record['code'] == str(code)
+
+
+def test_observed_provider_flags_the_masked_key_echo_error(monkeypatch):
+    record = observed_failure(monkeypatch, RuntimeError('AI preparation provider call failed'))
+    assert record['exception'] == 'RuntimeError' and record['provider_error_masked'] is True
+    record = observed_failure(monkeypatch, RuntimeError('AI preparation did not return a complete candidate'))
+    assert record['provider_error_masked'] is False and record['incomplete_response'] is True
+
+
+def end_to_end_provider(monkeypatch, bad, error):
+    from backend.tests.test_engineering_proposer import FixtureProvider
+    from engineering.proposer import ProviderReply
+    class Real(evaluation.ObservedProvider):
+        available = True
+        settings = FixtureProvider.settings
+        def __init__(self):
+            super().__init__()
+            self.calls = []
+            self.outputs = [json.dumps(c['fixture_response']) for c in corpus()]
+    async def stub(self, *args, **kwargs):
+        index = len(self.calls); self.calls.append(args)
+        output = self.outputs.pop(0)
+        if index == bad: raise error
+        return ProviderReply(text=output, prompt_tokens=10, output_tokens=20)
+    monkeypatch.setattr(evaluation.GeminiProposalProvider, 'generate', stub)
+    return Real()
+
+
+@pytest.mark.parametrize('real', [False, True])
+def test_real_exception_429_flows_through_observed_provider_and_run_continues(tmp_path, monkeypatch, real):
+    if real:
+        errors = pytest.importorskip('google.genai.errors')
+        error = errors.ClientError(429, {'error': {'code': 429, 'message': 'quota', 'status': 'RESOURCE_EXHAUSTED'}})
+    else:
+        error = standin('ClientError', 429)
+    bad = indexes('ambiguous')[2]
+    provider = end_to_end_provider(monkeypatch, bad, error)
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 0
+    report = result_file(tmp_path)
+    case = report['cases'][bad]
+    assert case['provider_unavailable'] is True and case['unavailable_reason'] == 'http_429'
+    assert case['provider_failures'][0]['exception'] == 'ClientError' and case['provider_failures'][0]['code'] == '429'
+    assert len(report['cases']) == 30 and len(provider.calls) == 30 and 'blocker' not in report
+
+
+def test_policy_digest_is_in_identity_and_changing_the_table_changes_it(tmp_path, monkeypatch):
+    provider = Scripted()
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 0
+    digest = result_file(tmp_path)['candidate']['provider_failure_policy_sha256']
+    assert len(digest) == 64 and int(digest, 16) >= 0
+    monkeypatch.setattr(evaluation, 'TRANSIENT_PROVIDER_FAILURES',
+                        evaluation.TRANSIENT_PROVIDER_FAILURES | {('ServerError', '500')})
     with pytest.raises(ValueError, match='identity'):
         run_evaluation(tmp_path, monkeypatch, provider)
     assert len(provider.calls) == 30
