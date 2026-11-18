@@ -121,10 +121,11 @@ def test_outer_deadline_stops_shared_blocker_and_records_safe_classification(tmp
     monkeypatch.setattr(evaluation, 'BriefProposer', lambda *a, **k: BriefProposer(*a, **k, call_seconds=0.05))
     assert run_evaluation(tmp_path, monkeypatch, provider) == 2
     report = result_file(tmp_path)
-    assert report['calls'] == 1 and len(provider.calls) == 1
+    # Adapted 2026-11-17 (owner Q1 b): three deadline cases continue; the fourth stops the run.
+    assert report['calls'] == 4 and len(provider.calls) == 4
     assert report['cases'][0]['error_classification'] == 'preparation_deadline'
     assert run_evaluation(tmp_path, monkeypatch, provider) == 2
-    assert len(provider.calls) == 1 and result_file(tmp_path)['calls'] == 1
+    assert len(provider.calls) == 4 and result_file(tmp_path)['calls'] == 4
 
 
 def test_interrupted_call_is_counted_and_cannot_repeat_after_restart(tmp_path, monkeypatch):
@@ -270,3 +271,284 @@ def test_pacing_rejects_negative_or_huge_values(tmp_path, monkeypatch):
     for bad in (-1, 121):
         with pytest.raises(ValueError):
             run_evaluation(tmp_path, monkeypatch, provider, pace_seconds=bad)
+
+
+# --- Owner Q1(b), 2026-11-17: 429/503 mark one case unavailable and the run continues ---
+
+def failure_record(exception, code, **flags):
+    record = dict(exception=exception, code=code, tls_certificate_failure=False, credential_rejected=False,
+                  model_unavailable=False, schema_rejected=False, incomplete_response=False,
+                  provider_error_masked=False)
+    record.update(flags)
+    return record
+
+
+class Scripted(EvaluationFixture):
+    """Fails or hangs on chosen call indexes. Outputs stay aligned to call index (one call per case)."""
+    def __init__(self, failures=None, hangs=()):
+        super().__init__([json.dumps(c['fixture_response']) for c in corpus()])
+        self.scripted = dict(failures or {})
+        self.hangs = set(hangs)
+
+    async def generate(self, *args):
+        index = len(self.calls)
+        if index in self.hangs:
+            self.calls.append(args); self.outputs.pop(0)
+            await asyncio.Event().wait()
+        if index in self.scripted:
+            self.calls.append(args); self.outputs.pop(0)
+            self.failures.append(self.scripted[index])
+            raise type(self.scripted[index]['exception'], (Exception,), {})('private failure')
+        return await super().generate(*args)
+
+
+def indexes(kind):
+    return [i for i, c in enumerate(corpus()) if c['kind'] == kind]
+
+
+def fast_deadline(monkeypatch):
+    from engineering.proposer import BriefProposer
+    monkeypatch.setattr(evaluation, 'BriefProposer', lambda *a, **k: BriefProposer(*a, **k, call_seconds=0.05))
+
+
+def test_429_on_ambiguous_case_marks_it_unavailable_and_run_continues(tmp_path, monkeypatch):
+    bad = indexes('ambiguous')[3]
+    provider = Scripted({bad: failure_record('ClientError', '429')})
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 0
+    report = result_file(tmp_path)
+    assert len(report['cases']) == 30 and 'blocker' not in report and report['qualification'] == 'passed'
+    case = report['cases'][bad]
+    assert case['provider_unavailable'] is True and case['unavailable_reason'] == 'http_429'
+    assert case['state'] == 'unavailable' and case['audit']['calls'] == 1 and 'stop_reason' not in case
+    assert case['accurate_reviewable_draft'] is False and case['silent_requirement_drop'] is False
+    assert len(provider.calls) == 30 and report['calls'] == 30  # no retry, no extra call
+    assert report['provider_unavailable_cases'] == 1 and report['provider_unavailable_case_ids'] == [corpus()[bad]['id']]
+    assert all(c['provider_unavailable'] is False and c['unavailable_reason'] is None
+               for i, c in enumerate(report['cases']) if i != bad)
+
+
+def test_503_on_complete_case_is_unavailable_not_accurate_and_still_qualifies(tmp_path, monkeypatch):
+    bad = indexes('complete')[0]
+    provider = Scripted({bad: failure_record('ServerError', '503')})
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 0
+    report = result_file(tmp_path)
+    case = report['cases'][bad]
+    assert case['provider_unavailable'] is True and case['unavailable_reason'] == 'http_503'
+    assert case['accurate_reviewable_draft'] is False and case['review_blocked'] is True
+    assert report['complete_accurate'] == 9 and report['qualification'] == 'passed'
+    assert len(report['cases']) == 30 and len(provider.calls) == 30 and report['calls'] == 30
+
+
+def test_429_on_three_complete_cases_fails_the_unchanged_accuracy_gate(tmp_path, monkeypatch):
+    bad = indexes('complete')[:3]
+    provider = Scripted({i: failure_record('ClientError', '429') for i in bad})
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 2
+    report = result_file(tmp_path)
+    assert len(report['cases']) == 30 and report['complete_accurate'] == 7
+    assert report['qualification'] == 'blocked' and 'accuracy' in report['blocker']
+    assert report['provider_unavailable_cases'] == 3 and len(provider.calls) == 30
+
+
+def test_three_deadline_cases_continue_and_a_fourth_stops(tmp_path, monkeypatch):
+    fast_deadline(monkeypatch)
+    ambiguous = indexes('ambiguous')
+    provider = Scripted(hangs=ambiguous[:3])
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 0
+    report = result_file(tmp_path)
+    assert len(report['cases']) == 30 and report['deadline_cases'] == 3 and report['qualification'] == 'passed'
+    for i in ambiguous[:3]:
+        assert report['cases'][i]['unavailable_reason'] == 'preparation_deadline'
+        assert report['cases'][i]['provider_unavailable'] is True
+    tmp_path2 = tmp_path/'four'; tmp_path2.mkdir()
+    provider = Scripted(hangs=ambiguous[:4])
+    assert run_evaluation(tmp_path2, monkeypatch, provider) == 2
+    report = result_file(tmp_path2)
+    assert len(report['cases']) == ambiguous[3] + 1 and len(provider.calls) == ambiguous[3] + 1
+    assert report['cases'][-1]['stop_reason'] and 'preparation_deadline' in report['blocker']
+    assert report['deadline_cases'] == 4 and report['qualification'] == 'blocked'
+
+
+def test_deadlines_before_a_restart_count_and_unavailable_cases_are_never_recalled(tmp_path, monkeypatch):
+    fast_deadline(monkeypatch)
+    ambiguous = indexes('ambiguous')
+    interrupt_at = ambiguous[3]
+    provider = Scripted({ambiguous[4]: failure_record('ClientError', '429')}, hangs=ambiguous[:3] + [interrupt_at])
+    sleeps = []
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+        if len(sleeps) == interrupt_at: raise asyncio.CancelledError()  # simulated crash before the call
+    real_sleep = evaluation.asyncio.sleep
+    monkeypatch.setattr(evaluation.asyncio, 'sleep', fake_sleep)
+    with pytest.raises(asyncio.CancelledError): run_evaluation(tmp_path, monkeypatch, provider, pace_seconds=1)
+    assert len(provider.calls) == interrupt_at  # three deadlines recorded, fourth not yet called
+    monkeypatch.setattr(evaluation.asyncio, 'sleep', real_sleep)
+    assert run_evaluation(tmp_path, monkeypatch, provider, pace_seconds=1) == 2
+    report = result_file(tmp_path)
+    assert len(provider.calls) == interrupt_at + 1  # only the fourth deadline case was called; replays were free
+    assert report['cases'][-1]['stop_reason'] and report['deadline_cases'] == 4
+    assert run_evaluation(tmp_path, monkeypatch, provider, pace_seconds=1) == 2
+    assert len(provider.calls) == interrupt_at + 1
+
+
+def test_unavailable_case_is_not_called_again_on_resume(tmp_path, monkeypatch):
+    provider = Scripted({indexes('ambiguous')[0]: failure_record('ServerError', '503')})
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 0
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 0
+    assert len(provider.calls) == 30 and result_file(tmp_path)['provider_unavailable_cases'] == 1
+
+
+@pytest.mark.parametrize('record', [
+    failure_record('ClientError', '401', credential_rejected=True),
+    failure_record('ClientError', '429', credential_rejected=True),
+    failure_record('ClientError', '404', model_unavailable=True),
+    failure_record('ServerError', '503', model_unavailable=True),
+    failure_record('ConnectError', None, tls_certificate_failure=True),
+    failure_record('ClientError', '429', tls_certificate_failure=True),
+])
+def test_credential_model_and_tls_failures_stop_the_run(tmp_path, monkeypatch, record):
+    provider = Scripted({0: record})
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 2
+    report = result_file(tmp_path)
+    assert len(report['cases']) == 1 and len(provider.calls) == 1
+    assert report['cases'][0]['stop_reason'].startswith('Configured provider access/runtime failed')
+    assert report['cases'][0]['provider_unavailable'] is False and report['provider_unavailable_cases'] == 0
+
+
+@pytest.mark.parametrize('record', [
+    failure_record('ClientError', '400'),
+    failure_record('ClientError', '403'),
+    failure_record('ServerError', '500'),
+    failure_record('ClientError', None),
+])
+def test_other_provider_failures_still_stop_the_run(tmp_path, monkeypatch, record):
+    provider = Scripted({0: record})
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 2
+    report = result_file(tmp_path)
+    assert len(report['cases']) == 1 and len(provider.calls) == 1
+    assert report['cases'][0]['stop_reason'] and report['cases'][0]['provider_unavailable'] is False
+
+
+def test_evidence_and_identity_carry_the_failure_policy(tmp_path, monkeypatch):
+    provider = Scripted()
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 0
+    report = result_file(tmp_path)
+    for holder in (report, report['candidate']):
+        assert holder['provider_failure_policy'] == 'b13-unavailable-429-503-v1'
+        assert holder['maximum_deadline_cases'] == 3
+    assert report['provider_unavailable_cases'] == 0 and report['provider_unavailable_case_ids'] == []
+    assert report['deadline_cases'] == 0
+    import sqlite3
+    with sqlite3.connect(tmp_path/'state'/'engineering.sqlite3') as db:
+        raw = db.execute("SELECT value FROM metadata WHERE key='v15_identity'").fetchone()[0]
+        old = json.loads(raw)
+        del old['provider_failure_policy'], old['maximum_deadline_cases']
+        db.execute("UPDATE metadata SET value=? WHERE key='v15_identity'", (json.dumps(old, sort_keys=True),))
+    with pytest.raises(ValueError, match='identity'):
+        run_evaluation(tmp_path, monkeypatch, provider)
+    assert len(provider.calls) == 30
+
+
+# --- Security review fix round (PR #63): masked errors, real exceptions, policy digest ---
+
+def test_masked_provider_error_stops_but_incomplete_candidate_runtime_error_continues(tmp_path, monkeypatch):
+    # The proposer replaces any key-echoing provider error with this exact RuntimeError, which hides
+    # 429/credential/model class; the run cannot trust it, so it stops.
+    provider = Scripted({0: failure_record('RuntimeError', None, provider_error_masked=True)})
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 2
+    report = result_file(tmp_path)
+    assert len(report['cases']) == 1 and len(provider.calls) == 1
+    assert report['cases'][0]['stop_reason'].startswith('Configured provider access/runtime failed')
+    assert report['cases'][0]['provider_unavailable'] is False
+    # Other RuntimeErrors (model output problems) keep today's behaviour: blocked case, run continues.
+    tmp_path2 = tmp_path/'incomplete'; tmp_path2.mkdir()
+    provider = Scripted({indexes('ambiguous')[0]: failure_record('RuntimeError', None)})
+    assert run_evaluation(tmp_path2, monkeypatch, provider) == 0
+    report = result_file(tmp_path2)
+    assert len(report['cases']) == 30 and report['provider_unavailable_cases'] == 0
+
+
+def standin(name, code):
+    error = type(name, (Exception,), {})('private failure')
+    error.code = code
+    return error
+
+
+def observed_failure(monkeypatch, error):
+    async def stub(self, *args, **kwargs):
+        raise error
+    monkeypatch.setattr(evaluation.GeminiProposalProvider, 'generate', stub)
+    provider = evaluation.ObservedProvider()
+    with pytest.raises(type(error)):
+        asyncio.run(provider.generate('prompt', {}, None))
+    assert len(provider.failures) == 1
+    return provider.failures[0]
+
+
+@pytest.mark.parametrize('name,code', [('ClientError', 429), ('ServerError', 503), ('ClientError', 400)])
+def test_observed_provider_records_exception_name_and_code_string(monkeypatch, name, code):
+    record = observed_failure(monkeypatch, standin(name, code))
+    assert record['exception'] == name and record['code'] == str(code)
+    assert record['provider_error_masked'] is False
+
+
+@pytest.mark.parametrize('name,code', [('ClientError', 429), ('ServerError', 503)])
+def test_observed_provider_records_real_genai_errors(monkeypatch, name, code):
+    errors = pytest.importorskip('google.genai.errors')
+    error = getattr(errors, name)(code, {'error': {'code': code, 'message': 'quota', 'status': 'RESOURCE_EXHAUSTED'}})
+    record = observed_failure(monkeypatch, error)
+    assert record['exception'] == name and record['code'] == str(code)
+
+
+def test_observed_provider_flags_the_masked_key_echo_error(monkeypatch):
+    record = observed_failure(monkeypatch, RuntimeError('AI preparation provider call failed'))
+    assert record['exception'] == 'RuntimeError' and record['provider_error_masked'] is True
+    record = observed_failure(monkeypatch, RuntimeError('AI preparation did not return a complete candidate'))
+    assert record['provider_error_masked'] is False and record['incomplete_response'] is True
+
+
+def end_to_end_provider(monkeypatch, bad, error):
+    from backend.tests.test_engineering_proposer import FixtureProvider
+    from engineering.proposer import ProviderReply
+    class Real(evaluation.ObservedProvider):
+        available = True
+        settings = FixtureProvider.settings
+        def __init__(self):
+            super().__init__()
+            self.calls = []
+            self.outputs = [json.dumps(c['fixture_response']) for c in corpus()]
+    async def stub(self, *args, **kwargs):
+        index = len(self.calls); self.calls.append(args)
+        output = self.outputs.pop(0)
+        if index == bad: raise error
+        return ProviderReply(text=output, prompt_tokens=10, output_tokens=20)
+    monkeypatch.setattr(evaluation.GeminiProposalProvider, 'generate', stub)
+    return Real()
+
+
+@pytest.mark.parametrize('real', [False, True])
+def test_real_exception_429_flows_through_observed_provider_and_run_continues(tmp_path, monkeypatch, real):
+    if real:
+        errors = pytest.importorskip('google.genai.errors')
+        error = errors.ClientError(429, {'error': {'code': 429, 'message': 'quota', 'status': 'RESOURCE_EXHAUSTED'}})
+    else:
+        error = standin('ClientError', 429)
+    bad = indexes('ambiguous')[2]
+    provider = end_to_end_provider(monkeypatch, bad, error)
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 0
+    report = result_file(tmp_path)
+    case = report['cases'][bad]
+    assert case['provider_unavailable'] is True and case['unavailable_reason'] == 'http_429'
+    assert case['provider_failures'][0]['exception'] == 'ClientError' and case['provider_failures'][0]['code'] == '429'
+    assert len(report['cases']) == 30 and len(provider.calls) == 30 and 'blocker' not in report
+
+
+def test_policy_digest_is_in_identity_and_changing_the_table_changes_it(tmp_path, monkeypatch):
+    provider = Scripted()
+    assert run_evaluation(tmp_path, monkeypatch, provider) == 0
+    digest = result_file(tmp_path)['candidate']['provider_failure_policy_sha256']
+    assert len(digest) == 64 and int(digest, 16) >= 0
+    monkeypatch.setattr(evaluation, 'TRANSIENT_PROVIDER_FAILURES',
+                        evaluation.TRANSIENT_PROVIDER_FAILURES | {('ServerError', '500')})
+    with pytest.raises(ValueError, match='identity'):
+        run_evaluation(tmp_path, monkeypatch, provider)
+    assert len(provider.calls) == 30

@@ -19,6 +19,21 @@ from engineering.proposer import PROMPT_VERSION, SCHEMA_VERSION
 from engineering.capabilities import CAPABILITY
 from engineering.store import SQLiteStore,SQLiteBriefRepository,SQLiteProposalLedger
 
+# Owner Q1(b), 2026-11-17: HTTP 429/503 on a case mark that one case unavailable and the run
+# continues (no retry, scoring unchanged). Any other provider failure still stops the run.
+TRANSIENT_PROVIDER_FAILURES={('ClientError','429'),('ServerError','503')}
+MAXIMUM_DEADLINE_CASES=3
+PROVIDER_FAILURE_POLICY='b13-unavailable-429-503-v1'
+# Any of these flags stops the run. provider_error_masked is the proposer's key-echo replacement
+# RuntimeError, which hides the real 429/credential/model class, so it cannot be trusted.
+STOP_FLAGS=('tls_certificate_failure','credential_rejected','model_unavailable','provider_error_masked')
+
+
+def policy_digest():
+    """Binds the policy itself, not only its label, into the run identity."""
+    canonical=json.dumps([sorted([list(item) for item in TRANSIENT_PROVIDER_FAILURES]),MAXIMUM_DEADLINE_CASES,list(STOP_FLAGS)],
+        sort_keys=True,separators=(',',':'))
+    return hashlib.sha256(canonical.encode()).hexdigest()
 CORPUS_SHA256='7fb09dcc06626b7fbe31c0e9a2237792ded90ad292651b33e5d4db2ff29bcfea'
 
 
@@ -56,7 +71,8 @@ class ObservedProvider(GeminiProposalProvider):
                 credential_rejected='api key not valid' in message or 'api_key_invalid' in message,
                 model_unavailable='model' in message and ('not found' in message or 'not supported' in message),
                 schema_rejected='response_schema' in message and 'invalid' in message,
-                incomplete_response='did not return a complete candidate' in message))
+                incomplete_response='did not return a complete candidate' in message,
+                provider_error_masked='ai preparation provider call failed' in message))
             raise
 
 
@@ -104,8 +120,14 @@ async def main(output,state_root,sha,credentials=None,*,run_id,authorization,pre
         run_id=run_id,authorization=authorization,previous_failed_run=previous_run,image_id=image_id,
         maximum_calls=60,maximum_calls_per_case=2,credential_variable=credential_variable,
         cases=[],calls=0,unreviewed_executions=0,fixture_response_used=False,qualification='blocked',
-        pace_seconds=pace_seconds)
+        pace_seconds=pace_seconds,provider_failure_policy=PROVIDER_FAILURE_POLICY,
+        maximum_deadline_cases=MAXIMUM_DEADLINE_CASES,provider_unavailable_cases=0,
+        provider_unavailable_case_ids=[],deadline_cases=0)
     def save():
+        unavailable=[c for c in evidence['cases'] if c.get('provider_unavailable')]
+        evidence['provider_unavailable_cases']=len(unavailable)
+        evidence['provider_unavailable_case_ids']=[c['case_id'] for c in unavailable]
+        evidence['deadline_cases']=sum(c.get('error_classification')=='preparation_deadline' for c in evidence['cases'])
         temporary=output/'live.json.tmp'
         temporary.write_text(json.dumps(evidence,indent=2)+'\n')
         temporary.replace(output/'live.json')
@@ -121,6 +143,8 @@ async def main(output,state_root,sha,credentials=None,*,run_id,authorization,pre
         capability=CAPABILITY.id,capability_version=CAPABILITY.version,
         numerical_policy_version=CAPABILITY.numerical.version,resource_policy_version=CAPABILITY.resources.version,
         maximum_calls=60,maximum_calls_per_case=2,call_seconds=45,
+        provider_failure_policy=PROVIDER_FAILURE_POLICY,maximum_deadline_cases=MAXIMUM_DEADLINE_CASES,
+        provider_failure_policy_sha256=policy_digest(),
         prompt_characters=8000,response_bytes=16384)
     evidence['candidate']=identity
     store=SQLiteStore(state_root)
@@ -156,6 +180,7 @@ async def main(output,state_root,sha,credentials=None,*,run_id,authorization,pre
             raise AssertionError('Live preparation cannot execute native work')
         ProcessRunner.run=forbidden_native
         paced=False
+        deadline_cases=0
         for case in cases:
             with store.transaction() as db:
                 row=db.execute('SELECT * FROM v15_cases WHERE id=?',(case['id'],)).fetchone()
@@ -163,6 +188,7 @@ async def main(output,state_root,sha,credentials=None,*,run_id,authorization,pre
                 recorded=json.loads(row['result'])
                 evidence['cases'].append(recorded)
                 prior_native+=recorded.get('native_execution_attempts',0)
+                deadline_cases+=recorded.get('error_classification')=='preparation_deadline'
                 if recorded.get('stop_reason'):
                     evidence['blocker']=recorded['stop_reason']; break
                 continue
@@ -191,13 +217,26 @@ async def main(output,state_root,sha,credentials=None,*,run_id,authorization,pre
             failures=list(provider.failures[failure_start:])
             classification=('preparation_deadline' if result.state=='unavailable' and any('timed out' in r for r in result.reasons)
                 else failures[-1]['exception'] if failures else None)
+            transient=[f for f in failures if f['exception']!='RuntimeError']
+            unavailable_reason=None; stop_reason=None
+            if native_calls:
+                stop_reason='Native execution attempted during preparation'
+            elif any(f.get(flag) for f in failures for flag in STOP_FLAGS):
+                stop_reason='Configured provider access/runtime failed: '+str(classification)
+            elif classification=='preparation_deadline':
+                deadline_cases+=1
+                if deadline_cases>MAXIMUM_DEADLINE_CASES:
+                    stop_reason='Configured provider access/runtime failed: '+str(classification)
+                else: unavailable_reason='preparation_deadline'
+            elif transient and all((f['exception'],f.get('code')) in TRANSIENT_PROVIDER_FAILURES for f in transient):
+                unavailable_reason='http_'+str(transient[-1]['code'])
+            elif transient:
+                stop_reason='Configured provider access/runtime failed: '+str(classification)
             measured=dict(score(case,result),audit=safe_audit(audit),provider_failures=failures,
                 elapsed_seconds=round(time.monotonic()-started,6),error_classification=classification,
-                native_execution_attempts=len(native_calls))
-            if native_calls:
-                measured['stop_reason']='Native execution attempted during preparation'
-            elif classification=='preparation_deadline' or any(f['exception']!='RuntimeError' or f.get('tls_certificate_failure') for f in failures):
-                measured['stop_reason']='Configured provider access/runtime failed: '+str(classification)
+                native_execution_attempts=len(native_calls),
+                provider_unavailable=unavailable_reason is not None,unavailable_reason=unavailable_reason)
+            if stop_reason: measured['stop_reason']=stop_reason
             evidence['cases'].append(measured)
             with store.transaction() as db:
                 db.execute('UPDATE v15_cases SET result=? WHERE id=?',(json.dumps(measured),case['id']))

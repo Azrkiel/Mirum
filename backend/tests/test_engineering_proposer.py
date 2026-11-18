@@ -679,7 +679,7 @@ def test_observed_provider_classifies_google_genai_errors_safely(monkeypatch, ma
         asyncio.run(provider.generate('fixture', provider_schema(), provider.settings()))
     (entry,) = provider.failures
     flags = dict(tls_certificate_failure=False, credential_rejected=False, model_unavailable=False,
-                 schema_rejected=False, incomplete_response=False)
+                 schema_rejected=False, incomplete_response=False, provider_error_masked=False)
     flags.update(expected)
     assert entry == flags
     assert 'overloaded' not in json.dumps(entry) and 'offline-placeholder' not in json.dumps(entry)
