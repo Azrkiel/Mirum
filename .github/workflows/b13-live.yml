@@ -59,7 +59,7 @@ jobs:
           [[ "$AUTHORIZATION" =~ ^[A-Za-z0-9._-]{6,80}$ ]] || { echo "bad authorization"; exit 1; }
           [[ "$CASE_ID" =~ ^[A-Z][0-9]{2}$ ]] || { echo "bad case_id"; exit 1; }
           # Cumulative cap across all runs, counted from durable reservation tags:
-          # at most 6 diagnostics (<= 12 calls) and 3 qualifications (<= 60 calls each).
+          # at most 6 diagnostics (<= 12 calls) and 4 qualifications (<= 60 calls each).
           # Raised 3 -> 6 on 2026-11-17 by owner direction to try each of the owner's keys.
           case "$MODE" in
             diagnostic) prefix=b13-diag; cap=6;;
