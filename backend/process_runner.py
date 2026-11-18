@@ -10,6 +10,29 @@ import signal
 import sys
 from contextvars import ContextVar
 
+# Children get only these variables when no explicit env is passed. Anything
+# matching a secret-looking pattern is dropped even if it would otherwise match.
+_ENV_ALLOW = frozenset({
+    'PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TMP', 'TEMP', 'PYTHONPATH', 'PYTHONHASHSEED',
+    'SYSTEMROOT', 'WINDIR', 'USERPROFILE'})
+_ENV_DENY = ('KEY', 'TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'PASS', 'AUTH', 'DSN', 'PRIVATE', 'CRED',
+             'SIG', 'COOKIE', 'SESSION', 'GOOGLE_', 'GEMINI_')
+_ENV_DENY_SUFFIX = ('_URL', '_URI')  # may embed credentials
+
+
+def _minimal_env() -> dict:
+    """Allowlisted, secret-free copy of the parent environment."""
+    out = {}
+    for name, value in os.environ.items():
+        upper = name.upper()
+        if name not in _ENV_ALLOW and not upper.startswith('MIRUM_'):
+            continue
+        if any(bad in upper for bad in _ENV_DENY) or upper.endswith(_ENV_DENY_SUFFIX):
+            continue
+        out[name] = value
+    return out
+
+
 process_owner = ContextVar('mirum_process_owner', default=None)
 
 
@@ -156,7 +179,7 @@ class ProcessRunner:
         task = asyncio.current_task()
         self._tasks.add(task)
         token = secrets.token_hex(16)
-        child_env = dict(os.environ if env is None else env, MIRUM_PROCESS_TOKEN=token)
+        child_env = dict(_minimal_env() if env is None else env, MIRUM_PROCESS_TOKEN=token)
         if process_owner.get():
             child_env['MIRUM_ENGINEERING_OWNER'] = process_owner.get()
         try:
