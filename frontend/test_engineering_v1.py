@@ -445,7 +445,7 @@ def test_beam_only_deployment_makes_the_same_single_request_and_shows_the_beam_f
     app = run_page(monkeypatch, backend)
     assert not app.exception
     assert backend.calls == [('GET', '/capabilities', None)]
-    assert any('Save draft' == b.label for b in app.get('form_submit_button'))
+    assert any('Save draft' == b.label for b in app.button)
     assert not any(r.key == 'checked_capability' for r in app.radio)
 
 
@@ -457,14 +457,14 @@ def test_with_generators_installed_the_beam_stays_the_default_and_nothing_extra_
     picker = next(r for r in app.radio if r.key == 'checked_capability')
     assert picker.options == [BEAM, *GENERATORS] or len(picker.options) == 4
     assert picker.value == BEAM
-    assert any('Save draft' == b.label for b in app.get('form_submit_button'))
+    assert any('Save draft' == b.label for b in app.button)
 
 
 def test_picking_a_generator_shows_its_form_not_the_beam_form(monkeypatch):
     backend = Backend(metadata(BEAM, *GENERATORS))
     app = run_page(monkeypatch, backend, {'checked_capability': 'regen_chamber'})
     assert not app.exception
-    assert not any('Save draft' == b.label for b in app.get('form_submit_button'))
+    assert not any('Save draft' == b.label for b in app.button)
     assert backend.calls == [('GET', '/capabilities', None)]          # nothing is created until the user asks
     assert any(b.label == 'Start an empty draft' for b in app.button)
 
@@ -494,7 +494,7 @@ def test_route_to_a_capability_that_is_not_installed_falls_back_to_the_beam(monk
     app = run_page(monkeypatch, backend, {'pending_v1': dict(capability_id='glider_cem', prompt='p')})
     assert not app.exception
     assert [c[:2] for c in backend.calls] == [('GET', '/capabilities')]
-    assert any('Save draft' == b.label for b in app.get('form_submit_button'))
+    assert any('Save draft' == b.label for b in app.button)
 
 
 def test_server_issue_text_is_rendered_as_plain_text(monkeypatch):

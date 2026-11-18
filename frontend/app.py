@@ -294,11 +294,14 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
                 step, status = ev["step"], ev["status"]
 
                 if step == "route":
-                    from route_labels import workflow_for
-                    target = workflow_for(ev)
+                    from route_labels import route_target
+                    target = route_target(ev, prompt)
                     if target:
-                        st.session_state.pending_workflow = target
-                        st.session_state.route_notice = f"Checked design: {target}"
+                        st.session_state.pending_workflow = target["workflow"]
+                        if target["capability_id"]:
+                            st.session_state.pending_v1 = {"capability_id": target["capability_id"],
+                                                           "prompt": target["prompt"]}
+                        st.session_state.route_notice = target["notice"]
                         st.rerun()
                         return
                     continue
@@ -984,7 +987,7 @@ if workflow == 'Deterministic rocket nozzle':
     from regen_ui import render_regen
     render_regen(BACKEND_URL, _auth_headers)
     st.stop()
-if workflow == 'Checked beam':
+if workflow == 'Checked design':
     from engineering_ui import render_checked
     render_checked(BACKEND_URL, _auth_headers)
     st.stop()

@@ -54,7 +54,7 @@ def test_cad_workspace_separates_results_and_blocks_blank_generation():
 def test_all_six_workflows_are_offered_and_route_target_is_honoured():
     from workspace import WORKFLOWS
     assert list(WORKFLOWS) == ['Text to CAD', 'CO2 dragster', 'Passive glider distance search',
-                               'Physics-based glider CEM', 'Deterministic rocket nozzle', 'Checked beam']
+                               'Physics-based glider CEM', 'Deterministic rocket nozzle', 'Checked design']
     app = AppTest.from_string('from workspace import render_navigation\nrender_navigation()')
     app.session_state["workflow"] = "Deterministic rocket nozzle"  # what a route event sets
     app.run()
@@ -62,11 +62,11 @@ def test_all_six_workflows_are_offered_and_route_target_is_honoured():
     assert app.sidebar.radio(key="workflow").value == "Deterministic rocket nozzle"
 
 
-def test_checked_workflow_query_param_selects_checked_beam_initially():
+def test_checked_workflow_query_param_selects_checked_design_initially():
     app = AppTest.from_string('from workspace import render_navigation\nrender_navigation()')
     app.query_params["checked_workflow"] = "1"
     app.run()
-    assert app.sidebar.radio(key="workflow").value == "Checked beam"
+    assert app.sidebar.radio(key="workflow").value == "Checked design"
 
 
 def _app():

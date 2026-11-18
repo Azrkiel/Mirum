@@ -13,7 +13,7 @@ WORKFLOWS = {
     "Passive glider distance search": ("DESIGN EXPLORATION", "Search configurations or explore a single glider."),
     "Physics-based glider CEM": ("MISSION DESIGN", "Define a mission. Compare processes and inspect the physics."),
     "Deterministic rocket nozzle": ("PARAMETRIC GEOMETRY", "Regenerative cooling rocket nozzle. Set chamber and cooling-channel dimensions, then inspect the mesh."),
-    "Checked beam": ("CHECKED DESIGN", "Checked rectangular cantilever with recorded acceptance evidence."),
+    "Checked design": ("CHECKED DESIGN", "Review, run and download checked beam, dragster, nozzle and glider designs with recorded acceptance evidence."),
 }
 DEFAULT_WORKFLOW = "Text to CAD"
 WORKFLOW_KEY = "workflow"
@@ -35,7 +35,7 @@ def render_navigation() -> str:
     state = st.session_state
     if state.get(WORKFLOW_KEY) not in WORKFLOWS:
         checked = st.query_params.get("checked_workflow") == "1"
-        state[WORKFLOW_KEY] = "Checked beam" if checked else DEFAULT_WORKFLOW
+        state[WORKFLOW_KEY] = "Checked design" if checked else DEFAULT_WORKFLOW
     with st.sidebar:
         st.markdown(f'<div class="mirum-brand">{_MARK}<span>Mirum</span></div>', unsafe_allow_html=True)
         st.markdown('<div class="nav-label">DESIGN WORKSPACE</div>', unsafe_allow_html=True)
