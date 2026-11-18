@@ -1,7 +1,9 @@
 services:
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
+      target: deps
     ports:
       - "8000:8000"
     volumes:
@@ -11,6 +13,7 @@ services:
       - backend_telemetry:/app/telemetry_logs
       - engineering_data:/tmp/mirum/engineering
     environment:
+      MIRUM_DEPLOYMENT: development
       MIRUM_ENGINEERING_DATA_DIR: /tmp/mirum/engineering
       WEB_CONCURRENCY: "1"
       MIRUM_API_REPLICAS: "1"
