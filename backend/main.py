@@ -162,6 +162,8 @@ def _verification_warning(cert: dict | None) -> str:
 
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
+    from startup_checks import enforce
+    enforce()
     from process_runner import ProcessRunner
     from engineering.api_v1 import create_runtime
     # Registry generators share the old endpoints' runners (and their single slot). The getter is
