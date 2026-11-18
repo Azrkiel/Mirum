@@ -15,7 +15,9 @@ from contextvars import ContextVar
 _ENV_ALLOW = frozenset({
     'PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TMP', 'TEMP', 'PYTHONPATH', 'PYTHONHASHSEED',
     'SYSTEMROOT', 'WINDIR', 'USERPROFILE'})
-_ENV_DENY = ('KEY', 'TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'CREDENTIAL', 'GOOGLE_', 'GEMINI_')
+_ENV_DENY = ('KEY', 'TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'PASS', 'AUTH', 'DSN', 'PRIVATE', 'CRED',
+             'SIG', 'COOKIE', 'SESSION', 'GOOGLE_', 'GEMINI_')
+_ENV_DENY_SUFFIX = ('_URL', '_URI')  # may embed credentials
 
 
 def _minimal_env() -> dict:
@@ -25,7 +27,7 @@ def _minimal_env() -> dict:
         upper = name.upper()
         if name not in _ENV_ALLOW and not upper.startswith('MIRUM_'):
             continue
-        if any(bad in upper for bad in _ENV_DENY):
+        if any(bad in upper for bad in _ENV_DENY) or upper.endswith(_ENV_DENY_SUFFIX):
             continue
         out[name] = value
     return out

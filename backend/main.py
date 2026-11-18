@@ -1672,7 +1672,7 @@ class DragsterInterpretRequest(BaseModel):
 @limiter.limit("10/minute")
 async def interpret_dragster(body: DragsterInterpretRequest, request: Request):
     from dragsters.extraction import interpret, ExtractionUnavailable, InvalidBaseSpec, UNAVAILABLE_MESSAGE
-    if not config.ENGINEERING_AI_DRAFTS:  # read per request; AI draft mode is off by default
+    if not config.ENGINEERING_AI_DRAFTS:  # flag is read once at import (config); the attribute is checked per request; restart to change
         return JSONResponse(status_code=503, content={'message': _safe_error(UNAVAILABLE_MESSAGE)})
     try:
         return await interpret(body.prompt, body.base_spec)
@@ -1950,10 +1950,10 @@ async def refine_assembly(body: RefineRequest, request: Request):
 
 class PMIRequest(BaseModel):
     """Request body for /pmi/extract and /pmi/annotate endpoints."""
-    prompt: str
+    prompt: str = Field(..., max_length=5000)   # same limit as GenerateRequest
     part_id: str
     script: str = ""
-    step_path: str = ""        # Server-side path; only valid within /tmp/mirum/work/
+    step_path: str = Field("", max_length=4096)        # Server-side path; only valid within /tmp/mirum/work/
 
 
 @app.post("/pmi/extract")
@@ -2224,10 +2224,12 @@ async def annotate_step_with_pmi(body: PMIRequest, request: Request):
         logger.warning("PMI output unreadable: %s", _safe_error(e))
         return {"status": "error", "detail": "Could not read annotated output"}
     finally:
-        try:
-            os.remove(result_path)
-        except OSError:
-            pass
+        # Also remove the fallback sidecar written by _attach_pmi_fallback.
+        for leftover in (result_path, result_path.replace(".step", ".pmi.json").replace(".STEP", ".pmi.json")):
+            try:
+                os.remove(leftover)
+            except OSError:
+                pass
 
     return {
         "status": "ok",
