@@ -156,7 +156,7 @@ and rendered, not a second execution of the script. Files are kept for 6 hours.
 | `/download/{run_id}/{fmt}` | GET | Downloads the accepted `step` or `glb` of a `/generate` run (6 h retention) |
 | `/run` | POST | Runs a CadQuery script you supply and returns a GLB |
 | `/refine` | POST | Edits an existing result through follow-up prompts |
-| `/pmi/extract`, `/pmi/annotate` | POST | Read or add tolerance annotations on a STEP file |
+| `/pmi/extract`, `/pmi/annotate` | POST | Read tolerance annotations from a prompt, or add them to a generated run's STEP (`run_id`, not a path) |
 | `/export/parasolid` | POST | Parasolid export (see limitations) |
 | `/analysis/plots`, `/analysis/pdf` | POST | XFOIL results as plots or a PDF |
 | `/stats` | GET | Failure rates by domain and operation |

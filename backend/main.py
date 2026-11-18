@@ -24,7 +24,7 @@ import google.generativeai as genai
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from client_key import client_key
@@ -1949,11 +1949,18 @@ async def refine_assembly(body: RefineRequest, request: Request):
 # ---------------------------------------------------------------------------
 
 class PMIRequest(BaseModel):
-    """Request body for /pmi/extract and /pmi/annotate endpoints."""
+    """Request body for /pmi/extract."""
     prompt: str = Field(..., max_length=5000)   # same limit as GenerateRequest
     part_id: str
     script: str = ""
-    step_path: str = Field("", max_length=4096)        # Server-side path; only valid within /tmp/mirum/work/
+
+
+class PMIAnnotateRequest(BaseModel):
+    """Request body for /pmi/annotate: the STEP is named by run id, never by path."""
+    model_config = ConfigDict(extra="forbid")   # legacy `step_path` clients fail loudly (422)
+    prompt: str = Field(..., max_length=5000)
+    part_id: str
+    run_id: str = Field(..., max_length=64)     # opaque id from the pipeline "complete" event
 
 
 @app.post("/pmi/extract")
@@ -2174,31 +2181,23 @@ async def generate_xfoil_pdf_report(body: PlotsRequest, request: Request):
 
 @app.post("/pmi/annotate")
 @limiter.limit("10/minute")
-async def annotate_step_with_pmi(body: PMIRequest, request: Request):
-    """T3-08: Attach PMI annotations to an existing STEP file.
+async def annotate_step_with_pmi(body: PMIAnnotateRequest, request: Request):
+    """T3-08: Attach PMI annotations to a generated run's STEP file.
 
-    Takes a STEP file path (must be in /tmp/mirum/work/) and a design prompt,
-    extracts PMI from the prompt, attaches it to the STEP file using XCAF,
-    and returns the annotated STEP file as base64.
+    Takes the opaque ``run_id`` from the pipeline's "complete" event (the same
+    id used by GET /download/{run_id}/step) and a design prompt, extracts PMI
+    from the prompt, attaches it to a copy of the run's STEP using XCAF, and
+    returns the annotated STEP as base64. The stored artifact is never
+    modified. No client-supplied filesystem path is accepted.
 
     Falls back to writing a .pmi.json sidecar if XCAF is unavailable.
     """
-    if not body.step_path:
-        return {"status": "error", "detail": "step_path is required"}
-
-    # Security: only allow regular .step/.stp files that resolve inside _WORK_DIR
-    # (symlinks and ../ are resolved first; sibling-prefix dirs fail is_relative_to).
-    try:
-        step_resolved = pathlib.Path(body.step_path).resolve()
-        inside = step_resolved.is_relative_to(_WORK_DIR.resolve())
-    except (OSError, ValueError):
-        inside = False
-    if not inside:
-        return {"status": "error", "detail": "step_path must be within the work directory"}
-    if step_resolved.suffix.lower() not in (".step", ".stp"):
-        return {"status": "error", "detail": "step_path must be a STEP file"}
-    if not step_resolved.is_file():
-        return {"status": "error", "detail": "STEP file not found"}
+    artifacts.sweep()
+    step_resolved = artifacts.artifact_path(body.run_id, "step")
+    if step_resolved is None or not step_resolved.is_file():
+        # Malformed, unknown and expired ids are indistinguishable; the id is
+        # never echoed back.
+        return {"status": "error", "detail": "Artifact not found or expired."}
 
     # Extract PMI
     pmi = extract_pmi_from_prompt(body.prompt, body.part_id)
