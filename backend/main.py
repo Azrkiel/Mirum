@@ -24,7 +24,7 @@ import google.generativeai as genai
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from client_key import client_key
@@ -1949,11 +1949,18 @@ async def refine_assembly(body: RefineRequest, request: Request):
 # ---------------------------------------------------------------------------
 
 class PMIRequest(BaseModel):
-    """Request body for /pmi/extract and /pmi/annotate endpoints."""
+    """Request body for /pmi/extract."""
     prompt: str = Field(..., max_length=5000)   # same limit as GenerateRequest
     part_id: str
     script: str = ""
-    step_path: str = Field("", max_length=4096)        # Server-side path; only valid within /tmp/mirum/work/
+
+
+class PMIAnnotateRequest(BaseModel):
+    """Request body for /pmi/annotate: the STEP is named by run id, never by path."""
+    model_config = ConfigDict(extra="forbid")   # legacy `step_path` clients fail loudly (422)
+    prompt: str = Field(..., max_length=5000)
+    part_id: str = Field(..., max_length=128)
+    run_id: str = Field(..., max_length=64)     # opaque id from the pipeline "complete" event
 
 
 @app.post("/pmi/extract")
@@ -2174,33 +2181,19 @@ async def generate_xfoil_pdf_report(body: PlotsRequest, request: Request):
 
 @app.post("/pmi/annotate")
 @limiter.limit("10/minute")
-async def annotate_step_with_pmi(body: PMIRequest, request: Request):
-    """T3-08: Attach PMI annotations to an existing STEP file.
+async def annotate_step_with_pmi(body: PMIAnnotateRequest, request: Request):
+    """T3-08: Attach PMI annotations to a generated run's STEP file.
 
-    Takes a STEP file path (must be in /tmp/mirum/work/) and a design prompt,
-    extracts PMI from the prompt, attaches it to the STEP file using XCAF,
-    and returns the annotated STEP file as base64.
+    Takes the opaque ``run_id`` from the pipeline's "complete" event (the same
+    id used by GET /download/{run_id}/step) and a design prompt, extracts PMI
+    from the prompt, attaches it to a copy of the run's STEP using XCAF, and
+    returns the annotated STEP as base64. The stored artifact is never
+    modified. No client-supplied filesystem path is accepted.
 
     Falls back to writing a .pmi.json sidecar if XCAF is unavailable.
     """
-    if not body.step_path:
-        return {"status": "error", "detail": "step_path is required"}
-
-    # Security: only allow regular .step/.stp files that resolve inside _WORK_DIR
-    # (symlinks and ../ are resolved first; sibling-prefix dirs fail is_relative_to).
-    try:
-        step_resolved = pathlib.Path(body.step_path).resolve()
-        inside = step_resolved.is_relative_to(_WORK_DIR.resolve())
-    except (OSError, ValueError):
-        inside = False
-    if not inside:
-        return {"status": "error", "detail": "step_path must be within the work directory"}
-    if step_resolved.suffix.lower() not in (".step", ".stp"):
-        return {"status": "error", "detail": "step_path must be a STEP file"}
-    if not step_resolved.is_file():
-        return {"status": "error", "detail": "STEP file not found"}
-
-    # Extract PMI
+    # Pure regex, run first so a no-PMI prompt does not reveal whether the run
+    # id exists. (A prompt with PMI still does; acceptable for a uuid4 id.)
     pmi = extract_pmi_from_prompt(body.prompt, body.part_id)
     if pmi is None:
         return {
@@ -2209,23 +2202,35 @@ async def annotate_step_with_pmi(body: PMIRequest, request: Request):
             "message": "No PMI annotations found in prompt — STEP file unchanged.",
         }
 
-    # Attach PMI to STEP
+    artifacts.sweep()
+    step_resolved = artifacts.artifact_path(body.run_id, "step")
+    if step_resolved is None or not step_resolved.is_file():
+        # Malformed, unknown and expired ids are indistinguishable; the id is
+        # never echoed back.
+        return {"status": "error", "detail": "Artifact not found or expired."}
+
     output_path = _work_path(uuid.uuid4().hex + "_pmi.step")
-    success, result_path = attach_pmi_to_step(str(step_resolved), [pmi], output_path)
-
-    if not success:
-        logger.warning("PMI attach failed: %s", _safe_error(result_path))
-        return {"status": "error", "detail": "PMI annotation failed"}
-
     try:
-        with open(result_path, "rb") as f:
-            data_b64 = base64.b64encode(f.read()).decode("utf-8")
-    except Exception as e:
-        logger.warning("PMI output unreadable: %s", _safe_error(e))
-        return {"status": "error", "detail": "Could not read annotated output"}
+        success, result_path = attach_pmi_to_step(str(step_resolved), [pmi], output_path)
+        if not success:
+            logger.warning("PMI attach failed: %s", _safe_error(result_path))
+            return {"status": "error", "detail": "PMI annotation failed"}
+        if result_path != output_path:
+            # Fail closed: only the fresh work file is ever read or removed, so
+            # a stray result path (e.g. the stored artifact) cannot be returned
+            # or deleted.
+            logger.warning("PMI attach returned an unexpected output path")
+            return {"status": "error", "detail": "PMI annotation failed"}
+        try:
+            with open(output_path, "rb") as f:
+                data_b64 = base64.b64encode(f.read()).decode("utf-8")
+        except Exception as e:
+            logger.warning("PMI output unreadable: %s", _safe_error(e))
+            return {"status": "error", "detail": "Could not read annotated output"}
     finally:
-        # Also remove the fallback sidecar written by _attach_pmi_fallback.
-        for leftover in (result_path, result_path.replace(".step", ".pmi.json").replace(".STEP", ".pmi.json")):
+        # Remove only our own output copy and its fallback sidecar
+        # (_attach_pmi_fallback), on success and failure alike.
+        for leftover in (output_path, output_path.replace(".step", ".pmi.json")):
             try:
                 os.remove(leftover)
             except OSError:

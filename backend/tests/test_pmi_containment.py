@@ -1,5 +1,7 @@
-"""PMI endpoints: path containment and sanitised client errors."""
+"""PMI annotate: run_id resolution (no client paths) and sanitised client errors."""
+import base64
 import os
+import uuid
 from pathlib import Path
 import sys
 
@@ -20,7 +22,23 @@ def work(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def client(work):
+def runs(tmp_path, monkeypatch):
+    root = tmp_path / "runs"
+    root.mkdir()
+    monkeypatch.setattr(main.artifacts, "_RUNS_DIR", root)
+    return root
+
+
+def make_run(runs, data=b"ISO-10303-21;ORIGINAL"):
+    run_id = uuid.uuid4().hex
+    d = runs / run_id
+    d.mkdir()
+    (d / "model.step").write_bytes(data)
+    return run_id, d / "model.step"
+
+
+@pytest.fixture
+def client(work, runs):
     with TestClient(main.app) as c:
         yield c
 
@@ -28,8 +46,8 @@ def client(work):
 PROMPT = "bracket bore with surface finish Ra 0.8 and ISO 2768-m"
 
 
-def post(client, step_path, part_id="bracket"):
-    return client.post("/pmi/annotate", json={"prompt": PROMPT, "part_id": part_id, "step_path": step_path})
+def post(client, run_id, part_id="bracket"):
+    return client.post("/pmi/annotate", json={"prompt": PROMPT, "part_id": part_id, "run_id": run_id})
 
 
 def assert_rejected(response, *leaks):
@@ -40,87 +58,91 @@ def assert_rejected(response, *leaks):
     assert "/tmp" not in body and "Traceback" not in body
 
 
-def test_sibling_prefix_dir_rejected(client, work, tmp_path):
-    evil = tmp_path / (work.name + "_evil")
-    evil.mkdir()
-    target = evil / "x.step"
-    target.write_text("ISO-10303-21;")
-    assert_rejected(post(client, str(target)), str(target))
+def copy_stub(src, pmi, dst):
+    Path(dst).write_bytes(Path(src).read_bytes())
+    return True, dst
 
 
-def test_dotdot_traversal_rejected(client, work, tmp_path):
-    outside = tmp_path / "outside.step"
-    outside.write_text("ISO-10303-21;")
-    path = str(work / ".." / "outside.step")
-    assert_rejected(post(client, path), path)
+def test_valid_run_id_annotates_and_artifact_untouched(client, work, runs, monkeypatch):
+    run_id, art = make_run(runs)
+    monkeypatch.setattr(main, "attach_pmi_to_step", copy_stub)
+    r = post(client, run_id).json()
+    assert r["status"] == "ok" and r["has_pmi"] is True
+    assert base64.b64decode(r["data_b64"]) == b"ISO-10303-21;ORIGINAL"
+    assert art.read_bytes() == b"ISO-10303-21;ORIGINAL"
+    assert list(work.iterdir()) == []
 
 
-@pytest.mark.skipif(os.name != "posix", reason="symlinks need POSIX")
-def test_symlink_out_of_work_dir_rejected(client, work, tmp_path):
-    outside = tmp_path / "secret.step"
-    outside.write_text("ISO-10303-21;")
-    link = work / "link.step"
-    link.symlink_to(outside)
-    assert_rejected(post(client, str(link)), str(link), str(outside))
+def test_legacy_step_path_rejected_422(client, work):
+    f = work / "victim.step"
+    f.write_text("SECRET-GEOMETRY")
+    r = client.post("/pmi/annotate", json={"prompt": PROMPT, "part_id": "a", "step_path": str(f)})
+    assert r.status_code == 422
+    assert "SECRET-GEOMETRY" not in r.text and "data_b64" not in r.text
+    r = client.post("/pmi/annotate", json={"prompt": PROMPT, "part_id": "a", "run_id": "a" * 32, "step_path": str(f)})
+    assert r.status_code == 422
 
 
-def test_wrong_suffix_rejected(client, work):
-    f = work / "x.txt"
-    f.write_text("hi")
-    assert_rejected(post(client, str(f)), str(f))
+@pytest.mark.parametrize("bad", ["../x", "/etc/passwd", "a/b", "a" * 65, "", "A" * 32, ("a" * 32) + "\n", "a" * 31])
+def test_malformed_run_id_generic(client, bad):
+    r = post(client, bad)
+    if r.status_code == 422:  # over max_length: FastAPI echoes the client's own input; that is fine
+        assert "/tmp" not in r.text and "Traceback" not in r.text
+        return
+    assert_rejected(r, "Traceback")
+    assert r.json()["detail"] == "Artifact not found or expired."
+    if bad:
+        assert bad not in r.text
 
 
-def test_directory_rejected(client, work):
-    d = work / "dir.step"
-    d.mkdir()
-    assert_rejected(post(client, str(d)), str(d))
+def test_unknown_wellformed_run_id_generic(client):
+    rid = uuid.uuid4().hex
+    r = post(client, rid)
+    assert_rejected(r, rid)
+    assert r.json()["detail"] == "Artifact not found or expired."
 
 
-def test_missing_file_generic_no_path(client, work):
-    path = str(work / "nope.step")
-    response = post(client, path)
-    assert_rejected(response, path, "nope.step")
+def test_malformed_and_unknown_indistinguishable(client):
+    a = post(client, "../x").json()
+    b = post(client, uuid.uuid4().hex).json()
+    assert a == b
 
 
-def test_attach_failure_is_generic(client, work, monkeypatch):
-    f = work / "ok.step"
-    f.write_text("ISO-10303-21;")
+def test_work_dir_step_not_reachable_by_name(client, work):
+    (work / "victim.step").write_text("SECRET")
+    r = post(client, "victim")
+    assert_rejected(r, "SECRET", "victim")
+
+
+def test_attach_failure_is_generic(client, runs, monkeypatch):
+    run_id, _ = make_run(runs)
     monkeypatch.setattr(main, "attach_pmi_to_step",
                         lambda *a, **k: (False, "/tmp/mirum/work/secret.step: boom XCAF"))
-    response = post(client, str(f))
-    assert_rejected(response, "secret.step", "boom", "XCAF")
+    assert_rejected(post(client, run_id), "secret.step", "boom", "XCAF", run_id)
 
 
-def test_read_failure_is_generic(client, work, monkeypatch):
-    f = work / "ok.step"
-    f.write_text("ISO-10303-21;")
+def test_read_failure_is_generic(client, work, runs, monkeypatch):
+    run_id, _ = make_run(runs)
+    # Report success for the real output path but never write it, so the
+    # read-back itself fails (not the path-mismatch branch).
     monkeypatch.setattr(main, "attach_pmi_to_step",
-                        lambda *a, **k: (True, str(work / "missing_out.step")))
-    response = post(client, str(f))
-    assert_rejected(response, "missing_out", "No such file", "Errno")
+                        lambda _inp, _pmi, out, *a, **k: (True, out))
+    assert_rejected(post(client, run_id), "_pmi.step", "No such file", "Errno", run_id)
+    assert list(work.iterdir()) == []
 
 
-def test_valid_file_works_and_part_id_sanitised(client, work, monkeypatch):
-    f = work / "ok.step"
-    f.write_text("ISO-10303-21;")
-    out = work / "out.step"
-
-    def stub(src, pmi, dst):
-        Path(dst).write_bytes(b"STEPDATA")
-        return True, dst
-
-    monkeypatch.setattr(main, "attach_pmi_to_step", stub)
-    response = post(client, str(f), part_id="../../etc/pa\nss")
-    body = response.json()
+def test_part_id_sanitised(client, runs, monkeypatch):
+    run_id, _ = make_run(runs)
+    monkeypatch.setattr(main, "attach_pmi_to_step", copy_stub)
+    body = post(client, run_id, part_id="../../etc/pa\nss").json()
     assert body["status"] == "ok"
     name = body["filename"]
     assert "/" not in name and "\\" not in name and "\n" not in name and ".." not in name
     assert name.endswith("_pmi.step")
 
 
-def test_sidecar_and_output_both_removed(client, work, monkeypatch):
-    f = work / "ok.step"
-    f.write_text("ISO-10303-21;")
+def test_sidecar_and_output_both_removed(client, runs, monkeypatch):
+    run_id, art = make_run(runs)
     written = []
 
     def stub(src, pmi, dst):
@@ -131,15 +153,58 @@ def test_sidecar_and_output_both_removed(client, work, monkeypatch):
         return True, dst
 
     monkeypatch.setattr(main, "attach_pmi_to_step", stub)
-    assert post(client, str(f)).json()["status"] == "ok"
+    assert post(client, run_id).json()["status"] == "ok"
     assert len(written) == 2
     assert not any(Path(p).exists() for p in written)
+    assert art.read_bytes() == b"ISO-10303-21;ORIGINAL"
 
 
-def test_overlong_prompt_and_step_path_rejected(client):
-    r = client.post("/pmi/annotate", json={"prompt": "x" * 5001, "part_id": "a", "step_path": "a.step"})
+def test_overlong_prompt_and_run_id_rejected(client):
+    r = client.post("/pmi/annotate", json={"prompt": "x" * 5001, "part_id": "a", "run_id": "a" * 32})
     assert r.status_code == 422
     r = client.post("/pmi/extract", json={"prompt": "x" * 5001, "part_id": "a"})
     assert r.status_code == 422
-    r = client.post("/pmi/annotate", json={"prompt": "Ra 0.8", "part_id": "a", "step_path": "a" * 4097})
+    r = client.post("/pmi/annotate", json={"prompt": "Ra 0.8", "part_id": "a", "run_id": "a" * 65})
     assert r.status_code == 422
+
+
+def test_attach_failure_leaves_no_files(client, work, runs, monkeypatch):
+    run_id, art = make_run(runs)
+
+    def stub(src, pmi, dst):
+        Path(dst).write_bytes(b"PARTIAL")
+        Path(dst.replace(".step", ".pmi.json")).write_text("{}")
+        return False, "/tmp/mirum/work/x.step: boom"
+
+    monkeypatch.setattr(main, "attach_pmi_to_step", stub)
+    r = post(client, run_id)
+    assert_rejected(r, "boom", run_id)
+    assert list(work.iterdir()) == []
+    assert art.read_bytes() == b"ISO-10303-21;ORIGINAL"
+
+
+def test_no_pmi_prompt_not_an_existence_oracle(client, runs):
+    run_id, _ = make_run(runs)
+    mk = lambda rid: client.post("/pmi/annotate", json={"prompt": "plain box", "part_id": "a", "run_id": rid})
+    assert mk(run_id).json() == mk(uuid.uuid4().hex).json()
+
+
+def test_overlong_run_id_422_no_server_paths(client):
+    r = post(client, "a" * 65)
+    assert r.status_code == 422
+    assert "/tmp" not in r.text and "Traceback" not in r.text
+
+
+def test_overlong_part_id_rejected(client, runs):
+    run_id, _ = make_run(runs)
+    r = post(client, run_id, part_id="p" * 129)
+    assert r.status_code == 422
+
+
+def test_result_path_pointing_at_artifact_fails_closed(client, runs, monkeypatch):
+    run_id, art = make_run(runs)
+    monkeypatch.setattr(main, "attach_pmi_to_step", lambda src, pmi, dst: (True, src))
+    r = post(client, run_id)
+    assert_rejected(r, run_id)
+    assert "data_b64" not in r.text
+    assert art.read_bytes() == b"ISO-10303-21;ORIGINAL"
