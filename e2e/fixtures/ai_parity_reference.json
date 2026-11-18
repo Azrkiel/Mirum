@@ -1,0 +1,18 @@
+{
+  "_source": "B13 qualification run 44358308796 (key k6), sha f11cf90, image Dockerfile.verify sha256:3527bfa6...",
+  "python_prefix": "3.10.22",
+  "google_genai_version": "2.8.0",
+  "provider_settings": {
+    "provider": "gemini",
+    "sdk_version": "google-genai/2.8.0",
+    "model": "gemini-4-hydrogen",
+    "temperature": 0.4,
+    "max_tokens": 4096,
+    "thinking_level": "low"
+  },
+  "prompt_versions": {
+    "engineering_extraction": "engineering_extraction_v1",
+    "engineering_schema": "engineering_proposal_v1"
+  },
+  "tls_os_trust": false
+}
