@@ -469,7 +469,7 @@ Original questions, kept for the record:
 | U3 regen wiring | **merged** 2026-11-17 | #36 |
 | U4 checked design + flag | **merged** 2026-11-17 (two security rounds) | #38 |
 | — client key behind proxy | **merged** 2026-11-17 (limits were one shared bucket) | #39 |
-| U5 B13 | **blocked on the owner (504 policy + cap).** Owner Q1(b) (2026-11-17): a 429/503 marks one case unavailable and the run continues; up to 3 deadline cases continue; other failures stop (#63). Run 3 (`qual-20261118-k3-unavail`, `d6dacf2`): C01 45 s deadline (unavailable, 1/3), C02 + C03 proposed and accurate (22 s each, provider slow), C04 **HTTP 504** -> stop (504 is not 429/503). 4 calls; 30 live calls total. Qualification cap 3/3 used | #44 #47 #49 #50 #53 #59 #60 #63 |
+| U5 B13 | **blocked: provider capacity.** Owner Q1(b) (2026-11-17): 429/503 mark one case unavailable and the run continues; up to 3 deadline cases continue; other failures stop (#63). Owner 2026-11-18: 504 also unavailable, policy v2, cap 4 (#68). Run 3 (`qual-20261118-k3-unavail`, `d6dacf2`): stopped at C04 on HTTP 504 (4 calls). Run 4 (`qual-20261118-k3-504v2`, `554b442`): all 30 cases accounted for, all unavailable (9x429, 13x503, 7x504, 1 deadline), 0/10 complete accurate -> blocked (30 calls). 60 live calls total. Qualification cap 4/4 used | #44 #47 #49 #50 #53 #59 #60 #63 #68 |
 | U6.0 core | **merged** 2026-11-17 (beam bytes pinned; closed limit tables; measurements bound to the generator report; two security rounds) | #48 |
 | D7 backend split | **merged** 2026-11-17 (v2 generation on main; #31 keeps the UI half) | #46 |
 | U6.1 regen adapter | **merged** 2026-11-17 (identity tests pass natively; `JobRunner.cancel` frees the shared slot) | #52 |
@@ -479,6 +479,7 @@ Original questions, kept for the record:
 | U7b `/generate` routing + assurance labels | **merged** 2026-11-17 (routed prompts never reach the Machinist; every LLM result is `unverified_geometry`) | #56 |
 | U7c workspace UI (`feat/professional-workspace`) | **merged** 2026-11-17 (ported by path; no browser screenshots, Docker down) | #57 |
 | Security debt | **merged** 2026-11-18: PMI containment (`is_relative_to`, regular .step/.stp) + generic errors, minimal child env when `env=None`, `/dragsters/interpret` behind `ENGINEERING_AI_DRAFTS` (review + re-review clean) | #62 |
+| PMI read-back | **merged** 2026-11-18: `/pmi/annotate` takes the run's `run_id` (resolved via `artifacts.artifact_path`) instead of a server path; legacy `step_path` -> 422; reads/removes only its own output file (review + re-review clean) | #69 |
 | v1 UI generators | **merged** 2026-11-18: one "Checked design" view lists beam + dragster/regen/glider; form/rules drafts (never AI), review, finalize, run, downloads; routed prompts open it preselected (no browser screenshots) | #65 |
 | CI | **merged** 2026-11-18: native gate timeout 30 -> 45 min (#64); crash-recovery test race fixed (#66) | #64 #66 |
 
