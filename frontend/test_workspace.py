@@ -67,3 +67,35 @@ def test_checked_workflow_query_param_selects_checked_beam_initially():
     app.query_params["checked_workflow"] = "1"
     app.run()
     assert app.sidebar.radio(key="workflow").value == "Checked beam"
+
+
+def _app():
+    return AppTest.from_file(str(Path(__file__).with_name("app.py")), default_timeout=15)
+
+
+def test_route_notice_and_tab_switch_render_under_workspace_layout():
+    app = _app()
+    app.session_state["pending_workflow"] = "Deterministic rocket nozzle"
+    app.session_state["route_notice"] = "Checked design: Deterministic rocket nozzle"
+    app.run()
+    assert not app.exception
+    assert app.sidebar.radio(key="workflow").value == "Deterministic rocket nozzle"
+    assert any("Checked design: Deterministic rocket nozzle" in i.value for i in app.info)
+    app.run()  # the notice is one-shot
+    assert not any("Checked design:" in i.value for i in app.info)
+
+
+def test_assurance_label_renders_beside_the_model_under_workspace_layout():
+    for value, label in [("checked_design", "Checked design"), ("unverified_geometry", "Unverified geometry")]:
+        app = _app()
+        app.session_state["glb_bytes"] = b"glTF fixture"
+        app.session_state["assurance"] = value
+        app.run()
+        assert not app.exception
+        assert any(f"**{label}**" == m.value for m in app.markdown), value
+    app = _app()
+    app.session_state["glb_bytes"] = b"glTF fixture"
+    app.run()
+    assert not app.exception
+    assert not any(m.value in ("**Checked design**", "**Unverified geometry**") for m in app.markdown)
+    assert any("Unverified preview" in c.value for c in app.caption)

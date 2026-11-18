@@ -65,6 +65,7 @@ for key, default in [
     ("run_id", ""),            # artifact store id for CAD downloads
     ("downloads", {}),         # {"step": True, "glb": True}
     ("bom", None),             # bill of materials for assemblies
+    ("assurance", None),       # U7b: checked_design | unverified_geometry
     ("struct_report", None),         # Phase 6: StructuralReport dict from /generate complete event
 ]:
     if key not in st.session_state:
@@ -253,6 +254,7 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     downloads: dict = {}
     bom = None
     terminal_done = False
+    assurance = None
     staged_manifest = staged_scripts = None
     params = {}
     aero_report = None
@@ -291,6 +293,16 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
                     raise ValueError("Invalid pipeline event envelope")
                 step, status = ev["step"], ev["status"]
 
+                if step == "route":
+                    from route_labels import workflow_for
+                    target = workflow_for(ev)
+                    if target:
+                        st.session_state.pending_workflow = target
+                        st.session_state.route_notice = f"Checked design: {target}"
+                        st.rerun()
+                        return
+                    continue
+
                 if step == "complete":
                     if status == "done":
                         try:
@@ -307,6 +319,7 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
                         run_id = ev.get("run_id", "") or ""
                         downloads = ev.get("downloads", {}) or {}
                         bom = ev.get("bom")
+                        assurance = ev.get("assurance")
                         if isinstance(geometry_cert, dict) and geometry_cert.get("scope") == "structural_solid_set_v1":
                             import hashlib
                             if (geometry_cert.get("passed") is not True
@@ -379,6 +392,7 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
     st.session_state.run_id = run_id
     st.session_state.downloads = downloads
     st.session_state.bom = bom
+    st.session_state.assurance = assurance
     if script_code:
         st.session_state.script_version += 1
 
@@ -959,8 +973,13 @@ if ACCESS_GATE and not st.session_state.get("access_token"):
     st.stop()
 
 # ── Workspace ───────────────────────────────────────────────
+# U7b: a `route` event queues the target tab; apply it before the radio renders.
+if st.session_state.get('pending_workflow'):
+    st.session_state['workflow'] = st.session_state.pop('pending_workflow')
 workflow = render_navigation()
 page_header(workflow)
+if st.session_state.get('route_notice'):
+    st.info(st.session_state.pop('route_notice'))
 if workflow == 'Deterministic rocket nozzle':
     from regen_ui import render_regen
     render_regen(BACKEND_URL, _auth_headers)
@@ -1190,6 +1209,10 @@ with result_col:
                 render_glb_viewer(st.session_state.glb_bytes, height=430)
                 st.caption("Drag to orbit · scroll to zoom")
                 _render_download_row("workspace")
+                from route_labels import assurance_label
+                _label = assurance_label(st.session_state.get("assurance"))
+                if _label:
+                    st.markdown(f"**{_label}**")
                 if not st.session_state.get("geometry_certificate"):
                     st.caption("Unverified preview — no current structural acceptance evidence is attached.")
             else:
