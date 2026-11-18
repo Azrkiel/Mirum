@@ -63,6 +63,9 @@ def test_b_release_fingerprint_matches_qualified_reference():
     assert fp["prompt_versions"]["engineering_extraction"] == REFERENCE["prompt_versions"]["engineering_extraction"]
     assert fp["prompt_versions"]["engineering_schema"] == REFERENCE["prompt_versions"]["engineering_schema"]
     assert fp["tls_os_trust"] is REFERENCE["tls_os_trust"]
+    # Anchor to the qualified source (commit f11cf90), not just to this PR's head: none of
+    # these four files has changed since, so the hashes must be identical.
+    assert fp["source_sha256"] == REFERENCE["qualified"]["source_sha256"]
 
 
 def test_c_release_pip_freeze_is_subset_of_verify():

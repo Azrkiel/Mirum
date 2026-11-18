@@ -16,7 +16,7 @@ RUN mkdir -p /out/babylon     && cp node_modules/babylonjs/babylon.js           
 
 FROM python:3.10-slim-bookworm@sha256:5be5aaecb962a41567bc8041f1e9e3432cb085b037fe057f9a562630b2e4b370
 COPY frontend/requirements.lock /tmp/requirements.lock
-RUN python -m pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.lock     && python -m pip check
+RUN python -m pip install --no-cache-dir --only-binary=:all: --require-hashes --no-deps -r /tmp/requirements.lock     && python -m pip check
 RUN groupadd --gid 10001 appuser && useradd --uid 10001 --gid 10001     --no-create-home --home-dir /tmp --shell /usr/sbin/nologin appuser
 
 COPY frontend/ /app/

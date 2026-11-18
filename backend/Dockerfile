@@ -10,7 +10,10 @@ FROM python:3.10-slim-bookworm@sha256:5be5aaecb962a41567bc8041f1e9e3432cb085b037
 # are resolved by apt at build time (not individually pinned).
 RUN apt-get update && apt-get install -y --no-install-recommends     libgl1=1.6.0-1 libglu1-mesa=9.0.2-1.1 libxrender1=1:0.9.10-1.1 libsm6=2:1.2.3-1     libxext6=2:1.3.4-1+b1 libgomp1=12.2.0-14+deb12u1 xfoil=6.99.dfsg+1-3+b1     libosmesa6=22.3.6-1+deb12u2 libgles2=1.6.0-1     && rm -rf /var/lib/apt/lists/*
 COPY requirements-release.lock /tmp/requirements-release.lock
-RUN python -m pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements-release.lock     && python -m pip check
+# Binary-only: an sdist anywhere fails the build closed. The one exception is PyOpenGL 3.1.0,
+# which PyPI publishes only as a (hash-verified) sdist; it is built with the image's own
+# setuptools/wheel and no build isolation, so no unhashed build requirement is fetched.
+RUN python -c 'import setuptools, wheel' && python -m pip install --no-cache-dir --only-binary=:all: --no-binary=PyOpenGL --no-build-isolation --require-hashes --no-deps -r /tmp/requirements-release.lock && python -m pip check
 RUN groupadd --gid 10001 caduser && useradd --uid 10001 --gid 10001     --no-create-home --home-dir /tmp --shell /usr/sbin/nologin caduser     && mkdir -p /tmp/mirum/engineering && chown -R 10001:10001 /tmp/mirum
 WORKDIR /tmp
 # Defaults below also serve docker-compose.yml (development): ./backend is bind-mounted at
@@ -33,7 +36,8 @@ CMD ["python", "-m", "uvicorn", "main:app", "--app-dir", "/app/backend", "--host
 
 FROM release AS b13-eval
 USER root
-COPY scripts/ /app/scripts/
-RUN chmod -R a+rX /app/scripts
+COPY scripts/checked_engineering_live_eval.py scripts/checked_engineering_live_diagnostic.py /app/scripts/
+# The fixed corpus is the only file let through backend/Dockerfile.dockerignore from backend/tests.
+RUN chmod -R a+rX /app/scripts && test -f /app/backend/tests/fixtures/engineering/ai-corpus-v1.json
 WORKDIR /app
 USER 10001:10001

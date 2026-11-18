@@ -7,6 +7,7 @@ deploy/fly/*.Dockerfile (separate deploy recipes).
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -272,3 +273,78 @@ def test_mutation_missing_deployment_marker_is_detected():
     text = "FROM x@sha256:" + "a" * 64 + " AS release\nENV MIRUM_DEPLOYMENT=Release A=b\n"
     assert stage_env(text, "release").get("MIRUM_DEPLOYMENT") != "release"
     assert stage_env("FROM x AS release\nENV A=b\n", "release").get("MIRUM_DEPLOYMENT") is None
+
+
+# ---- review follow-ups (M1, M2, L1, L2, L4, L5) --------------------------------
+
+def pin_only_problems(text: str) -> list[str]:
+    """Only the FROM / COPY --from digest rules (used for the non-shipped Dockerfile.verify)."""
+    return [p for p in dockerfile_problems(text) if p.startswith(("unpinned FROM", "unpinned COPY"))]
+
+
+def test_dockerfile_verify_from_and_copy_from_are_pinned():
+    text = (ROOT / "Dockerfile.verify").read_text(encoding="utf-8")
+    assert pin_only_problems(text) == []
+    digests = set(re.findall(r"python:3\.10-slim-bookworm@(sha256:[0-9a-f]{64})", text))
+    shipped = set(re.findall(r"python:3\.10-slim-bookworm@(sha256:[0-9a-f]{64})",
+                             (ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8")))
+    assert digests == shipped and len(digests) == 1
+
+
+def test_mutation_unpinned_copy_from_in_verify_style_file_fails():
+    bad = "FROM x@sha256:" + "a" * 64 + " AS a\nCOPY --from=node:22-bookworm-slim /n /n\n"
+    assert pin_only_problems(bad)
+
+
+def test_every_pip_install_is_binary_only_and_hashed():
+    for path in SHIPPED:
+        for ln in logical_lines(path.read_text(encoding="utf-8")):
+            if re.search(r"-m\s+pip\s+install\b|\bpip3?\s+install\b", ln):
+                assert "--only-binary=:all:" in ln, ln
+                # The only sdist allowed is PyOpenGL 3.1.0 (no wheel on PyPI), built offline.
+                for m in re.finditer(r"--no-binary[= ](\S+)", ln):
+                    assert m.group(1) == "PyOpenGL", ln
+                assert "--require-hashes" in ln, ln
+
+
+def test_dockerignore_blocks_secrets():
+    lines = {l.strip() for l in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()}
+    for pat in ("**/.env", "**/.env.*", "**/*.pem", "**/*.key"):
+        assert pat in lines, pat
+
+
+def test_ci_runner_pytest_is_hash_pinned():
+    lock = ROOT / ".github" / "ci-requirements" / "pytest.lock"
+    assert lock_problems(lock.read_text(encoding="utf-8")) == []
+    assert "pytest" in lock_pins(lock.read_text(encoding="utf-8"))
+    wf = (ROOT / ".github" / "workflows" / "release-images.yml").read_text(encoding="utf-8")
+    for ln in wf.splitlines():
+        if "pip install" in ln:
+            assert "--require-hashes" in ln and "pytest.lock" in ln, ln
+
+
+def test_release_stage_excludes_tests_and_dev_scripts():
+    ignore = (ROOT / "backend" / "Dockerfile.dockerignore").read_text(encoding="utf-8").splitlines()
+    ignore = {l.strip() for l in ignore}
+    assert "backend/tests" in ignore
+    text = (ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8")
+    # b13-eval takes only the live-eval scripts and the corpus, not the whole scripts/ tree.
+    assert not re.search(r"^COPY\s+scripts/?\s", text, re.M)
+    assert "scripts/checked_engineering_live_eval.py" in text
+    assert "ai-corpus-v1.json" in text
+
+
+def test_reference_anchors_source_and_image():
+    ref = json.loads((ROOT / "e2e" / "fixtures" / "ai_parity_reference.json").read_text(encoding="utf-8"))
+    q = ref["qualified"]
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", q["image_id"])
+    assert q["run_id"] == 44358308796 and re.fullmatch(r"[0-9a-f]{40}", q["commit"])
+    assert set(q["source_sha256"]) == {"engineering.proposer", "engineering.dragster_proposer",
+                                       "config", "subagents.model_registry"}
+    files = {"engineering.proposer": "backend/engineering/proposer.py",
+             "engineering.dragster_proposer": "backend/engineering/dragster_proposer.py",
+             "config": "backend/config.py", "subagents.model_registry": "backend/subagents/model_registry.py"}
+    import hashlib
+    for mod, rel in files.items():
+        assert hashlib.sha256((ROOT / rel).read_bytes()).hexdigest() == q["source_sha256"][mod], \
+            f"{rel} changed since the qualified commit; update the reference deliberately"

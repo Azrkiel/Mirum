@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "backend/Dockerfile"
+      - "backend/Dockerfile.dockerignore"
+      - ".dockerignore"
+      - ".github/ci-requirements/**"
       - "frontend/Dockerfile"
       - "Dockerfile.verify"
       - "requirements-*.lock"
@@ -34,7 +37,11 @@ jobs:
           persist-credentials: false
 
       - name: Pin test (stdlib only)
-        run: python3 -m pytest --version >/dev/null 2>&1 || python3 -m pip install --user pytest; python3 -m pytest -q -p no:cacheprovider e2e/test_image_pins.py
+        run: |
+          python3 -m venv "$RUNNER_TEMP/ci-venv"
+          "$RUNNER_TEMP/ci-venv/bin/python" -m pip install --require-hashes --only-binary=:all: --no-deps -r .github/ci-requirements/pytest.lock
+          echo "CI_PY=$RUNNER_TEMP/ci-venv/bin/python" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/ci-venv/bin/python" -m pytest -q -p no:cacheprovider e2e/test_image_pins.py
 
       - uses: ./.github/actions/build-release-images
         with:
@@ -47,7 +54,7 @@ jobs:
         env:
           MIRUM_RELEASE_IMAGE: mirum-backend:release
           MIRUM_VERIFY_IMAGE: mirum-verify:ci
-        run: python3 -m pytest -q -p no:cacheprovider e2e/test_ai_parity.py
+        run: '"$CI_PY" -m pytest -q -p no:cacheprovider e2e/test_ai_parity.py'
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()

@@ -47,6 +47,15 @@ runs:
           case "$user" in 10001|10001:10001) ;; *) echo "unexpected user $user"; exit 1;; esac
         done
 
+    - name: No tests or dev scripts in the release image
+      shell: bash
+      run: |
+        set -euo pipefail
+        files=$(docker run --rm --network none --entrypoint sh mirum-backend:release -c 'find /app/backend/tests -type f 2>/dev/null; ls /app/scripts 2>/dev/null' | sort)
+        echo "$files"
+        test "$files" = "/app/backend/tests/fixtures/engineering/ai-corpus-v1.json"
+        docker run --rm --network none --entrypoint sh mirum-backend:b13-eval -c           'ls /app/scripts && test -f /app/backend/tests/fixtures/engineering/ai-corpus-v1.json'
+
     - name: CadQuery box to STEP smoke test (no network)
       shell: bash
       run: |
