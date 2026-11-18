@@ -17,6 +17,7 @@ from dragsters.styles import load_preset
 def client(monkeypatch):
     monkeypatch.setattr(main.limiter, 'enabled', False)
     monkeypatch.setattr(main.genai, 'GenerativeModel', lambda *a, **k: (_ for _ in ()).throw(AssertionError('unmocked provider')))
+    monkeypatch.setattr(main.config, 'ENGINEERING_AI_DRAFTS', True)
     with TestClient(main.app) as client:
         yield client
 
@@ -46,6 +47,17 @@ def test_unavailable_safe_503(client, monkeypatch, error):
     response = client.post('/dragsters/interpret', json={'prompt':'wedge'})
     assert response.status_code == 503
     assert response.json() == {'message': 'Text interpretation is unavailable right now; the parameter form still works.'}
+
+
+def test_flag_off_makes_no_provider_call_and_returns_unavailable(client, monkeypatch):
+    monkeypatch.setattr(main.config, 'ENGINEERING_AI_DRAFTS', False)
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'unit-test-placeholder')
+    interpreter = AsyncMock(side_effect=AssertionError('provider called with AI drafts off'))
+    monkeypatch.setattr(extraction, 'interpret', interpreter)
+    response = client.post('/dragsters/interpret', json={'prompt': 'CO2 wedge'})
+    assert response.status_code == 503
+    assert response.json() == {'message': 'Text interpretation is unavailable right now; the parameter form still works.'}
+    interpreter.assert_not_awaited()
 
 
 def test_invalid_base_spec_is_clean_422(client, monkeypatch):
