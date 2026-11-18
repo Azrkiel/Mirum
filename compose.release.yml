@@ -12,6 +12,16 @@ services:
   backend:
     image: mirum-backend:release
     pull_policy: never
+    # 6g: the regen worker alone may take up to 4 GiB of address space (RLIMIT_AS in
+    # engineering/regen_web.py); the API process and its CadQuery/dragster sandboxes
+    # (1.5 GiB each) need headroom on top. Never loosen without a measured reason.
+    mem_limit: 6g
+    pids_limit: 1024
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     read_only: true
     init: true
     cap_drop: [ALL]
@@ -44,6 +54,13 @@ services:
   frontend:
     image: mirum-frontend:release
     pull_policy: never
+    mem_limit: 1g
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     read_only: true
     init: true
     cap_drop: [ALL]

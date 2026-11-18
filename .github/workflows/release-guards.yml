@@ -57,4 +57,4 @@ jobs:
         if: failure()
         run: |
           docker ps -a --format '{{.Names}} {{.Status}}' || true
-          for c in $(docker ps -aq); do echo "== $c"; docker logs --tail 80 "$c" 2>&1 | sed -E 's/(X-Mirum-Access-Token[^ ]*).*/\1 [redacted]/'; done || true
+          for c in $(docker ps -aq); do echo "== $c"; docker logs --tail 80 "$c" 2>&1 | sed -E 's/(x-mirum-access-token[^ ]*).*/\1 [redacted]/I'; done || true

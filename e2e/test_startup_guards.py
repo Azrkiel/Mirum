@@ -15,6 +15,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 import uuid
@@ -127,12 +128,17 @@ def test_compose_release_is_hardened(cli):
         assert svc["cap_drop"] == ["ALL"], name
         assert any(o.startswith("no-new-privileges") for o in svc["security_opt"]), name
         assert svc.get("healthcheck", {}).get("test"), name
+        assert svc["pids_limit"] > 0 and int(svc["mem_limit"]) > 0, name
+        log = svc["logging"]
+        assert log["driver"] == "json-file" and log["options"]["max-size"] and log["options"]["max-file"], name
         assert svc["pull_policy"] == "never" and "build" not in svc, name
         assert "privileged" not in svc and "cap_add" not in svc, name
         assert all(p["host_ip"] == "127.0.0.1" for p in svc["ports"]), name
         # no bind mounts anywhere
         assert all(v["type"] != "bind" for v in svc.get("volumes", [])), name
     backend, frontend = services["backend"], services["frontend"]
+    assert int(backend["mem_limit"]) == 6 * 1024 ** 3
+    assert int(frontend["mem_limit"]) == 1024 ** 3
     assert backend["tmpfs"][0].startswith("/tmp:")
     assert any(t.startswith("/tmp/mirum:") and "uid=10001" in t and "gid=10001" in t
                and "mode=0700" in t for t in backend["tmpfs"])
@@ -188,10 +194,26 @@ def _get(url, token=None):
         return exc.code
 
 
+def _expect_status(url, token, want):
+    """Assert on the status only: the token must never reach an assertion message."""
+    status = _get(url, token)
+    assert status == want, f"{url} returned {status}, expected {want}"
+
+
+def test_expect_status_failure_message_has_no_token(monkeypatch):
+    token = "not-a-real-token-" + secrets.token_hex(8)
+    monkeypatch.setattr(sys.modules[__name__], "_get", lambda url, token=None: 500)
+    with pytest.raises(AssertionError) as err:
+        _expect_status("http://127.0.0.1:1/auth/check", token, 200)
+    assert token not in str(err.value)
+    assert "500" in str(err.value)
+
+
 def test_good_config_auth_check(stack):
-    assert _get(stack["backend"] + "/auth/check", stack["token"]) == 200
-    assert _get(stack["backend"] + "/auth/check") == 401
-    assert _get(stack["backend"] + "/auth/check", "wrong-" + stack["token"][6:]) == 401
+    url = stack["backend"] + "/auth/check"
+    _expect_status(url, stack["token"], 200)
+    _expect_status(url, None, 401)
+    _expect_status(url, "wrong-" + stack["token"][6:], 401)
 
 
 def test_good_config_frontend_healthy(stack):
@@ -227,7 +249,7 @@ def test_second_backend_on_same_volume_is_refused(stack):
     proc = _run_backend(stack["project"], [COMPOSE], stack["env"])
     _assert_refused(proc, "engineering_volume_in_use")
     # the first backend is unaffected
-    assert _get(stack["backend"] + "/auth/check", stack["token"]) == 200
+    _expect_status(stack["backend"] + "/auth/check", stack["token"], 200)
 
 
 @pytest.mark.parametrize("name", sorted(MISCONFIGS))
