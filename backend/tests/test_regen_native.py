@@ -6,6 +6,7 @@ Everywhere else these skip, because they need the native PicoGK runtime.
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -52,11 +53,32 @@ def test_over_limit_spec_is_rejected_before_building(tmp_path):
     assert not (out / 'report.json').exists()
 
 
-def test_missing_runtime_so_is_unavailable_and_emits_nothing(tmp_path, monkeypatch):
-    builder = tmp_path / 'app' / 'builder'
-    builder.parent.mkdir()
-    builder.write_bytes(BUILDER.read_bytes())  # no picogk.26.2.so beside it
-    monkeypatch.setenv('REGEN_BUILDER', str(builder))
+def _app_copy(tmp_path, name, with_so):
+    """Copy the whole builder dir (mode bits preserved), optionally without the runtime .so."""
+    dst = tmp_path / name
+    shutil.copytree(BUILDER.parent, dst)
+    if not with_so:
+        (dst / regen_cli.RUNTIME_SO).unlink()
+    assert os.access(dst / 'builder', os.X_OK), 'copied builder must stay executable'
+    return dst / 'builder'
+
+
+def test_missing_runtime_so_is_unavailable_for_the_right_reason(tmp_path, monkeypatch, capsys):
+    spec = EXAMPLES / 'small.json'
+    # Positive control: same copy with the .so present starts, runs and builds an STL.
+    good = _app_copy(tmp_path, 'with_so', True)
+    stats, err = regen_cli.run_builder(good, spec, tmp_path / 'ctl.stl')
+    assert err is None and isinstance(stats, dict)
+    assert (tmp_path / 'ctl.stl').stat().st_size > 84
+
+    # Missing .so: the exec bit is intact, so the builder starts and then fails loading the library.
+    bad = _app_copy(tmp_path, 'no_so', False)
+    monkeypatch.setenv('REGEN_BUILDER', str(bad))
     out = tmp_path / 'o'
     assert _run('small.json', out) == regen_cli.EXIT_UNAVAILABLE
+    stderr = capsys.readouterr().err
+    assert stderr.startswith('UNAVAILABLE: builder exited '), stderr
+    assert 'Permission denied' not in stderr and 'could not start' not in stderr
+    assert 'picogk' in stderr.lower(), stderr
     assert not (out / 'report.json').exists() and not (out / 'cleaned.stl').exists()
+    assert [p for p in out.iterdir() if not p.name.startswith('.work-')] == []
