@@ -7,6 +7,7 @@
     <SelfContained>true</SelfContained>
     <InvariantGlobalization>true</InvariantGlobalization>
     <AssemblyName>builder</AssemblyName>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup><PackageReference Include="PicoGK" Version="2.3.0" /></ItemGroup>
 </Project>
