@@ -204,10 +204,11 @@ def test_good_config_volume_owned_by_app_user(stack):
                     "grep -c ' / ro,' /proc/self/mountinfo",
                     env=stack["env"])
     assert proc.returncode == 0, proc.stderr
-    uid, owner, ro = proc.stdout.split()
+    uid, owner, ro = proc.stdout.strip().splitlines()
     assert uid == "10001"
-    assert owner.startswith("10001:10001 ")
-    assert int(owner.split()[1], 8) & 0o022 == 0
+    ids, mode = owner.split()
+    assert ids == "10001:10001"
+    assert int(mode, 8) & 0o022 == 0
     assert int(ro) >= 1
 
 
