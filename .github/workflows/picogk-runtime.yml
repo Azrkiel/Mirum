@@ -93,6 +93,20 @@ jobs:
             --entrypoint python3 picogk-regen:slice \
             -m pytest -c /dev/null -p no:cacheprovider -rA --basetemp=/work/pt --junit-xml=/res/junit.xml \
             /repo/backend/tests/test_regen_native.py | tee evidence/pytest/pytest.txt
+      - name: Require all 4 native tests to pass (skips do not count)
+        run: |
+          python - <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          root = ET.parse("evidence/pytest/junit.xml").getroot()
+          suite = root if root.tag == "testsuite" else root.find("testsuite")
+          tests, bad, skipped = (int(suite.get(k, 0)) for k in ("tests", "failures", "skipped"))
+          errors = int(suite.get("errors", 0))
+          passed = tests - bad - errors - skipped
+          print(f"tests={tests} passed={passed} failures={bad} errors={errors} skipped={skipped}")
+          if passed < 4 or bad or errors:
+              sys.exit("native regen tests: need at least 4 passed and no failures")
+          PY
       - name: Reference and small spec evidence (exit code, wall-clock, peak RSS, hashes)
         run: |
           mkdir -p evidence/runs scratch/runs

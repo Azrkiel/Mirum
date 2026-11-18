@@ -37,6 +37,11 @@ jobs:
       - name: Run markdown report tests
         run: python backend/tests/test_md_report.py
 
+      - name: PicoGK Dockerfile, lock and workflow checks (full checkout; fails if files are missing)
+        run: |
+          pip install --require-hashes --only-binary=:all: -r picogk-builder/requirements-test.txt
+          python -m pytest -q -p no:cacheprovider backend/tests/test_picogk_dockerfiles.py
+
   airfoil-unit-tests:
     name: Airfoil unit tests (Group A + Group B via mock_xfoil)
     runs-on: ubuntu-latest
@@ -88,7 +93,7 @@ jobs:
       - name: Collect the full offline test set (same sandbox as the gate)
         run: |
           mkdir -p out && chmod 777 out
-          docker run --rm --network none --read-only --init             --cap-drop ALL --security-opt no-new-privileges             --memory 4g --cpus 2 --tmpfs /tmp:rw,exec,size=1g,mode=1777             -v "$PWD/out:/out"             -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent             -e GEMINI_API_KEY= -e GOOGLE_API_KEY=             mirum-integration-verify             python scripts/ci_shard.py collect --out /out/collected.txt
+          docker run --rm --network none --read-only --init             --cap-drop ALL --security-opt no-new-privileges             --memory 4g --cpus 2 --tmpfs /tmp:rw,exec,size=1g,mode=1777             -v "$PWD/out:/out"             -e MIRUM_NATIVE_GATE_IMAGE=1 -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent             -e GEMINI_API_KEY= -e GOOGLE_API_KEY=             mirum-integration-verify             python scripts/ci_shard.py collect --out /out/collected.txt
           wc -l out/collected.txt
       - name: Save the image for the shards
         run: docker save mirum-integration-verify | gzip -1 > mirum-integration-verify.tar.gz
@@ -124,7 +129,7 @@ jobs:
       - name: Run this shard offline with real CAD and no provider network
         run: |
           mkdir -p out && chmod 777 out
-          docker run --rm --network none --read-only --init             --cap-drop ALL --security-opt no-new-privileges             --memory 4g --cpus 2 --tmpfs /tmp:rw,exec,size=1g,mode=1777             -v "$PWD/out:/out"             -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent             -e GEMINI_API_KEY= -e GOOGLE_API_KEY=             mirum-integration-verify             python scripts/ci_shard.py run --shard ${{ matrix.shard }} --total 3 --out /out
+          docker run --rm --network none --read-only --init             --cap-drop ALL --security-opt no-new-privileges             --memory 4g --cpus 2 --tmpfs /tmp:rw,exec,size=1g,mode=1777             -v "$PWD/out:/out"             -e MIRUM_NATIVE_GATE_IMAGE=1 -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent             -e GEMINI_API_KEY= -e GOOGLE_API_KEY=             mirum-integration-verify             python scripts/ci_shard.py run --shard ${{ matrix.shard }} --total 3 --out /out
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -6,7 +6,9 @@ It is exempt from the digest rule only when it is a local, unqualified tag with 
 registry host (no '/'), because it can never be pulled from a registry.
 Every other external image must carry @sha256:.
 """
+import os
 import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -15,10 +17,12 @@ ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILES = [ROOT / 'spike-picogk' / 'Dockerfile.runtime', ROOT / 'picogk-builder' / 'Dockerfile']
 INTERNAL = {'picogk-runtime:26.2'}
 
-# The native gate image (Dockerfile.verify) ships backend/ only, so these repo-level files are absent
-# there. .github/workflows/picogk-runtime.yml runs this module from a full checkout, where it is enforced.
-if not (ROOT / '.github' / 'workflows' / 'picogk-runtime.yml').is_file():
-    pytest.skip('repo-level Docker/workflow files not in this image', allow_module_level=True)
+# The native gate image (Dockerfile.verify) ships backend/ only, so repo-level files are absent there.
+# ci.yml sets MIRUM_NATIVE_GATE_IMAGE=1 on exactly those docker runs. Anywhere else, missing files FAIL
+# (deleting .github/workflows/picogk-runtime.yml must not silently disable these checks); the
+# schema-tests job in ci.yml runs this module from a full checkout.
+if os.environ.get('MIRUM_NATIVE_GATE_IMAGE') == '1':
+    pytest.skip('native gate image has no repo-level Docker/workflow files', allow_module_level=True)
 
 
 def _logical_lines(path):
@@ -138,8 +142,29 @@ def test_workflow_pip_installs_require_hashes_and_containers_are_hardened():
     assert entries and all('--hash=sha256:' in l for l in entries)
     for m in re.finditer(r'^\s*python -m pip install.*$', wf, re.M):
         assert '--require-hashes' in m.group(0) and '-r picogk-builder/requirements-test.txt' in m.group(0), m.group(0)
-    runs = [l for l in wf.replace(chr(92) + chr(10), ' ').splitlines() if 'docker run ' in l]
+    runs = [shlex.split(l) for l in wf.replace(chr(92) + chr(10), ' ').splitlines() if 'docker run ' in l]
     assert len(runs) == 2, runs
-    for r in runs:
-        for flag in ('--network none', '--memory 3g', '--cap-drop ALL', '--security-opt no-new-privileges', '--read-only', '--user '):
-            assert flag in r, f'{flag} missing in {r[:80]}'
+    for argv in runs:
+        i = argv.index('docker')
+        assert argv[i + 1] == 'run'
+        opts = argv[i + 2:argv.index('picogk-regen:slice')]
+        flags = set(opts)
+        assert {'--read-only', '--cap-drop', '--user', '--network', '--security-opt', '--memory'} <= flags, opts
+        assert opts[opts.index('--network') + 1] == 'none'
+        assert opts[opts.index('--cap-drop') + 1] == 'ALL'
+        assert opts[opts.index('--security-opt') + 1] == 'no-new-privileges'
+        assert opts[opts.index('--memory') + 1] == '3g'
+        assert opts[opts.index('--user') + 1] == '$(id -u):$(id -g)'
+
+
+def test_ci_wires_the_skip_marker_and_the_always_run_job():
+    ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
+    shard_runs = [l for l in ci.splitlines() if 'docker run' in l and 'ci_shard.py' in l]
+    assert len(shard_runs) == 2
+    assert all('MIRUM_NATIVE_GATE_IMAGE=1' in l for l in shard_runs)
+    assert 'backend/tests/test_picogk_dockerfiles.py' in ci  # schema-tests job runs it on a full checkout
+
+
+def test_workflow_requires_all_native_tests_to_pass():
+    wf = WORKFLOW.read_text(encoding='utf-8')
+    assert 'junit.xml' in wf and 'passed < 4' in wf
