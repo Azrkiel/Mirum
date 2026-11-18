@@ -98,7 +98,8 @@ def test_route_event_switches_workflow_and_sets_notice():
     route = {'step':'route','status':'done','workflow':'regen_chamber','capability_id':'regen_chamber',
              'assurance':'checked_design','reason':'r','detail':'d'}
     state, _, st = run_stream([route])
-    assert state.pending_workflow == 'Deterministic rocket nozzle'
+    assert state.pending_workflow == 'Checked design'
+    assert state.pending_v1 == {'capability_id': 'regen_chamber', 'prompt': None}
     assert state.route_notice == 'Checked design: Deterministic rocket nozzle'
     st.rerun.assert_called_once()
     assert state.glb_bytes == b'accepted'
@@ -118,3 +119,11 @@ def test_complete_assurance_is_stored_and_labelled():
     assert assurance_label('unverified_geometry') == 'Unverified geometry'
     assert assurance_label('checked_design') == 'Checked design'
     assert assurance_label(None) is None
+
+
+def test_route_with_backend_draft_hint_queues_the_prompt_for_a_rules_draft():
+    route = {'step':'route','status':'done','workflow':'co2_dragster','capability_id':'co2_dragster',
+             'assurance':'checked_design','reason':'r','detail':'d','draft':{'payload':{},'issues':[],'provenance':{}}}
+    state, _, _ = run_stream([route])
+    assert state.pending_workflow == 'Checked design'
+    assert state.pending_v1 == {'capability_id': 'co2_dragster', 'prompt': 'box'}

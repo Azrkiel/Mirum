@@ -4,8 +4,10 @@ WORKFLOW_BY_CAPABILITY = {
     'co2_dragster': 'CO2 dragster',
     'regen_chamber': 'Deterministic rocket nozzle',
     'glider_cem': 'Physics-based glider CEM',
-    'rectangular_cantilever': 'Checked beam',
+    'rectangular_cantilever': 'Checked design',
 }
+V1_WORKFLOW = 'Checked design'
+_V1_NAMES = {**WORKFLOW_BY_CAPABILITY, 'rectangular_cantilever': 'Checked beam'}
 
 _ASSURANCE = {'checked_design': 'Checked design', 'unverified_geometry': 'Unverified geometry'}
 
@@ -18,3 +20,21 @@ def workflow_for(event: dict):
 
 def assurance_label(value):
     return _ASSURANCE.get(value) if isinstance(value, str) else None
+
+
+def route_target(event: dict, prompt=None):
+    """Where a route event goes: the v1 view for a named capability, else the legacy tab.
+
+    prompt is returned only when the backend attached a rules draft, so the v1 view asks
+    for a rules draft from the same prompt; otherwise the form starts empty.
+    """
+    cid = event.get("capability_id") if isinstance(event, dict) else None
+    if isinstance(cid, str) and cid in _V1_NAMES:
+        hinted = cid != "rectangular_cantilever" and isinstance(event.get("draft"), dict)
+        wanted = prompt if hinted and isinstance(prompt, str) and prompt.strip() else None
+        return dict(workflow=V1_WORKFLOW, capability_id=cid, prompt=wanted,
+                    notice=f"Checked design: {_V1_NAMES[cid]}")
+    legacy = workflow_for(event) if isinstance(event, dict) and not cid else None
+    if legacy:
+        return dict(workflow=legacy, capability_id=None, prompt=None, notice=f"Checked design: {legacy}")
+    return None
