@@ -2,6 +2,18 @@
 
 **Full AI-assisted V1: BLOCKED. B14 prerequisite: not satisfied.**
 
+**2026-11-17/18, GitHub Actions runner (`.github/workflows/b13-live.yml`), key k3, `gemini-4-hydrogen`, google-genai 2.8.0, thinking low.**
+Three qualification runs, none complete. Raw replies are kept out of evidence; safe JSON is under
+`C:/Users/jiang/mirum-evidence/B13/u5-20261117/`.
+
+| Run | Commit | Result |
+| --- | --- | --- |
+| `qual-20261117-hydrogen-k3` | `83e46ac` | 10/10 complete accurate, A01-A05 clarification, 0 silent drops; stopped at A06 on HTTP 429 (16 calls) |
+| `qual-20261117-hydrogen-k3-paced` | `83c946c` | stopped at C01 on HTTP 503 (1 call) |
+| `qual-20261118-k3-unavail` | `d6dacf2` | policy `b13-unavailable-429-503-v1` (owner Q1(b)): C01 deadline -> unavailable (1 of 3 allowed), C02/C03 accurate (22 s each), stopped at C04 on HTTP 504 (4 calls) |
+
+The scoring, corpus, 45 s deadline, 4096 tokens and no-SDK-retry rules are unchanged. No V-row is promoted.
+
 Latest supplied-key diagnostic: metadata access passed, and ordinary application
 gRPC generation on `0c0458ae802cedba75d7680809a8254b3f76ab7d` reached local parsing
 in 7.358356 seconds with the 4096-token setting. The response failed strict

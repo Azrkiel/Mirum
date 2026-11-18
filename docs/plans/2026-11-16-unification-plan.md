@@ -469,7 +469,7 @@ Original questions, kept for the record:
 | U3 regen wiring | **merged** 2026-11-17 | #36 |
 | U4 checked design + flag | **merged** 2026-11-17 (two security rounds) | #38 |
 | — client key behind proxy | **merged** 2026-11-17 (limits were one shared bucket) | #39 |
-| U5 B13 | **code + model work; one full run still needed.** k3 + `gemini-4-hydrogen` + server-filled constants (#59): qualification run 1 scored 10/10 complete-accurate, A01–A05 clarification, 0 silent drops, then HTTP 429 at A06; paced run 2 hit HTTP 503 at C01 (#60). 26 calls total. Next run needs the owner's run-policy decision (handoff 2026-11-17-2207 Q1) | #44 #47 #49 #50 #53 #59 #60 |
+| U5 B13 | **blocked on the owner (504 policy + cap).** Owner Q1(b) (2026-11-17): a 429/503 marks one case unavailable and the run continues; up to 3 deadline cases continue; other failures stop (#63). Run 3 (`qual-20261118-k3-unavail`, `d6dacf2`): C01 45 s deadline (unavailable, 1/3), C02 + C03 proposed and accurate (22 s each, provider slow), C04 **HTTP 504** -> stop (504 is not 429/503). 4 calls; 30 live calls total. Qualification cap 3/3 used | #44 #47 #49 #50 #53 #59 #60 #63 |
 | U6.0 core | **merged** 2026-11-17 (beam bytes pinned; closed limit tables; measurements bound to the generator report; two security rounds) | #48 |
 | D7 backend split | **merged** 2026-11-17 (v2 generation on main; #31 keeps the UI half) | #46 |
 | U6.1 regen adapter | **merged** 2026-11-17 (identity tests pass natively; `JobRunner.cancel` frees the shared slot) | #52 |
@@ -478,5 +478,8 @@ Original questions, kept for the record:
 | U7a router | **merged** 2026-11-17 (provider-free; 0 of 88 eval prompts reroute) | #54 |
 | U7b `/generate` routing + assurance labels | **merged** 2026-11-17 (routed prompts never reach the Machinist; every LLM result is `unverified_geometry`) | #56 |
 | U7c workspace UI (`feat/professional-workspace`) | **merged** 2026-11-17 (ported by path; no browser screenshots, Docker down) | #57 |
+| Security debt | **merged** 2026-11-18: PMI containment (`is_relative_to`, regular .step/.stp) + generic errors, minimal child env when `env=None`, `/dragsters/interpret` behind `ENGINEERING_AI_DRAFTS` (review + re-review clean) | #62 |
+| v1 UI generators | **merged** 2026-11-18: one "Checked design" view lists beam + dragster/regen/glider; form/rules drafts (never AI), review, finalize, run, downloads; routed prompts open it preselected (no browser screenshots) | #65 |
+| CI | **merged** 2026-11-18: native gate timeout 30 -> 45 min (#64); crash-recovery test race fixed (#66) | #64 #66 |
 
-Handoff for the next session: [`.claude/handoffs/2026-11-17-2207.md`](../../.claude/handoffs/2026-11-17-2207.md).
+Handoff for the next session: [`.claude/handoffs/2026-11-18-0205.md`](../../.claude/handoffs/2026-11-18-0205.md).
