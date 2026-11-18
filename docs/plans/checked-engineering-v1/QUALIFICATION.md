@@ -3,7 +3,7 @@
 **Full AI-assisted V1: BLOCKED. B14 prerequisite: not satisfied.**
 
 **2026-11-17/18, GitHub Actions runner (`.github/workflows/b13-live.yml`), key k3, `gemini-4-hydrogen`, google-genai 2.8.0, thinking low.**
-Three qualification runs, none complete. Raw replies are kept out of evidence; safe JSON is under
+Four qualification runs; none qualified. Raw replies are kept out of evidence; safe JSON is under
 `C:/Users/jiang/mirum-evidence/B13/u5-20261117/`.
 
 | Run | Commit | Result |
@@ -11,6 +11,7 @@ Three qualification runs, none complete. Raw replies are kept out of evidence; s
 | `qual-20261117-hydrogen-k3` | `83e46ac` | 10/10 complete accurate, A01-A05 clarification, 0 silent drops; stopped at A06 on HTTP 429 (16 calls) |
 | `qual-20261117-hydrogen-k3-paced` | `83c946c` | stopped at C01 on HTTP 503 (1 call) |
 | `qual-20261118-k3-unavail` | `d6dacf2` | policy `b13-unavailable-429-503-v1` (owner Q1(b)): C01 deadline -> unavailable (1 of 3 allowed), C02/C03 accurate (22 s each), stopped at C04 on HTTP 504 (4 calls) |
+| `qual-20261118-k3-504v2` | `554b442` | policy `b13-unavailable-429-503-504-v2` (owner, 2026-11-18): all 30 cases accounted for but every one unavailable (9 HTTP 429, 13 HTTP 503, 7 HTTP 504, 1 deadline); 0/10 complete accurate, 0 silent drops, 0 unreviewed executions -> blocked (30 calls) |
 
 The scoring, corpus, 45 s deadline, 4096 tokens and no-SDK-retry rules are unchanged. No V-row is promoted.
 
