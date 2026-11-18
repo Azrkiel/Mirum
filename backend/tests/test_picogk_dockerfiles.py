@@ -9,9 +9,16 @@ Every other external image must carry @sha256:.
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILES = [ROOT / 'spike-picogk' / 'Dockerfile.runtime', ROOT / 'picogk-builder' / 'Dockerfile']
 INTERNAL = {'picogk-runtime:26.2'}
+
+# The native gate image (Dockerfile.verify) ships backend/ only, so these repo-level files are absent
+# there. .github/workflows/picogk-runtime.yml runs this module from a full checkout, where it is enforced.
+if not (ROOT / '.github' / 'workflows' / 'picogk-runtime.yml').is_file():
+    pytest.skip('repo-level Docker/workflow files not in this image', allow_module_level=True)
 
 
 def _logical_lines(path):
