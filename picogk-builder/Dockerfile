@@ -6,7 +6,7 @@
 # It is only used inside the RUN that needs it and is not stored in any layer.
 FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:1dfdb27e9c2c345cb598925ccf6b13719ecfebea8467bd4745c23a3c108cdf84 AS publish
 WORKDIR /src
-COPY picogk-builder/Program.cs picogk-builder/builder.csproj ./
+COPY picogk-builder/Program.cs picogk-builder/builder.csproj picogk-builder/packages.lock.json picogk-builder/nuget.config ./
 RUN \
     --mount=type=secret,id=extra_ca,required=false \
     set -eu; \
@@ -16,17 +16,29 @@ RUN \
       CAFILE=/tmp/ca-bundle.crt; \
       export SSL_CERT_FILE="$CAFILE" GIT_SSL_CAINFO="$CAFILE" CURL_CA_BUNDLE="$CAFILE"; \
     fi; \
-    dotnet publish builder.csproj -c Release -o /app \
+    dotnet restore builder.csproj --locked-mode \
+ && dotnet publish builder.csproj -c Release -o /app --no-restore \
  && rm -f /tmp/ca-bundle.crt
 
 FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Same optional-CA handling as the runtime image (apt may be reached through a TLS-intercepting proxy).
+RUN \
+    --mount=type=secret,id=extra_ca,required=false \
+    set -eu; \
+    CAFILE=/etc/ssl/certs/ca-certificates.crt; \
+    if [ -s /run/secrets/extra_ca ]; then \
+      cat "$CAFILE" /run/secrets/extra_ca > /tmp/ca-bundle.crt; \
+      CAFILE=/tmp/ca-bundle.crt; \
+      export SSL_CERT_FILE="$CAFILE" GIT_SSL_CAINFO="$CAFILE" CURL_CA_BUNDLE="$CAFILE"; \
+    fi; \
+    apt-get -o Acquire::https::CaInfo="$CAFILE" update \
+ && apt-get -o Acquire::https::CaInfo="$CAFILE" install -y --no-install-recommends \
       libtbb12 libblosc1 libboost-iostreams1.83.0 zlib1g libzstd1 liblz4-1 \
       libgl1 libx11-6 \
       python3 python3-numpy python3-scipy python3-pydantic \
     && mkdir -p /licenses \
     && dpkg-query -W -f '{"package":"${Package}","version":"${Version}"}\n' | sed '$!s/$/,/' | { echo '['; cat; echo ']'; } > /licenses/apt-packages.json \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -f /tmp/ca-bundle.crt && rm -rf /var/lib/apt/lists/*
 COPY --from=picogk-runtime:26.2 /usr/local/lib64/libstdc++.so.6 /usr/local/lib/picogk-gcc/libstdc++.so.6
 COPY --from=picogk-runtime:26.2 /usr/local/lib64/libgcc_s.so.1 /usr/local/lib/picogk-gcc/libgcc_s.so.1
 COPY --from=publish /app /app

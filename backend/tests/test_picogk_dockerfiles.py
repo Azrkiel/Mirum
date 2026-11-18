@@ -84,3 +84,55 @@ def test_tls_verification_never_disabled():
         text = p.read_text(encoding='utf-8')
         for pat in bad:
             assert not re.search(pat, text, re.I), f'{p.name}: matches {pat}'
+
+
+NETWORK_RUN = re.compile(r'apt-get|git\s+clone|git\s+submodule|dotnet\s+(restore|publish)')
+BUILDER = ROOT / 'picogk-builder'
+WORKFLOW = ROOT / '.github' / 'workflows' / 'picogk-runtime.yml'
+
+
+def test_every_network_run_has_optional_ca_handling():
+    seen = 0
+    for p in DOCKERFILES:
+        for line in _logical_lines(p):
+            if re.match(r'RUN\b', line, re.I) and NETWORK_RUN.search(line):
+                seen += 1
+                flat = line.replace(' ', '')
+                assert '--mount=type=secret,id=extra_ca,required=false' in flat, f'{p.name}: {line[:90]}'
+                assert 'SSL_CERT_FILE' in line and '/tmp/ca-bundle.crt' in line, f'{p.name}: {line[:90]}'
+                assert 'rm -f /tmp/ca-bundle.crt' in line, f'{p.name}: bundle not removed: {line[:90]}'
+                if 'apt-get' in line:
+                    assert 'Acquire::https::CaInfo' in line, f'{p.name}: apt ignores the CA: {line[:90]}'
+    assert seen >= 4  # apt + git (runtime), dotnet (builder), apt (builder runtime stage)
+
+
+def test_nuget_restore_is_locked_and_sources_are_pinned():
+    csproj = (BUILDER / 'builder.csproj').read_text(encoding='utf-8')
+    assert '<RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>' in csproj
+    lock = BUILDER / 'packages.lock.json'
+    assert lock.is_file(), 'commit picogk-builder/packages.lock.json'
+    import json
+    deps = json.loads(lock.read_text(encoding='utf-8'))['dependencies']
+    assert any('PicoGK' in pkgs for pkgs in deps.values())
+    cfg = (BUILDER / 'nuget.config').read_text(encoding='utf-8')
+    assert '<clear />' in cfg and cfg.count('<add ') == 1
+    assert 'https://api.nuget.org/v3/index.json' in cfg
+    text = (BUILDER / 'Dockerfile').read_text(encoding='utf-8')
+    assert 'dotnet restore' in text and '--locked-mode' in text and '--no-restore' in text
+    assert 'packages.lock.json' in text and 'nuget.config' in text
+    ignore = (BUILDER / 'Dockerfile.dockerignore').read_text(encoding='utf-8')
+    assert '!picogk-builder/packages.lock.json' in ignore and '!picogk-builder/nuget.config' in ignore
+
+
+def test_workflow_pip_installs_require_hashes_and_containers_are_hardened():
+    wf = WORKFLOW.read_text(encoding='utf-8')
+    reqs = (BUILDER / 'requirements-test.txt').read_text(encoding='utf-8')
+    entries = [l for l in reqs.splitlines() if l.strip() and not l.startswith('#')]
+    assert entries and all('--hash=sha256:' in l for l in entries)
+    for m in re.finditer(r'^\s*python -m pip install.*$', wf, re.M):
+        assert '--require-hashes' in m.group(0) and '-r picogk-builder/requirements-test.txt' in m.group(0), m.group(0)
+    runs = [l for l in wf.replace(chr(92) + chr(10), ' ').splitlines() if 'docker run ' in l]
+    assert len(runs) == 2, runs
+    for r in runs:
+        for flag in ('--network none', '--memory 3g', '--cap-drop ALL', '--security-opt no-new-privileges', '--read-only', '--user '):
+            assert flag in r, f'{flag} missing in {r[:80]}'

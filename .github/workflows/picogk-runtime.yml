@@ -43,7 +43,7 @@ jobs:
           python-version: "3.13"
       - name: Dockerfile static checks (digest pins, optional CA, TLS)
         run: |
-          python -m pip install pytest==8.3.3
+          python -m pip install --require-hashes --only-binary=:all: -r picogk-builder/requirements-test.txt
           python -m pytest -q -p no:cacheprovider backend/tests/test_picogk_dockerfiles.py
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Compute cache scopes
@@ -82,24 +82,26 @@ jobs:
           mkdir -p evidence
           echo "{\"build_seconds\": $((end-start)), \"build_jobs\": ${{ steps.scope.outputs.jobs }}}" > evidence/timings.json
           cat evidence/timings.json
-      - name: Real regen tests in the builder image (--network none, 3 GiB cap)
+      - name: Real regen tests in the builder image (hardened, --network none, 3 GiB cap)
         run: |
-          python -m pip install --target "$RUNNER_TEMP/pt" pytest==8.3.3
-          mkdir -p evidence/pytest
-          docker run --rm --network none --memory 3g --memory-swap 3g --pids-limit 512 \
-            -v "$PWD:/repo:ro" -v "$RUNNER_TEMP/pt:/pt:ro" -v "$PWD/evidence/pytest:/res" \
+          python -m pip install --require-hashes --only-binary=:all: -r picogk-builder/requirements-test.txt --target "$RUNNER_TEMP/pt"
+          mkdir -p evidence/pytest scratch/test
+          chmod 777 evidence/pytest scratch/test
+          docker run --rm --network none --memory 3g --memory-swap 3g --pids-limit 512 --read-only --cap-drop ALL --security-opt no-new-privileges --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,size=256m,mode=1777 -e HOME=/tmp \
+            -v "$PWD:/repo:ro" -v "$RUNNER_TEMP/pt:/pt:ro" -v "$PWD/evidence/pytest:/res" -v "$PWD/scratch/test:/work" \
             -e REGEN_NATIVE=1 -e PYTHONPATH=/py:/pt \
             --entrypoint python3 picogk-regen:slice \
-            -m pytest -c /dev/null -p no:cacheprovider -rA --junit-xml=/res/junit.xml \
+            -m pytest -c /dev/null -p no:cacheprovider -rA --basetemp=/work/pt --junit-xml=/res/junit.xml \
             /repo/backend/tests/test_regen_native.py | tee evidence/pytest/pytest.txt
       - name: Reference and small spec evidence (exit code, wall-clock, peak RSS, hashes)
         run: |
-          mkdir -p evidence/runs
+          mkdir -p evidence/runs scratch/runs
+          chmod 777 evidence/runs scratch/runs
           for spec in reference small; do
-            docker run --rm --network none --memory 3g --memory-swap 3g --pids-limit 512 \
-              -v "$PWD:/repo:ro" -v "$PWD/evidence/runs:/res" \
+            docker run --rm --network none --memory 3g --memory-swap 3g --pids-limit 512 --read-only --cap-drop ALL --security-opt no-new-privileges --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,size=256m,mode=1777 -e HOME=/tmp \
+              -v "$PWD:/repo:ro" -v "$PWD/evidence/runs:/res" -v "$PWD/scratch/runs:/work" \
               --entrypoint python3 picogk-regen:slice \
-              /repo/scripts/regen_native_evidence.py "/repo/picogk-builder/examples/$spec.json" "/tmp/o_$spec" "/res/$spec.json"
+              /repo/scripts/regen_native_evidence.py "/repo/picogk-builder/examples/$spec.json" "/work/o_$spec" "/res/$spec.json"
           done
       - name: Export builder, runtime and licenses
         run: |
