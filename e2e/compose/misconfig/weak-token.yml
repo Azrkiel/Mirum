@@ -1,0 +1,5 @@
+# 40 characters but a single distinct one (a fixed non-secret test value).
+services:
+  backend:
+    environment:
+      MIRUM_ACCESS_TOKEN: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

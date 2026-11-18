@@ -1,0 +1,9 @@
+# Engineering volume owned by root (the test pre-creates it with a pinned busybox).
+services:
+  backend:
+    volumes: !override
+      - mirum_root_owned:/tmp/mirum/engineering
+volumes:
+  mirum_root_owned:
+    external: true
+    name: ${MIRUM_ROOT_OWNED_VOLUME:?required}

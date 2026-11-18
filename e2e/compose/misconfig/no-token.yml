@@ -1,0 +1,5 @@
+# Access token set but empty.
+services:
+  backend:
+    environment:
+      MIRUM_ACCESS_TOKEN: ""

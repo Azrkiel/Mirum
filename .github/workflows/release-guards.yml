@@ -1,0 +1,60 @@
+name: Release guards
+
+# Builds the pinned release images (R2's composite action), then proves with Docker that the
+# good compose configuration serves /auth/check (200 with the token, 401 without) and that
+# each misconfiguration makes the backend refuse to start with its specific failure code.
+# No secrets: the access token is generated per run and never leaves the job.
+
+on:
+  pull_request:
+    paths:
+      - "compose.release.yml"
+      - "e2e/compose/**"
+      - "e2e/test_startup_guards.py"
+      - "backend/startup_checks.py"
+      - "backend/Dockerfile"
+      - "backend/Dockerfile.dockerignore"
+      - ".dockerignore"
+      - "frontend/Dockerfile"
+      - "requirements-release.lock"
+      - "frontend/requirements.lock"
+      - ".github/ci-requirements/**"
+      - ".github/actions/build-release-images/**"
+      - ".github/workflows/release-guards.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  release-guards:
+    name: Startup guards (compose + Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install pytest (hashed lock)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/ci-venv"
+          "$RUNNER_TEMP/ci-venv/bin/python" -m pip install --require-hashes --only-binary=:all: --no-deps -r .github/ci-requirements/pytest.lock
+          echo "CI_PY=$RUNNER_TEMP/ci-venv/bin/python" >> "$GITHUB_ENV"
+          docker compose version
+
+      - uses: ./.github/actions/build-release-images
+        with:
+          evidence-path: release-evidence/release-images.json
+
+      - name: Startup-guard tests
+        run: '"$CI_PY" -m pytest -v -p no:cacheprovider e2e/test_startup_guards.py'
+        env:
+          CI: "true"
+
+      - name: Compose logs on failure
+        if: failure()
+        run: |
+          docker ps -a --format '{{.Names}} {{.Status}}' || true
+          for c in $(docker ps -aq); do echo "== $c"; docker logs --tail 80 "$c" 2>&1 | sed -E 's/(X-Mirum-Access-Token[^ ]*).*/\1 [redacted]/'; done || true
