@@ -1,0 +1,108 @@
+name: Build release images
+description: >-
+  Build the pinned backend (release, b13-eval) and frontend images from a clean checkout,
+  check Python 3.10.22, pip check, a no-network CadQuery STEP smoke test and local Babylon
+  serving, then record image IDs, base digests and lock hashes as JSON.
+inputs:
+  evidence-path:
+    description: File the JSON record is written to (relative to the workspace).
+    required: false
+    default: release-evidence/release-images.json
+outputs:
+  evidence-path:
+    description: Path of the JSON record.
+    value: ${{ inputs.evidence-path }}
+runs:
+  using: composite
+  steps:
+    - name: Build backend release image
+      shell: bash
+      run: docker build --pull --no-cache -f backend/Dockerfile --target release -t mirum-backend:release .
+
+    - name: Build backend b13-eval image
+      shell: bash
+      run: docker build -f backend/Dockerfile --target b13-eval -t mirum-backend:b13-eval .
+
+    - name: Build frontend image
+      shell: bash
+      run: docker build --pull --no-cache -f frontend/Dockerfile -t mirum-frontend:release .
+
+    - name: Python version and pip check
+      shell: bash
+      run: |
+        set -euo pipefail
+        for img in mirum-backend:release mirum-backend:b13-eval mirum-frontend:release; do
+          docker run --rm --network none --entrypoint python "$img" -c \
+            'import sys; assert sys.version_info[:3] == (3, 10, 22), sys.version; print(sys.version)'
+          docker run --rm --network none --entrypoint python "$img" -m pip check
+        done
+
+    - name: Image runs as uid 10001
+      shell: bash
+      run: |
+        set -euo pipefail
+        for img in mirum-backend:release mirum-backend:b13-eval mirum-frontend:release; do
+          user=$(docker image inspect "$img" --format '{{.Config.User}}')
+          echo "$img user=$user"
+          case "$user" in 10001|10001:10001) ;; *) echo "unexpected user $user"; exit 1;; esac
+        done
+
+    - name: CadQuery box to STEP smoke test (no network)
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker run --rm --network none --entrypoint python mirum-backend:release -c "
+        import os, cadquery as cq
+        from cadquery import exporters
+        exporters.export(cq.Workplane('XY').box(10, 20, 30), '/tmp/smoke.step')
+        size = os.path.getsize('/tmp/smoke.step')
+        assert size > 1000, size
+        print('STEP bytes', size)"
+
+    - name: Backend imports with the real xfoil
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker run --rm --network none --entrypoint sh mirum-backend:release -c \
+          'test -x /usr/bin/xfoil && cd /app/backend && python -c "import main"'
+
+    - name: Frontend serves Babylon locally
+      shell: bash
+      run: |
+        set -euo pipefail
+        cid=$(docker run -d --rm -p 127.0.0.1:18501:8501 mirum-frontend:release)
+        trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+        for _ in $(seq 1 60); do
+          curl -fsS http://127.0.0.1:18501/_stcore/health >/dev/null 2>&1 && break
+          sleep 2
+        done
+        for f in babylon.js babylonjs.loaders.min.js babylonjs.materials.min.js; do
+          code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:18501/app/static/babylon/$f")
+          echo "$f -> $code"
+          test "$code" = 200
+        done
+
+    - name: Record digests
+      shell: bash
+      env:
+        EVIDENCE_PATH: ${{ inputs.evidence-path }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$(dirname "$EVIDENCE_PATH")"
+        python3 - <<'PY'
+        import hashlib, json, os, re, subprocess
+        def sh(*a): return subprocess.check_output(a, text=True).strip()
+        def sha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
+        base = set(re.findall(r'python:3\.10-slim-bookworm@(sha256:[0-9a-f]{64})',
+                              open('backend/Dockerfile').read() + open('frontend/Dockerfile').read()))
+        out = {
+          'source_sha': os.environ.get('GITHUB_SHA'),
+          'python_base_digest': sorted(base),
+          'images': {t: sh('docker', 'image', 'inspect', t, '--format', '{{.Id}}')
+                     for t in ('mirum-backend:release', 'mirum-backend:b13-eval', 'mirum-frontend:release')},
+          'lock_sha256': {p: sha(p) for p in ('requirements-release.lock', 'frontend/requirements.lock',
+                                              'frontend/viewer_assets/package-lock.json')},
+        }
+        json.dump(out, open(os.environ['EVIDENCE_PATH'], 'w'), indent=2, sort_keys=True)
+        print(json.dumps(out, indent=2, sort_keys=True))
+        PY
