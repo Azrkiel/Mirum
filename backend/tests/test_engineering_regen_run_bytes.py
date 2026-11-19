@@ -188,3 +188,72 @@ def test_free_disk_check_uses_the_capabilitys_budget(tmp_path, monkeypatch):
     monkeypatch.setattr(shutil, 'disk_usage', lambda path: usage(10**12, 0, 300 * MIB))
     asyncio.run(publisher.publish('a' * 32, brief, result))
     store.close()
+
+
+# --- schema ceiling and the other capabilities stay at 32 MiB ------------------------------
+
+def test_bundle_identity_ceiling_is_the_largest_capability_budget():
+    from engineering.capabilities import CAPABILITY, GENERATORS
+    from engineering.contracts import MAX_BUNDLE_BYTES, BundleIdentity
+    assert MAX_BUNDLE_BYTES == max(c.resources.run_bytes for c in (CAPABILITY, *GENERATORS)) == 256 * MIB
+    for name in ('zip_bytes', 'stored_bytes'):
+        assert any(getattr(m, 'le', None) == MAX_BUNDLE_BYTES for m in BundleIdentity.model_fields[name].metadata)
+
+
+def _identity(**changes):
+    from engineering.contracts import BundleIdentity
+    base = dict(payloads=tuple(dict(path=n, bytes=1, sha256='a' * 64) for n in
+                               ('brief.json', 'selected_spec.json', 'attempts.json', 'report.json', 'report.md',
+                                'generator-cleaned.stl')),
+                manifest_sha256='b' * 64, manifest_bytes=1, zip_sha256='c' * 64, zip_bytes=10, stored_bytes=100)
+    return BundleIdentity.model_validate(dict(base, **changes))
+
+
+def test_bundle_identity_accepts_up_to_256_mib_and_refuses_more():
+    from pydantic import ValidationError
+    _identity(zip_bytes=10, stored_bytes=256 * MIB)
+    with pytest.raises(ValidationError):
+        _identity(stored_bytes=256 * MIB + 1)
+    with pytest.raises(ValidationError):
+        _identity(zip_bytes=256 * MIB + 1, stored_bytes=256 * MIB)
+
+
+def _brief_for(name):
+    from backend.tests import test_engineering_generator_contracts as g
+    if name == 'rectangular_cantilever':
+        from backend.tests.test_engineering_contracts import data, review_for
+        from engineering.briefs import BriefService, MemoryBriefRepository
+        svc = BriefService(MemoryBriefRepository())
+        return svc.finalize(review_for(svc.create(data()['content']).draft))
+    if name == 'co2_dragster':
+        from backend.tests.test_engineering_dragster_adapter import spec_for
+        return g.brief_for(g.content('co2_dragster', spec_for()))
+    if name == 'glider_cem':
+        return g.brief_for(g.content('glider_cem', g.glider_spec()))
+    return g.brief_for(g.content())
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='the engineering store and publisher need POSIX')
+@pytest.mark.parametrize('name,budget_mib', [('rectangular_cantilever', 32), ('co2_dragster', 32),
+                                             ('glider_cem', 32), ('regen_chamber', 256)])
+def test_every_capability_is_refused_just_over_its_own_budget(tmp_path, name, budget_mib):
+    """The 256 MiB schema ceiling must not loosen beam, dragster or glider (enforced in bundles.py)."""
+    from types import SimpleNamespace
+    from engineering.bundles import BundlePublisher, PAYLOADS
+    from engineering.contracts import GeneratorBriefContent
+    from engineering.store import SQLiteStore
+    brief = _brief_for(name)
+    if isinstance(brief.content, GeneratorBriefContent):
+        from engineering.capabilities import GENERATOR_BASE_PAYLOADS
+        required = set(GENERATOR_BASE_PAYLOADS) | set(brief.content.descriptor.payloads)
+    else:
+        required = set(PAYLOADS)
+    payload = {n: b'x' for n in required}
+    payload['report.md'] = b'x' * ((budget_mib + 1) * MIB)
+    result = SimpleNamespace(selected={'candidate': SimpleNamespace(candidate_sha256='d' * 64)})
+    store = SQLiteStore(tmp_path)
+    publisher = BundlePublisher(store)
+    with pytest.raises(ValueError, match=f'exceeds {budget_mib} MiB budget'):
+        asyncio.run(publisher._publish('a' * 32, brief, result, payload, 'accepted'))
+    assert not publisher.directory('a' * 32).exists()
+    store.close()
