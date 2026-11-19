@@ -370,7 +370,7 @@ class UI:
     ACK = re.compile(r'^I reviewed every value')
     # Free text the model controls (questions, notes, unsupported-feature text, the source line, the JSON tree
     # that holds them) is masked in every screenshot. The review table and the numeric fields stay visible.
-    MASKED = ('[data-testid="stAlert"]', '[data-testid="stText"]', 'details')
+    MASKED = ('[data-testid="stAlert"]', '[data-testid="stText"]', '[data-testid="stTextInput"]', 'details')
     PROPOSE_ENABLED_JS = ("() => { const b = [...document.querySelectorAll('button')]"
                           ".find(x => x.innerText.trim() === 'Propose draft'); return !!b && !b.disabled; }")
     FORM_NUMBERS = (('length_mm', 'Length (mm)'), ('width_mm', 'Width (mm)'), ('tip_force_n', 'Tip force (+Z, N)'),
