@@ -482,5 +482,10 @@ Original questions, kept for the record:
 | PMI read-back | **merged** 2026-11-18: `/pmi/annotate` takes the run's `run_id` (resolved via `artifacts.artifact_path`) instead of a server path; legacy `step_path` -> 422; reads/removes only its own output file (review + re-review clean) | #69 |
 | v1 UI generators | **merged** 2026-11-18: one "Checked design" view lists beam + dragster/regen/glider; form/rules drafts (never AI), review, finalize, run, downloads; routed prompts open it preselected (no browser screenshots) | #65 |
 | CI | **merged** 2026-11-18: native gate timeout 30 -> 45 min (#64); crash-recovery test race fixed (#66) | #64 #66 |
+| RC1 R1 CI sharding | **merged** 2026-11-18: native gate in 3 shards + completeness sum job (`scripts/ci_shard.py`), slowest shard ~12 min | #73 |
+| RC1 R2 release images | **merged** 2026-11-18: digest/apt/hash-pinned backend (`deps`/`release`/`b13-eval`) and frontend images, uid 10001, `MIRUM_DEPLOYMENT=release`, Babylon vendored; AI parity with the B13-qualified stack proven by test | #77 |
+| RC1 R2b PicoGK | **merged** 2026-11-18 (part 1): PicoGK runtime + regen builder built in CI, locked NuGet, hardened native tests. Part 2 (regen in the release image, Boost 1.86 from source) = #80. Checked-design route blocked by the 32 MiB `run_bytes` budget (owner decision) | #78 #80 |
+| RC1 R3 guards + compose | **merged** 2026-11-18/19: `startup_checks.py` refuses misconfigured release startup (11 codes); `compose.release.yml` + 8 misconfiguration Docker tests | #76 #79 |
+| RC1 R4-R8 | not started: e2e browser harness, D7 UI in CI, storage/recovery, RELEASE.md, freeze | — |
 
-Handoff for the next session: [`.claude/handoffs/2026-11-18-1700.md`](../../.claude/handoffs/2026-11-18-1700.md) (next: RC1, a provider-free release candidate verified in CI).
+Handoff for the next session: [`.claude/handoffs/2026-11-18-1700.md`](../../.claude/handoffs/2026-11-18-1700.md) (revised 2026-11-19; next: B13 step 12, then RC1 R4).
