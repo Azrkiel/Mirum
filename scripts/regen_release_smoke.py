@@ -11,6 +11,7 @@ import io
 import json
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -50,6 +51,46 @@ def peak_rss_bytes():
         except (OSError, ValueError):
             continue
     return None
+
+
+def current_memory_bytes():
+    for p in ('/sys/fs/cgroup/memory.current', '/sys/fs/cgroup/memory/memory.usage_in_bytes'):
+        try:
+            return int(open(p).read())
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+class PeakSampler(threading.Thread):
+    """Samples the container cgroup's current memory every 50 ms; ``peak`` is the highest sample.
+    memory.peak itself is since container start (it includes the browser route), so the checked
+    route is measured by sampling over its own window."""
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.peak = None
+        self.stop_event = threading.Event()
+
+    def run(self):
+        while not self.stop_event.is_set():
+            v = current_memory_bytes()
+            if v is not None and (self.peak is None or v > self.peak):
+                self.peak = v
+            self.stop_event.wait(0.05)
+
+    def finish(self):
+        self.stop_event.set()
+        self.join(2)
+        v = current_memory_bytes()
+        if v is not None and (self.peak is None or v > self.peak):
+            self.peak = v
+        return self.peak
+
+
+# measurements.builder is written by picogk-builder/Program.cs (the one JSON line) and passed through
+# unchanged by regen_cli.run_builder -> regen_mesh.verify. These are per-run statistics, not geometry.
+BUILDER_STATS_KEYS = frozenset({'volume_mm3', 'tris', 'seconds', 'peak_mb'})
 
 
 def fail(msg):
@@ -132,6 +173,8 @@ status, brief = call('POST', '/engineering/v1/briefs', review)
 if status != 201:
     fail(f'brief rejected: {status} {brief!r}')
 t1 = time.monotonic()
+sampler = PeakSampler()
+sampler.start()
 status, sub = call('POST', '/engineering/v1/jobs', {'brief_id': brief['brief_id'], 'idempotency_key': 'release-smoke-1'})
 if status != 202:
     fail(f'v1 job rejected at submit: {status} {sub!r}')
@@ -144,6 +187,7 @@ while True:
         fail('v1 job did not finish in time')
     time.sleep(2)
 wall_v1 = time.monotonic() - t1
+sampler.finish()
 if view['lifecycle'] != 'completed' or view['outcome'] != 'accepted' or view.get('delivery') != 'available':
     # Gate: an accepted reference spec must deliver on the checked route. blocked_by is derived from the
     # actual failure the API reported, never a fixed explanation.
@@ -170,7 +214,11 @@ if 'report' in differs:
     # STL digests and every check, must still be identical; the STL and spec bytes must be exact.
     ra, rb = json.loads(files['report']), json.loads(v1['generator-report'])
     for r in (ra, rb):
-        r.get('measurements', {}).pop('builder', None)
+        stats = r.get('measurements', {}).pop('builder', None)
+        if stats is not None:
+            unknown = sorted(set(stats) - BUILDER_STATS_KEYS) if isinstance(stats, dict) else ['<not an object>']
+            if unknown:
+                fail(f'measurements.builder has keys outside the per-run statistics allowlist: {unknown}')
     if ra == rb:
         del differs['report']
         record.setdefault('notes', []).append('report differs only in measurements.builder (per-run builder stats)')
@@ -192,7 +240,8 @@ record['steps']['checked_route'] = {'accepted': True, 'gate': True, 'lifecycle':
                                     'artifact_sha256': {k: sha(v) for k, v in sorted(v1.items())},
                                     'artifact_bytes': {k: len(v) for k, v in sorted(v1.items())},
                                     'identical_to_browser_route': 'stl,spec bytes; report except measurements.builder',
-                                    'stored_bytes_measured': stored_bytes}
+                                    'stored_bytes_measured': stored_bytes,
+                                    'peak_memory_bytes': sampler.peak}
 record['peak_container_memory_bytes'] = peak_rss_bytes()
 record['gate'] = 'browser_route+checked_route'
 record['accepted'] = True

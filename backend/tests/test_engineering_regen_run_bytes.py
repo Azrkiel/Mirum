@@ -168,6 +168,105 @@ def test_free_disk_check_uses_the_capabilitys_budget(tmp_path, monkeypatch):
     assert bundle['kind'] == 'accepted'
 
 
+# --- publish-time validation: streamed, same integrity properties, low peak memory -------------------
+
+def _published_for_validate(tmp_path, size=2 * MIB):
+    from types import SimpleNamespace
+    from engineering.bundles import BundlePublisher
+    from engineering.capabilities import GENERATOR_BASE_PAYLOADS
+    from engineering.store import SQLiteStore
+    brief = brief_for(content())
+    payload = {n: b'x' for n in set(GENERATOR_BASE_PAYLOADS) | set(brief.content.descriptor.payloads)}
+    payload['generator-cleaned.stl'] = bytes(range(256)) * (size // 256)
+    result = SimpleNamespace(selected={'candidate': SimpleNamespace(candidate_sha256='d' * 64)})
+    store = SQLiteStore(tmp_path)
+    publisher = BundlePublisher(store)
+    publication = asyncio.run(publisher._publish('a' * 32, brief, result, payload, 'accepted'))
+    return store, publisher, publication
+
+
+def _rewrite_archive(store, publisher, publication, members, compression):
+    """Replace package.zip and re-record its digest and size so only the member checks can object."""
+    import hashlib
+    import io
+    import json
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', compression=compression) as z:
+        for name, value in members.items():
+            z.writestr(name, value)
+    (publisher.directory('a' * 32) / 'package.zip').write_bytes(buf.getvalue())
+    record = dict(publication, zip_sha256=hashlib.sha256(buf.getvalue()).hexdigest(), zip_bytes=len(buf.getvalue()))
+    record['bundle'] = dict(publication['bundle'], zip_sha256=record['zip_sha256'], zip_bytes=record['zip_bytes'])
+    with store.transaction() as db:
+        db.execute('UPDATE publications SET record=? WHERE job=?', (json.dumps(record), 'a' * 32))
+    return record['bundle']
+
+
+def _members(publisher):
+    import zipfile
+    with zipfile.ZipFile(publisher.directory('a' * 32) / 'package.zip') as z:
+        return {n: z.read(n) for n in z.namelist()}
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='the engineering store and publisher need POSIX')
+def test_validate_rejects_a_same_size_tampered_staged_file(tmp_path):
+    store, publisher, publication = _published_for_validate(tmp_path)
+    publisher.validate('a' * 32, publication['bundle'])
+    path = publisher.directory('a' * 32) / 'generator-cleaned.stl'
+    data = bytearray(path.read_bytes())
+    data[1000] ^= 0xFF
+    path.write_bytes(bytes(data))
+    with pytest.raises(ValueError, match='fingerprint'):
+        publisher.validate('a' * 32, publication['bundle'])
+    store.close()
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='the engineering store and publisher need POSIX')
+def test_validate_rejects_a_tampered_zip_member_even_when_the_zip_digest_is_re_recorded(tmp_path):
+    import zipfile
+    store, publisher, publication = _published_for_validate(tmp_path)
+    members = _members(publisher)
+    forged = bytearray(members['generator-cleaned.stl'])
+    forged[7] ^= 0x01                                   # same size, one bit different
+    members['generator-cleaned.stl'] = bytes(forged)
+    envelope = _rewrite_archive(store, publisher, publication, members, zipfile.ZIP_DEFLATED)
+    with pytest.raises(ValueError, match='Archive content mismatch'):
+        publisher.validate('a' * 32, envelope)
+    store.close()
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='the engineering store and publisher need POSIX')
+def test_validate_rejects_extra_and_missing_archive_members(tmp_path):
+    import zipfile
+    store, publisher, publication = _published_for_validate(tmp_path)
+    members = _members(publisher)
+    extra = dict(members, **{'stray.txt': b'x'})
+    envelope = _rewrite_archive(store, publisher, publication, extra, zipfile.ZIP_STORED)
+    with pytest.raises(ValueError, match='Archive layout mismatch'):
+        publisher.validate('a' * 32, envelope)
+    missing = {k: v for k, v in members.items() if k != 'report.md'}
+    envelope = _rewrite_archive(store, publisher, publication, missing, zipfile.ZIP_STORED)
+    with pytest.raises(ValueError, match='Archive layout mismatch'):
+        publisher.validate('a' * 32, envelope)
+    store.close()
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='the engineering store and publisher need POSIX')
+def test_validate_peak_memory_does_not_scale_with_stored_bytes(tmp_path):
+    """Streaming comparison: validating a 24 MiB payload must not hold copies of it."""
+    import tracemalloc
+    store, publisher, publication = _published_for_validate(tmp_path, size=24 * MIB)
+    tracemalloc.start()
+    try:
+        publisher.validate('a' * 32, publication['bundle'])
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 6 * MIB, f'validate peaked at {peak / MIB:.1f} MiB'
+    store.close()
+
+
 # --- schema ceiling and the other capabilities stay at 32 MiB ------------------------------
 
 def test_bundle_identity_ceiling_is_the_largest_capability_budget():
