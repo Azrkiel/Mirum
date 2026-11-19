@@ -97,7 +97,7 @@ def test_tls_verification_never_disabled():
             assert not re.search(pat, text, re.I), f'{p.name}: matches {pat}'
 
 
-NETWORK_RUN = re.compile(r'apt-get|git\s+clone|git\s+submodule|dotnet\s+(restore|publish)')
+NETWORK_RUN = re.compile(r'apt-get|git\s+clone|git\s+submodule|dotnet\s+(restore|publish)|\bcurl\b|\bwget\b')
 BUILDER = ROOT / 'picogk-builder'
 WORKFLOW = ROOT / '.github' / 'workflows' / 'picogk-runtime.yml'
 
@@ -114,7 +114,7 @@ def test_every_network_run_has_optional_ca_handling():
                 assert 'rm -f /tmp/ca-bundle.crt' in line, f'{p.name}: bundle not removed: {line[:90]}'
                 if 'apt-get' in line:
                     assert 'Acquire::https::CaInfo' in line, f'{p.name}: apt ignores the CA: {line[:90]}'
-    assert seen == 3  # runtime: apt, git+boost fetch; builder: apt+dotnet restore. Update when adding one.
+    assert seen == 4  # runtime: apt, git clone/submodules, Boost curl fetch; builder: dotnet restore+publish. Update when adding one.
 
 
 def test_nuget_restore_is_locked_and_sources_are_pinned():
