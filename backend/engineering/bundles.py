@@ -77,6 +77,16 @@ class BundleManifest(ContractModel):
         return self
 
 
+def run_budget(brief):
+    """The run_bytes budget of the capability that owns ``brief`` (generators carry their own policy)."""
+    content=brief.content
+    return (content.descriptor if isinstance(content,GeneratorBriefContent) else CAPABILITY).resources.run_bytes
+
+
+def budget_text(budget):
+    return f'{budget/1024**2:g} MiB'
+
+
 def md_cell(value):
     """One Markdown table cell: no pipe or line break can end or split the row."""
     return ' '.join(str(value).replace('|','\\|').split())
@@ -88,6 +98,14 @@ def encode(value):
 
 def digest(value):
     return hashlib.sha256(value).hexdigest()
+
+
+def _stream_digest(f,chunk=1024**2):
+    """SHA-256 and length of a binary stream, read in bounded chunks."""
+    h=hashlib.sha256(); size=0
+    while block:=f.read(chunk):
+        h.update(block); size+=len(block)
+    return h.hexdigest(),size
 
 
 @dataclass
@@ -261,15 +279,16 @@ class BundlePublisher:
         manifest_data=encode(BundleManifest.model_validate_json(json.dumps(manifest)).model_dump(mode='json'))
         files=dict(payload,**{'manifest.json':manifest_data})
         # Limit uncompressed bytes before creating the ZIP or writing anything.
-        if sum(map(len,files.values()))+METADATA_RESERVE > CAPABILITY.resources.run_bytes:
-            raise ValueError('Engineering run exceeds 32 MiB budget')
+        budget=run_budget(brief)
+        if sum(map(len,files.values()))+METADATA_RESERVE > budget:
+            raise ValueError(f'Engineering run exceeds {budget_text(budget)} budget')
         archive=io.BytesIO()
         with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED) as z:
             for name,value in files.items(): z.writestr(name,value)
         files['package.zip']=archive.getvalue()
         stored=sum(map(len,files.values()))+METADATA_RESERVE
-        if stored>CAPABILITY.resources.run_bytes: raise ValueError('Complete stored run exceeds 32 MiB budget')
-        if shutil.disk_usage(self.store.root).free < CAPABILITY.resources.run_bytes:
+        if stored>budget: raise ValueError(f'Complete stored run exceeds {budget_text(budget)} budget')
+        if shutil.disk_usage(self.store.root).free < budget:
             raise OSError('Engineering storage has insufficient free capacity')
         with self.store._lock:
             job=self.store.db.execute('SELECT record FROM jobs WHERE id=?',(job_id,)).fetchone()
@@ -292,6 +311,8 @@ class BundlePublisher:
             with self.store.transaction() as db:
                 db.execute('INSERT INTO publications VALUES (?,?,?)',
                     (job_id,json.dumps(publication),time.time()+CAPABILITY.resources.bundle_retention_seconds))
+            # Drop the large in-memory copies before the full re-validation reads the files back.
+            files=archive=manifest_data=None
             await asyncio.to_thread(self.validate,job_id,publication.get('bundle'))
             return publication
         except BaseException:
@@ -330,22 +351,33 @@ class BundlePublisher:
         directory=self.directory(job_id)
         identities={p['path']:p for p in publication['payloads']}
         names=set(identities)|{'manifest.json','package.zip'}
-        captured={}
+        digests={}
+        manifest_bytes=b''
         for name in names:
             expected=identities.get(name) or dict(sha256=publication['manifest_sha256' if name=='manifest.json' else 'zip_sha256'])
-            value=(directory/name).read_bytes()
-            if digest(value) != expected['sha256']: raise ValueError('Package fingerprint changed')
-            captured[name]=value
-        manifest=BundleManifest.model_validate_json(captured['manifest.json']).model_dump(mode='json')
+            if name=='manifest.json':
+                manifest_bytes=(directory/name).read_bytes()      # small; parsed below
+                actual=digest(manifest_bytes)
+            else:
+                with (directory/name).open('rb') as f: actual,_=_stream_digest(f)
+            if actual != expected['sha256']: raise ValueError('Package fingerprint changed')
+            digests[name]=actual
+        manifest=BundleManifest.model_validate_json(manifest_bytes).model_dump(mode='json')
         if manifest['job_id']!=job_id or manifest['kind']!=publication['kind']:
             raise ValueError('Manifest revision changed')
         if ({p['path']:dict(path=p['path'],sha256=p['sha256'],bytes=p['bytes']) for p in manifest['payloads']} != identities
                 or any(p['mime_type']!=MIME[p['path']] for p in manifest['payloads'])):
             raise ValueError('Manifest content mismatch')
-        with zipfile.ZipFile(io.BytesIO(captured['package.zip'])) as z:
+        # Compare every archive member to its staged file by streamed SHA-256 (1 MiB chunks); the
+        # ZIP reader checks each member's CRC at end of stream. No whole-file buffers are held.
+        with zipfile.ZipFile(directory/'package.zip') as z:
             if set(z.namelist()) != names-{'package.zip'} or len(z.namelist()) != len(names)-1:
                 raise ValueError('Archive layout mismatch')
-            if any(z.read(name)!=captured[name] for name in z.namelist()): raise ValueError('Archive content mismatch')
+            for info in z.infolist():
+                with z.open(info) as member: actual,size=_stream_digest(member)
+                staged_bytes=len(manifest_bytes) if info.filename=='manifest.json' else identities[info.filename]['bytes']
+                if actual != digests[info.filename] or size != staged_bytes or info.file_size != staged_bytes:
+                    raise ValueError('Archive content mismatch')
 
     def open_lease(self,job_id,format,*,envelope=None):
         """Open one served file under a lease. The store lock is held only for the cheap

@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from .admission import AdmissionBusy, ClientFairness, native_slot
 from .briefs import RevisionConflict
+from .bundles import run_budget
 from .capabilities import CAPABILITY
 from .contracts import EngineeringRun, Lifecycle, Outcome, ContractModel, Text, Sha256, CapabilityReference
 from pydantic import AwareDatetime
@@ -141,7 +142,8 @@ class JobController:
             reserved = db.execute('SELECT COALESCE(SUM(reserved),0), COUNT(*) FROM jobs WHERE reserved>0').fetchone()
             self.fairness.check(client)
             usage=max(reserved[0],self.store.storage_bytes())
-            if usage + CAPABILITY.resources.run_bytes > CAPABILITY.resources.storage_bytes or reserved[1] >= 50:
+            budget=run_budget(brief)     # the brief's own capability budget, not the beam's
+            if usage + budget > CAPABILITY.resources.storage_bytes or reserved[1] >= 50:
                 raise AdmissionBusy('Engineering storage capacity exhausted; retry after expiry')
             try:
                 native_slot.claim(owner)
@@ -155,7 +157,7 @@ class JobController:
                     fixed_requirements_sha256=brief.fixed_requirements_sha256,
                     lifecycle=Lifecycle.ADMITTED, outcome=Outcome.NOT_EVALUATED, attempts=(), created_at=now, updated_at=now)
                 db.execute('INSERT INTO jobs(id,brief,key,record,deadline,reserved) VALUES (?,?,?,?,?,?)',
-                           (job.job_id, brief_id, key, job.model_dump_json(), time.time()+self.seconds, CAPABILITY.resources.run_bytes))
+                           (job.job_id, brief_id, key, job.model_dump_json(), time.time()+self.seconds, budget))
             except BaseException:
                 native_slot.release(owner)
                 raise

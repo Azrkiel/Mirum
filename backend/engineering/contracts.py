@@ -544,14 +544,20 @@ class AttemptRecord(ContractModel):
         return self
 
 
+MAX_BUNDLE_BYTES = 256 * 1024**2
+
+
 class BundleIdentity(ContractModel):
     """External delivery envelope; no circular manifest/ZIP self-hashes."""
     payloads: tuple[ArtifactIdentity, ...]
     manifest_sha256: Sha256
     manifest_bytes: int = Field(gt=0)
     zip_sha256: Sha256
-    zip_bytes: int = Field(gt=0, le=32 * 1024**2)
-    stored_bytes: int = Field(gt=0, le=32 * 1024**2)
+    # Schema ceiling = the largest per-capability run_bytes (regen, 256 MiB; owner decision 2026-11-19,
+    # Q1 a). The per-capability budget (32 MiB for the others) is enforced in bundles.py before anything
+    # is written; a test pins this ceiling to max(run_bytes over all capabilities).
+    zip_bytes: int = Field(gt=0, le=MAX_BUNDLE_BYTES)
+    stored_bytes: int = Field(gt=0, le=MAX_BUNDLE_BYTES)
 
     @model_validator(mode='after')
     def complete_payload(self):
@@ -616,6 +622,10 @@ class EngineeringRun(ContractModel):
                     or self.selected_candidate_sha256 != self.attempts[-1].candidate.candidate_sha256
                     or self.bundle is None):
                 raise ValueError('Accepted run requires selected candidate, complete checks and bundle')
+            # The schema ceiling is the largest capability budget; each run is held to its own.
+            budget = (self.attempts[-1].candidate.content.descriptor if generator else CAPABILITY).resources.run_bytes
+            if max(self.bundle.zip_bytes, self.bundle.stored_bytes) > budget:
+                raise ValueError('Bundle exceeds the capability run budget')
             files = {p.path: p.sha256 for p in self.bundle.payloads}
             if generator and set(files) != set(GENERATOR_BASE_PAYLOADS) | set(
                     self.attempts[-1].candidate.content.descriptor.payloads):
