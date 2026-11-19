@@ -23,7 +23,9 @@ def _glider_spec(api) -> dict:
     """The repository's glider-distance example mission, pinned to the server's calibration."""
     example = json.loads((FIXTURES.parents[1] / "examples" / "cem" / "glider-distance.json").read_text(encoding="utf-8"))
     metadata = api.get("/cem/glider/metadata").json()
-    return dict(requirements=example["requirements"], calibration_version=metadata["calibration_version"])
+    requirements = example["requirements"]
+    requirements["discovery"]["families"] = ["conventional", "t_tail", "v_tail"]  # "all" is refused by v1
+    return dict(requirements=requirements, calibration_version=metadata["calibration_version"])
 
 
 CASES = [
