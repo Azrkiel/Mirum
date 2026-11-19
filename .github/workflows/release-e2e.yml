@@ -5,8 +5,9 @@ name: Release e2e
 # access token is generated per run, masked, and passed through the environment only.
 #
 # Release evidence: ONLY a workflow_dispatch run on main counts (artifact `release-e2e-artifacts`).
-# Pull-request runs upload `release-e2e-artifacts-pr`, are same-repo only (fork PRs would run
-# attacker-controlled test code) and are never proof of a release.
+# Every other run (pull requests, dispatch from another branch) uploads
+# `release-e2e-artifacts-nonrelease` and is never proof of a release. Pull-request runs are
+# same-repo only (fork PRs would run attacker-controlled test code).
 
 on:
   workflow_dispatch:
@@ -66,6 +67,9 @@ jobs:
           set -euo pipefail
           base=$(docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml config --format json | jq -S 'del(.volumes[].name)')
           merged=$(docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml config --format json | jq -S 'del(.volumes[].name)')
+          # An empty config on either side must not pass vacuously.
+          { test -n "$base" && test "$base" != "null"; } || { echo "empty base compose config"; exit 1; }
+          { test -n "$merged" && test "$merged" != "null"; } || { echo "empty merged compose config"; exit 1; }
           if [ "$base" != "$merged" ]; then
             diff <(echo "$base") <(echo "$merged") | sed "s/$MIRUM_E2E_TOKEN/***/g" || true
             echo "e2e override changes more than volume names"; exit 1
@@ -100,7 +104,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-e2e-artifacts${{ github.event_name == 'pull_request' && '-pr' || '' }}
+          name: release-e2e-artifacts${{ (github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main') && '-nonrelease' || '' }}
           path: |
             e2e/artifacts/**/*.png
             e2e/artifacts/**/*.json
