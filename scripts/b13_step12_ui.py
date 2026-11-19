@@ -262,10 +262,22 @@ def normalize_path(raw):
     return '/'.join('{id}' if _ID_SEGMENT.match(seg) else seg for seg in path.split('/'))
 
 
+# uvicorn access-log shape ('<client> - "<METHOD> <target> HTTP/x"'); outbound httpx lines ('HTTP Request: ...
+# "HTTP/1.1 200 OK"') do not have it, so the proposer's own logged calls are not mistaken for inbound requests.
+_HTTP_LINE = re.compile(r' - "[A-Z]+ .* HTTP/[0-9]')
+UNPARSED = '<unparsed access line>'   # never allowlisted: a line we cannot read must not be silently uncounted
+
+
 def count_paths(log_text):
     counts = {}
-    for match in _ACCESS.finditer(log_text or ''):
-        path = normalize_path(match.group(1))
+    for line in (log_text or '').splitlines():
+        match = _ACCESS.search(line)
+        if match:
+            path = normalize_path(match.group(1))
+        elif _HTTP_LINE.search(line):
+            path = UNPARSED
+        else:
+            continue
         counts[path] = counts.get(path, 0) + 1
     return counts
 
@@ -357,6 +369,13 @@ class Counter:
 class AccessLog:
     def __init__(self, compose):
         self.argv = shlex.split(compose) + ['logs', '--no-color', '--no-log-prefix', 'backend']
+        self.stop_argv = shlex.split(compose) + ['stop', '-t', '30', 'backend']
+
+    def settle(self):
+        """Stop the backend gracefully so every in-flight request finishes and is logged before the final read."""
+        done = subprocess.run(self.stop_argv, capture_output=True, text=True, timeout=120)
+        if done.returncode != 0:
+            raise RuntimeError('backend stop failed (exit %d)' % done.returncode)
 
     def paths(self):
         done = subprocess.run(self.argv, capture_output=True, text=True, timeout=120)
@@ -797,7 +816,8 @@ def main(argv=None):
         except Exception:
             evidence['calls'].setdefault('at_exit', None)
         evidence['at_exit_budget_problems'] = check_at_exit(evidence['calls'], evidence['calls'].get('at_exit'))
-        try:   # access-log containment of un-ledgered provider routes (M1)
+        try:   # access-log containment of un-ledgered provider routes (M1), read after the backend stopped
+            access_log.settle()
             counts = access_log.paths()
             evidence['access_log_paths'] = counts
             evidence['access_log_problems'] = check_access_log(counts)

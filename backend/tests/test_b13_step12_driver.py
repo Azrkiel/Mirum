@@ -279,6 +279,29 @@ def test_any_route_off_the_allowlist_fails(route):
     assert len(problems) == 1 and route in problems[0]
 
 
+@pytest.mark.parametrize('line', ['INFO: x - "POST  /generate  HTTP/1.1" 200 OK',
+                                  'INFO: x - "POST /cem/glider/requirements?a=1 b HTTP/1.1" 200 OK'])
+def test_unparsed_access_line_fails(line):
+    problems = driver.check_access_log(driver.count_paths(LOG + line + '\n'))
+    assert len(problems) == 1 and driver.UNPARSED in problems[0]
+
+
+def test_http2_access_line_is_parsed_and_checked():
+    problems = driver.check_access_log(driver.count_paths(LOG + 'INFO: x - "POST /generate HTTP/2" 200 OK\n'))
+    assert problems == ['route outside the step-12 allowlist requested: /generate x1']
+
+
+def test_outbound_httpx_log_line_is_not_an_inbound_request():
+    line = 'INFO:httpx:HTTP Request: POST https://example.invalid/v1/models/x:generateContent "HTTP/1.1 200 OK"\n'
+    assert driver.check_access_log(driver.count_paths(LOG + line)) == []
+
+
+def test_final_log_read_happens_after_the_backend_is_stopped():
+    source = Path('scripts/b13_step12_ui.py').read_text()
+    assert "'stop', '-t', '30', 'backend'" in source
+    assert source.index('access_log.settle()') < source.index('counts = access_log.paths()')
+
+
 def test_log_without_engineering_requests_proves_nothing():
     assert driver.check_access_log({}) and driver.check_access_log({'/auth/check': 1})
 
