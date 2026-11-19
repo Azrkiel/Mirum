@@ -31,3 +31,7 @@ The expansion tasks E01–E05 are separate releases. E03 and E04 have explicit d
 ## Separate follow-on phase
 
 [Phase 3 task status](phase-3-framework-language/STATUS.md) tracks F01–F11 separately. No existing B/E completion state is changed by this planning addition. F01 execution requires B14 and E05; F03 also requires E01/E02. F11 is optional research after F10.
+
+## R2c: regen run_bytes (2026-11-19)
+
+Owner decision Q1 (a), STOP-L approved 2026-11-19: regen has its own `run_bytes` of 256 MiB (`REGEN.resources`, `capabilities.py`); beam, dragster and glider stay at 32 MiB and `storage_bytes` stays at 512 MiB. Publication (`bundles.py`) now enforces the publishing brief's own `run_bytes` for the pre-ZIP check, the stored-size check and the free-disk check, and its errors name the actual budget. Admission (`jobs.py`) reserves the brief's own `run_bytes`, so a regen job is refused unless storage can hold another 256 MiB. Resource values are not hashed (only `resource_policy_version` is bound into briefs), so no pinned hash or receipt changes. `scripts/regen_release_smoke.py` now gates on an accepted checked run whose artifact hashes equal the browser route's, derives `blocked_by` from the real failure, and records `stored_bytes_measured`.

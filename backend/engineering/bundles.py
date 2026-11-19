@@ -77,6 +77,16 @@ class BundleManifest(ContractModel):
         return self
 
 
+def run_budget(brief):
+    """The run_bytes budget of the capability that owns ``brief`` (generators carry their own policy)."""
+    content=brief.content
+    return (content.descriptor if isinstance(content,GeneratorBriefContent) else CAPABILITY).resources.run_bytes
+
+
+def budget_text(budget):
+    return f'{budget/1024**2:g} MiB'
+
+
 def md_cell(value):
     """One Markdown table cell: no pipe or line break can end or split the row."""
     return ' '.join(str(value).replace('|','\\|').split())
@@ -261,15 +271,16 @@ class BundlePublisher:
         manifest_data=encode(BundleManifest.model_validate_json(json.dumps(manifest)).model_dump(mode='json'))
         files=dict(payload,**{'manifest.json':manifest_data})
         # Limit uncompressed bytes before creating the ZIP or writing anything.
-        if sum(map(len,files.values()))+METADATA_RESERVE > CAPABILITY.resources.run_bytes:
-            raise ValueError('Engineering run exceeds 32 MiB budget')
+        budget=run_budget(brief)
+        if sum(map(len,files.values()))+METADATA_RESERVE > budget:
+            raise ValueError(f'Engineering run exceeds {budget_text(budget)} budget')
         archive=io.BytesIO()
         with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED) as z:
             for name,value in files.items(): z.writestr(name,value)
         files['package.zip']=archive.getvalue()
         stored=sum(map(len,files.values()))+METADATA_RESERVE
-        if stored>CAPABILITY.resources.run_bytes: raise ValueError('Complete stored run exceeds 32 MiB budget')
-        if shutil.disk_usage(self.store.root).free < CAPABILITY.resources.run_bytes:
+        if stored>budget: raise ValueError(f'Complete stored run exceeds {budget_text(budget)} budget')
+        if shutil.disk_usage(self.store.root).free < budget:
             raise OSError('Engineering storage has insufficient free capacity')
         with self.store._lock:
             job=self.store.db.execute('SELECT record FROM jobs WHERE id=?',(job_id,)).fetchone()

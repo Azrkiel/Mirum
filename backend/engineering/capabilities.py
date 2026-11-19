@@ -211,7 +211,7 @@ class GeneratorDescriptor(StrictModel):
     engineering_certified: Literal[False] = False
     standards: Literal['not_evaluated'] = 'not_evaluated'
     limitations: tuple[str, ...]
-    # The engineering budget binds every capability; its values are never overridden here.
+    # The engineering budget binds every capability; only regen overrides run_bytes (owner decision Q1 a).
     resources: ResourcePolicy = ResourcePolicy()
 
     @property
@@ -501,7 +501,10 @@ REGEN = GeneratorDescriptor(
     limitations=('Geometry only: no gas dynamics, thermal, structural or manufacturing analysis',
                  'Simplified C1 cosine contour, not an optimized nozzle',
                  'Cancelling a run leaves the builder process to its own time limit',
-                 'Runs past 420 s or 32 MiB are unavailable here; the original endpoint still serves them'))
+                 'Runs past 420 s or 256 MiB are unavailable here; the original endpoint still serves them'),
+    # Reference cleaned STL is 68-108 MB, over the 32 MiB default. Owner decision 2026-11-19 (Q1 a):
+    # regen-only run_bytes = 256 MiB; storage_bytes and every other limit are unchanged.
+    resources=ResourcePolicy(run_bytes=256 * 1024**2))
 
 GLIDER = GeneratorDescriptor(
     id='glider_cem', version='1.0.0', label='Glider CEM discovery and design',

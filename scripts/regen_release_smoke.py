@@ -2,20 +2,22 @@
 
 The container runs read-only with --network none, so everything goes to the loopback API with the
 access token. Env: SMOKE_TOKEN, SMOKE_SPEC (reference spec JSON). Prints one JSON record on stdout
-and exits non-zero unless the reference job is ACCEPTED on the browser route (the gate). The checked (v1)
-route is run and recorded too; it must match the browser route when it delivers, but a refusal there is
-recorded, not fatal (see the budget note below).
+and exits non-zero unless the reference job is ACCEPTED on BOTH routes (both gate): the browser route and
+the checked (v1) route. The checked route's artifact hashes must equal the browser route's. The measured
+stored bytes of the checked run are recorded (steps.checked_route.stored_bytes_measured).
 """
 import hashlib
+import io
 import json
 import os
 import sys
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from datetime import datetime, timezone
 
-RUN_BYTES_BUDGET = 32 * 1024 ** 2  # backend/engineering/capabilities.py ResourceLimits.run_bytes
+METADATA_RESERVE = 1024 ** 2  # backend/engineering/bundles.py METADATA_RESERVE, counted in stored_bytes
 
 BASE = 'http://127.0.0.1:8000'
 TOKEN = os.environ['SMOKE_TOKEN']
@@ -143,34 +145,36 @@ while True:
     time.sleep(2)
 wall_v1 = time.monotonic() - t1
 if view['lifecycle'] != 'completed' or view['outcome'] != 'accepted' or view.get('delivery') != 'available':
-    # The checked route stores every artifact under a 32 MiB run budget (capabilities.py
-    # ResourceLimits.run_bytes); the reference cleaned STL is ~108 MB, so it cannot deliver it today
-    # (owner decision pending). That is the ONLY accepted reason: if the artifact fits the budget, a
-    # checked-route failure is a real regression and fails the smoke.
-    if len(stl) <= RUN_BYTES_BUDGET:
-        fail(f'checked route failed although the artifact fits the run budget: {view.get("outcome")!r}')
+    # Gate: an accepted reference spec must deliver on the checked route. blocked_by is derived from the
+    # actual failure the API reported, never a fixed explanation.
+    blocked_by = '; '.join(map(str, view.get('failures') or ())) or (
+        f"lifecycle={view['lifecycle']} outcome={view.get('outcome')} delivery={view.get('delivery')}")
     record['steps']['checked_route'] = {'accepted': False, 'lifecycle': view['lifecycle'],
-                                        'blocked_by': 'run_bytes budget (32 MiB) < cleaned STL bytes',
+                                        'blocked_by': blocked_by,
                                         'outcome': view.get('outcome'), 'delivery': view.get('delivery'),
                                         'failures': view.get('failures'), 'wall_seconds': round(wall_v1, 2),
-                                        'gate': False}
-    record['peak_container_memory_bytes'] = peak_rss_bytes()
-    record['gate'] = 'browser_route'
-    record['accepted'] = True  # the gated (browser) route; see steps.checked_route for the v1 route
-    print(json.dumps(record, indent=2, sort_keys=True))
-    sys.exit(0)
+                                        'gate': True}
+    fail(f'checked route did not deliver the accepted reference run: {blocked_by}')
 v1 = {}
-for fmt in ('generator-cleaned-stl', 'generator-report', 'generator-spec-canonical'):
+for fmt in ('generator-cleaned-stl', 'generator-report', 'generator-spec-canonical', 'zip'):
     status, content = call('GET', f'/engineering/v1/jobs/{job_id}/artifacts/{fmt}', raw=True)
     if status != 200 or not content:
         fail(f'v1 artifact {fmt} not downloadable: {status}')
     v1[fmt] = content
-if v1['generator-report'] != files['report'] or v1['generator-spec-canonical'] != files['spec']:
-    fail('v1 report/spec bytes differ from the browser route')
-record['steps']['checked_route'] = {'lifecycle': view['lifecycle'], 'outcome': view['outcome'],
-                                    'delivery': view['delivery'], 'wall_seconds': round(wall_v1, 2),
+if (v1['generator-cleaned-stl'] != files['stl'] or v1['generator-report'] != files['report']
+        or v1['generator-spec-canonical'] != files['spec']):
+    fail('v1 artifact bytes differ from the browser route')
+with zipfile.ZipFile(io.BytesIO(v1['zip'])) as z:
+    uncompressed = sum(i.file_size for i in z.infolist())
+# publisher stored_bytes = every stored payload + manifest + package.zip + METADATA_RESERVE
+stored_bytes = uncompressed + len(v1['zip']) + METADATA_RESERVE
+record['steps']['checked_route'] = {'accepted': True, 'gate': True, 'lifecycle': view['lifecycle'],
+                                    'outcome': view['outcome'], 'delivery': view['delivery'],
+                                    'wall_seconds': round(wall_v1, 2),
                                     'artifact_sha256': {k: sha(v) for k, v in sorted(v1.items())},
-                                    'identical_report_and_spec_bytes': True}
+                                    'artifact_bytes': {k: len(v) for k, v in sorted(v1.items())},
+                                    'identical_to_browser_route': True,
+                                    'stored_bytes_measured': stored_bytes}
 record['peak_container_memory_bytes'] = peak_rss_bytes()
 record['gate'] = 'browser_route+checked_route'
 record['accepted'] = True
