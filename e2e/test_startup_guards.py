@@ -209,6 +209,14 @@ def test_expect_status_failure_message_has_no_token(monkeypatch):
     assert "500" in str(err.value)
 
 
+def test_workflow_tracebacks_cannot_print_the_token():
+    """Long tracebacks print function arguments (the `stack` fixture holds the token)."""
+    wf = (ROOT / ".github" / "workflows" / "release-guards.yml").read_text(encoding="utf-8")
+    runs = [ln for ln in wf.splitlines() if "-m pytest" in ln]
+    assert runs and all("--tb=short" in ln for ln in runs)
+    assert not any(f in ln for ln in runs for f in (" -l", "--showlocals", "--tb=long", "--tb=auto"))
+
+
 def test_good_config_auth_check(stack):
     url = stack["backend"] + "/auth/check"
     _expect_status(url, stack["token"], 200)

@@ -49,7 +49,7 @@ jobs:
           evidence-path: release-evidence/release-images.json
 
       - name: Startup-guard tests
-        run: '"$CI_PY" -m pytest -v -p no:cacheprovider e2e/test_startup_guards.py'
+        run: '"$CI_PY" -m pytest -v --tb=short -p no:cacheprovider e2e/test_startup_guards.py'
         env:
           CI: "true"
 
