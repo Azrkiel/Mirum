@@ -60,6 +60,7 @@ jobs:
         env:
           BUILD_JOBS: ${{ steps.scope.outputs.jobs }}
         with:
+          source: .  # local checkout: a git context ignores .dockerignore (tests would ship in the image)
           files: picogk-builder/docker-bake.hcl
           targets: backend-release
           load: true
@@ -73,6 +74,7 @@ jobs:
         env:
           BUILD_JOBS: ${{ steps.scope.outputs.jobs }}
         with:
+          source: .  # local checkout: a git context ignores .dockerignore (tests would ship in the image)
           files: picogk-builder/docker-bake.hcl
           targets: runtime-files
           set: |

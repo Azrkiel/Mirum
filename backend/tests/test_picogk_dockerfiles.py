@@ -186,3 +186,11 @@ def test_runtime_builds_a_sha256_verified_boost_of_at_least_1_82():
     assert '--prefix=/opt/boost' in flat and '-DBOOST_ROOT=/opt/boost' in flat
     assert '-DBoost_NO_SYSTEM_PATHS=ON' in flat
     assert 'libboost' not in flat.split('apt-get')[-1].split('/picogk/apt-packages.json')[0]
+
+
+def test_bake_builds_from_the_local_checkout_not_a_git_context():
+    # bake-action defaults to a git context, which ignores .dockerignore and would ship backend/tests.
+    for rel in ('.github/workflows/picogk-runtime.yml', '.github/actions/build-release-images/action.yml'):
+        text = (ROOT / rel).read_text(encoding='utf-8')
+        n = len(re.findall(r'uses: docker/bake-action@', text))
+        assert n and len(re.findall(r'^\s+source: \.\s', text, re.M)) == n, rel
