@@ -1,0 +1,5 @@
+# Two workers requested through the environment.
+services:
+  backend:
+    environment:
+      WEB_CONCURRENCY: "2"

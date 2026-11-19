@@ -1,0 +1,5 @@
+# Typo in the deployment mode must fail closed.
+services:
+  backend:
+    environment:
+      MIRUM_DEPLOYMENT: prod

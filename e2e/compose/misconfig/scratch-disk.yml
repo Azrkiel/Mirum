@@ -1,0 +1,7 @@
+# Scratch on a disk-backed anonymous volume instead of tmpfs.
+services:
+  backend:
+    environment:
+      MIRUM_WORK_DIR: /scratch
+    volumes:
+      - /scratch

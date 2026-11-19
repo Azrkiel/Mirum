@@ -1,0 +1,92 @@
+# RC1 release configuration. Needs the images built by .github/actions/build-release-images
+# (mirum-backend:release, mirum-frontend:release); it never builds or pulls.
+#   MIRUM_ACCESS_TOKEN=$(openssl rand -hex 32) docker compose -f compose.release.yml up -d --wait
+# docker-compose.yml stays the development configuration.
+#
+# The backend's startup guards (backend/startup_checks.py, MIRUM_DEPLOYMENT=release is set by
+# the image) refuse to start if this file's invariants are broken: mounted engineering volume
+# owned by uid 10001, single worker, scratch on tmpfs, read-only root, strong access token.
+# The volume is initialised from the image's /tmp/mirum/engineering (owned by 10001), so no
+# root init container is needed.
+services:
+  backend:
+    image: mirum-backend:release
+    pull_policy: never
+    # 6g: the regen worker alone may take up to 4 GiB of address space (RLIMIT_AS in
+    # engineering/regen_web.py); the API process and its CadQuery/dragster sandboxes
+    # (1.5 GiB each) need headroom on top. Never loosen without a measured reason.
+    mem_limit: 6g
+    pids_limit: 1024
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=256M
+      - /tmp/mirum:size=256M,uid=10001,gid=10001,mode=0700
+    volumes:
+      - mirum_engineering:/tmp/mirum/engineering
+    environment:
+      MIRUM_ACCESS_TOKEN: ${MIRUM_ACCESS_TOKEN:?required}
+    ports:
+      - "127.0.0.1:${MIRUM_BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os, urllib.request as u;
+          u.urlopen(u.Request('http://127.0.0.1:8000/auth/check',
+          headers={'X-Mirum-Access-Token': os.environ['MIRUM_ACCESS_TOKEN']}), timeout=4)
+      interval: 10s
+      timeout: 6s
+      retries: 12
+      start_period: 60s
+    restart: "no"
+
+  frontend:
+    image: mirum-frontend:release
+    pull_policy: never
+    mem_limit: 1g
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=128M
+    environment:
+      MIRUM_ACCESS_GATE: "1"
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "127.0.0.1:${MIRUM_FRONTEND_PORT:-8501}:8501"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request as u; u.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=4)
+      interval: 10s
+      timeout: 6s
+      retries: 12
+      start_period: 30s
+    restart: "no"
+
+volumes:
+  mirum_engineering:
