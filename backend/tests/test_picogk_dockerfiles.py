@@ -172,3 +172,17 @@ def test_ci_wires_the_skip_marker_and_the_always_run_job():
 def test_workflow_requires_all_native_tests_to_pass():
     wf = WORKFLOW.read_text(encoding='utf-8')
     assert 'junit.xml' in wf and 'passed < 4' in wf
+
+
+def test_runtime_builds_a_sha256_verified_boost_of_at_least_1_82():
+    text = (ROOT / 'spike-picogk' / 'Dockerfile.runtime').read_text(encoding='utf-8')
+    ver = re.search(r'^ARG BOOST_VERSION=(\d+)\.(\d+)\.(\d+)$', text, re.M)
+    assert ver and (int(ver.group(1)), int(ver.group(2))) >= (1, 82)
+    assert re.search(r'^ARG BOOST_SHA256=[0-9a-f]{64}$', text, re.M)
+    flat = ' '.join(_logical_lines(ROOT / 'spike-picogk' / 'Dockerfile.runtime'))
+    # Verified before it is extracted, over HTTPS only, into a private prefix OpenVDB is pointed at.
+    assert flat.index('sha256sum -c') < flat.index('tar -xzf')
+    assert 'https://archives.boost.io/' in flat and 'http://' not in flat
+    assert '--prefix=/opt/boost' in flat and '-DBOOST_ROOT=/opt/boost' in flat
+    assert '-DBoost_NO_SYSTEM_PATHS=ON' in flat
+    assert 'libboost' not in flat.split('apt-get')[-1].split('/picogk/apt-packages.json')[0]
