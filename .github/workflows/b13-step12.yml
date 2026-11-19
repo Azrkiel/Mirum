@@ -1,0 +1,152 @@
+name: B13 step 12 live review-UI run (manual)
+
+# Manual only. Spends the owner's Gemini key: at most 3 provider calls in total (owner approved
+# 2026-11-19: "Yes, max 3 calls"): one proposal request, which is at most the initial call plus the
+# proposer's single schema repair, and no call after it. Never runs on push or pull_request, so forks
+# and PRs never see the secret. The secret lives in environment b13-live, which only main can deploy
+# from. Cumulative cap 1: the run id is reserved atomically as a b13-s12- tag and never reused.
+#
+# What it does: builds the release images from this commit, starts compose.release.yml plus
+# e2e/compose/b13-step12.override.yml (AI drafts on, provider key in the backend only) in a disposable
+# project, takes ONE live proposal for a fixed-corpus complete case through the real Streamlit review UI,
+# checks the displayed values against the corpus's fixed expected content before the explicit
+# acknowledgement, then finalizes and runs it and confirms run, poll and download make no new provider
+# call. The call count is read from the backend's own proposal ledger (audits table) before the
+# proposal, after it, and after run/poll/download. Uploads JSON and PNG only: never raw replies, the
+# SQLite ledger, packages or logs.
+#
+# Residual risk (accepted 2026-11-17 for b13-live, same here): container egress is not restricted to
+# generativelanguage.googleapis.com. The images are built from main only.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Unique run id; reserved atomically as a tag and never reused"
+        required: true
+        type: string
+      authorization:
+        description: "Owner authorization id"
+        required: true
+        type: string
+      case_id:
+        description: "Complete corpus case id (C01-C10)"
+        required: false
+        default: C01
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: b13-live
+  cancel-in-progress: false
+
+jobs:
+  step12:
+    if: github.ref == 'refs/heads/main'
+    environment: b13-live
+    permissions:
+      contents: write   # only to create the atomic reservation tag
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      COMPOSE_CMD: docker compose -p b13s12-${{ github.run_id }}-${{ github.run_attempt }} -f compose.release.yml -f e2e/compose/b13-step12.override.yml
+    steps:
+      - name: Validate inputs, enforce the total budget, reserve the run atomically
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          AUTHORIZATION: ${{ inputs.authorization }}
+          CASE_ID: ${{ inputs.case_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9-]{5,62}$ ]] || { echo "bad run_id"; exit 1; }
+          [[ "$AUTHORIZATION" =~ ^[A-Za-z0-9._-]{6,80}$ ]] || { echo "bad authorization"; exit 1; }
+          [[ "$CASE_ID" =~ ^C(0[1-9]|10)$ ]] || { echo "case_id must be a complete case, C01-C10"; exit 1; }
+          # Cumulative cap across all runs, counted from durable reservation tags: one run, ever.
+          prefix=b13-s12; cap=1
+          used=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${prefix}-" --jq 'length')
+          [ "$used" -lt "$cap" ] || { echo "step 12 budget exhausted (${used}/${cap}); needs new owner authorization"; exit 1; }
+          # Creating an existing ref fails, so a run id is never spent twice, even if
+          # the job dies before uploading evidence. Tags do not expire.
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/tags/${prefix}-${RUN_ID}" -f "sha=${GITHUB_SHA}" >/dev/null \
+            || { echo "run_id ${RUN_ID} already reserved; never repeated"; exit 1; }
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/build-release-images
+        with:
+          evidence-path: release-evidence/release-images.json
+
+      - name: Install the driver tooling (hashed locks) and check the browser
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/step12-venv"
+          "$RUNNER_TEMP/step12-venv/bin/python" -m pip install --require-hashes --only-binary=:all: --no-deps -r .github/ci-requirements/pytest.lock
+          "$RUNNER_TEMP/step12-venv/bin/python" -m pip install --require-hashes --only-binary=:all: --no-deps -r .github/ci-requirements/b13-step12-playwright.lock
+          google-chrome --version
+          docker compose version
+          mkdir -p "$RUNNER_TEMP/b13-step12-evidence" "$RUNNER_TEMP/b13-step12-downloads"
+          chmod 700 "$RUNNER_TEMP/b13-step12-evidence" "$RUNNER_TEMP/b13-step12-downloads"
+
+      - name: Driver unit tests (no token, no key, nothing spent yet)
+        run: '"$RUNNER_TEMP/step12-venv/bin/python" -m pytest -q --tb=short -p no:cacheprovider backend/tests/test_b13_step12_driver.py'
+
+      - name: Run-local access token
+        run: |
+          set -euo pipefail
+          token=$(openssl rand -hex 32)
+          echo "::add-mask::$token"
+          echo "MIRUM_ACCESS_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Start the release stack with the step-12 override
+        env:
+          # The only place the provider secret is read. Compose passes it to the backend service alone.
+          GEMINI_API_KEY_HEAVY: ${{ secrets.B13_GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$GEMINI_API_KEY_HEAVY" ] || { echo "secret B13_GEMINI_API_KEY missing"; exit 1; }
+          $COMPOSE_CMD up -d --wait
+
+      - name: Take one live proposal through the review UI
+        env:
+          RUN_ID: ${{ inputs.run_id }}
+          AUTHORIZATION: ${{ inputs.authorization }}
+          CASE_ID: ${{ inputs.case_id }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/step12-venv/bin/python" scripts/b13_step12_ui.py \
+            --compose "$COMPOSE_CMD" \
+            --ui-url http://127.0.0.1:8501 --backend-url http://127.0.0.1:8000 \
+            --case-id "$CASE_ID" --run-id "$RUN_ID" --authorization "$AUTHORIZATION" \
+            --source-sha "$GITHUB_SHA" --release-evidence release-evidence/release-images.json \
+            --evidence-dir "$RUNNER_TEMP/b13-step12-evidence" \
+            --download-dir "$RUNNER_TEMP/b13-step12-downloads" \
+            --chrome /usr/bin/google-chrome
+
+      - name: Compose logs on failure (token and key shapes redacted)
+        if: failure()
+        run: |
+          set +e
+          $COMPOSE_CMD ps -a
+          $COMPOSE_CMD logs --no-color --tail 120 \
+            | sed -E "s/${MIRUM_ACCESS_TOKEN:-unset-token}/[redacted-token]/g; s/AIza[0-9A-Za-z_-]{20,}/[redacted-key]/g; s/(x-mirum-access-token)[^ ]*/\1 [redacted]/Ig"
+
+      - name: Upload safe evidence (JSON and PNG only, no ledger)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: b13-step12-${{ inputs.run_id }}
+          path: |
+            ${{ runner.temp }}/b13-step12-evidence/**/*.json
+            ${{ runner.temp }}/b13-step12-evidence/**/*.png
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Tear down the disposable stack and its volumes
+        if: always()
+        run: $COMPOSE_CMD down -v --remove-orphans
