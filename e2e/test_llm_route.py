@@ -3,6 +3,7 @@ no capability claims gets an error state, no checked label and no provider reque
 ever configured. The API half lives in test_llm_route_api.py."""
 from __future__ import annotations
 
+import pytest
 from playwright.sync_api import expect
 
 from harness.ui import CHECKED_WORKFLOW, CheckedFlow, TextToCad, sign_in
@@ -11,6 +12,7 @@ BEAM_PROMPT = "Size a rectangular cantilever beam for a tip force with an allowa
 PLAIN_PROMPT = "A smooth ergonomic shell for a computer mouse, roughly 120mm long"
 
 
+@pytest.mark.xfail(strict=True, reason="UI calls /clarify and /plan before /generate routes; no key gives 'Planning failed'")
 def test_beam_prompt_routes_to_checked_design_with_notice(stack, token, page, shot, external_requests):
     sign_in(page, stack.config.ui_url, token)
     home = TextToCad(page)

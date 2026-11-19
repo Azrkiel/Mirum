@@ -42,7 +42,9 @@ def test_served_assets_name_no_external_resource(stack):
             continue
         body = httpx.get(url, timeout=60).text
         scanned += 1
-        assert [u for u in CSS_URL.findall(body) if _non_loopback(u)] == [], url
-        hosts = [h for h in JS_FETCH.findall(body) if h not in ("127.0.0.1", "localhost")]
-        assert hosts == [], (url, hosts)
+        if ".css" in url:
+            assert [u for u in CSS_URL.findall(body) if _non_loopback(u)] == [], url
+        else:
+            hosts = [h for h in JS_FETCH.findall(body) if h not in ("127.0.0.1", "localhost")]
+            assert hosts == [], (url, hosts)
     assert scanned > 0

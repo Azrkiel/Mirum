@@ -20,9 +20,10 @@ def _load(name: str) -> dict:
 
 
 def _glider_spec(api) -> dict:
+    """The repository's glider-distance example mission, pinned to the server's calibration."""
+    example = json.loads((FIXTURES.parents[1] / "examples" / "cem" / "glider-distance.json").read_text(encoding="utf-8"))
     metadata = api.get("/cem/glider/metadata").json()
-    return dict(requirements=dict(launch=dict(method="drop"), discovery=dict(families=["conventional"])),
-                calibration_version=metadata["calibration_version"])
+    return dict(requirements=example["requirements"], calibration_version=metadata["calibration_version"])
 
 
 CASES = [
@@ -58,7 +59,11 @@ def test_generator_checked_run(capability_id, make_spec, timeout_ms, stack, toke
     lifecycle, outcome = view.wait_terminal(timeout_ms)
     shot(page, f"{capability_id}_result")
     job = api.get_job(job_id).json()
-    assert (lifecycle, outcome) == ("completed", "accepted"), (job["lifecycle"], job["outcome"], job.get("failures"))
+    detail = ""
+    if outcome != "accepted":
+        report = api.artifact(job_id, "report")
+        detail = report.text[:3000] if report.is_success else str(report.status_code)
+    assert (lifecycle, outcome) == ("completed", "accepted"), (job["lifecycle"], job["outcome"], job.get("failures"), detail)
     expect(view.checked_label).to_be_visible(timeout=30_000)
 
     offered = [fmt for fmt, ok in job["artifacts"].items() if ok]

@@ -19,6 +19,7 @@ EXAMPLE = json.loads((REPO_ROOT / "examples" / "engineering" / "cantilever.json"
 SPEC = EXAMPLE["specification"]
 HEIGHTS = EXAMPLE["candidate_heights_mm"]
 BEAM_FORMATS = ("zip", "brief", "spec", "source", "step", "glb", "attempts", "report", "markdown", "manifest")
+GEOMETRY_FORMATS = ("step", "glb", "source", "spec")
 RUN_TIMEOUT_MS = 600_000
 
 
@@ -103,7 +104,7 @@ def test_reference_beam_accepted_through_the_ui(stack, token, api, page, shot, e
     assert external_requests == []
 
 
-def test_low_allowable_stress_is_rejected_without_preview_or_downloads(
+def test_low_allowable_stress_is_rejected_without_preview_or_geometry(
         stack, token, api, page, shot, external_requests):
     beam, job_id, brief_sha = drive_to_run(page, stack.config.ui_url, token, api, allowable=5.0)
     lifecycle, outcome = beam.wait_terminal(RUN_TIMEOUT_MS)
@@ -112,10 +113,12 @@ def test_low_allowable_stress_is_rejected_without_preview_or_downloads(
     job = api.get_job(job_id).json()
     assert job["outcome"] == "rejected"
     assert [a["outcome"] for a in job["attempts"]] == ["rejected"] * len(HEIGHTS)
-    # Nothing is offered: no preview, no download buttons, the API refuses every artifact.
+    # No preview and no geometry. A rejected run offers only its diagnostic bundle.
     expect(beam.plotly_chart).to_have_count(0)
-    expect(beam.download_buttons).to_have_count(0)
-    for fmt in BEAM_FORMATS:
+    for fmt in GEOMETRY_FORMATS:
         assert not api.artifact(job_id, fmt).is_success, fmt
+    offered = beam.download_names()
+    assert offered and not set(offered) & {"model.step", "preview.glb", "model.py", "selected_spec.json"}, offered
+    assert set(offered) <= {"package.zip", "report.json", "brief.json", "report.md", "attempts.json", "manifest.json"}
     shot(page, "beam_rejected")
     assert external_requests == []

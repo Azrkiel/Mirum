@@ -218,8 +218,14 @@ class CheckedBeam(CheckedFlow):
         self.set_field(self.CHOICES_LABEL, ", ".join(repr(float(h)) for h in heights))
 
     def save_draft(self) -> tuple[str, int, str]:
+        """Save and return the new review caption (waits for it to change on a re-save)."""
+        previous = self.page.get_by_text(_DRAFT_RE)
+        before = previous.first.inner_text() if previous.count() else None
         self.button("Save draft").click()
         expect(self.section("2. Review the exact draft")).to_be_visible(timeout=DEFAULT_TIMEOUT_MS)
+        caption = self.page.get_by_text(_DRAFT_RE).first
+        if before is not None:
+            expect(caption).not_to_have_text(before, timeout=DEFAULT_TIMEOUT_MS)
         return self.draft_caption()
 
     def run_checks(self) -> str:
