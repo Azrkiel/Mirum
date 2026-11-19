@@ -214,3 +214,74 @@ def test_evidence_never_holds_a_raw_reply_field():
 
 def test_short_or_empty_secrets_are_ignored_by_redaction():
     assert driver.redact('abc', ['', 'a']) == 'abc'
+
+
+# ---------------------------------------------------------------- L1: budget check at exit, on every path
+
+def ledger(calls, rows=1, initialized=True):
+    return dict(initialized=initialized, calls=calls, rows=rows, statuses=['proposed'] * rows)
+
+
+def test_at_exit_unreadable_ledger_fails_closed():
+    assert driver.check_at_exit({}, None)
+    assert driver.check_at_exit({}, ledger(0, initialized=False))
+
+
+def test_at_exit_before_the_proposal_allows_only_the_proposals_two_calls():
+    assert driver.check_at_exit({}, ledger(0, rows=0)) == []
+    assert driver.check_at_exit({}, ledger(2)) == []
+    assert driver.check_at_exit({}, ledger(3))
+
+
+def test_at_exit_after_the_proposal_allows_no_further_calls():
+    samples = dict(after_proposal=ledger(1))
+    assert driver.check_at_exit(samples, ledger(1)) == []
+    assert driver.check_at_exit(samples, ledger(2))
+
+
+def test_at_exit_two_proposal_rows_fail():
+    assert driver.check_at_exit({}, ledger(1, rows=2))
+
+
+def test_at_exit_runs_the_full_check_when_all_checkpoints_exist():
+    samples = dict(before=ledger(0, rows=0), after_proposal=ledger(1), after_run=ledger(1), final=ledger(1))
+    assert driver.check_at_exit(samples, ledger(1)) == []
+    samples['after_run'] = ledger(2)
+    assert driver.check_at_exit(samples, ledger(1))
+
+
+# ---------------------------------------------------------------- M1: access log of un-ledgered provider routes
+
+LOG = '''INFO:     172.18.0.1:5 - "GET /auth/check HTTP/1.1" 200 OK
+INFO:     172.18.0.1:5 - "GET /engineering/v1/capabilities HTTP/1.1" 200 OK
+INFO:     172.18.0.1:5 - "POST /engineering/v1/drafts HTTP/1.1" 200 OK
+INFO:     172.18.0.1:5 - "GET /engineering/v1/jobs/0123456789abcdef0123456789abcdef HTTP/1.1" 200 OK
+INFO:     172.18.0.1:5 - "GET /engineering/v1/jobs/*** HTTP/1.1" 200 OK
+'''
+
+
+def test_access_log_counts_normalise_ids_and_queries():
+    counts = driver.count_paths(LOG + 'INFO: x - "GET /engineering/v1/drafts?x=1 HTTP/1.1" 200 OK\n')
+    assert counts['/engineering/v1/jobs/{id}'] == 2
+    assert counts['/engineering/v1/drafts'] == 2 and counts['/auth/check'] == 1
+
+
+def test_clean_access_log_passes():
+    assert driver.check_access_log(driver.count_paths(LOG)) == []
+
+
+@pytest.mark.parametrize('route', ['/generate', '/dragsters/interpret', '/clarify', '/requirements', '/plan', '/refine',
+                                   '/pmi/extract', '/pmi/annotate'])
+def test_any_provider_route_fails(route):
+    bad = LOG + 'INFO: x - "POST %s HTTP/1.1" 200 OK\n' % route
+    problems = driver.check_access_log(driver.count_paths(bad))
+    assert len(problems) == 1 and route in problems[0]
+
+
+def test_log_without_engineering_requests_proves_nothing():
+    assert driver.check_access_log({}) and driver.check_access_log({'/auth/check': 1})
+
+
+def test_main_evidence_error_text_carries_no_exception_message():
+    source = Path('scripts/b13_step12_ui.py').read_text()
+    assert "driver stopped (details withheld)" in source and "str(error)" not in source

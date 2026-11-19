@@ -15,6 +15,12 @@ name: B13 step 12 live review-UI run (manual)
 # proposal, after it, and after run/poll/download. Uploads JSON and PNG only: never raw replies, the
 # SQLite ledger, packages or logs.
 #
+# Order: validate inputs, build, start the stack, provider-free preflight of the UI selectors, and only then
+# the atomic reservation, which is the last step before the first provider call. A preflight failure
+# therefore burns neither the reservation nor any spend. After the run the driver reads the backend's access
+# log and fails the job if any un-ledgered provider route (/generate, /dragsters/interpret, ...) was
+# requested (the key is visible to those routes because the proposer reads only GEMINI_API_KEY_HEAVY).
+#
 # Residual risk (accepted 2026-11-17 for b13-live, same here): container egress is not restricted to
 # generativelanguage.googleapis.com. The images are built from main only.
 on:
@@ -52,9 +58,8 @@ jobs:
     env:
       COMPOSE_CMD: docker compose -p b13s12-${{ github.run_id }}-${{ github.run_attempt }} -f compose.release.yml -f e2e/compose/b13-step12.override.yml
     steps:
-      - name: Validate inputs, enforce the total budget, reserve the run atomically
+      - name: Validate inputs (nothing is reserved yet)
         env:
-          GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ inputs.run_id }}
           AUTHORIZATION: ${{ inputs.authorization }}
           CASE_ID: ${{ inputs.case_id }}
@@ -63,15 +68,6 @@ jobs:
           [[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9-]{5,62}$ ]] || { echo "bad run_id"; exit 1; }
           [[ "$AUTHORIZATION" =~ ^[A-Za-z0-9._-]{6,80}$ ]] || { echo "bad authorization"; exit 1; }
           [[ "$CASE_ID" =~ ^C(0[1-9]|10)$ ]] || { echo "case_id must be a complete case, C01-C10"; exit 1; }
-          # Cumulative cap across all runs, counted from durable reservation tags: one run, ever.
-          prefix=b13-s12; cap=1
-          used=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${prefix}-" --jq 'length')
-          [ "$used" -lt "$cap" ] || { echo "step 12 budget exhausted (${used}/${cap}); needs new owner authorization"; exit 1; }
-          # Creating an existing ref fails, so a run id is never spent twice, even if
-          # the job dies before uploading evidence. Tags do not expire.
-          gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-            -f "ref=refs/tags/${prefix}-${RUN_ID}" -f "sha=${GITHUB_SHA}" >/dev/null \
-            || { echo "run_id ${RUN_ID} already reserved; never repeated"; exit 1; }
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -111,6 +107,30 @@ jobs:
           set -euo pipefail
           [ -n "$GEMINI_API_KEY_HEAVY" ] || { echo "secret B13_GEMINI_API_KEY missing"; exit 1; }
           $COMPOSE_CMD up -d --wait
+
+      - name: Provider-free preflight of every selector up to the proposal button
+        env:
+          RUN_ID: ${{ inputs.run_id }}
+          AUTHORIZATION: ${{ inputs.authorization }}
+          CASE_ID: ${{ inputs.case_id }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/step12-venv/bin/python" scripts/b13_step12_ui.py --preflight-only             --compose "$COMPOSE_CMD"             --ui-url http://127.0.0.1:8501 --backend-url http://127.0.0.1:8000             --case-id "$CASE_ID" --run-id "$RUN_ID" --authorization "$AUTHORIZATION"             --source-sha "$GITHUB_SHA" --release-evidence release-evidence/release-images.json             --evidence-dir "$RUNNER_TEMP/b13-step12-evidence"             --download-dir "$RUNNER_TEMP/b13-step12-downloads"             --chrome /usr/bin/google-chrome
+
+      - name: Enforce the total budget and reserve the run atomically
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          # Cumulative cap across all runs, counted from durable reservation tags: one run, ever.
+          prefix=b13-s12; cap=1
+          used=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${prefix}-" --jq 'length')
+          [ "$used" -lt "$cap" ] || { echo "step 12 budget exhausted (${used}/${cap}); needs new owner authorization"; exit 1; }
+          # Creating an existing ref fails, so a run id is never spent twice, even if
+          # the job dies before uploading evidence. Tags do not expire. This is the last
+          # step before the first provider call.
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs"             -f "ref=refs/tags/${prefix}-${RUN_ID}" -f "sha=${GITHUB_SHA}" >/dev/null             || { echo "run_id ${RUN_ID} already reserved; never repeated"; exit 1; }
 
       - name: Take one live proposal through the review UI
         env:

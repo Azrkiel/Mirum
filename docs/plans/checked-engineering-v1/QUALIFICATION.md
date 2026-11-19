@@ -242,6 +242,30 @@ made for it.
   run/poll/download (and after the typed comparison). The job fails if the total exceeds 3 or any call is
   recorded after the proposal. As a hard stop behind that, the override sets the backend's own
   `MIRUM_ENGINEERING_AI_DAILY_CALLS=3` and one call in flight.
+- **Security review fixes (2026-11-19):**
+  - *Un-ledgered provider routes (M1).* The proposer reads only `GEMINI_API_KEY_HEAVY` (no dedicated variable
+    exists), so the key is also visible to `/generate` (no flag, no budget) and `/dragsters/interpret`. The
+    override sets `MIRUM_DRAGSTER_INTERPRET_DAILY_CAP=0`, which makes the interpreter refuse before the
+    network (`extraction._reserve_provider_call`: `cap <= 0` raises). `/generate` has no cap; the checked UI
+    never calls it, and after the run the driver reads the backend access log and fails the job if any provider
+    route (`/generate`, `/dragsters/interpret`, `/clarify`, `/requirements`, `/plan`, `/refine`,
+    `/pmi/extract`, `/pmi/annotate`) was requested, recording the path counts. This detects, it does not
+    prevent, a `/generate` call; preventing it needs a backend change and its own security review.
+  - *One ledger call is one HTTP request (M2).* `backend/tests/test_engineering_provider_single_request.py`
+    points the real proposer and the real google-genai 2.8.0 client at a local stub through
+    `GOOGLE_GEMINI_BASE_URL` (503 and 429) and asserts exactly one inbound request per `generate()`.
+  - *Ledger at exit (L1).* The budget check runs on the at-exit ledger read on every path, recorded as
+    `at_exit_budget_problems`.
+  - *Screenshots (L3).* Model free text (alerts, source line, expanders) is masked; the evidence error string
+    is the exception type plus a fixed message and a `stage` marker, never DOM text.
+  - *Reservation order (L4).* Inputs are validated first; the reservation tag is created after the image build,
+    stack start and the provider-free `--preflight-only` selector check, as the last step before the first
+    provider call.
+  - *Rehearsal.* `.github/workflows/b13-step12-rehearsal.yml` (pull_request on the driver, lock, overrides,
+    step-12 workflow and `frontend/engineering_ui.py`, plus dispatch) runs `scripts/b13_step12_ui.py
+    --rehearsal` with no secret, no environment and the AI flag off: the typed draft of the same case goes
+    through the same review UI to acknowledge, finalize, run, poll, download and sha256-vs-API, with the
+    ledger read at every checkpoint (0 calls) and the access log checked.
 - **Evidence (JSON and PNG only, 90 days):** `evidence.json` (case, source SHA, image IDs, displayed-vs-expected
   rows, acknowledgement/finalize/run outcome, job id, download hashes vs API, call counts per checkpoint,
   verdict) and a PNG per step. Never raw replies, the SQLite ledger, packages or compose logs; failure logs are

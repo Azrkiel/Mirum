@@ -5,6 +5,8 @@ Run by .github/workflows/b13-step12.yml only. The pure parts (case selection, di
 comparison, call-budget checks, redaction) are unit-tested in backend/tests/test_b13_step12_driver.py
 and need only the standard library. Playwright is imported lazily, inside run_browser().
 
+Modes: live (default), --preflight-only (selectors, no spend), --rehearsal (AI off, typed draft).
+
 Budget (owner, 2026-11-19: "Yes, max 3 calls"): at most ONE proposal request, which is the initial
 provider call plus the proposer's single schema repair (<= 2 calls), never retried, and no provider call
 afterwards. The count is read from the backend's own proposal ledger (the `audits` table, whose `calls`
@@ -221,6 +223,59 @@ def check_budget(samples):
     return problems
 
 
+def check_at_exit(samples, at_exit):
+    """Budget check on the last ledger reading, valid on every path including early failures (L1).
+
+    Before the proposal has finished the limit is the one proposal's two calls; afterwards nothing may exceed
+    what the proposal itself recorded. Fails closed when the ledger could not be read.
+    """
+    if not at_exit or not at_exit.get('initialized'):
+        return ['ledger not readable at exit']
+    problems = []
+    done = samples.get('after_proposal')
+    limit = done['calls'] if done else MAX_PROPOSAL_CALLS
+    if at_exit['calls'] > limit:
+        problems.append(f"at exit the ledger shows {at_exit['calls']} calls (limit {limit} at this stage)")
+    if at_exit['calls'] > MAX_TOTAL_CALLS:
+        problems.append(f'total provider calls exceed {MAX_TOTAL_CALLS}')
+    if at_exit['rows'] > 1:
+        problems.append('more than one proposal request is recorded; exactly one is allowed')
+    if all(n in samples for n in ('before', 'after_proposal', 'after_run', 'final')):
+        problems.extend(check_budget(samples))
+    return problems
+
+
+# ------------------------------------------------------------------ access log (M1: un-ledgered provider routes)
+
+# Routes that call a model but are not in the proposal ledger. With the key in the backend they must stay unused.
+PROVIDER_ROUTES = ('/generate', '/dragsters/interpret', '/clarify', '/requirements', '/plan', '/refine',
+                   '/pmi/extract', '/pmi/annotate')
+_ACCESS = re.compile(r'"(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) (\S+) HTTP/[0-9.]+"')
+_ID_SEGMENT = re.compile(r'^(?:[0-9A-Za-z_*-]{16,}|\*+)$')
+
+
+def normalize_path(raw):
+    path = raw.split('?', 1)[0]
+    return '/'.join('{id}' if _ID_SEGMENT.match(seg) else seg for seg in path.split('/'))
+
+
+def count_paths(log_text):
+    counts = {}
+    for match in _ACCESS.finditer(log_text or ''):
+        path = normalize_path(match.group(1))
+        counts[path] = counts.get(path, 0) + 1
+    return counts
+
+
+def check_access_log(counts):
+    """Violations: any provider route hit, or no engineering request seen (the log would then prove nothing)."""
+    problems = [f'provider route requested: {path} x{n}' for path, n in sorted(counts.items())
+                if any(path == route or path.startswith(route + '/') for route in PROVIDER_ROUTES)]
+    if not any(path.startswith('/engineering/') for path in counts):
+        problems.append('access log shows no engineering request; the log check proves nothing')
+    return problems
+
+
 # ------------------------------------------------------------------ redaction
 
 _KEY_SHAPE = re.compile(r'AIza[0-9A-Za-z_\-]{20,}')
@@ -296,12 +351,31 @@ class Counter:
                     statuses=[str(s) for s in value['statuses']])
 
 
+class AccessLog:
+    def __init__(self, compose):
+        self.argv = shlex.split(compose) + ['logs', '--no-color', '--no-log-prefix', 'backend']
+
+    def paths(self):
+        done = subprocess.run(self.argv, capture_output=True, text=True, timeout=120)
+        if done.returncode != 0:
+            raise RuntimeError('backend log read failed (exit %d)' % done.returncode)
+        return count_paths(done.stdout)
+
+
 # ------------------------------------------------------------------ the UI (every selector lives here)
 
 class UI:
     """Role/label first, Streamlit data-testid second. No emotion classes, no nth-child."""
     EXPANDER = 'Complete normalized input and required checks'
     ACK = re.compile(r'^I reviewed every value')
+    # Free text the model controls (questions, notes, unsupported-feature text, the source line, the JSON tree
+    # that holds them) is masked in every screenshot. The review table and the numeric fields stay visible.
+    MASKED = ('[data-testid="stAlert"]', '[data-testid="stText"]', 'details')
+    PROPOSE_ENABLED_JS = ("() => { const b = [...document.querySelectorAll('button')]"
+                          ".find(x => x.innerText.trim() === 'Propose draft'); return !!b && !b.disabled; }")
+    FORM_NUMBERS = (('length_mm', 'Length (mm)'), ('width_mm', 'Width (mm)'), ('tip_force_n', 'Tip force (+Z, N)'),
+                    ('max_tip_deflection_mm', 'Maximum tip displacement (mm)'),
+                    ('dimensional_tolerance_mm', 'Digital dimensional tolerance (mm)'))
 
     def __init__(self, page, base):
         self.page, self.base = page, base
@@ -318,8 +392,11 @@ class UI:
     def save_button(self):
         return self.page.get_by_role('button', name='Save draft', exact=True)
 
+    def entry_radio(self):
+        return self.page.locator('[data-testid="stRadio"]').filter(has_text='Entry method')
+
     def entry_radio_option(self, label):
-        return self.page.locator('[data-testid="stRadio"]').filter(has_text='Entry method').get_by_text(label, exact=True)
+        return self.entry_radio().get_by_text(label, exact=True)
 
     def prompt_box(self):
         return self.page.get_by_label('Engineering request')
@@ -327,31 +404,38 @@ class UI:
     def propose_button(self):
         return self.page.get_by_role('button', name='Propose draft', exact=True)
 
+    def wait_propose_enabled(self):
+        self.page.wait_for_function(self.PROPOSE_ENABLED_JS, timeout=30000)
+
     def caption_text(self):
         return self.page.locator('[data-testid="stCaptionContainer"]').all_inner_texts()
 
     def draft_caption(self):
         return parse_draft_caption('\n'.join(self.caption_text()))
 
-    def wait_for_draft(self, different_from=None, timeout=60000):
+    def wait_for_draft(self, changed_from=None, timeout=60000):
+        """The caption's draft, once its (draft id, revision) differs from `changed_from`."""
         deadline = time.monotonic() + timeout / 1000
         while time.monotonic() < deadline:
             shown = self.draft_caption()
-            if shown and shown['draft_id'] != different_from:
+            if shown and (shown['draft_id'], shown['revision']) != changed_from:
                 return shown
             self.page.wait_for_timeout(500)
         return None
 
+    def review_details(self):
+        return self.page.locator('details').filter(has_text=self.EXPANDER).last
+
     def open_expander(self):
-        details = self.page.locator('details').filter(has_text=self.EXPANDER).last
+        details = self.review_details()
         details.wait_for(state='attached', timeout=30000)
         if details.get_attribute('open') is None:
             details.locator('summary').click()
-        self.page.locator('[data-testid="stJson"]').last.wait_for(state='visible', timeout=30000)
+        details.locator('[data-testid="stJson"]').first.wait_for(state='visible', timeout=30000)
 
     def scrape_json_view(self):
         self.open_expander()
-        view = self.page.locator('[data-testid="stJson"]').last
+        view = self.review_details().locator('[data-testid="stJson"]').first
         for read in (view.inner_text, view.text_content):
             parsed = parse_json_view_text(read() or '')
             if parsed.get('length_mm') is not None:
@@ -361,6 +445,33 @@ class UI:
     def material_source_line(self):
         lines = self.page.locator('[data-testid="stText"]').filter(has_text='Material / allowable source:').all_inner_texts()
         return lines[-1].strip() if lines else None
+
+    def start_new_typed_request(self):
+        self.page.get_by_role('button', name='Start a new typed request', exact=True).click()
+        self.page.get_by_text(re.compile(r'^Reference example with illustrative material values')).wait_for(
+            state='visible', timeout=60000)
+
+    def _type_number(self, label, value):
+        field = self.page.get_by_label(label, exact=True)
+        field.fill(repr(float(value)))
+        field.press('Tab')
+
+    def fill_form(self, content):
+        """Type the case's values into the checked form (rehearsal only; replaces the AI proposal)."""
+        req, material = content['requirements'], content['requirements']['material']
+        if material['source_kind'] != 'illustrative' or content['mode'] != 'bounded_thickness':
+            raise ValueError('rehearsal form fill supports illustrative bounded_thickness cases only')
+        for key, label in self.FORM_NUMBERS:
+            self._type_number(label, req[key])
+        self._type_number('Elastic modulus (MPa)', material['youngs_modulus_mpa'])
+        self._type_number('Allowable stress (MPa)', material['allowable_stress_mpa'])
+        reference = self.page.get_by_label('Material / allowable source reference', exact=True)
+        reference.fill(material['reference'])
+        reference.press('Tab')
+        choices = self.page.get_by_label('Thickness choices to review (mm, comma-separated; 1 to 4)', exact=True)
+        choices.fill(', '.join(str(float(h)) for h in content['candidate_heights_mm']))
+        choices.press('Tab')
+        self.save_button().click()
 
     def ack_checkbox(self):
         return self.page.get_by_text(self.ACK)
@@ -388,13 +499,51 @@ class UI:
         return self.page.get_by_role('button', name=re.compile(r'^Download '))
 
     def screenshot(self, directory, name):
-        self.page.screenshot(path=str(Path(directory) / name), full_page=True)
+        masks = [self.page.locator(selector) for selector in self.MASKED]
+        self.page.screenshot(path=str(Path(directory) / name), full_page=True, mask=masks)
 
 
 # ------------------------------------------------------------------ the run
 
 def sha256_bytes(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def preflight(ui, evidence, shots, token, ai_expected):
+    """Provider-free proof of every selector up to the proposal button. Returns the typed draft's identity or None."""
+    evidence['stage'] = 'sign-in'
+    ui.open_and_sign_in(token)
+    ui.screenshot(shots, '01-checked-design.png')
+    evidence['stage'] = 'preflight typed draft'
+    ui.save_button().click()
+    typed_shown = ui.wait_for_draft()
+    if typed_shown is None:
+        evidence['verdict'], evidence['reason'] = 'fail', 'preflight typed draft never displayed'
+        return None
+    scraped = ui.scrape_json_view()
+    ok, rows = compare_displayed(REFERENCE_CONTENT, scraped)
+    evidence['preflight'] = dict(scraper_matches_reference=ok, fields=len(rows), draft_id=typed_shown['draft_id'])
+    ui.screenshot(shots, '02-preflight-typed-draft.png')
+    if not ok:
+        evidence['verdict'], evidence['reason'] = 'fail', 'preflight: displayed-value scraper did not reproduce the reference draft (no provider call was made)'
+        evidence['preflight']['mismatches'] = [r['field'] for r in rows if not r['match']]
+        return None
+    evidence['stage'] = 'preflight entry controls'
+    if ai_expected:
+        ui.entry_radio_option('AI-assisted draft').click()
+        ui.prompt_box().wait_for(state='visible', timeout=30000)
+        ui.propose_button().wait_for(state='visible', timeout=30000)
+        ui.prompt_box().fill('selector check, never submitted')
+        ui.prompt_box().press('Control+Enter')
+        ui.wait_propose_enabled()
+        evidence['preflight']['ai_controls_found'] = True
+    else:
+        absent = ui.entry_radio().count() == 0 and ui.propose_button().count() == 0
+        evidence['preflight']['ai_controls_absent'] = absent
+        if not absent:
+            evidence['verdict'], evidence['reason'] = 'fail', 'rehearsal stack shows AI controls; the AI flag must be off'
+            return None
+    return (typed_shown['draft_id'], typed_shown['revision'])
 
 
 def run_browser(args, case, token, evidence, counter, api):
@@ -410,25 +559,15 @@ def run_browser(args, case, token, evidence, counter, api):
             page = browser.new_page(viewport={'width': 1450, 'height': 1300})
             page.set_default_timeout(60000)
             ui = UI(page, args.ui_url)
-            ui.open_and_sign_in(token)
-            ui.screenshot(shots, '01-checked-design.png')
-
-            # Preflight, no provider: prove the scrapers on a typed reference draft first.
-            ui.save_button().click()
-            typed_shown = ui.wait_for_draft()
-            if typed_shown is None:
-                evidence['verdict'], evidence['reason'] = 'fail', 'preflight typed draft never displayed'
+            typed_id = preflight(ui, evidence, shots, token, ai_expected=not args.rehearsal)
+            if typed_id is None:
                 return EXIT_FAIL
-            scraped = ui.scrape_json_view()
-            ok, rows = compare_displayed(REFERENCE_CONTENT, scraped)
-            evidence['preflight'] = dict(scraper_matches_reference=ok, fields=len(rows), draft_id=typed_shown['draft_id'])
-            ui.screenshot(shots, '02-preflight-typed-draft.png')
-            if not ok:
-                evidence['verdict'], evidence['reason'] = 'fail', 'preflight: displayed-value scraper did not reproduce the reference draft (no provider call was made)'
-                evidence['preflight']['mismatches'] = [r['field'] for r in rows if not r['match']]
-                return EXIT_FAIL
+            if args.preflight_only:
+                evidence['verdict'] = 'preflight-pass'
+                return EXIT_PASS
 
-            # The same typed request, kept for the later identity comparison (no provider).
+            # The same typed request through the API, kept for the later identity comparison (no provider).
+            evidence['stage'] = 'typed comparison draft'
             typed = api.json('POST', '/drafts', dict(mode='form', input=case['expected_content']))
             if typed.get('issues') or not typed.get('brief_sha256'):
                 evidence['verdict'], evidence['reason'] = 'fail', 'typed request for the corpus case has issues'
@@ -442,42 +581,57 @@ def run_browser(args, case, token, evidence, counter, api):
                 evidence['verdict'], evidence['reason'] = 'fail', 'ledger not clean before the proposal'
                 return EXIT_FAIL
 
-            # ---- the one proposal (never retried)
-            ui.entry_radio_option('AI-assisted draft').click()
-            prompt = ui.prompt_box()
-            prompt.fill(case['prompt'])
-            prompt.press('Control+Enter')
-            ui.propose_button().wait_for(state='visible')
-            page.wait_for_function("() => { const b = [...document.querySelectorAll('button')].find(x => x.innerText.trim() === 'Propose draft'); return b && !b.disabled; }")
-            ui.propose_button().click()          # exactly one click, ever
-            evidence['proposal_requests'] = 1
-            status, deadline = 'running', time.monotonic() + 150
-            while time.monotonic() < deadline:
-                page.wait_for_timeout(3000)
-                snapshot = counter.read()
-                status = classify_proposal(snapshot['statuses'])
-                if status != 'running':
-                    break
-            samples['after_proposal'] = counter.read()
-            evidence['proposal_status'] = status
-            ui.screenshot(shots, '03-after-proposal.png')
-            over = check_budget(dict(before=samples['before'], after_proposal=samples['after_proposal'],
-                                     after_run=samples['after_proposal'], final=samples['after_proposal']))
-            if over:
-                evidence['verdict'], evidence['reason'], evidence['budget_problems'] = 'fail', 'budget violated at the proposal', over
-                return EXIT_FAIL
-            if status == 'unavailable':
-                evidence['verdict'], evidence['reason'] = 'unavailable', 'provider or proposal unavailable; no retry (policy)'
-                return EXIT_UNAVAILABLE
-            if status != 'proposed':
-                evidence['verdict'], evidence['reason'] = 'fail', f'proposal ended as {status}; not a complete reviewable draft, nothing acknowledged'
-                return EXIT_FAIL
+            if args.rehearsal:
+                # ---- the typed reference draft of the same case, through the same review UI (no provider)
+                evidence['stage'] = 'rehearsal typed entry'
+                ui.start_new_typed_request()
+                ui.fill_form(case['expected_content'])
+                evidence['proposal_status'] = 'typed (rehearsal)'
+                shown = ui.wait_for_draft(changed_from=typed_id, timeout=60000)
+                samples['after_proposal'] = counter.read()
+                ui.screenshot(shots, '03-after-typed-entry.png')
+                if shown is None:
+                    evidence['verdict'], evidence['reason'] = 'fail', 'UI never displayed the typed case draft'
+                    return EXIT_FAIL
+            else:
+                # ---- the one proposal (never retried)
+                evidence['stage'] = 'proposal'
+                ui.entry_radio_option('AI-assisted draft').click()
+                prompt = ui.prompt_box()
+                prompt.fill(case['prompt'])
+                prompt.press('Control+Enter')
+                ui.propose_button().wait_for(state='visible')
+                ui.wait_propose_enabled()
+                ui.propose_button().click()          # exactly one click, ever
+                evidence['proposal_requests'] = 1
+                status, deadline = 'running', time.monotonic() + 150
+                while time.monotonic() < deadline:
+                    page.wait_for_timeout(3000)
+                    snapshot = counter.read()
+                    status = classify_proposal(snapshot['statuses'])
+                    if status != 'running':
+                        break
+                samples['after_proposal'] = counter.read()
+                evidence['proposal_status'] = status
+                ui.screenshot(shots, '03-after-proposal.png')
+                over = check_budget(dict(before=samples['before'], after_proposal=samples['after_proposal'],
+                                         after_run=samples['after_proposal'], final=samples['after_proposal']))
+                if over:
+                    evidence['verdict'], evidence['reason'], evidence['budget_problems'] = 'fail', 'budget violated at the proposal', over
+                    return EXIT_FAIL
+                if status == 'unavailable':
+                    evidence['verdict'], evidence['reason'] = 'unavailable', 'provider or proposal unavailable; no retry (policy)'
+                    return EXIT_UNAVAILABLE
+                if status != 'proposed':
+                    evidence['verdict'], evidence['reason'] = 'fail', f'proposal ended as {status}; not a complete reviewable draft, nothing acknowledged'
+                    return EXIT_FAIL
+                shown = ui.wait_for_draft(changed_from=typed_id, timeout=60000)
+                if shown is None:
+                    evidence['verdict'], evidence['reason'] = 'fail', 'UI never displayed the proposed draft'
+                    return EXIT_FAIL
 
             # ---- check the displayed values BEFORE the acknowledgement
-            shown = ui.wait_for_draft(different_from=typed_shown['draft_id'], timeout=60000)
-            if shown is None:
-                evidence['verdict'], evidence['reason'] = 'fail', 'UI never displayed the proposed draft'
-                return EXIT_FAIL
+            evidence['stage'] = 'compare displayed values'
             scraped = ui.scrape_json_view()
             ok, rows = compare_displayed(case['expected_content'], scraped)
             source_line = ui.material_source_line()
@@ -486,18 +640,20 @@ def run_browser(args, case, token, evidence, counter, api):
                 fields=rows, all_match=ok, material_source_line_match=source_line == expected_line,
                 displayed_brief_sha256=shown['brief_sha256'], typed_brief_sha256=evidence['typed']['brief_sha256'],
                 brief_sha256_match=shown['brief_sha256'] == evidence['typed']['brief_sha256'])
-            ui.screenshot(shots, '04-proposal-before-acknowledgement.png')
+            ui.screenshot(shots, '04-draft-before-acknowledgement.png')
             checks = evidence['displayed_vs_expected']
             if not (ok and checks['material_source_line_match'] and checks['brief_sha256_match']):
                 evidence['verdict'], evidence['reason'] = 'fail', 'displayed values differ from the fixed expected content; not acknowledged'
                 return EXIT_FAIL
 
             # ---- explicit acknowledgement, finalize, run
+            evidence['stage'] = 'acknowledge and finalize'
             ui.ack_checkbox().click()
             ui.finalize_button().click()
             ui.finalized_caption().wait_for(state='visible', timeout=60000)
             evidence['acknowledged'] = evidence['finalized'] = True
             ui.screenshot(shots, '05-finalized.png')
+            evidence['stage'] = 'run and poll'
             ui.run_button().click()
             ui.terminal_state().wait_for(state='visible', timeout=900000)
             job_id, job_sha = ui.job_caption_text() or (None, None)
@@ -516,6 +672,7 @@ def run_browser(args, case, token, evidence, counter, api):
             ui.screenshot(shots, '06-result-and-downloads.png')
 
             # ---- downloads through the UI vs the API
+            evidence['stage'] = 'downloads'
             compared = {}
             for fmt, on in job['artifacts'].items():
                 if not on:
@@ -537,6 +694,7 @@ def run_browser(args, case, token, evidence, counter, api):
                 return EXIT_FAIL
 
             # ---- same typed request: identities and selection
+            evidence['stage'] = 'typed identity comparison'
             brief = api.json('POST', '/briefs', dict(
                 draft_id=typed['draft']['draft_id'], draft_revision=typed['draft']['revision'],
                 brief_sha256=typed['brief_sha256'],
@@ -553,12 +711,13 @@ def run_browser(args, case, token, evidence, counter, api):
                 return dict(brief_sha256=j['brief_sha256'], outcome=j['outcome'],
                             selected_candidate_sha256=j.get('selected_candidate_sha256'),
                             attempts=[[a['candidate']['specification']['height_mm'], a['outcome']] for a in j['attempts']])
-            ai_id, typed_id = identity(job), identity(typed_job)
-            evidence['identity_vs_typed'] = dict(ai=ai_id, typed=typed_id, match=ai_id == typed_id)
+            ai_id, typed_job_id = identity(job), identity(typed_job)
+            evidence['identity_vs_typed'] = dict(ai=ai_id, typed=typed_job_id, match=ai_id == typed_job_id)
             samples['final'] = counter.read()
-            if ai_id != typed_id:
+            if ai_id != typed_job_id:
                 evidence['verdict'], evidence['reason'] = 'fail', 'semantic identity or selection differs from the typed request'
                 return EXIT_FAIL
+            evidence['stage'] = 'done'
             return None   # decided by the budget check
         finally:
             browser.close()
@@ -578,7 +737,13 @@ def main(argv=None):
     ap.add_argument('--evidence-dir', required=True)
     ap.add_argument('--download-dir', required=True)
     ap.add_argument('--chrome', default='/usr/bin/google-chrome')
+    ap.add_argument('--rehearsal', action='store_true',
+                    help='provider-free: AI flag off, the typed draft of the same case replaces the proposal')
+    ap.add_argument('--preflight-only', action='store_true',
+                    help='prove the selectors up to the proposal button, spend nothing, write preflight.json')
     args = ap.parse_args(argv)
+    if args.rehearsal and args.preflight_only:
+        ap.error('--rehearsal and --preflight-only are exclusive')
 
     token = os.environ.get('MIRUM_ACCESS_TOKEN', '')
     if len(token) < 32:
@@ -594,41 +759,59 @@ def main(argv=None):
         images = json.loads(Path(args.release_evidence).read_text()).get('images', {})
     except (OSError, ValueError):
         pass
-    evidence = dict(step='b13-step12', run_id=args.run_id, authorization=args.authorization, case_id=case['id'],
-                    corpus_sha256=CORPUS_SHA256, source_sha=args.source_sha, image_ids=images,
+    mode = 'rehearsal' if args.rehearsal else 'preflight' if args.preflight_only else 'live'
+    evidence = dict(step='b13-step12', mode=mode, run_id=args.run_id, authorization=args.authorization,
+                    case_id=case['id'], corpus_sha256=CORPUS_SHA256, source_sha=args.source_sha, image_ids=images,
                     budget=dict(max_total_calls=MAX_TOTAL_CALLS, max_proposal_calls=MAX_PROPOSAL_CALLS, proposal_requests_allowed=1),
-                    calls={}, proposal_requests=0, verdict='error')
-    counter, api = Counter(args.compose), Api(args.backend_url, token)
+                    calls={}, proposal_requests=0, verdict='error', stage='start')
+    counter, api, access_log = Counter(args.compose), Api(args.backend_url, token), AccessLog(args.compose)
     code = EXIT_FAIL
     try:
         capabilities = api.json('GET', '/capabilities')
         evidence['ai_enabled'], evidence['ai_available'] = capabilities['ai_enabled'], capabilities['ai_available']
-        if not (capabilities['ai_enabled'] and capabilities['ai_available']):
+        if args.rehearsal:
+            if capabilities['ai_enabled'] or capabilities['ai_available']:
+                evidence['verdict'], evidence['reason'] = 'fail', 'rehearsal stack has AI enabled; refusing'
+            else:
+                code = run_browser(args, case, token, evidence, counter, api)
+        elif not (capabilities['ai_enabled'] and capabilities['ai_available']):
             evidence['verdict'], evidence['reason'] = 'fail', 'AI drafts not enabled or credential not available; nothing spent'
         else:
             code = run_browser(args, case, token, evidence, counter, api)
-            if code is None:
-                problems = check_budget(evidence['calls'])
-                evidence['budget_problems'] = problems
-                evidence['verdict'] = 'pass' if not problems else 'fail'
-                if problems:
-                    evidence['reason'] = 'call budget violated'
-                code = EXIT_PASS if not problems else EXIT_FAIL
-    except BaseException as error:   # evidence first, always
-        evidence['error'] = f'{type(error).__name__}: {str(error)[:200]}'
+        if code is None:
+            problems = check_budget(evidence['calls'])
+            evidence['budget_problems'] = problems
+            evidence['verdict'] = 'pass' if not problems else 'fail'
+            if problems:
+                evidence['reason'] = 'call budget violated'
+            code = EXIT_PASS if not problems else EXIT_FAIL
+    except BaseException as error:   # evidence first, always. Only the type: DOM text must never reach evidence.
+        evidence['error'] = f'{type(error).__name__}: driver stopped (details withheld)'
         code = EXIT_FAIL
-    try:   # best-effort last reading, so an early stop still records where the ledger stood
-        evidence['calls'].setdefault('at_exit', counter.read())
-    except Exception:
-        pass
+    if not args.preflight_only:
+        try:   # last ledger reading, checked on every path (L1)
+            evidence['calls'].setdefault('at_exit', counter.read())
+        except Exception:
+            evidence['calls'].setdefault('at_exit', None)
+        evidence['at_exit_budget_problems'] = check_at_exit(evidence['calls'], evidence['calls'].get('at_exit'))
+        try:   # access-log containment of un-ledgered provider routes (M1)
+            counts = access_log.paths()
+            evidence['access_log_paths'] = counts
+            evidence['access_log_problems'] = check_access_log(counts)
+        except Exception:
+            evidence['access_log_problems'] = ['backend access log unreadable']
+        extra = evidence['at_exit_budget_problems'] + evidence['access_log_problems']
+        if extra and code in (EXIT_PASS, EXIT_UNAVAILABLE):
+            evidence['verdict'], evidence['reason'], code = 'fail', 'budget or access-log containment violated at exit', EXIT_FAIL
     evidence['exit_code'] = code
     evidence = scrub(evidence, secrets)
     assert_no_raw_reply(evidence)
     text = json.dumps(evidence, indent=2, sort_keys=True, default=str)
     assert_clean(text, secrets)
-    (Path(args.evidence_dir) / 'evidence.json').write_text(text + '\n')
-    print(json.dumps({k: evidence.get(k) for k in ('verdict', 'reason', 'proposal_status', 'calls', 'exit_code')},
-                     sort_keys=True))
+    name = 'preflight.json' if args.preflight_only else 'evidence.json'
+    (Path(args.evidence_dir) / name).write_text(text + '\n')
+    print(json.dumps({k: evidence.get(k) for k in ('mode', 'verdict', 'reason', 'stage', 'proposal_status', 'calls',
+                                                    'access_log_problems', 'exit_code')}, sort_keys=True))
     return code
 
 

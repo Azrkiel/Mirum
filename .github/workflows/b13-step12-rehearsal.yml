@@ -1,0 +1,100 @@
+name: B13 step 12 provider-free rehearsal
+
+# Proves, with no secret, no provider and the AI flag OFF, every post-proposal selector of the step-12 driver
+# before the one paid dispatch: the typed reference draft of the same corpus case goes through the SAME review
+# UI (review values vs expected, acknowledge, finalize, run, poll, download, sha256 vs API), the proposal
+# ledger is read at every checkpoint (must stay at 0 calls) and the backend access log is checked. Uploads
+# JSON and PNG only.
+on:
+  pull_request:
+    paths:
+      - "scripts/b13_step12_ui.py"
+      - ".github/ci-requirements/b13-step12-playwright.lock"
+      - "e2e/compose/b13-step12.override.yml"
+      - "e2e/compose/b13-step12-rehearsal.override.yml"
+      - ".github/workflows/b13-step12.yml"
+      - ".github/workflows/b13-step12-rehearsal.yml"
+      - "frontend/engineering_ui.py"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: b13-step12-rehearsal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      COMPOSE_CMD: docker compose -p b13s12-rehearsal-${{ github.run_id }}-${{ github.run_attempt }} -f compose.release.yml -f e2e/compose/b13-step12-rehearsal.override.yml
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/build-release-images
+        with:
+          evidence-path: release-evidence/release-images.json
+
+      - name: Install the driver tooling (hashed locks) and check the browser
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/step12-venv"
+          "$RUNNER_TEMP/step12-venv/bin/python" -m pip install --require-hashes --only-binary=:all: --no-deps -r .github/ci-requirements/pytest.lock
+          "$RUNNER_TEMP/step12-venv/bin/python" -m pip install --require-hashes --only-binary=:all: --no-deps -r .github/ci-requirements/b13-step12-playwright.lock
+          google-chrome --version
+          docker compose version
+          mkdir -p "$RUNNER_TEMP/b13-step12-evidence" "$RUNNER_TEMP/b13-step12-downloads"
+          chmod 700 "$RUNNER_TEMP/b13-step12-evidence" "$RUNNER_TEMP/b13-step12-downloads"
+
+      - name: Driver unit tests
+        run: '"$RUNNER_TEMP/step12-venv/bin/python" -m pytest -q --tb=short -p no:cacheprovider backend/tests/test_b13_step12_driver.py'
+
+      - name: Run-local access token
+        run: |
+          set -euo pipefail
+          token=$(openssl rand -hex 32)
+          echo "::add-mask::$token"
+          echo "MIRUM_ACCESS_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Start the release stack (AI flag off)
+        run: $COMPOSE_CMD up -d --wait
+
+      - name: Drive the typed case through the review UI
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/step12-venv/bin/python" scripts/b13_step12_ui.py --rehearsal \
+            --compose "$COMPOSE_CMD" \
+            --ui-url http://127.0.0.1:8501 --backend-url http://127.0.0.1:8000 \
+            --case-id C01 --run-id "rehearsal-${GITHUB_RUN_ID}" --authorization rehearsal-no-spend \
+            --source-sha "$GITHUB_SHA" --release-evidence release-evidence/release-images.json \
+            --evidence-dir "$RUNNER_TEMP/b13-step12-evidence" \
+            --download-dir "$RUNNER_TEMP/b13-step12-downloads" \
+            --chrome /usr/bin/google-chrome
+
+      - name: Compose logs on failure (token shape redacted)
+        if: failure()
+        run: |
+          set +e
+          $COMPOSE_CMD ps -a
+          $COMPOSE_CMD logs --no-color --tail 120 \
+            | sed -E "s/${MIRUM_ACCESS_TOKEN:-unset-token}/[redacted-token]/g; s/(x-mirum-access-token)[^ ]*/\1 [redacted]/Ig"
+
+      - name: Upload evidence (JSON and PNG only)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: b13-step12-rehearsal
+          path: |
+            ${{ runner.temp }}/b13-step12-evidence/**/*.json
+            ${{ runner.temp }}/b13-step12-evidence/**/*.png
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Tear down the disposable stack and its volumes
+        if: always()
+        run: $COMPOSE_CMD down -v --remove-orphans

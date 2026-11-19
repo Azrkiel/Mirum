@@ -74,20 +74,46 @@ def test_concurrency_is_shared_with_b13_live_and_never_cancels():
     assert re.search(r'concurrency:\n  group: b13-live\n', text(WORKFLOWS / 'b13-live.yml'))
 
 
+def names():
+    return [s.split(chr(10), 1)[0] for s in steps()]
+
+
+def test_input_validation_is_first_and_reserves_nothing():
+    validate = step('Validate inputs')
+    assert steps()[0] == validate
+    assert r'[[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9-]{5,62}$ ]]' in validate
+    assert r'[[ "$AUTHORIZATION" =~ ^[A-Za-z0-9._-]{6,80}$ ]]' in validate
+    assert r'^C(0[1-9]|10)$' in validate          # complete cases only: C01-C10
+    assert 'git/refs' not in validate and 'GH_TOKEN' not in validate
+
+
 def test_atomic_tag_reservation_with_new_prefix_and_cap_one():
-    reserve = step('Validate inputs')
+    reserve = step('Enforce the total budget')
     assert 'prefix=b13-s12; cap=1' in reserve
     assert 'git/matching-refs/tags/${prefix}-' in reserve and 'git/refs' in reserve
     assert 'refs/tags/${prefix}-${RUN_ID}' in reserve
     assert '"$used" -lt "$cap"' in reserve
-    assert r'[[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9-]{5,62}$ ]]' in reserve
-    assert r'[[ "$AUTHORIZATION" =~ ^[A-Za-z0-9._-]{6,80}$ ]]' in reserve
-    # complete cases only: C01-C10
-    assert r'^C(0[1-9]|10)$' in reserve
     # other prefixes are untouched, so b13-live's counts are not shared with this one
     assert 'b13-diag' not in reserve and 'b13-qual' not in reserve
-    # reservation is the first step, before any build, secret or token exists
-    assert steps()[0] == step('Validate inputs')
+
+
+def test_reservation_comes_after_build_stack_and_preflight_and_right_before_the_provider_step():
+    order = names()
+    reserve = next(i for i, n in enumerate(order) if 'Enforce the total budget' in n)
+    live = next(i for i, n in enumerate(order) if 'Take one live proposal' in n)
+    assert reserve == live - 1                      # nothing between the reservation and the first call
+    assert text().index('uses: ./.github/actions/build-release-images') < text().index('git/refs')
+    for earlier in ('Start the release stack', 'Provider-free preflight', 'Run-local access token', 'Driver unit tests'):
+        assert next(i for i, n in enumerate(order) if earlier in n) < reserve, earlier
+    # no other step creates a ref
+    assert text().count('git/refs') == 1
+
+
+def test_preflight_spends_nothing_and_has_no_key():
+    pre = step('Provider-free preflight')
+    assert '--preflight-only' in pre and 'GEMINI' not in pre and 'secrets.' not in pre
+    assert 'b13-step12-evidence' in pre
+    assert '--preflight-only' not in step('Take one live proposal')
 
 
 def test_provider_secret_is_read_in_exactly_one_step_and_only_there():
@@ -212,6 +238,9 @@ def test_override_puts_flag_and_key_in_the_backend_only():
     # backend budget is capped at the owner's total and one call in flight
     assert re.search(r'MIRUM_ENGINEERING_AI_DAILY_CALLS: "3"', t)
     assert re.search(r'MIRUM_ENGINEERING_AI_CONCURRENCY: "1"', t)
+    # M1: the proposer reads only GEMINI_API_KEY_HEAVY, so the dragster interpreter's own cap is zeroed
+    assert re.search(r'^      MIRUM_DRAGSTER_INTERPRET_DAILY_CAP: "0"$', t, re.M)
+    assert len(re.findall(r'^      GEMINI\w*:', t, re.M)) == 1
 
 
 def test_override_does_not_loosen_the_release_compose():
@@ -231,3 +260,43 @@ def test_dispatch_command_has_no_other_trigger_from_b13_live():
     live = text(WORKFLOWS / 'b13-live.yml')
     assert 'b13-s12' not in live            # b13-live's reservation counts are untouched
     assert 'prefix=b13-diag' in live and 'prefix=b13-qual' in live
+
+
+# ---------------------------------------------------------------- the provider-free rehearsal workflow
+
+REHEARSAL = WORKFLOWS / 'b13-step12-rehearsal.yml'
+REHEARSAL_OVERRIDE = ROOT / 'e2e' / 'compose' / 'b13-step12-rehearsal.override.yml'
+
+
+def test_rehearsal_has_no_secret_no_environment_no_flag_and_read_only_permissions():
+    t = text(REHEARSAL)
+    live = chr(10).join(active_lines(REHEARSAL))
+    for forbidden in ('secrets.', 'environment:', AI_FLAG, 'GEMINI', 'B13_', 'contents: write', 'workflow_run',
+                      'pull_request_target', 'git/refs'):
+        assert forbidden not in live, forbidden
+    assert re.search(r'^permissions: \{\}\s*$', t, re.M)
+    assert t.count('permissions:') == 2 and 'contents: read' in t
+    assert 'GEMINI' not in text(REHEARSAL_OVERRIDE) and AI_FLAG not in text(REHEARSAL_OVERRIDE)
+    assert '-f compose.release.yml -f e2e/compose/b13-step12-rehearsal.override.yml' in t
+    assert 'b13-step12.override.yml' not in live.replace('e2e/compose/b13-step12.override.yml"', '')
+
+
+def test_rehearsal_triggers_and_paths():
+    on = text(REHEARSAL).split(chr(10) + 'on:' + chr(10), 1)[1].split(chr(10) + 'permissions:', 1)[0]
+    assert re.findall(r'^  (\w+):', on, re.M) == ['pull_request', 'workflow_dispatch']
+    for path in ('scripts/b13_step12_ui.py', '.github/ci-requirements/b13-step12-playwright.lock',
+                 'e2e/compose/b13-step12.override.yml', '.github/workflows/b13-step12.yml',
+                 'frontend/engineering_ui.py'):
+        assert '- "%s"' % path in on, path
+
+
+def test_rehearsal_runs_the_driver_in_rehearsal_mode_and_uploads_json_and_png_only():
+    t = text(REHEARSAL)
+    assert '--rehearsal' in t and 'scripts/b13_step12_ui.py' in t and '--tb=short' in t
+    assert 'MIRUM_ACCESS_TOKEN=$token' in t and '::add-mask::' in t
+    assert '/**/*.json' in t and '/**/*.png' in t
+    for banned in ('sqlite', '.zip', '.step', '.glb', 'downloads/**'):
+        assert banned not in t.split('Upload evidence', 1)[1].split('Tear down', 1)[0], banned
+    assert '$COMPOSE_CMD down -v --remove-orphans' in t
+    for uses in re.findall(r'uses: (\S+)', t):
+        assert uses.startswith('./') or re.fullmatch(r'[\w./-]+@[0-9a-f]{40}', uses), uses

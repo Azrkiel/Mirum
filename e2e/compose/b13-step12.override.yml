@@ -13,4 +13,10 @@ services:
       # one spare). Lowering the default 200 and in-flight 2 never loosens anything.
       MIRUM_ENGINEERING_AI_DAILY_CALLS: "3"
       MIRUM_ENGINEERING_AI_CONCURRENCY: "1"
+      # Containment of the un-ledgered provider routes. The proposer reads only GEMINI_API_KEY_HEAVY (no
+      # dedicated variable exists), so /generate and /dragsters/interpret can see the same key. The
+      # dragster interpreter's own cap of 0 refuses every call before the network (extraction.py
+      # _reserve_provider_call: cap <= 0 raises). /generate has no cap; the UI never calls it, and the
+      # driver fails the job if the backend access log shows it or any other provider route.
+      MIRUM_DRAGSTER_INTERPRET_DAILY_CAP: "0"
       GEMINI_API_KEY_HEAVY:
