@@ -158,7 +158,7 @@ runs:
         trap cleanup EXIT
         docker exec -i -e SMOKE_TOKEN="$token" -e SMOKE_SPEC="$(cat picogk-builder/examples/reference.json)" "$cid" \
           python - < scripts/regen_release_smoke.py > "$out_dir/regen-release-smoke.json" \
-          || { cat "$out_dir/regen-release-smoke.json"; exit 1; }
+          || { cat "$out_dir/regen-release-smoke.json"; docker logs "$cid" 2>&1 | tail -60; exit 1; }
         cat "$out_dir/regen-release-smoke.json"
 
     - name: Frontend serves Babylon locally

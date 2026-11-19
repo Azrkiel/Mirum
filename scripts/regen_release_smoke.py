@@ -137,7 +137,7 @@ while True:
 wall_v1 = time.monotonic() - t1
 if view['lifecycle'] != 'completed' or view['outcome'] != 'accepted' or view.get('delivery') != 'available':
     fail(f'v1 job not accepted/available: lifecycle={view["lifecycle"]} outcome={view.get("outcome")} '
-         f'delivery={view.get("delivery")}')
+         f'delivery={view.get("delivery")} view={json.dumps(view, sort_keys=True)[:1500]}')
 v1 = {}
 for fmt in ('generator-cleaned-stl', 'generator-report', 'generator-spec-canonical'):
     status, content = call('GET', f'/engineering/v1/jobs/{job_id}/artifacts/{fmt}', raw=True)
