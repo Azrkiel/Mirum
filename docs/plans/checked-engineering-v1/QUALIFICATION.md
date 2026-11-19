@@ -247,10 +247,11 @@ made for it.
     exists), so the key is also visible to `/generate` (no flag, no budget) and `/dragsters/interpret`. The
     override sets `MIRUM_DRAGSTER_INTERPRET_DAILY_CAP=0`, which makes the interpreter refuse before the
     network (`extraction._reserve_provider_call`: `cap <= 0` raises). `/generate` has no cap; the checked UI
-    never calls it, and after the run the driver reads the backend access log and fails the job if any provider
-    route (`/generate`, `/dragsters/interpret`, `/clarify`, `/requirements`, `/plan`, `/refine`,
-    `/pmi/extract`, `/pmi/annotate`) was requested, recording the path counts. This detects, it does not
-    prevent, a `/generate` call; preventing it needs a backend change and its own security review.
+    never calls it, and after the run the driver reads the backend access log and fails the job if any path
+    outside an allowlist (`/auth/check`, `/engineering/v1/...`) was requested, recording the path counts. An
+    allowlist, not a denylist: the verification re-review found a further un-ledgered route
+    (`/cem/glider/requirements`), so any route the checked UI does not use fails the job. This detects, it does
+    not prevent, such a call; preventing it needs a backend change and its own security review.
   - *One ledger call is one HTTP request (M2).* `backend/tests/test_engineering_provider_single_request.py`
     points the real proposer and the real google-genai 2.8.0 client at a local stub through
     `GOOGLE_GEMINI_BASE_URL` (503 and 429) and asserts exactly one inbound request per `generate()`.

@@ -271,8 +271,9 @@ def test_clean_access_log_passes():
 
 
 @pytest.mark.parametrize('route', ['/generate', '/dragsters/interpret', '/clarify', '/requirements', '/plan', '/refine',
-                                   '/pmi/extract', '/pmi/annotate'])
-def test_any_provider_route_fails(route):
+                                   '/pmi/extract', '/pmi/annotate', '/cem/glider/requirements',
+                                   '/some/future/route', '/engineering/v1x', '/engineering', '/auth/check/x'])
+def test_any_route_off_the_allowlist_fails(route):
     bad = LOG + 'INFO: x - "POST %s HTTP/1.1" 200 OK\n' % route
     problems = driver.check_access_log(driver.count_paths(bad))
     assert len(problems) == 1 and route in problems[0]

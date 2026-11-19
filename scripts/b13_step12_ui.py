@@ -247,9 +247,12 @@ def check_at_exit(samples, at_exit):
 
 # ------------------------------------------------------------------ access log (M1: un-ledgered provider routes)
 
-# Routes that call a model but are not in the proposal ledger. With the key in the backend they must stay unused.
-PROVIDER_ROUTES = ('/generate', '/dragsters/interpret', '/clarify', '/requirements', '/plan', '/refine',
-                   '/pmi/extract', '/pmi/annotate')
+# The key is visible to every backend route, and several routes call a model without the proposal ledger
+# (/generate, /dragsters/interpret, /cem/glider/requirements, /clarify, ...). A denylist fails open on any
+# route it misses, so the check is an ALLOWLIST: the checked UI path only uses these, and any other path
+# in the backend access log fails the job.
+ALLOWED_EXACT = ('/auth/check', '/engineering/v1')
+ALLOWED_PREFIXES = ('/engineering/v1/',)
 _ACCESS = re.compile(r'"(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) (\S+) HTTP/[0-9.]+"')
 _ID_SEGMENT = re.compile(r'^(?:[0-9A-Za-z_*-]{16,}|\*+)$')
 
@@ -268,9 +271,9 @@ def count_paths(log_text):
 
 
 def check_access_log(counts):
-    """Violations: any provider route hit, or no engineering request seen (the log would then prove nothing)."""
-    problems = [f'provider route requested: {path} x{n}' for path, n in sorted(counts.items())
-                if any(path == route or path.startswith(route + '/') for route in PROVIDER_ROUTES)]
+    """Violations: any path off the allowlist, or no engineering request seen (the log would then prove nothing)."""
+    problems = [f'route outside the step-12 allowlist requested: {path} x{n}' for path, n in sorted(counts.items())
+                if not (path in ALLOWED_EXACT or path.startswith(ALLOWED_PREFIXES))]
     if not any(path.startswith('/engineering/') for path in counts):
         problems.append('access log shows no engineering request; the log check proves nothing')
     return problems
