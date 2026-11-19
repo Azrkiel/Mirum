@@ -111,7 +111,7 @@ def test_every_network_run_has_optional_ca_handling():
                 flat = line.replace(' ', '')
                 assert '--mount=type=secret,id=extra_ca,required=false' in flat, f'{p.name}: {line[:90]}'
                 assert 'SSL_CERT_FILE' in line and '/tmp/ca-bundle.crt' in line, f'{p.name}: {line[:90]}'
-                assert 'rm -f /tmp/ca-bundle.crt' in line, f'{p.name}: bundle not removed: {line[:90]}'
+                assert re.search(r'rm\s+-r?f\s[^;&|]*/tmp/ca-bundle\.crt', line), f'{p.name}: bundle not removed: {line[:90]}'
                 if 'apt-get' in line:
                     assert 'Acquire::https::CaInfo' in line, f'{p.name}: apt ignores the CA: {line[:90]}'
     assert seen == 4  # runtime: apt, git clone/submodules, Boost curl fetch; builder: dotnet restore+publish. Update when adding one.
