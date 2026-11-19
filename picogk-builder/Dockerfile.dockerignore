@@ -1,12 +1,7 @@
-# Used with: docker build -f picogk-builder/Dockerfile <repo root>. Keeps the context tiny.
+# Used with picogk-builder/Dockerfile (context = repo root). Keeps the context tiny.
 *
 !picogk-builder/Program.cs
 !picogk-builder/builder.csproj
 !picogk-builder/packages.lock.json
 !picogk-builder/nuget.config
 !picogk-builder/THIRD_PARTY_NOTICES.md
-!backend/engineering/__init__.py
-!backend/engineering/regen_spec.py
-!backend/engineering/regen_geometry.py
-!backend/engineering/regen_mesh.py
-!backend/engineering/regen_cli.py

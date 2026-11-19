@@ -7,6 +7,7 @@ on:
     paths:
       - "spike-picogk/Dockerfile.runtime"
       - "picogk-builder/**"
+      - "backend/Dockerfile"
       - "backend/engineering/regen_*.py"
       - "backend/tests/test_regen_native.py"
       - "scripts/regen_native_evidence.py"
@@ -16,6 +17,7 @@ on:
     paths:
       - "spike-picogk/Dockerfile.runtime"
       - "picogk-builder/**"
+      - "backend/Dockerfile"
       - "backend/engineering/regen_*.py"
       - "backend/tests/test_regen_native.py"
       - "scripts/regen_native_evidence.py"
@@ -53,13 +55,14 @@ jobs:
           echo "bd=picogk-regen-${{ hashFiles('picogk-builder/Dockerfile', 'picogk-builder/Program.cs', 'picogk-builder/builder.csproj') }}" >> "$GITHUB_OUTPUT"
           echo "jobs=$(nproc)" >> "$GITHUB_OUTPUT"
           echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
-      - name: Build runtime and regen builder (GitHub Actions cache, no registry push)
+      - name: Build runtime, regen payload and release backend image (GitHub Actions cache, no registry push)
         uses: docker/bake-action@5be5f02ff8819ecd3092ea6b2e6261c31774f2b4 # v6
         env:
           BUILD_JOBS: ${{ steps.scope.outputs.jobs }}
         with:
+          source: .  # local checkout: a git context ignores .dockerignore (tests would ship in the image)
           files: picogk-builder/docker-bake.hcl
-          targets: regen
+          targets: backend-release
           load: true
           set: |
             runtime.cache-from=type=gha,scope=${{ steps.scope.outputs.rt }}
@@ -71,6 +74,7 @@ jobs:
         env:
           BUILD_JOBS: ${{ steps.scope.outputs.jobs }}
         with:
+          source: .  # local checkout: a git context ignores .dockerignore (tests would ship in the image)
           files: picogk-builder/docker-bake.hcl
           targets: runtime-files
           set: |
@@ -82,15 +86,17 @@ jobs:
           mkdir -p evidence
           echo "{\"build_seconds\": $((end-start)), \"build_jobs\": ${{ steps.scope.outputs.jobs }}}" > evidence/timings.json
           cat evidence/timings.json
-      - name: Real regen tests in the builder image (hardened, --network none, 3 GiB cap)
+      - name: Real regen tests in the release image (hardened, --network none, 3 GiB cap)
         run: |
           python -m pip install --require-hashes --only-binary=:all: -r picogk-builder/requirements-test.txt --target "$RUNNER_TEMP/pt"
+          set -o pipefail
           mkdir -p evidence/pytest scratch/test
+          rm -f evidence/pytest/junit.xml
           chmod 777 evidence/pytest scratch/test
           docker run --rm --network none --memory 3g --memory-swap 3g --pids-limit 512 --read-only --cap-drop ALL --security-opt no-new-privileges --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,size=256m,mode=1777 -e HOME=/tmp \
             -v "$PWD:/repo:ro" -v "$RUNNER_TEMP/pt:/pt:ro" -v "$PWD/evidence/pytest:/res" -v "$PWD/scratch/test:/work" \
-            -e REGEN_NATIVE=1 -e PYTHONPATH=/py:/pt \
-            --entrypoint python3 picogk-regen:slice \
+            -e REGEN_NATIVE=1 -e REGEN_BUILDER=/opt/regen/app/builder -e REGEN_GCC_LIB=/opt/regen/lib -e PYTHONPATH=/app:/app/backend:/pt \
+            --entrypoint python mirum-backend:release \
             -m pytest -c /dev/null -p no:cacheprovider -rA --basetemp=/work/pt --junit-xml=/res/junit.xml \
             /repo/backend/tests/test_regen_native.py | tee evidence/pytest/pytest.txt
       - name: Require all 4 native tests to pass (skips do not count)
@@ -114,18 +120,20 @@ jobs:
           for spec in reference small; do
             docker run --rm --network none --memory 3g --memory-swap 3g --pids-limit 512 --read-only --cap-drop ALL --security-opt no-new-privileges --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,size=256m,mode=1777 -e HOME=/tmp \
               -v "$PWD:/repo:ro" -v "$PWD/evidence/runs:/res" -v "$PWD/scratch/runs:/work" \
-              --entrypoint python3 picogk-regen:slice \
+              -e REGEN_BUILDER=/opt/regen/app/builder -e REGEN_GCC_LIB=/opt/regen/lib \
+              --entrypoint python mirum-backend:release \
               /repo/scripts/regen_native_evidence.py "/repo/picogk-builder/examples/$spec.json" "/work/o_$spec" "/res/$spec.json"
           done
       - name: Export builder, runtime and licenses
         run: |
-          id=$(docker create picogk-regen:slice)
+          id=$(docker create mirum-backend:release)
           mkdir -p export/builder
-          docker cp "$id:/app" export/builder/app
-          docker cp "$id:/usr/local/lib/picogk-gcc" export/builder/gcc-lib
+          docker cp "$id:/opt/regen/app" export/builder/app
+          docker cp "$id:/opt/regen/lib" export/builder/gcc-lib
           docker cp "$id:/licenses" export/builder/licenses
+          docker cp "$id:/opt/regen/picogk-runtime.sha256" export/builder/picogk-runtime.sha256
           docker rm "$id" > /dev/null
-          image_id=$(docker image inspect picogk-regen:slice --format '{{.Id}}')
+          image_id=$(docker image inspect mirum-backend:release --format '{{.Id}}')
           python scripts/picogk_manifest.py export export/manifest.json "$image_id" evidence/timings.json
           cat export/manifest.json
       - name: Upload evidence (JSON only)

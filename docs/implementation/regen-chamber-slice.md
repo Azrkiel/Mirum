@@ -41,16 +41,24 @@ The spike parameters (N=48, rc=1.1, throat 15, wall 5) are rejected (tests): the
 
 ## Build and run
 
+The builder ships in the release backend image (`/opt/regen/app/builder`, libs in `/opt/regen/lib`, licenses in `/licenses`).
+The PicoGK runtime is built on `gcc:15-bookworm` (not the default trixie tag) because the release base is
+`python:3.10-slim-bookworm` (glibc 2.36); a trixie build needs `GLIBC_2.38`. `picogk-builder/picogk-runtime.sha256` records
+the expected `picogk.26.2.so` hash; the release stage fails the build if the shipped `.so` differs or links an unresolved library.
+
 ```
-# Builds runtime (long: OpenVDB) and builder in one graph; no avast-ca.pem is needed anymore.
-BUILD_JOBS=3 docker buildx bake -f picogk-builder/docker-bake.hcl regen --load
+# Builds runtime (long: OpenVDB), regen payload and the release backend image in one graph; no CA file is needed.
+BUILD_JOBS=3 docker buildx bake -f picogk-builder/docker-bake.hcl backend-release --load
 # Behind a TLS-intercepting proxy (e.g. Avast), pass the CA as an optional build secret.
 # It is never copied into a layer and TLS verification stays on:
-BUILD_JOBS=3 docker buildx bake -f picogk-builder/docker-bake.hcl regen --load --set '*.secrets=id=extra_ca,src=spike-picogk/avast-ca.pem'
-docker run --rm --name picogk-regen-x --network none -v <dir with spec.json>:/in:ro picogk-regen:slice /in/spec.json /out/o
+BUILD_JOBS=3 docker buildx bake -f picogk-builder/docker-bake.hcl backend-release --load --set '*.secrets=id=extra_ca,src=spike-picogk/avast-ca.pem'
+# CLI on one spec (the image runs as uid 10001; mount a writable output directory):
+docker run --rm --network none -v <dir with spec.json>:/in:ro -v <out dir>:/out --entrypoint python mirum-backend:release -m engineering.regen_cli /in/spec.json /out/o
 ```
 
-CI (`.github/workflows/picogk-runtime.yml`) does the same with a GitHub Actions cache, runs `backend/tests/test_regen_native.py` and the reference/small specs inside the image with `--network none --memory 3g`, and uploads the builder, `picogk.26.2.so` (+ sha256), gcc libs, licenses, apt package manifests and a sha256 manifest as artifacts. Base images are digest-pinned; apt versions are recorded in `apt-packages.json`, not pinned.
+A plain `docker build -f backend/Dockerfile --target release .` is refused on purpose: without the bake graph the `picogk-regen` stage is empty and the release stage's checks fail.
+
+CI: `.github/workflows/picogk-runtime.yml` builds the same graph with a GitHub Actions cache, runs `backend/tests/test_regen_native.py` and the reference/small specs in the release image (`--network none --memory 3g`, read-only, caps dropped) and uploads the builder, `.so` (+ sha256), gcc libs, licenses and a sha256 manifest. `.github/workflows/release-images.yml` (composite action `build-release-images`) builds the release image through the same bake graph and cache scopes, then starts it read-only with no network in release mode and requires an accepted reference job on the browser route. The checked (`/engineering/v1`) route is also run and recorded; it cannot deliver the reference STL today because the 108 MB cleaned STL exceeds the 32 MiB `run_bytes` budget (owner decision pending), and the smoke fails if the checked route fails for any artifact that fits the budget. Base images are digest-pinned; apt versions are recorded in `apt-packages.json` (runtime image) and pinned `pkg=ver` in the release stage.
 
 Exit 0 accepted (writes `cleaned.stl`, `report.json`, `spec.canonical.json`); 2 rejected (invalid spec, or mesh checks failed; writes only `rejected_report.json` for mesh failures); 1 unavailable (builder crash, 600 s timeout, malformed output, missing runtime `.so`; writes nothing); 3 a `--prebuilt-stl` mesh passed the checks but is not accepted because the builder did not make it (writes only `prebuilt_report.json`). `report.json` is written last. `LD_LIBRARY_PATH` is set only in the builder subprocess environment, never globally. `--prebuilt-stl PATH` verifies an existing STL (test hook).
 

@@ -1,6 +1,6 @@
 # RC1 release image recipe. Build from the repository root:
 #   docker build -f backend/Dockerfile --target release -t mirum-backend:release .
-# Stages: deps (OS packages + hashed Python deps, no code) -> release (code, non-root)
+# Stages: deps (OS packages + hashed Python deps, no code) -> release (code, regen builder, non-root)
 #         -> b13-eval (release + eval scripts; not wired into b13-live.yml in RC1).
 # Base digest = the python:3.10-slim-bookworm image B13 run 5 resolved (Python 3.10.22);
 # CI asserts the interpreter version. The pre-RC1 recipe is kept beside this file as a baseline.
@@ -23,8 +23,22 @@ USER 10001:10001
 EXPOSE 8000
 CMD ["python", "-m", "uvicorn", "main:app", "--app-dir", "/app", "--host", "0.0.0.0", "--port", "8000"]
 
+# Regen payload (PicoGK runtime .so, builder, gcc libs, licenses). Release and CI build it through
+# picogk-builder/docker-bake.hcl, which overrides this empty stage with the real one (named context
+# "picogk-regen"). A plain `docker build` leaves it empty and the release stage's checks fail the build.
+FROM scratch AS picogk-regen
+
 FROM deps AS release
 USER root
+# Regen runtime libraries (bookworm builds of what the .so links against; see ldd check below).
+RUN apt-get update && apt-get install -y --no-install-recommends     libtbb12=2021.8.0-2+deb12u1 libblosc1=1.21.3+ds-1 libboost-iostreams1.74.0=1.74.0+ds1-21     libsnappy1v5=1.1.9-3 libxxhash0=0.8.1-1     && rm -rf /var/lib/apt/lists/*
+COPY --from=picogk-regen /regen/app /opt/regen/app
+COPY --from=picogk-regen /regen/lib /opt/regen/lib
+COPY --from=picogk-regen /regen/licenses /licenses
+COPY picogk-builder/picogk-runtime.sha256 /opt/regen/picogk-runtime.sha256
+# Fail closed: no payload, wrong runtime build, or unresolved shared libraries means no release image.
+# LD_LIBRARY_PATH is deliberately not an ENV: regen_cli sets it for the builder subprocess only.
+RUN test -x /opt/regen/app/builder && test -f /opt/regen/app/picogk.26.2.so     && echo "$(cut -d' ' -f1 /opt/regen/picogk-runtime.sha256)  /opt/regen/app/picogk.26.2.so" | sha256sum -c -     && chmod -R a+rX /opt/regen /licenses     && ! LD_LIBRARY_PATH=/opt/regen/lib ldd /opt/regen/app/picogk.26.2.so | tee /dev/stderr | grep -q 'not found'
 COPY backend/ /app/backend/
 COPY analysis/ /app/analysis/
 COPY output/wing_assembly_oml_reference.json /app/output/wing_assembly_oml_reference.json

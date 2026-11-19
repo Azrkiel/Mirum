@@ -52,7 +52,7 @@ def _external_refs(path):
         m = re.match(r'COPY\s+.*?--from=(\S+)', line, re.I)
         if m and m.group(1) not in stages:
             refs.append(m.group(1))
-    return [r for r in refs if r not in INTERNAL]
+    return [r for r in refs if r not in INTERNAL and r != 'scratch']  # scratch is the empty base, not an image
 
 
 def test_dockerfiles_exist():
@@ -97,7 +97,7 @@ def test_tls_verification_never_disabled():
             assert not re.search(pat, text, re.I), f'{p.name}: matches {pat}'
 
 
-NETWORK_RUN = re.compile(r'apt-get|git\s+clone|git\s+submodule|dotnet\s+(restore|publish)')
+NETWORK_RUN = re.compile(r'apt-get|git\s+clone|git\s+submodule|dotnet\s+(restore|publish)|\bcurl\b|\bwget\b')
 BUILDER = ROOT / 'picogk-builder'
 WORKFLOW = ROOT / '.github' / 'workflows' / 'picogk-runtime.yml'
 
@@ -111,10 +111,10 @@ def test_every_network_run_has_optional_ca_handling():
                 flat = line.replace(' ', '')
                 assert '--mount=type=secret,id=extra_ca,required=false' in flat, f'{p.name}: {line[:90]}'
                 assert 'SSL_CERT_FILE' in line and '/tmp/ca-bundle.crt' in line, f'{p.name}: {line[:90]}'
-                assert 'rm -f /tmp/ca-bundle.crt' in line, f'{p.name}: bundle not removed: {line[:90]}'
+                assert re.search(r'rm\s+-r?f\s[^;&|]*/tmp/ca-bundle\.crt', line), f'{p.name}: bundle not removed: {line[:90]}'
                 if 'apt-get' in line:
                     assert 'Acquire::https::CaInfo' in line, f'{p.name}: apt ignores the CA: {line[:90]}'
-    assert seen >= 4  # apt + git (runtime), dotnet (builder), apt (builder runtime stage)
+    assert seen == 4  # runtime: apt, git clone/submodules, Boost curl fetch; builder: dotnet restore+publish. Update when adding one.
 
 
 def test_nuget_restore_is_locked_and_sources_are_pinned():
@@ -145,16 +145,20 @@ def test_workflow_pip_installs_require_hashes_and_containers_are_hardened():
     runs = [shlex.split(l) for l in wf.replace(chr(92) + chr(10), ' ').splitlines() if 'docker run ' in l]
     assert len(runs) == 2, runs
     for argv in runs:
-        i = argv.index('docker')
-        assert argv[i + 1] == 'run'
-        opts = argv[i + 2:argv.index('picogk-regen:slice')]
-        flags = set(opts)
-        assert {'--read-only', '--cap-drop', '--user', '--network', '--security-opt', '--memory'} <= flags, opts
-        assert opts[opts.index('--network') + 1] == 'none'
-        assert opts[opts.index('--cap-drop') + 1] == 'ALL'
-        assert opts[opts.index('--security-opt') + 1] == 'no-new-privileges'
-        assert opts[opts.index('--memory') + 1] == '3g'
-        assert opts[opts.index('--user') + 1] == '$(id -u):$(id -g)'
+        opts = argv[argv.index('run') + 1:argv.index('mirum-backend:release')]
+        # Each required flag exactly once, with its value.
+        for flag, value in (('--network', 'none'), ('--cap-drop', 'ALL'), ('--security-opt', 'no-new-privileges'),
+                            ('--memory', '3g'), ('--user', '$(id -u):$(id -g)')):
+            assert opts.count(flag) == 1, (flag, opts)
+            assert opts[opts.index(flag) + 1] == value, (flag, opts)
+        assert opts.count('--read-only') == 1, opts
+        # Nothing that widens the sandbox.
+        joined = ' '.join(opts)
+        for bad in ('--privileged', '--cap-add', '--pid host', '--pid=host', '--ipc host', '--ipc=host',
+                    '--network host', '--network=host', '--net host', '--net=host', 'seccomp=unconfined',
+                    'apparmor=unconfined', '--device', '/var/run/docker.sock'):
+            assert bad not in joined, (bad, opts)
+        assert opts.count('--security-opt') == 1  # a second --security-opt could carry seccomp=unconfined
 
 
 def test_ci_wires_the_skip_marker_and_the_always_run_job():
@@ -168,3 +172,25 @@ def test_ci_wires_the_skip_marker_and_the_always_run_job():
 def test_workflow_requires_all_native_tests_to_pass():
     wf = WORKFLOW.read_text(encoding='utf-8')
     assert 'junit.xml' in wf and 'passed < 4' in wf
+
+
+def test_runtime_builds_a_sha256_verified_boost_of_at_least_1_82():
+    text = (ROOT / 'spike-picogk' / 'Dockerfile.runtime').read_text(encoding='utf-8')
+    ver = re.search(r'^ARG BOOST_VERSION=(\d+)\.(\d+)\.(\d+)$', text, re.M)
+    assert ver and (int(ver.group(1)), int(ver.group(2))) >= (1, 82)
+    assert re.search(r'^ARG BOOST_SHA256=[0-9a-f]{64}$', text, re.M)
+    flat = ' '.join(_logical_lines(ROOT / 'spike-picogk' / 'Dockerfile.runtime'))
+    # Verified before it is extracted, over HTTPS only, into a private prefix OpenVDB is pointed at.
+    assert flat.index('sha256sum -c') < flat.index('tar -xzf')
+    assert 'https://archives.boost.io/' in flat and 'http://' not in flat
+    assert '--prefix=/opt/boost' in flat and '-DBOOST_ROOT=/opt/boost' in flat
+    assert '-DBoost_NO_SYSTEM_PATHS=ON' in flat
+    assert 'libboost' not in flat.split('apt-get')[-1].split('/picogk/apt-packages.json')[0]
+
+
+def test_bake_builds_from_the_local_checkout_not_a_git_context():
+    # bake-action defaults to a git context, which ignores .dockerignore and would ship backend/tests.
+    for rel in ('.github/workflows/picogk-runtime.yml', '.github/actions/build-release-images/action.yml'):
+        text = (ROOT / rel).read_text(encoding='utf-8')
+        n = len(re.findall(r'uses: docker/bake-action@', text))
+        assert n and len(re.findall(r'^\s+source: \.\s', text, re.M)) == n, rel
