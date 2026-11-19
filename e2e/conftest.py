@@ -103,7 +103,7 @@ def external_requests() -> list[str]:
 
 
 @pytest.fixture
-def page(_browser, external_requests):
+def page(request, _browser, external_requests):
     """A page whose context blocks (and records) every request and WebSocket leaving loopback."""
     from harness.guard import guarded_context
 
@@ -111,7 +111,41 @@ def page(_browser, external_requests):
     pg = context.new_page()
     pg.set_default_timeout(30_000)
     yield pg
+    report = getattr(request.node, "rep_call", None)
+    if report is not None and report.failed:
+        _failure_evidence(request.node.name, context.pages)
     context.close()
+
+
+def _failure_evidence(test_name: str, pages) -> None:
+    """On failure keep a PNG and the visible text of every open tab (diagnosis in CI)."""
+    import json
+
+    safe = re.sub(r"\W+", "_", test_name)
+    out = ARTIFACTS / "failures"
+    out.mkdir(parents=True, exist_ok=True)
+    for n, tab in enumerate(pages):
+        try:
+            tab.screenshot(path=str(out / f"{safe}_tab{n}.png"), full_page=True)
+            text = tab.locator("body").inner_text(timeout=5_000)[:20_000]
+            (out / f"{safe}_tab{n}.json").write_text(
+                json.dumps({"url": tab.url.split("?")[0], "text": text}, indent=2) + chr(10),
+                encoding="utf-8", newline=chr(10))
+        except Exception:
+            pass
+
+
+@pytest.fixture
+def second_tab(page):
+    """A second tab in the same guarded context (its own Streamlit session)."""
+    tab = page.context.new_page()
+    tab.set_default_timeout(30_000)
+    return tab
+
+
+@pytest.fixture
+def work_dir(tmp_path):
+    return tmp_path
 
 
 @pytest.fixture
@@ -133,6 +167,8 @@ def shot(request, evidence):
 def pytest_runtest_makereport(item, call):
     outcome = yield
     report = outcome.get_result()
+    if report.when == "call":
+        item.rep_call = report
     ev = _state.get("evidence")
     if ev is not None and report.when in ("setup", "call", "teardown"):
         if report.when == "call" or report.outcome != "passed":
