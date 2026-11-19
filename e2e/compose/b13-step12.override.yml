@@ -1,0 +1,22 @@
+# B13 step 12 only: the AI draft flag and the provider credential, in the backend and nowhere else.
+# Used with compose.release.yml by .github/workflows/b13-step12.yml, never by any other file.
+#   docker compose -p <project> -f compose.release.yml -f e2e/compose/b13-step12.override.yml up -d --wait
+# GEMINI_API_KEY_HEAVY is a pass-through: compose copies it from the invoking environment (the one
+# workflow step that starts the stack) and stores no value here. The frontend gets no provider
+# variable and no AI flag; it learns AI availability from the backend's /capabilities.
+services:
+  backend:
+    environment:
+      MIRUM_ENGINEERING_AI_DRAFTS: "1"
+      # The backend's own rolling budget is the hard stop behind the job's call counter:
+      # the owner approved at most 3 provider calls (proposal + its one schema repair, and
+      # one spare). Lowering the default 200 and in-flight 2 never loosens anything.
+      MIRUM_ENGINEERING_AI_DAILY_CALLS: "3"
+      MIRUM_ENGINEERING_AI_CONCURRENCY: "1"
+      # Containment of the un-ledgered provider routes. The proposer reads only GEMINI_API_KEY_HEAVY (no
+      # dedicated variable exists), so /generate and /dragsters/interpret can see the same key. The
+      # dragster interpreter's own cap of 0 refuses every call before the network (extraction.py
+      # _reserve_provider_call: cap <= 0 raises). /generate has no cap; the UI never calls it, and the
+      # driver fails the job if the backend access log shows it or any other provider route.
+      MIRUM_DRAGSTER_INTERPRET_DAILY_CAP: "0"
+      GEMINI_API_KEY_HEAVY:
