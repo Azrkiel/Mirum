@@ -106,8 +106,18 @@ if status != 201:
     fail(f'draft rejected: {status} {made!r}')
 draft = made['draft']
 content = draft['content']
-review = dict(draft_id=draft['draft_id'], draft_revision=draft['revision'], brief_sha256=content['brief_sha256'],
-              acknowledged_fields=list(content['review_fields']),
+
+
+def leaves(payload, prefix=''):  # same rule as engineering.capabilities._leaves
+    names = []
+    for key in sorted(payload):
+        value = payload[key]
+        names += leaves(value, f'{prefix}{key}.') if isinstance(value, dict) and value else [f'{prefix}{key}']
+    return names
+
+
+review = dict(draft_id=draft['draft_id'], draft_revision=draft['revision'], brief_sha256=made['brief_sha256'],
+              acknowledged_fields=['specification.' + n for n in leaves(content['specification'])],
               reviewed_at=datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), reviewed_by='release-smoke')
 status, brief = call('POST', '/engineering/v1/briefs', review)
 if status != 201:
