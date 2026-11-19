@@ -8,11 +8,12 @@ Stdlib only. Subcommands:
       CMD) and write them, one per line.
   run --shard N --total M --out DIR
       Collect, pick this shard's test FILES, run them, and write
-      DIR/shard-N.json = {"shard", "exit_code", "ids", "counts"} where "ids" are the
-      node IDs pytest actually executed (including skips).
+      DIR/shard-N.json with "shard", "exit_code", "ids", "counts", and "skipped".
+      "ids" includes skipped tests, and "skipped" records their IDs and reasons.
   check --all FILE REPORT.json...
       Fail unless every shard exited 0 and the union of executed IDs equals the
       collected set exactly (nothing lost, nothing duplicated, nothing extra).
+      Print the skipped test IDs and reasons from the shard reports.
 
 Sharding is by whole file (so module/class fixtures stay together): files are
 sorted by weight (HINTS, else collected test count) and greedily placed on the
@@ -102,12 +103,21 @@ def _collect():
 
 
 class _Recorder:
-    def __init__(self):
+    def __init__(self) -> None:
         self.outcomes = {}
+        self.skipped: dict[str, str] = {}
 
-    def pytest_runtest_logreport(self, report):
+    def pytest_runtest_logreport(self, report) -> None:
+        if report.outcome == "skipped":
+            longrepr = report.longrepr
+            if isinstance(longrepr, tuple) and len(longrepr) == 3 and isinstance(longrepr[2], str):
+                reason = longrepr[2].removeprefix("Skipped: ")
+            else:
+                reason = str(longrepr)[:300]
+            self.skipped[report.nodeid] = reason
+
         if report.when == "setup":
-            self.outcomes[report.nodeid] = report.outcome  # skips are reported here
+            self.outcomes[report.nodeid] = report.outcome  # setup skips may have no call report
         elif report.when == "call":
             self.outcomes[report.nodeid] = report.outcome
         elif report.outcome == "failed":  # teardown error
@@ -127,10 +137,14 @@ def _run(shard, total, out):
     counts = {}
     for o in rec.outcomes.values():
         counts[o] = counts.get(o, 0) + 1
+    skipped = [
+        {"id": nodeid, "reason": reason}
+        for nodeid, reason in sorted(rec.skipped.items())
+    ]
     Path(out).mkdir(parents=True, exist_ok=True)
     (Path(out) / f"shard-{shard}.json").write_text(
         json.dumps({"shard": shard, "exit_code": code, "ids": sorted(rec.outcomes),
-                    "counts": counts}), encoding="utf-8")
+                    "counts": counts, "skipped": skipped}), encoding="utf-8")
     return code
 
 
@@ -159,10 +173,18 @@ def main(argv=None):
         runs.append(json.loads(Path(p).read_text(encoding="utf-8")) if Path(p).is_file() else None)
     problems = check(all_ids, runs)
     totals = {}
-    for r_ in runs:
-        for o, n in ((r_ or {}).get("counts") or {}).items():
+    skipped = []
+    for run in runs:
+        if run is None:
+            continue
+        for o, n in (run.get("counts") or {}).items():
             totals[o] = totals.get(o, 0) + n
+        skipped.extend(run.get("skipped", []))
     print(f"collected={len(all_ids)} executed_counts={totals}")
+    for skip in sorted(skipped, key=lambda skip: skip["id"]):
+        reason = " ".join(skip["reason"].splitlines())
+        print(f"SKIPPED {skip['id']} :: {reason}")
+    print(f"skipped_total={len(skipped)}")
     for p in problems:
         print(f"FAIL: {p}")
     if not problems:

@@ -213,6 +213,66 @@ Required prerequisite: a working existing Gemini GenerateContent path within
 the pinned limits, followed by properly authorized live qualification. Failed
 cases/budgets must not be reset or silently retried.
 
+## STEP-12 live review-UI run (prepared, not yet dispatched)
+
+Finish-B13 step 12: one live proposal for a fixed-corpus complete request (default C01, input-selectable
+among C01-C10 only) through the real review UI of the release stack. Owner approval 2026-11-19: "Yes, max 3
+calls". Status: the job exists and is tested statically; it has not been dispatched and no live call has been
+made for it.
+
+- **Job:** `.github/workflows/b13-step12.yml`, `workflow_dispatch` only (inputs `run_id`, `authorization`,
+  `case_id`), main only, environment `b13-live` (same secret and concurrency group as `b13-live.yml`).
+  Atomic reservation tag prefix `b13-s12-`, cumulative cap 1. Release images come from
+  `.github/actions/build-release-images/`; the stack is `compose.release.yml` plus
+  `e2e/compose/b13-step12.override.yml` in a disposable project with run-local volumes and a run-local
+  `openssl rand -hex 32` token; `down -v` at the end. The override is the only place the AI draft flag is set,
+  and passes the provider key (pass-through from the one step that starts the stack) to the backend only.
+- **Driver:** `scripts/b13_step12_ui.py` (Playwright on the runner's system Chrome, hashed lock
+  `.github/ci-requirements/b13-step12-playwright.lock`). It first proves its scrapers on a typed reference
+  draft (no provider), makes one proposal click, checks the displayed values (normalized-input tree, source
+  line, brief SHA-256) against the corpus's fixed expected content BEFORE the acknowledgement, then
+  acknowledges, finalizes, runs, polls and downloads through the UI, compares each download with the API
+  bytes, and compares the semantic identities and selection with the same typed request (brief SHA-256,
+  outcome, selected candidate, attempts).
+- **Budget, enforced in code:** at most one proposal request, so at most 2 provider calls (initial plus the
+  existing single schema repair), never retried; a 429/503/504 or any unavailable outcome stops the run and is
+  recorded as `unavailable` (job red, evidence uploaded, no retry). The count is read from the backend's own
+  proposal ledger (`audits.calls`, written before each provider call) by `docker compose exec` into the
+  backend container, read-only, printing counts and statuses only, before the proposal, after it, and after
+  run/poll/download (and after the typed comparison). The job fails if the total exceeds 3 or any call is
+  recorded after the proposal. As a hard stop behind that, the override sets the backend's own
+  `MIRUM_ENGINEERING_AI_DAILY_CALLS=3` and one call in flight.
+- **Security review fixes (2026-11-19):**
+  - *Un-ledgered provider routes (M1).* The proposer reads only `GEMINI_API_KEY_HEAVY` (no dedicated variable
+    exists), so the key is also visible to `/generate` (no flag, no budget) and `/dragsters/interpret`. The
+    override sets `MIRUM_DRAGSTER_INTERPRET_DAILY_CAP=0`, which makes the interpreter refuse before the
+    network (`extraction._reserve_provider_call`: `cap <= 0` raises). `/generate` has no cap; the checked UI
+    never calls it, and after the run the driver reads the backend access log and fails the job if any path
+    outside an allowlist (`/auth/check`, `/engineering/v1/...`) was requested, recording the path counts. An
+    allowlist, not a denylist: the verification re-review found a further un-ledgered route
+    (`/cem/glider/requirements`), so any route the checked UI does not use fails the job. This detects, it does
+    not prevent, such a call; preventing it needs a backend change and its own security review.
+  - *One ledger call is one HTTP request (M2).* `backend/tests/test_engineering_provider_single_request.py`
+    points the real proposer and the real google-genai 2.8.0 client at a local stub through
+    `GOOGLE_GEMINI_BASE_URL` (503 and 429) and asserts exactly one inbound request per `generate()`.
+  - *Ledger at exit (L1).* The budget check runs on the at-exit ledger read on every path, recorded as
+    `at_exit_budget_problems`.
+  - *Screenshots (L3).* Model free text (alerts, source line, expanders) is masked; the evidence error string
+    is the exception type plus a fixed message and a `stage` marker, never DOM text.
+  - *Reservation order (L4).* Inputs are validated first; the reservation tag is created after the image build,
+    stack start and the provider-free `--preflight-only` selector check, as the last step before the first
+    provider call.
+  - *Rehearsal.* `.github/workflows/b13-step12-rehearsal.yml` (pull_request on the driver, lock, overrides,
+    step-12 workflow and `frontend/engineering_ui.py`, plus dispatch) runs `scripts/b13_step12_ui.py
+    --rehearsal` with no secret, no environment and the AI flag off: the typed draft of the same case goes
+    through the same review UI to acknowledge, finalize, run, poll, download and sha256-vs-API, with the
+    ledger read at every checkpoint (0 calls) and the access log checked.
+- **Evidence (JSON and PNG only, 90 days):** `evidence.json` (case, source SHA, image IDs, displayed-vs-expected
+  rows, acknowledgement/finalize/run outcome, job id, download hashes vs API, call counts per checkpoint,
+  verdict) and a PNG per step. Never raw replies, the SQLite ledger, packages or compose logs; failure logs are
+  printed to the job log with the token and key shapes redacted.
+- **Residual risk (as accepted for `b13-live`):** container egress is not restricted to the provider host.
+
 ## Release decision
 
 B13 remains blocked. B14's fresh build/setup, release browser/HTTP smoke, final

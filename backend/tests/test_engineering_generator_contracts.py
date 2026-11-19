@@ -508,7 +508,9 @@ def test_registry_lists_beam_first_and_resolves_each_generator_by_exact_versions
         with pytest.raises(UnsupportedCapability):
             get_capability(g.id, '0.0.1', numerical_policy_version=g.numerical_version)
         assert g.engineering_certified is False and g.standards == 'not_evaluated'
-        assert g.resources == CAPABILITY.resources
+        # only regen overrides run_bytes (256 MiB, owner decision Q1 a); every other field matches the beam
+        expected = CAPABILITY.resources.model_copy(update={'run_bytes': 256 * 1024**2}) if g.id == 'regen_chamber' else CAPABILITY.resources
+        assert g.resources == expected
         assert g.primary_artifact in g.payloads
         assert all(p.startswith('generator-') for p in g.payloads)
     assert get_capability('co2_dragster', '2.0.0', numerical_policy_version='co2_dragster_numerical_v1').adapter

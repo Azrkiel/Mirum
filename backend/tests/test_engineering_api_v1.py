@@ -221,7 +221,7 @@ def test_capabilities_keep_the_beam_first_and_add_review_fields_and_availability
     for entry in entries[1:]:
         assert entry['engineering_certified'] is False and entry['standards']=='not_evaluated'
         assert entry['review_fields']==[] and entry['review_fields_prefix']=='specification.'
-        assert entry['resources']['overall_seconds']==420 and entry['resources']['run_bytes']==32*1024**2
+        assert entry['resources']['overall_seconds']==420 and entry['resources']['run_bytes']==(256 if entry['id']=='regen_chamber' else 32)*1024**2
     from engineering.capabilities import GENERATORS,adapter_installed
     assert [e['available'] for e in entries[1:]]==[adapter_installed(g) for g in GENERATORS]
 
