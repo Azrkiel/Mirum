@@ -46,3 +46,6 @@ docker-compose.override.yml
 # apt-get install xfoil on Linux. Never commit the binary itself.
 bin/xfoil.exe
 bin/xfoil
+
+# R4 e2e browser suite output (screenshots, evidence.json)
+e2e/artifacts/
