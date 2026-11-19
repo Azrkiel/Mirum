@@ -30,6 +30,8 @@ def call(method, path, body=None, raw=False):
             return r.status, (content if raw else json.loads(content))
     except urllib.error.HTTPError as e:
         return e.code, e.read()[:500]
+    except (urllib.error.URLError, OSError) as e:  # server not listening yet (startup) -> caller retries
+        return 0, repr(e)
 
 
 def sha(b):

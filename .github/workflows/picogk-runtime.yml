@@ -95,7 +95,7 @@ jobs:
           chmod 777 evidence/pytest scratch/test
           docker run --rm --network none --memory 3g --memory-swap 3g --pids-limit 512 --read-only --cap-drop ALL --security-opt no-new-privileges --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,size=256m,mode=1777 -e HOME=/tmp \
             -v "$PWD:/repo:ro" -v "$RUNNER_TEMP/pt:/pt:ro" -v "$PWD/evidence/pytest:/res" -v "$PWD/scratch/test:/work" \
-            -e REGEN_NATIVE=1 -e PYTHONPATH=/app:/app/backend:/pt \
+            -e REGEN_NATIVE=1 -e REGEN_BUILDER=/opt/regen/app/builder -e REGEN_GCC_LIB=/opt/regen/lib -e PYTHONPATH=/app:/app/backend:/pt \
             --entrypoint python mirum-backend:release \
             -m pytest -c /dev/null -p no:cacheprovider -rA --basetemp=/work/pt --junit-xml=/res/junit.xml \
             /repo/backend/tests/test_regen_native.py | tee evidence/pytest/pytest.txt
@@ -120,6 +120,7 @@ jobs:
           for spec in reference small; do
             docker run --rm --network none --memory 3g --memory-swap 3g --pids-limit 512 --read-only --cap-drop ALL --security-opt no-new-privileges --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,size=256m,mode=1777 -e HOME=/tmp \
               -v "$PWD:/repo:ro" -v "$PWD/evidence/runs:/res" -v "$PWD/scratch/runs:/work" \
+              -e REGEN_BUILDER=/opt/regen/app/builder -e REGEN_GCC_LIB=/opt/regen/lib \
               --entrypoint python mirum-backend:release \
               /repo/scripts/regen_native_evidence.py "/repo/picogk-builder/examples/$spec.json" "/work/o_$spec" "/res/$spec.json"
           done
