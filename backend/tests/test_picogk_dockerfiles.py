@@ -114,7 +114,7 @@ def test_every_network_run_has_optional_ca_handling():
                 assert 'rm -f /tmp/ca-bundle.crt' in line, f'{p.name}: bundle not removed: {line[:90]}'
                 if 'apt-get' in line:
                     assert 'Acquire::https::CaInfo' in line, f'{p.name}: apt ignores the CA: {line[:90]}'
-    assert seen >= 3  # apt + git (runtime image), dotnet restore/publish (builder)
+    assert seen == 3  # runtime: apt, git+boost fetch; builder: apt+dotnet restore. Update when adding one.
 
 
 def test_nuget_restore_is_locked_and_sources_are_pinned():

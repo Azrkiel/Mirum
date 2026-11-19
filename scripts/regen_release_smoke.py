@@ -15,6 +15,8 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
+RUN_BYTES_BUDGET = 32 * 1024 ** 2  # backend/engineering/capabilities.py ResourceLimits.run_bytes
+
 BASE = 'http://127.0.0.1:8000'
 TOKEN = os.environ['SMOKE_TOKEN']
 SPEC = json.loads(os.environ['SMOKE_SPEC'])
@@ -91,9 +93,13 @@ for name, url in job['artifacts'].items():
     files[name] = content
 report = json.loads(files['report'])
 if (report.get('passed') is not True or report.get('geometry_source') != 'picogk_builder'
-        or report.get('engineering_certified') is not False or not files['stl'].startswith(b'solid')
-        and len(files['stl']) < 84):
+        or report.get('engineering_certified') is not False):
     fail('report fields are not those of an accepted builder run')
+stl = files['stl']
+if not stl.startswith(b'solid'):
+    # Binary STL: 80-byte header, uint32 triangle count, 50 bytes per triangle.
+    if len(stl) < 84 or len(stl) != 84 + 50 * int.from_bytes(stl[80:84], 'little'):
+        fail('cleaned STL is neither ASCII nor a well-formed binary STL')
 record['steps']['browser_route'] = {'status': 'accepted', 'wall_seconds': round(wall_old, 2),
                                     'artifact_sha256': {k: sha(v) for k, v in sorted(files.items())},
                                     'artifact_bytes': {k: len(v) for k, v in sorted(files.items())}}
@@ -137,15 +143,20 @@ while True:
     time.sleep(2)
 wall_v1 = time.monotonic() - t1
 if view['lifecycle'] != 'completed' or view['outcome'] != 'accepted' or view.get('delivery') != 'available':
-    # Informational, not a gate: the checked route stores every artifact under a 32 MiB run budget
-    # (capabilities.py ResourceLimits.run_bytes), and the reference/small cleaned STLs are 108/68 MB, so
-    # the checked route cannot deliver them today. The browser route above is the acceptance gate.
+    # The checked route stores every artifact under a 32 MiB run budget (capabilities.py
+    # ResourceLimits.run_bytes); the reference cleaned STL is ~108 MB, so it cannot deliver it today
+    # (owner decision pending). That is the ONLY accepted reason: if the artifact fits the budget, a
+    # checked-route failure is a real regression and fails the smoke.
+    if len(stl) <= RUN_BYTES_BUDGET:
+        fail(f'checked route failed although the artifact fits the run budget: {view.get("outcome")!r}')
     record['steps']['checked_route'] = {'accepted': False, 'lifecycle': view['lifecycle'],
+                                        'blocked_by': 'run_bytes budget (32 MiB) < cleaned STL bytes',
                                         'outcome': view.get('outcome'), 'delivery': view.get('delivery'),
                                         'failures': view.get('failures'), 'wall_seconds': round(wall_v1, 2),
                                         'gate': False}
     record['peak_container_memory_bytes'] = peak_rss_bytes()
-    record['accepted'] = True
+    record['gate'] = 'browser_route'
+    record['accepted'] = True  # the gated (browser) route; see steps.checked_route for the v1 route
     print(json.dumps(record, indent=2, sort_keys=True))
     sys.exit(0)
 v1 = {}
@@ -161,5 +172,6 @@ record['steps']['checked_route'] = {'lifecycle': view['lifecycle'], 'outcome': v
                                     'artifact_sha256': {k: sha(v) for k, v in sorted(v1.items())},
                                     'identical_report_and_spec_bytes': True}
 record['peak_container_memory_bytes'] = peak_rss_bytes()
+record['gate'] = 'browser_route+checked_route'
 record['accepted'] = True
 print(json.dumps(record, indent=2, sort_keys=True))
