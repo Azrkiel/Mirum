@@ -28,11 +28,10 @@ def _glider_spec(api) -> dict:
     return dict(requirements=requirements, calibration_version=metadata["calibration_version"])
 
 
-CASES = [
+CASES = [  # regen first: its ~125 MiB bundle needs 256 MiB of free store (512 MiB volume, never cleared)
+    pytest.param("regen_chamber", lambda api: _load("regen_spec.json"), 900_000, id="regen"),
     pytest.param("co2_dragster", lambda api: _load("dragster_spec.json"), 600_000, id="dragster"),
     pytest.param("glider_cem", _glider_spec, 900_000, id="glider"),
-    pytest.param("regen_chamber", lambda api: _load("regen_spec.json"), 900_000, id="regen",
-                 marks=pytest.mark.xfail(strict=True, reason="needs #84")),
 ]
 
 
