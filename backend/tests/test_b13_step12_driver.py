@@ -286,6 +286,19 @@ def test_unparsed_access_line_fails(line):
     assert len(problems) == 1 and driver.UNPARSED in problems[0]
 
 
+@pytest.mark.parametrize('method', ['get', 'Post', 'PROPFIND'])
+def test_any_method_token_is_counted(method):
+    problems = driver.check_access_log(driver.count_paths(LOG + f'INFO: x - "{method} /generate HTTP/1.1" 405\n'))
+    assert problems == ['route outside the step-12 allowlist requested: /generate x1']
+
+
+def test_ledger_is_read_again_after_the_backend_stops():
+    source = Path('scripts/b13_step12_ui.py').read_text()
+    assert "'run', '--rm', '--no-deps', '-T', '--entrypoint', 'python'" in source
+    assert source.index('access_log.settle()') < source.index("evidence['calls']['after_stop'] = counter.read_stopped()")
+    assert "+ evidence['after_stop_budget_problems'])" in source
+
+
 def test_http2_access_line_is_parsed_and_checked():
     problems = driver.check_access_log(driver.count_paths(LOG + 'INFO: x - "POST /generate HTTP/2" 200 OK\n'))
     assert problems == ['route outside the step-12 allowlist requested: /generate x1']

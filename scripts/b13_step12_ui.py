@@ -253,7 +253,7 @@ def check_at_exit(samples, at_exit):
 # in the backend access log fails the job.
 ALLOWED_EXACT = ('/auth/check', '/engineering/v1')
 ALLOWED_PREFIXES = ('/engineering/v1/',)
-_ACCESS = re.compile(r'"(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) (\S+) HTTP/[0-9.]+"')
+_ACCESS = re.compile(r'"[A-Za-z]+ (\S+) HTTP/[0-9.]+"')   # any method token, any case
 _ID_SEGMENT = re.compile(r'^(?:[0-9A-Za-z_*-]{16,}|\*+)$')
 
 
@@ -264,7 +264,7 @@ def normalize_path(raw):
 
 # uvicorn access-log shape ('<client> - "<METHOD> <target> HTTP/x"'); outbound httpx lines ('HTTP Request: ...
 # "HTTP/1.1 200 OK"') do not have it, so the proposer's own logged calls are not mistaken for inbound requests.
-_HTTP_LINE = re.compile(r' - "[A-Z]+ .* HTTP/[0-9]')
+_HTTP_LINE = re.compile(r' - "[A-Za-z]+ .* HTTP/[0-9]')
 UNPARSED = '<unparsed access line>'   # never allowlisted: a line we cannot read must not be silently uncounted
 
 
@@ -356,9 +356,19 @@ class Api:
 class Counter:
     def __init__(self, compose):
         self.argv = shlex.split(compose) + ['exec', '-T', 'backend', 'python', '-c', COUNTER_SCRIPT]
+        # After the backend has stopped: a one-off container on the same engineering volume, no server started.
+        self.stopped_argv = shlex.split(compose) + ['run', '--rm', '--no-deps', '-T', '--entrypoint', 'python',
+                                                    'backend', '-c', COUNTER_SCRIPT]
 
     def read(self):
-        done = subprocess.run(self.argv, capture_output=True, text=True, timeout=60)
+        return self._read(self.argv)
+
+    def read_stopped(self):
+        return self._read(self.stopped_argv)
+
+    @staticmethod
+    def _read(argv):
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=120)
         if done.returncode != 0:
             raise RuntimeError('ledger counter failed (exit %d)' % done.returncode)
         value = json.loads(done.stdout.strip().splitlines()[-1])
@@ -823,7 +833,13 @@ def main(argv=None):
             evidence['access_log_problems'] = check_access_log(counts)
         except Exception:
             evidence['access_log_problems'] = ['backend access log unreadable']
-        extra = evidence['at_exit_budget_problems'] + evidence['access_log_problems']
+        try:   # final ledger reading after the stop: a call made during the drain is counted too
+            evidence['calls']['after_stop'] = counter.read_stopped()
+        except Exception:
+            evidence['calls']['after_stop'] = None
+        evidence['after_stop_budget_problems'] = check_at_exit(evidence['calls'], evidence['calls']['after_stop'])
+        extra = (evidence['at_exit_budget_problems'] + evidence['access_log_problems']
+                 + evidence['after_stop_budget_problems'])
         if extra and code in (EXIT_PASS, EXIT_UNAVAILABLE):
             evidence['verdict'], evidence['reason'], code = 'fail', 'budget or access-log containment violated at exit', EXIT_FAIL
     evidence['exit_code'] = code
