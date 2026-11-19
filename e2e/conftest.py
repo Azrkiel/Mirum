@@ -1,0 +1,161 @@
+"""Fixtures for the release e2e suite (R4).
+
+Session: one Stack (the compose stack is started by the workflow, never by the tests).
+Module: restart_backend resets the in-memory quota without changing any limit.
+page: a Chromium context that aborts and records every request leaving loopback.
+"""
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import time
+from pathlib import Path
+from urllib.parse import urlparse
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ARTIFACTS = Path(os.environ.get("MIRUM_E2E_ARTIFACTS", REPO_ROOT / "e2e" / "artifacts"))
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+LOCAL_SCHEMES = {"data", "blob", "about"}
+
+_state: dict = {"evidence": None, "stack": None}
+
+
+def _is_loopback(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme in LOCAL_SCHEMES:
+        return True
+    return (parsed.hostname or "") in {h.strip("[]") for h in LOOPBACK_HOSTS}
+
+
+def _needs_stack(item: pytest.Item) -> bool:
+    return item.get_closest_marker("browser") is not None or "stack" in getattr(item, "fixturenames", ())
+
+
+def pytest_collection_modifyitems(items):
+    for item in items:
+        if "e2e/unit/" in item.nodeid.replace("\\", "/") or "unit/" in item.nodeid.replace("\\", "/"):
+            continue
+        item.add_marker(pytest.mark.browser)
+
+
+@pytest.fixture(scope="session")
+def stack():
+    from harness.stack import Stack, StackConfig
+
+    config = StackConfig.from_env(REPO_ROOT)
+    s = Stack(config)
+    s.wait_healthy()
+    _state["stack"] = s
+    return s
+
+
+@pytest.fixture(scope="session")
+def token(stack) -> str:
+    return stack.config.token
+
+
+@pytest.fixture(scope="session")
+def evidence(stack, token):
+    from harness.evidence import Evidence
+
+    ARTIFACTS.mkdir(parents=True, exist_ok=True)
+    ev = Evidence(ARTIFACTS, redact=[token])
+    sha = os.environ.get("GITHUB_SHA") or subprocess.run(
+        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=REPO_ROOT).stdout.strip()
+    ev.set_source(sha, os.environ.get("GITHUB_REF"))
+    try:
+        ev.set_images(stack.image_ids())
+        for lock in ("requirements-release.lock", "frontend/requirements.lock", "e2e/requirements.lock"):
+            ev.add_lock_hash(REPO_ROOT / lock)
+        for service in ("backend", "frontend"):
+            ev.set_pip_freeze(service, stack.pip_freeze(service))
+    except Exception as exc:  # evidence gathering must not mask test results
+        ev.add_note("evidence_error", type(exc).__name__)
+    _state["evidence"] = ev
+    yield ev
+    ev.write()
+
+
+@pytest.fixture(scope="module")
+def restart_backend(stack):
+    """Fresh backend process per module: resets the in-memory quota. Limits are untouched."""
+    stack.restart_backend()
+    yield
+
+
+@pytest.fixture(scope="module")
+def api(stack, token, restart_backend):
+    from harness.api import Api
+
+    client = Api(stack.config.api_url, token)
+    yield client
+    client.close()
+
+
+@pytest.fixture(scope="module")
+def anon_api(api):
+    return api.anonymous()
+
+
+@pytest.fixture(scope="session")
+def _browser():
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        yield browser
+        browser.close()
+
+
+@pytest.fixture
+def external_requests() -> list[str]:
+    return []
+
+
+@pytest.fixture
+def page(_browser, external_requests):
+    """A page whose context blocks (and records) every request that leaves loopback."""
+    context = _browser.new_context(viewport={"width": 1400, "height": 1000})
+
+    def guard(route):
+        url = route.request.url
+        if _is_loopback(url):
+            route.continue_()
+        else:
+            external_requests.append(url)
+            route.abort()
+
+    context.route("**/*", guard)
+    pg = context.new_page()
+    pg.set_default_timeout(30_000)
+    yield pg
+    context.close()
+
+
+@pytest.fixture
+def shot(request, evidence):
+    """shot(page, name) saves e2e/artifacts/<module>/<name>.png and records it in the evidence."""
+    module = re.sub(r"\W+", "_", request.module.__name__)
+
+    def _shot(pg, name: str) -> Path:
+        out = ARTIFACTS / module / (re.sub(r"[^\w.-]+", "_", name) + ".png")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        pg.screenshot(path=str(out), full_page=True)
+        evidence.add_screenshot(out, flow=f"{module}/{name}")
+        return out
+
+    return _shot
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    ev = _state.get("evidence")
+    if ev is not None and report.when in ("setup", "call", "teardown"):
+        if report.when == "call" or report.outcome != "passed":
+            kind = "error" if report.when != "call" and report.outcome == "failed" else report.outcome
+            ev.record_test(item.nodeid, kind, report.duration)

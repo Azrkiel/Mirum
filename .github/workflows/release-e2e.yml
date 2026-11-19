@@ -1,0 +1,95 @@
+name: Release e2e
+
+# Browser end-to-end suite against the pinned release images run through compose.release.yml.
+# Runs on demand, and on a pull request only while it carries the `e2e` label. No secrets: the
+# access token is generated per run, masked, and passed through the environment only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      clean:
+        description: "Freeze run: also remove the stack volumes first and require a clean tree"
+        type: boolean
+        default: false
+  pull_request:
+    types: [labeled, synchronize, reopened]
+
+permissions: {}
+
+concurrency:
+  group: release-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-e2e:
+    name: Release e2e (compose + Chromium)
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'e2e')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      MIRUM_E2E_PROJECT: mirum-e2e
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/build-release-images
+        with:
+          evidence-path: release-evidence/release-images.json
+
+      - name: Generate run-local token
+        run: |
+          token=$(openssl rand -hex 32)
+          echo "::add-mask::$token"
+          {
+            echo "MIRUM_ACCESS_TOKEN=$token"
+            echo "MIRUM_E2E_TOKEN=$token"
+          } >> "$GITHUB_ENV"
+
+      - name: Clean stack volumes (freeze run)
+        if: inputs.clean
+        run: |
+          git diff --quiet && test -z "$(git status --porcelain)"
+          docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml down -v --remove-orphans
+
+      - name: Start the release stack
+        run: docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml up -d --wait --wait-timeout 300
+
+      - name: Install e2e tooling (hashed lock)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/e2e-venv"
+          "$RUNNER_TEMP/e2e-venv/bin/python" -m pip install --require-hashes --only-binary=:all: --no-deps -r e2e/requirements.lock
+          echo "E2E_PY=$RUNNER_TEMP/e2e-venv/bin/python" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/e2e-venv/bin/python" -m playwright install --with-deps chromium
+
+      - name: DOM probe (selector facts for the beam page)
+        run: '"$E2E_PY" e2e/probe_dom.py e2e/artifacts/probe'
+
+      - name: Run e2e suite
+        run: '"$E2E_PY" -m pytest -c e2e/pytest.ini --tb=short e2e'
+        env:
+          CI: "true"
+
+      - name: Compose logs on failure (token redacted)
+        if: failure()
+        run: |
+          docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml ps -a || true
+          docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml logs --no-color --tail 300 2>&1 \
+            | sed "s/$MIRUM_E2E_TOKEN/***/g" || true
+
+      - name: Upload screenshots and evidence (PNG and JSON only)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-e2e-artifacts
+          path: |
+            e2e/artifacts/**/*.png
+            e2e/artifacts/**/*.json
+            release-evidence/*.json
+          if-no-files-found: warn
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml down --remove-orphans || true
