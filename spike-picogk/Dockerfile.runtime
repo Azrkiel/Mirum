@@ -1,27 +1,83 @@
 # PicoGK native runtime for linux-x64. Derived from upstream Misc/Dockerfile.
-# Build context: this directory. Requires avast-ca.pem (machine-local, see RESULTS.md).
-FROM gcc:15
-
-COPY avast-ca.pem /usr/local/share/ca-certificates/avast-ca.crt
-RUN update-ca-certificates
+# Build context: this directory. Optional extra CA (TLS-intercepting proxy), never required:
+#   docker build --secret id=extra_ca,src=avast-ca.pem ...
+# The CA is only mounted for the RUN steps that use the network. It is combined with the
+# system bundle in /tmp, used via SSL_CERT_FILE/GIT_SSL_CAINFO/apt CaInfo, and removed in the
+# same RUN, so no layer contains it. TLS verification is never disabled.
+# bookworm, not the default trixie tag: the .so ships in python:3.10-slim-bookworm (glibc 2.36), and a
+# trixie build needs GLIBC_2.38.
+FROM gcc:15-bookworm@sha256:9ca91b05c7b07d2979f16413e8b2cd6ec8a7c80ffca4121ccab0aeba33f90460
 
 # Upstream Misc/Dockerfile package set, with Debian's blosc in place of an
 # unpinned git clone of c-blosc, plus Ninja.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN \
+    --mount=type=secret,id=extra_ca,required=false \
+    set -eu; \
+    CAFILE=/etc/ssl/certs/ca-certificates.crt; \
+    if [ -s /run/secrets/extra_ca ]; then \
+      cat "$CAFILE" /run/secrets/extra_ca > /tmp/ca-bundle.crt; \
+      CAFILE=/tmp/ca-bundle.crt; \
+      export SSL_CERT_FILE="$CAFILE" GIT_SSL_CAINFO="$CAFILE" CURL_CA_BUNDLE="$CAFILE"; \
+    fi; \
+    apt-get -o Acquire::https::CaInfo="$CAFILE" update \
+ && apt-get -o Acquire::https::CaInfo="$CAFILE" install -y --no-install-recommends \
       cmake ninja-build git pkg-config python3 \
-      libboost-iostreams-dev libboost-dev libtbb-dev libblosc-dev \
+      libtbb-dev libblosc-dev \
       zlib1g-dev libzstd-dev liblz4-dev \
       libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules \
       xorg-dev mesa-common-dev libgl1-mesa-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && mkdir -p /picogk \
+    && dpkg-query -W -f '{"package":"${Package}","version":"${Version}"}\n' | sed '$!s/$/,/' | { echo '['; cat; echo ']'; } > /picogk/apt-packages.json \
+    && rm -f /tmp/ca-bundle.crt && rm -rf /var/lib/apt/lists/*
+
+# OpenVDB needs Boost >= 1.82 (iostreams, regex); bookworm ships 1.74 and the release image stays on
+# bookworm. Build a pinned official release into a private prefix. The tarball is verified against the
+# sha256 below before it is extracted; TLS verification is never disabled. Static and shared libraries
+# are both installed; CMake prefers static, and any libboost_*.so the .so still needs is copied to
+# /picogk/boost-lib (shipped in /opt/regen/lib).
+ARG BOOST_VERSION=1.86.0
+ARG BOOST_SHA256=2575e74ffc3ef1cd0babac2c1ee8bdb5782a0ee672b1912da40e5b4b591ca01f
+ARG BUILD_JOBS=3
+RUN \
+    --mount=type=secret,id=extra_ca,required=false \
+    set -eu; \
+    CAFILE=/etc/ssl/certs/ca-certificates.crt; \
+    if [ -s /run/secrets/extra_ca ]; then \
+      cat "$CAFILE" /run/secrets/extra_ca > /tmp/ca-bundle.crt; \
+      CAFILE=/tmp/ca-bundle.crt; \
+      export SSL_CERT_FILE="$CAFILE" GIT_SSL_CAINFO="$CAFILE" CURL_CA_BUNDLE="$CAFILE"; \
+    fi; \
+    BOOST_US="$(echo "$BOOST_VERSION" | tr . _)"; \
+    curl -fsSL --retry 3 -o /tmp/boost.tar.gz "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_US}.tar.gz" \
+ && echo "${BOOST_SHA256}  /tmp/boost.tar.gz" | sha256sum -c - \
+ && mkdir /tmp/boost-src \
+ && tar -xzf /tmp/boost.tar.gz -C /tmp/boost-src --strip-components=1 \
+ && cd /tmp/boost-src \
+ && ./bootstrap.sh --with-libraries=iostreams,regex --prefix=/opt/boost \
+ && ./b2 -j "$BUILD_JOBS" install variant=release link=static,shared threading=multi cxxflags=-fPIC \
+      -sNO_BZIP2=1 -sNO_LZMA=1 -sNO_ZSTD=1 \
+ && cd / \
+ && echo "$BOOST_VERSION" > /picogk/boost-version.txt \
+ && ls /opt/boost/lib | tee /picogk/boost-libs.txt \
+ && rm -rf /tmp/boost-src /tmp/boost.tar.gz /tmp/ca-bundle.crt
 
 ARG PICOGK_RUNTIME_SHA=0f26321c18ed878a7820ef769c38fd5d49d39242
 
 WORKDIR /src
-RUN git clone https://github.com/leap71/PicoGKRuntime . \
+RUN \
+    --mount=type=secret,id=extra_ca,required=false \
+    set -eu; \
+    CAFILE=/etc/ssl/certs/ca-certificates.crt; \
+    if [ -s /run/secrets/extra_ca ]; then \
+      cat "$CAFILE" /run/secrets/extra_ca > /tmp/ca-bundle.crt; \
+      CAFILE=/tmp/ca-bundle.crt; \
+      export SSL_CERT_FILE="$CAFILE" GIT_SSL_CAINFO="$CAFILE" CURL_CA_BUNDLE="$CAFILE"; \
+    fi; \
+    git clone https://github.com/leap71/PicoGKRuntime . \
  && git checkout "$PICOGK_RUNTIME_SHA" \
  && git submodule update --init --recursive --depth 1 \
- && git submodule status --recursive | tee /submodules.txt
+ && git submodule status --recursive | tee /submodules.txt \
+ && rm -f /tmp/ca-bundle.crt
 
 # Same one-line change as upstream PR #30: emit picogk.26.2.so, the name the
 # C# library imports, with a matching SONAME. Fail if the line has moved.
@@ -31,11 +87,15 @@ RUN grep -q '^if( WIN32 )$' CMakeLists.txt \
 
 # Only the library target: skips APITests and everything EXCLUDE_FROM_ALL.
 # 6 jobs crashed the Docker engine with Docker Desktop's default 8 GB VM.
+# CI passes the runner core count.
 ARG BUILD_JOBS=3
 RUN cmake -S . -B Build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DBOOST_ROOT=/opt/boost -DBoost_NO_SYSTEM_PATHS=ON -DBoost_USE_STATIC_LIBS=ON -DCMAKE_PREFIX_PATH=/opt/boost \
  && cmake --build Build --target picogk.26.2 -j "$BUILD_JOBS" \
- && mkdir -p /picogk \
  && cp Build/lib/picogk.26.2.so /picogk/ \
+ && cp /submodules.txt /picogk/submodules.txt \
  && sha256sum /picogk/picogk.26.2.so | tee /picogk/picogk.26.2.so.sha256 \
- && ldd /picogk/picogk.26.2.so | tee /picogk/ldd.txt \
- && ! grep -q 'not found' /picogk/ldd.txt
+ && LD_LIBRARY_PATH=/opt/boost/lib ldd /picogk/picogk.26.2.so | tee /picogk/ldd.txt \
+ && ! grep -q 'not found' /picogk/ldd.txt \
+ && mkdir -p /picogk/boost-lib \
+ && for f in $(awk '/libboost_/ {print $3}' /picogk/ldd.txt); do cp -L "$f" /picogk/boost-lib/; done

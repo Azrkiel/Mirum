@@ -1,0 +1,891 @@
+{
+  "scope": "sampled_initialization_windows_and_explicit_acceleration_not_aircraft_qualification",
+  "date": "2026-11-04",
+  "base_commit": "3fe617c95968fc7a3a7928c64012f6f77be03fbc",
+  "branch": "cem-integration-verification",
+  "upstream_checked": {
+    "part_a": "6b4df7a38a5e5eaf700686ff21fde9acd62683d3",
+    "part_b": "5f5fc120163e18d37daf765e5956635a63bb1911",
+    "new_pushed_evidence": false
+  },
+  "retained_previous_evidence": {
+    "continuation_archive": "absent_hash_unverifiable",
+    "continuation_bundle": "absent_hash_unverifiable",
+    "coordinate_window_archive": "absent_hash_unverifiable",
+    "historical_raw_audit_replay": "unperformed"
+  },
+  "source_sha256": {
+    "backend/cem/glider/families/coordinate_audit.py": "9b3328a40291c53ee9d64d1735175cb3516b3ee66f69e8baedea9566d62e0e6b",
+    "backend/cem/glider/families/coordinate_polars.py": "70f4b7275b4b9f881b9f347436ebc3938e7d6547d37a03cdd7f9d06e9fa9be2c",
+    "backend/cem/glider/families/installed.py": "7ad4c4fe59b2c7cfaca7325dcdd13dc2e517666cb3d5fa285e3bf3beecd7b294",
+    "backend/cem/glider/families/coupled_aero.py": "463429eda27db6fe85e51fc9ec3a017ae9ff7e0c4eef29bebccb0804ae1b4b1e",
+    "backend/cem/aero/native.py": "0428c3657cfe4110eb7fb89b32fc1f5bc394164d806d83dbe7bb647429d514fb",
+    "backend/cem/aero/lifting.py": "f6c29133f75b83a33ebb77221f942d9ace523669cea5ab1ac4bec096b4dc6d1d",
+    "scripts/cem/build_native_aero.py": "552d0d0a313e30b99f210996190beaba2e30ec0ceb8e9928338a36af5a88736e",
+    "scripts/cem/native/xfoil-headless.patch": "8e5df7f0731081c0066b7e3b6fd9dd31e3e1c910db9539c5faab6beedb22142a",
+    "backend/cem/aero/numerics.py": "bbf0dc6bfbad015cbd84a3aed26158689e2da4ed97535d861bdcfd31fd067c90",
+    "backend/cem/aero/polars.py": "ed535544361a68f5395f9040aaba7cff8ff790ce317bc94fc07c832e3a79086b",
+    "scripts/cem/audit_coordinate_polars.py": "c421db716d049f8cac69463805c5b8c172af5f748867f7a516891163aee77486",
+    "scripts/cem/diagnose_window_coverage.py": "f7a346aa0e1f370a73c935b820f77cec681011ef63013fc76521ac2a7484d4b7",
+    "backend/tests/test_cem_coordinate_audit.py": "dc9a14b4fafc43cd84faaecf2f53783eb3aeea6cbc1bf2ad417373b6314170a8",
+    "backend/tests/test_cem_family_coordinate_polars.py": "538a766c3f65593d4e1cb1b8f90666af58094da939415f9e626d9a79e8f1c553"
+  },
+  "runtime": {
+    "python": "3.12.14",
+    "packages": {
+      "numpy": "2.2.6",
+      "scipy": "1.15.3",
+      "aerosandbox": "4.2.10",
+      "neuralfoil": "0.3.3",
+      "cadquery": "2.6.1",
+      "pydantic": "2.9.2",
+      "casadi": "3.8.2",
+      "pytest": "8.3.3",
+      "anyio": "4.16.0"
+    }
+  },
+  "native_build": {
+    "source_archives": {
+      "xfoil_6.99.dfsg+1.orig.tar.gz": "f5ece350981f35f7b5b4cef540c921ffad877b0942591efb88bad76cc08b597a",
+      "xfoil_6.99.dfsg+1-3.debian.tar.xz": "b6688dc60a8437fbabb0da80fdceb623bcdd6c4f35ca8afbe130f817c6140837"
+    },
+    "avl_revision": "b67837fa737afdf7a56655b044242619246b3ada",
+    "xfoil_flags": "-O0 -g -fbacktrace -fbounds-check -finit-real=inf -ffpe-trap=invalid,zero -fdefault-real-8 -fallow-argument-mismatch",
+    "headless_patch_sha256": "8e5df7f0731081c0066b7e3b6fd9dd31e3e1c910db9539c5faab6beedb22142a",
+    "compiler": "/workspace/mirum-tools/fc",
+    "compiler_version": "GNU Fortran (Debian 14.2.0-19) 14.2.0\nCopyright (C) 2024 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+    "fortran_link_flags": "",
+    "x11_include": "/workspace/mirum-tools/root/usr/include",
+    "x11_library": "/usr/lib/x86_64-linux-gnu/libX11.so.6",
+    "binaries": {
+      "xfoil": {
+        "path": "/workspace/mirum-native/Xfoil/bin/xfoil",
+        "sha256": "2996f60d1eb0b47c3c15eed62b9943346b2142471b685ef2c7d8e18a381f274d"
+      },
+      "avl": {
+        "path": "/workspace/mirum-native/avl-build/src/avl",
+        "sha256": "cda4097a09d98cc01b62255c139aaf23109c0092380a24cecc4ad3da3a31c9e9"
+      }
+    }
+  },
+  "native_binaries_match_historical_receipt": true,
+  "manual": {
+    "path": "/workspace/mirum-native/Xfoil/xfoil_doc.txt",
+    "sha256": "c36482e92f6cab424e965ccb48d0d81ebc030204ebf44a4205b366b9d7db3bea",
+    "source": "checksum_verified_Debian_published_XFOIL_6.99_source_archive",
+    "section": "Viscous solution acceleration"
+  },
+  "conditions": {
+    "speed_m_s": 6.0,
+    "alpha_deg": 4.0,
+    "altitude_m": 0.0,
+    "spanwise": 4,
+    "circulation": "zero_initialization_only"
+  },
+  "tolerances": {
+    "cl": 0.025,
+    "cd": 0.001,
+    "cm": 0.005
+  },
+  "native_invocation_timeout_s": 20,
+  "experiments": [
+    {
+      "foil_sha256": "d8e3b2bda89b9977d81a456e93fa17f14d245d01e5116eade8e14428325c95bd",
+      "vaccel": null,
+      "reynolds": [
+        49000.0,
+        64000.0
+      ],
+      "angles": [
+        4.0,
+        4.75,
+        5.5
+      ],
+      "directory": "/workspace/mirum-onboarding/initialization-audits/d8e3b2bda89b9977d81a456e93fa17f14d245d01e5116eade8e14428325c95bd/default",
+      "state": "passed",
+      "failure": null,
+      "failures": [],
+      "queries": 11,
+      "replay": "matched",
+      "evidence_sha256": "71f35acd5542d4b86fd5cdc8ae0abf06e7bffc59f28049b41d2eab95b2f45484",
+      "implementation_sha256": "c8a8c7b56d8599ea2921de80ed608a215fc65abb5915921ddbeb30f300974cd8",
+      "interpolation_differences": {
+        "cd": 0.0002700000000000029,
+        "cl": 0.0022999999999999687,
+        "cm": 0.00030000000000000165
+      },
+      "interpolation_worst": {
+        "cd": {
+          "absolute_error": 0.0002700000000000029,
+          "alpha_deg": 4.375,
+          "directory": "midpoint_0",
+          "observed": 0.02059,
+          "predicted": 0.020860000000000004,
+          "reynolds": 56000.0
+        },
+        "cl": {
+          "absolute_error": 0.0022999999999999687,
+          "alpha_deg": 4.375,
+          "directory": "midpoint_0",
+          "observed": 0.5684,
+          "predicted": 0.5661,
+          "reynolds": 56000.0
+        },
+        "cm": {
+          "absolute_error": 0.00030000000000000165,
+          "alpha_deg": 5.125,
+          "directory": "midpoint_0",
+          "observed": -0.015,
+          "predicted": -0.015300000000000001,
+          "reynolds": 56000.0
+        }
+      },
+      "comparison_max_errors": {
+        "initialization": {
+          "cl": 0.0,
+          "cd": 0.0,
+          "cm": 0.0
+        },
+        "panel_refinement": {
+          "cl": 0.0008000000000000229,
+          "cd": 5.000000000000143e-05,
+          "cm": 9.99999999999994e-05
+        }
+      },
+      "raw_report_sha256": "15c37080b085363093377ec6ecc8e01683ffb6f23838cfee277b6627710f7e16"
+    },
+    {
+      "foil_sha256": "d8e3b2bda89b9977d81a456e93fa17f14d245d01e5116eade8e14428325c95bd",
+      "vaccel": 0.0,
+      "reynolds": [
+        49000.0,
+        64000.0
+      ],
+      "angles": [
+        4.0,
+        4.75,
+        5.5
+      ],
+      "directory": "/workspace/mirum-onboarding/initialization-audits/d8e3b2bda89b9977d81a456e93fa17f14d245d01e5116eade8e14428325c95bd/zero",
+      "state": "passed",
+      "failure": null,
+      "failures": [],
+      "queries": 11,
+      "replay": "matched",
+      "evidence_sha256": "4434fc8ea3c413ae4d32e442215b2df60d549dd3d27ada4ede8d198a48a554f8",
+      "implementation_sha256": "c8a8c7b56d8599ea2921de80ed608a215fc65abb5915921ddbeb30f300974cd8",
+      "interpolation_differences": {
+        "cd": 0.0002700000000000029,
+        "cl": 0.0022999999999999687,
+        "cm": 0.00030000000000000165
+      },
+      "interpolation_worst": {
+        "cd": {
+          "absolute_error": 0.0002700000000000029,
+          "alpha_deg": 4.375,
+          "directory": "midpoint_0",
+          "observed": 0.02059,
+          "predicted": 0.020860000000000004,
+          "reynolds": 56000.0
+        },
+        "cl": {
+          "absolute_error": 0.0022999999999999687,
+          "alpha_deg": 4.375,
+          "directory": "midpoint_0",
+          "observed": 0.5684,
+          "predicted": 0.5661,
+          "reynolds": 56000.0
+        },
+        "cm": {
+          "absolute_error": 0.00030000000000000165,
+          "alpha_deg": 5.125,
+          "directory": "midpoint_0",
+          "observed": -0.015,
+          "predicted": -0.015300000000000001,
+          "reynolds": 56000.0
+        }
+      },
+      "comparison_max_errors": {
+        "initialization": {
+          "cl": 0.0,
+          "cd": 0.0,
+          "cm": 0.0
+        },
+        "panel_refinement": {
+          "cl": 0.0008000000000000229,
+          "cd": 5.000000000000143e-05,
+          "cm": 9.99999999999994e-05
+        }
+      },
+      "raw_report_sha256": "bf29e66f8b518a687e2caff45d0863290bf557818004b7fe581e430c52080147"
+    },
+    {
+      "foil_sha256": "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97",
+      "vaccel": null,
+      "reynolds": [
+        33000.0,
+        73000.0
+      ],
+      "angles": [
+        4.0,
+        6.0,
+        8.0
+      ],
+      "directory": "/workspace/mirum-onboarding/initialization-audits/e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97/default",
+      "state": "failed",
+      "failure": {
+        "type": "ValueError",
+        "reason": "Incomplete coordinate audit coverage at Re 33000.0: missing alpha [8.0]"
+      },
+      "failures": [
+        {
+          "stage": "initialization_and_panel_refinement",
+          "reason": "Incomplete coordinate audit coverage at Re 33000.0: missing alpha [8.0]"
+        },
+        {
+          "stage": "initialization_and_panel_refinement",
+          "reason": "Incomplete coordinate audit coverage at Re 33000.0: missing alpha [8.0]"
+        },
+        {
+          "stage": "interpolation_coverage",
+          "reason": "Coordinate midpoint interpolation exceeds tolerance"
+        }
+      ],
+      "queries": 11,
+      "replay": "matched",
+      "evidence_sha256": "27d4ed4539973841e51b57e25e7f386ad4d8d882cbac2da67022744567015314",
+      "implementation_sha256": "c8a8c7b56d8599ea2921de80ed608a215fc65abb5915921ddbeb30f300974cd8",
+      "interpolation_differences": {
+        "cd": 0.0091725,
+        "cl": 0.09052500000000008,
+        "cm": 0.007150000000000004
+      },
+      "interpolation_worst": {
+        "cd": {
+          "absolute_error": 0.0091725,
+          "alpha_deg": 7.0,
+          "directory": "midpoint_0",
+          "observed": 0.03093,
+          "predicted": 0.0401025,
+          "reynolds": 49081.56476723211
+        },
+        "cl": {
+          "absolute_error": 0.09052500000000008,
+          "alpha_deg": 7.0,
+          "directory": "midpoint_0",
+          "observed": 0.9593,
+          "predicted": 0.868775,
+          "reynolds": 49081.56476723211
+        },
+        "cm": {
+          "absolute_error": 0.007150000000000004,
+          "alpha_deg": 4.0,
+          "directory": "midpoint_0",
+          "observed": -0.0594,
+          "predicted": -0.05225,
+          "reynolds": 49081.56476723211
+        }
+      },
+      "comparison_max_errors": {
+        "initialization": {
+          "cl": 0.0,
+          "cd": 0.0,
+          "cm": 0.0
+        },
+        "panel_refinement": {
+          "cl": 0.0016000000000000458,
+          "cd": 8.000000000000021e-05,
+          "cm": 0.00010000000000000286
+        }
+      },
+      "raw_report_sha256": "5b9fbf44da6369661bc9dc14301fbc36be1011284f29b87f83c5df5801758574"
+    },
+    {
+      "foil_sha256": "e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97",
+      "vaccel": 0.0,
+      "reynolds": [
+        33000.0,
+        73000.0
+      ],
+      "angles": [
+        4.0,
+        6.0,
+        8.0
+      ],
+      "directory": "/workspace/mirum-onboarding/initialization-audits/e9426ae7efb82cf7284e292c707259f143eaab7862141409a9b3da31779a8b97/zero",
+      "state": "failed",
+      "failure": {
+        "type": "ValueError",
+        "reason": "Incomplete coordinate audit coverage at Re 33000.0: missing alpha [8.0]"
+      },
+      "failures": [
+        {
+          "stage": "initialization_and_panel_refinement",
+          "reason": "Incomplete coordinate audit coverage at Re 33000.0: missing alpha [8.0]"
+        },
+        {
+          "stage": "initialization_and_panel_refinement",
+          "reason": "Incomplete coordinate audit coverage at Re 33000.0: missing alpha [8.0]"
+        },
+        {
+          "stage": "initialization_and_panel_refinement",
+          "reason": "Incomplete coordinate audit coverage at Re 33000.0: missing alpha [8.0]"
+        },
+        {
+          "stage": "interpolation_coverage",
+          "reason": "Incomplete or altered coordinate polar"
+        }
+      ],
+      "queries": 11,
+      "replay": "matched",
+      "evidence_sha256": "5c326b83c302f3053dde5dd805991f441bec9657cb4d800f110de7a38d3d867c",
+      "implementation_sha256": "c8a8c7b56d8599ea2921de80ed608a215fc65abb5915921ddbeb30f300974cd8",
+      "interpolation_differences": null,
+      "interpolation_worst": null,
+      "comparison_max_errors": {
+        "initialization": {
+          "cl": 0.0,
+          "cd": 0.0,
+          "cm": 0.0
+        },
+        "panel_refinement": {
+          "cl": 0.0016000000000000458,
+          "cd": 8.000000000000021e-05,
+          "cm": 0.00010000000000000286
+        }
+      },
+      "raw_report_sha256": "9259d6d07cc767c7c0c84c75773f165955dcf8c6b29d72913e899d0b6f1ca9f0"
+    },
+    {
+      "foil_sha256": "e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca",
+      "vaccel": null,
+      "reynolds": [
+        49000.0,
+        73000.0
+      ],
+      "angles": [
+        4.0,
+        5.0,
+        6.0
+      ],
+      "directory": "/workspace/mirum-onboarding/initialization-audits/e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca/default",
+      "state": "passed",
+      "failure": null,
+      "failures": [],
+      "queries": 11,
+      "replay": "matched",
+      "evidence_sha256": "23b25652b33f73b4d5983e0434fbebab04e4a903f6509866c33f25d241a31002",
+      "implementation_sha256": "c8a8c7b56d8599ea2921de80ed608a215fc65abb5915921ddbeb30f300974cd8",
+      "interpolation_differences": {
+        "cd": 0.0004975000000000014,
+        "cl": 0.0003250000000000197,
+        "cm": 0.0009750000000000002
+      },
+      "interpolation_worst": {
+        "cd": {
+          "absolute_error": 0.0004975000000000014,
+          "alpha_deg": 5.5,
+          "directory": "midpoint_0",
+          "observed": 0.02175,
+          "predicted": 0.0222475,
+          "reynolds": 59808.026217222716
+        },
+        "cl": {
+          "absolute_error": 0.0003250000000000197,
+          "alpha_deg": 4.5,
+          "directory": "midpoint_0",
+          "observed": 0.4725,
+          "predicted": 0.472825,
+          "reynolds": 59808.026217222716
+        },
+        "cm": {
+          "absolute_error": 0.0009750000000000002,
+          "alpha_deg": 4.5,
+          "directory": "midpoint_0",
+          "observed": -0.0065,
+          "predicted": -0.007475,
+          "reynolds": 59808.026217222716
+        }
+      },
+      "comparison_max_errors": {
+        "initialization": {
+          "cl": 0.0,
+          "cd": 0.0,
+          "cm": 0.0
+        },
+        "panel_refinement": {
+          "cl": 0.0006999999999999784,
+          "cd": 3.999999999999837e-05,
+          "cm": 0.00010000000000000005
+        }
+      },
+      "raw_report_sha256": "45fd202d6f2ce72f096d45ce114840afa364c1745e02ab1d79e7754a47cf488d"
+    },
+    {
+      "foil_sha256": "e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca",
+      "vaccel": 0.0,
+      "reynolds": [
+        49000.0,
+        73000.0
+      ],
+      "angles": [
+        4.0,
+        5.0,
+        6.0
+      ],
+      "directory": "/workspace/mirum-onboarding/initialization-audits/e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca/zero",
+      "state": "passed",
+      "failure": null,
+      "failures": [],
+      "queries": 11,
+      "replay": "matched",
+      "evidence_sha256": "01bc5ae3d32a106b566c151293d31c88dd108b4fd423da8dcbf67c30b55b9551",
+      "implementation_sha256": "c8a8c7b56d8599ea2921de80ed608a215fc65abb5915921ddbeb30f300974cd8",
+      "interpolation_differences": {
+        "cd": 0.0004975000000000014,
+        "cl": 0.0003250000000000197,
+        "cm": 0.0009750000000000002
+      },
+      "interpolation_worst": {
+        "cd": {
+          "absolute_error": 0.0004975000000000014,
+          "alpha_deg": 5.5,
+          "directory": "midpoint_0",
+          "observed": 0.02175,
+          "predicted": 0.0222475,
+          "reynolds": 59808.026217222716
+        },
+        "cl": {
+          "absolute_error": 0.0003250000000000197,
+          "alpha_deg": 4.5,
+          "directory": "midpoint_0",
+          "observed": 0.4725,
+          "predicted": 0.472825,
+          "reynolds": 59808.026217222716
+        },
+        "cm": {
+          "absolute_error": 0.0009750000000000002,
+          "alpha_deg": 4.5,
+          "directory": "midpoint_0",
+          "observed": -0.0065,
+          "predicted": -0.007475,
+          "reynolds": 59808.026217222716
+        }
+      },
+      "comparison_max_errors": {
+        "initialization": {
+          "cl": 0.0,
+          "cd": 0.0,
+          "cm": 0.0
+        },
+        "panel_refinement": {
+          "cl": 0.0006999999999999784,
+          "cd": 3.999999999999837e-05,
+          "cm": 0.00010000000000000005
+        }
+      },
+      "raw_report_sha256": "46e73fddd1064cbcdcce2e88965b266ef226643faa75b9b27d170666d75fd717"
+    },
+    {
+      "foil_sha256": "f925aa8eb7278e37bf672436156955aaf51d4a37c4e72859213dfd2650f04f0d",
+      "vaccel": null,
+      "reynolds": [
+        33000.0,
+        61000.0
+      ],
+      "angles": [
+        5.0,
+        6.5,
+        8.0
+      ],
+      "directory": "/workspace/mirum-onboarding/initialization-audits/f925aa8eb7278e37bf672436156955aaf51d4a37c4e72859213dfd2650f04f0d/default",
+      "state": "failed",
+      "failure": {
+        "type": "ValueError",
+        "reason": "Incomplete coordinate audit coverage at Re 33000.0: missing alpha [8.0]"
+      },
+      "failures": [
+        {
+          "stage": "initialization_and_panel_refinement",
+          "reason": "Incomplete coordinate audit coverage at Re 33000.0: missing alpha [8.0]"
+        },
+        {
+          "stage": "interpolation_coverage",
+          "reason": "Coordinate midpoint interpolation exceeds tolerance"
+        }
+      ],
+      "queries": 11,
+      "replay": "matched",
+      "evidence_sha256": "fe99c4e3881e235a103af9e15673429fdd8c1e6b51d498ee4a2b3c55234b13f0",
+      "implementation_sha256": "c8a8c7b56d8599ea2921de80ed608a215fc65abb5915921ddbeb30f300974cd8",
+      "interpolation_differences": {
+        "cd": 0.01127750000000001,
+        "cl": 0.1224249999999999,
+        "cm": 0.0023249999999999937
+      },
+      "interpolation_worst": {
+        "cd": {
+          "absolute_error": 0.01127750000000001,
+          "alpha_deg": 5.75,
+          "directory": "midpoint_0",
+          "observed": 0.03412,
+          "predicted": 0.04539750000000001,
+          "reynolds": 44866.46854834911
+        },
+        "cl": {
+          "absolute_error": 0.1224249999999999,
+          "alpha_deg": 5.75,
+          "directory": "midpoint_0",
+          "observed": 0.9934,
+          "predicted": 0.870975,
+          "reynolds": 44866.46854834911
+        },
+        "cm": {
+          "absolute_error": 0.0023249999999999937,
+          "alpha_deg": 5.75,
+          "directory": "midpoint_0",
+          "observed": -0.0731,
+          "predicted": -0.070775,
+          "reynolds": 44866.46854834911
+        }
+      },
+      "comparison_max_errors": {
+        "initialization": {
+          "cl": 0.0,
+          "cd": 0.0,
+          "cm": 0.0
+        },
+        "panel_refinement": {
+          "cl": 0.0010000000000000009,
+          "cd": 0.00011999999999999511,
+          "cm": 0.0
+        }
+      },
+      "raw_report_sha256": "cc18c71daa95c78d8d16c4251ebed4fab839af0dbad279cfff2e90d440a02179"
+    },
+    {
+      "foil_sha256": "f925aa8eb7278e37bf672436156955aaf51d4a37c4e72859213dfd2650f04f0d",
+      "vaccel": 0.0,
+      "reynolds": [
+        33000.0,
+        61000.0
+      ],
+      "angles": [
+        5.0,
+        6.5,
+        8.0
+      ],
+      "directory": "/workspace/mirum-onboarding/initialization-audits/f925aa8eb7278e37bf672436156955aaf51d4a37c4e72859213dfd2650f04f0d/zero",
+      "state": "failed",
+      "failure": {
+        "type": "NativeFailure",
+        "reason": "xfoil: timeout",
+        "native_evidence": {
+          "solver": "xfoil",
+          "executable_sha256": "2996f60d1eb0b47c3c15eed62b9943346b2142471b685ef2c7d8e18a381f274d",
+          "state": "timeout",
+          "returncode": null,
+          "artifacts": [
+            {
+              "file": "polar.in",
+              "sha256": "fcad8f4f5d32a61877a7efffdbcb0e669e7035dedef840d2911a8cf8f1667440"
+            },
+            {
+              "file": "polar.log",
+              "sha256": "fdc559cb928ae68652f8cc6546380b43845ac90e94ac8c47829942d8ee4352f6"
+            },
+            {
+              "file": "polar.out",
+              "sha256": "8a73facff8ca3f80e1be063fead365a00a28dbfbfc00d9ecd4c5b7d7422fc846"
+            }
+          ]
+        }
+      },
+      "failures": [],
+      "queries": 4,
+      "replay": "failed: Coordinate audit differs from native reconstruction",
+      "evidence_sha256": "c9bbd65f35d130d03c564531a89458a64b7c884020e7b962e2c85253acfd9eb5",
+      "implementation_sha256": "c8a8c7b56d8599ea2921de80ed608a215fc65abb5915921ddbeb30f300974cd8",
+      "interpolation_differences": null,
+      "interpolation_worst": null,
+      "comparison_max_errors": {
+        "initialization": {
+          "cl": null,
+          "cd": null,
+          "cm": null
+        },
+        "panel_refinement": {
+          "cl": null,
+          "cd": null,
+          "cm": null
+        }
+      },
+      "raw_report_sha256": "6e766144a7a5eb1e2f27adcf65534bda8d8dee3c6f2f6a05c049a485c04b907b"
+    }
+  ],
+  "experiment_counts": {
+    "passed": 4,
+    "failed": 4,
+    "matched_audit_replays": 7,
+    "unmatched_audit_replays": 1,
+    "completed_generation_queries": 81,
+    "completed_audits": 7,
+    "native_aborted_audits": 1
+  },
+  "solver_attempts": [
+    {
+      "family": "tailless_swept",
+      "controls": {
+        "elevon_pitch": 0.0,
+        "elevon_roll": 0.0
+      },
+      "installed_sha256": "9ab5d8049091ac2651082b95edda1a59a8b35b12dafad28f68c3d3be6f4bee8d",
+      "conditions": {
+        "speed_m_s": 6.0,
+        "alpha_deg": 4.0,
+        "spanwise": 4
+      },
+      "production_admission": false,
+      "state": "failed",
+      "reason": "No improving covered root step; no equilibrium established",
+      "query_count": 5319,
+      "outside_calls": 119,
+      "converged_flight_qualification": false,
+      "first_outside_query": {
+        "foil_sha256": "e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca",
+        "reynolds": 70622.30909938432,
+        "alpha_deg": 3.960215683522048,
+        "inside_declared_cells": false,
+        "error": "Local angle outside coordinate polar coverage"
+      }
+    },
+    {
+      "family": "tailless_swept",
+      "controls": {
+        "elevon_pitch": 3.0,
+        "elevon_roll": 0.0
+      },
+      "installed_sha256": "8edfe8e883ee04d86e3a66789196614eeb72d8084a225d4c4f81b62bac998665",
+      "conditions": {
+        "speed_m_s": 6.0,
+        "alpha_deg": 4.0,
+        "spanwise": 4
+      },
+      "production_admission": false,
+      "state": "failed",
+      "reason": "No improving covered root step; no equilibrium established",
+      "query_count": 5807,
+      "outside_calls": 108,
+      "converged_flight_qualification": false,
+      "first_outside_query": {
+        "foil_sha256": "e974ec3ceac9c7cc5beb6a177a37b65d3a4f06c8d6a65d059f139444c2820eca",
+        "reynolds": 73028.50942643797,
+        "alpha_deg": 3.4709593121292173,
+        "inside_declared_cells": false,
+        "error": "Local Reynolds number outside coordinate polar coverage"
+      }
+    },
+    {
+      "family": "canard",
+      "controls": {
+        "foreplane_elevator": 0.0,
+        "aileron": 0.0
+      },
+      "installed_sha256": "dd7dacff8c35326058139e8f1fc6414e7a6ed9d2f69e675eb17731a3f2ddf75e",
+      "conditions": {
+        "speed_m_s": 6.0,
+        "alpha_deg": 4.0,
+        "spanwise": 4
+      },
+      "production_admission": false,
+      "state": "unperformed",
+      "reason": "Required exact foil lacks a passing fresh initialization-window audit",
+      "first_outside_query": null
+    },
+    {
+      "family": "canard",
+      "controls": {
+        "foreplane_elevator": 3.0,
+        "aileron": 0.0
+      },
+      "installed_sha256": "3a1b771288f1fe5fb3b4ac6c754ddd89d16023846539fc73a69346a0ffd660b1",
+      "conditions": {
+        "speed_m_s": 6.0,
+        "alpha_deg": 4.0,
+        "spanwise": 4
+      },
+      "production_admission": false,
+      "state": "unperformed",
+      "reason": "Required exact foil lacks a passing fresh initialization-window audit",
+      "first_outside_query": null
+    },
+    {
+      "family": "tandem",
+      "controls": {
+        "front_elevator": 0.0,
+        "rear_elevator": 0.0,
+        "aileron": 0.0
+      },
+      "installed_sha256": "e3d18af47bd5d9afcf349af56da21df64ed88a6a027323756f0c4bd949d56b98",
+      "conditions": {
+        "speed_m_s": 6.0,
+        "alpha_deg": 4.0,
+        "spanwise": 4
+      },
+      "production_admission": false,
+      "state": "unperformed",
+      "reason": "Required exact foil lacks a passing fresh initialization-window audit",
+      "first_outside_query": null
+    },
+    {
+      "family": "tandem",
+      "controls": {
+        "front_elevator": 3.0,
+        "rear_elevator": 0.0,
+        "aileron": 0.0
+      },
+      "installed_sha256": "4829c82bbad044835745e4785f80c21a28c09fb94e8e502b9010e237c83c8a11",
+      "conditions": {
+        "speed_m_s": 6.0,
+        "alpha_deg": 4.0,
+        "spanwise": 4
+      },
+      "production_admission": false,
+      "state": "unperformed",
+      "reason": "Required exact foil lacks a passing fresh initialization-window audit",
+      "first_outside_query": null
+    }
+  ],
+  "checks": {
+    "focused": "32 passed in 36.89s before six additional parameter cases",
+    "combined": "560 passed, 2 warnings in 770.83s (0:12:50)",
+    "api": [
+      {
+        "metadata": 200,
+        "metadata_fields": [
+          "calibration_version",
+          "capabilities",
+          "cem_version",
+          "family_prototypes",
+          "processes",
+          "requirements_schema",
+          "supported_families"
+        ],
+        "feasibility": 200,
+        "feasibility_continue_search": true,
+        "tailless_swept": 422,
+        "production_rejection_detail": {
+          "tailless_swept": "Selected calibration, family or process is unavailable",
+          "canard": "Selected calibration, family or process is unavailable",
+          "tandem": "Selected calibration, family or process is unavailable"
+        },
+        "canard": 422,
+        "tandem": 422
+      },
+      {
+        "metadata": 200,
+        "metadata_fields": [
+          "calibration_version",
+          "capabilities",
+          "cem_version",
+          "family_prototypes",
+          "processes",
+          "requirements_schema",
+          "supported_families"
+        ],
+        "feasibility": 200,
+        "feasibility_continue_search": true,
+        "tailless_swept": 422,
+        "production_rejection_detail": {
+          "tailless_swept": "Selected calibration, family or process is unavailable",
+          "canard": "Selected calibration, family or process is unavailable",
+          "tandem": "Selected calibration, family or process is unavailable"
+        },
+        "canard": 422,
+        "tandem": 422
+      }
+    ],
+    "repeat_install": "passed_125_packages_compatible",
+    "combined_exit_code": 0,
+    "combined_log_sha256": "7fd1a8d49f74a8a3da87f6f00f30bdc0f532cf46e7d0f9c687ae3aa13026367d",
+    "combined_skips": 0,
+    "dependency_compatibility": "125 packages compatible"
+  },
+  "retained_files": {
+    "/workspace/mirum-onboarding/runtime.lock": "a3dcce24cf338f82118bd03dd6fd194287042e6d8b9b26ddb83f0dee6ce94403",
+    "/workspace/mirum-onboarding/install.sh": "f951ba4037c72dc5b16de630c75a4ec102674e9c53cb8ea039c26743fde12800",
+    "/workspace/mirum-onboarding/setup-sha256.txt": "6added81a07d4d126b85103204e35ee6d146741386db41000ee831cbb01da87b",
+    "/workspace/mirum-onboarding/audit-initialization.py": "b262494bec21aa3303c8bcd31d5d6790828c61d4acef27206090344be3555f31",
+    "/workspace/mirum-onboarding/trace-covered-trials.py": "22533da08d51ab0fb87e1567b80da908d0fadca4e78c6334c9d7d647c1b5ad78",
+    "/workspace/mirum-onboarding/solver-trials.json": "421f0cb5a18f529beaa4bf2815613de2cf49677f1918bb72406077f2c9935c7e",
+    "/workspace/mirum-onboarding/initialization-coverage.json": "58107ff0d3b89e747bf6f6f7161a343b0c384edcdf06aa9d0111a1ed69a9c494",
+    "/workspace/mirum-onboarding/reference-initialization-coverage.json": "ddcc0e5ba27fc61e7a64651bd06a9e16b7869bad5957de31bb6f24b58e48ae4e",
+    "/workspace/mirum-onboarding/check-api.py": "bc9351ba2434f9ceee339e40dccdc608144bb8ba09fb1c4225dcdbf5495fa41c",
+    "/workspace/mirum-onboarding/repeat-install.log": "4a54810ff6663c78a70b47786e9425dcf18050f2d6000577660b5cb0ddd85906",
+    "/workspace/mirum-onboarding/combined.log": "7fd1a8d49f74a8a3da87f6f00f30bdc0f532cf46e7d0f9c687ae3aa13026367d",
+    "/workspace/mirum-onboarding/combined.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "/workspace/mirum-onboarding/api-results.json": "58f4fd753a54c55b056b20210d28c028e840c3dfcc170bbf5ae2a1162a7bb1d8",
+    "/workspace/mirum-onboarding/timeout-repeat-results.json": "1ca9e789ea721a9660c422ef10222278b52d54d3de1dc498bb945634b78bfdd2",
+    "/workspace/mirum-onboarding/repeat-timeout.py": "d1366e35eece69764c3ca2eac89a93295fefb4ff209bbc0920d108eeb722e377"
+  },
+  "configuration_fields_saved": [
+    "install_script",
+    "start_skill"
+  ],
+  "publication": "unperformed_requires_publish_true",
+  "fresh_task_restoration": "unperformed_previous_retained_state_absent",
+  "provider_generation": "unperformed",
+  "interactive_browser": "unperformed",
+  "converged_flight_coverage": "unestablished",
+  "aircraft_body_junction_equilibrium_stall": "unsupported_missing_family_OML_models_and_qualified_envelope",
+  "full_dynamics_and_authority": "unsupported_missing_delivered_full_inertia_hardware_and_requirements",
+  "family_construction": "unsupported_inapplicable_B_prototype_incomplete_load_paths_and_external_material_process_evidence",
+  "production_admission": false,
+  "physical_construction": false,
+  "verified_gain": false,
+  "timeout_independent_repeat": {
+    "state": "failed",
+    "reason": "xfoil: timeout",
+    "native_evidence": {
+      "solver": "xfoil",
+      "executable_sha256": "2996f60d1eb0b47c3c15eed62b9943346b2142471b685ef2c7d8e18a381f274d",
+      "state": "timeout",
+      "returncode": null,
+      "artifacts": [
+        {
+          "file": "polar.in",
+          "sha256": "fcad8f4f5d32a61877a7efffdbcb0e669e7035dedef840d2911a8cf8f1667440"
+        },
+        {
+          "file": "polar.log",
+          "sha256": "fdc559cb928ae68652f8cc6546380b43845ac90e94ac8c47829942d8ee4352f6"
+        },
+        {
+          "file": "polar.out",
+          "sha256": "8a73facff8ca3f80e1be063fead365a00a28dbfbfc00d9ecd4c5b7d7422fc846"
+        }
+      ]
+    },
+    "original_directory": "/workspace/mirum-onboarding/initialization-audits/f925aa8eb7278e37bf672436156955aaf51d4a37c4e72859213dfd2650f04f0d/zero/re_0/refined",
+    "directory": "/workspace/mirum-onboarding/timeout-independent-repeat",
+    "same_commands": true,
+    "same_foil": true,
+    "timeout_s": 20,
+    "full_audit_replay": "unmatched_not_repaired_by_single_query_repeat",
+    "production_admission": false,
+    "native_failure_evidence_matches_original": true
+  },
+  "diagnostic_14_m_s_matches_historical_sha256": true,
+  "raw_evidence": {
+    "path": "/workspace/mirum-onboarding/vaccel-evidence.tar.gz",
+    "sha256": "0d33fe23911de00613a3c8c672262647e725f1ce2a738194e97f76bc601e6f38",
+    "file_members_verified": 555,
+    "retention": "local_workspace_only_not_published",
+    "includes_previous_missing_evidence": false
+  },
+  "delivery": {
+    "branch": "cem-integration-verification",
+    "tested_identity": "source_sha256_in_this_receipt",
+    "upstream_branches_modified": false
+  }
+}

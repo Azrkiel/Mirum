@@ -1,0 +1,159 @@
+{
+  "task": "B12",
+  "starting_sha": "603b0e4b7b860ea39e81ceed1c5b265599697ce3",
+  "integrated_remote_sha": "0975be3b2d3609681e0dd0f92ccd06ae56dd7bb5",
+  "tested_implementation_sha": "7ffcf5d911382236af96e66bc0a42af08a34ffd5",
+  "image_id": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "checks": [
+    {
+      "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly mirum-checked-b01:b9c5565 python -m pytest -q -p no:cacheprovider --tb=short frontend backend/tests/test_engineering_api_v1.py backend/tests/test_engineering_api.py",
+      "result": "77 passed, 21 warnings in 163.84s",
+      "exit_code": 0,
+      "log_sha256": "8679de501795824e0cce975184a0e399dc4d95a606c94056a48c4508d03057a5"
+    },
+    {
+      "server_command": "docker run --name mirum-checked-b12-ui --init -d -p 127.0.0.1:18765:8000 -p 127.0.0.1:18501:8501 --tmpfs /tmp/mirum:rw,size=256m,uid=10001,gid=10001,mode=0700 --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B12,target=/evidence --mount type=volume,source=mirum-checked-b12-data,target=/tmp/mirum/engineering -e MIRUM_ENGINEERING_REQUIRE_VOLUME=1 mirum-checked-b01:b9c5565 python scripts/checked_engineering_ui_server.py",
+      "command": "node.exe scripts/checked_engineering_browser_probe.cjs C:/Users/jiang/mirum-evidence/B12/final-browser 7ffcf5d911382236af96e66bc0a42af08a34ffd5",
+      "environment": {
+        "PLAYWRIGHT_MODULE": "C:/Users/jiang/mirum-evidence/browser-runtime-trusted/node_modules/playwright",
+        "PLAYWRIGHT_EXECUTABLE": "C:/Users/jiang/AppData/Local/ms-playwright/chromium_headless_shell-1254/chrome-headless-shell-win64/chrome-headless-shell.exe",
+        "CHECKED_CONTAINER": "mirum-checked-b12-ui"
+      },
+      "exit_code": 0,
+      "result": {
+        "tested_implementation_sha": "7ffcf5d911382236af96e66bc0a42af08a34ffd5",
+        "browser": "158.0.8127.18",
+        "playwright": "1.61.0",
+        "provider_calls": 0,
+        "network": "Browser external requests blocked; local HTTP only",
+        "scope": "Real browser/HTTP/native with explicit user-like review clicks; unsupported input seeded via HTTP",
+        "observations": [
+          {
+            "case": "accepted_reference",
+            "job_id": "ecd0a161e0924ab5b7c91071e47cc758",
+            "url_during_job": "http://127.0.0.1:18501/?checked_workflow=1&checked_draft=c8705740aa3d42d3a3e8cce3d4395064&checked_brief=abc5b0bcee7a4428a8825b58fdbea461&checked_job=ecd0a161e0924ab5b7c91071e47cc758",
+            "url_after_refresh": "http://127.0.0.1:18501/?checked_workflow=1&checked_draft=c8705740aa3d42d3a3e8cce3d4395064&checked_brief=abc5b0bcee7a4428a8825b58fdbea461&checked_job=ecd0a161e0924ab5b7c91071e47cc758",
+            "mesh": {
+              "vertices": 24,
+              "triangles": 12,
+              "names": [
+                "Measured STEP preview",
+                "Reviewed force",
+                "+Z",
+                "Ideal clamp X=0"
+              ]
+            },
+            "files": {
+              "attempts.json": {
+                "bytes": 84149,
+                "sha256": "157d4af1c0a17f926176fc96f10b581ac91e1a13cc9a9d1af5729d291b823fa8"
+              },
+              "brief.json": {
+                "bytes": 4290,
+                "sha256": "5305747ca707e510f692c0661e109fb1af5dc23f3c29d0c3ff564ca88fa16096"
+              },
+              "model.py": {
+                "bytes": 105,
+                "sha256": "4c34a2b6a94ea9bb86ca05a0764ad1ab096e9eef071cb1a071ed93b3695ed0a8"
+              },
+              "model.step": {
+                "bytes": 15415,
+                "sha256": "62626323662590d002c17af67982d76d11b5430d31cc5ecfeda819dac6b87502"
+              },
+              "preview.glb": {
+                "bytes": 3300,
+                "sha256": "df341c8a183290eb5499a577e262868f4b700e83e99451b50ecca5b8618c70c5"
+              },
+              "report.json": {
+                "bytes": 61767,
+                "sha256": "7d6c42d24c4ae759efa10c96374ead336dce041efbe8f69f4952906696baf06b"
+              },
+              "report.md": {
+                "bytes": 723,
+                "sha256": "a2f634439021a4951daee3ddf39875f863a6db8871c642bb0ca6eae82e42569d"
+              },
+              "selected_spec.json": {
+                "bytes": 418,
+                "sha256": "ea59709d468313b79330ed4f941bdc1abc2b27c33ef86af351d9621a31776f5b"
+              },
+              "manifest.json": {
+                "bytes": 1799,
+                "sha256": "a75b0edf512403d80ebaa0fb06c0e785dede74c5c85bcddbeee6fae145f8fbaf"
+              },
+              "package.zip": {
+                "bytes": 16059,
+                "sha256": "5317ca0f5c5eadb1236c7b9bb4364c165e78842b63dc7dc4eb818a7bdbd1b4be"
+              }
+            }
+          },
+          {
+            "case": "edit_and_two_tabs",
+            "draft_id": "c8705740aa3d42d3a3e8cce3d4395064",
+            "latest_revision": 3,
+            "old_job_id": "ecd0a161e0924ab5b7c91071e47cc758",
+            "unreviewed_run_disabled": true
+          },
+          {
+            "case": "ai_unavailable",
+            "real_provider_calls": 0,
+            "unreviewed_run_disabled": true
+          },
+          {
+            "case": "unsupported_seeded_http",
+            "feature": "holes",
+            "silent_drop": false
+          },
+          {
+            "case": "cancelled",
+            "job_id": "bf57fc173f6843c9847195abfc7d81ed"
+          },
+          {
+            "case": "rejected",
+            "job_id": "5f828a3995ae44689fc95fbb4ccda37b",
+            "accepted_geometry": false
+          },
+          {
+            "case": "unavailable_publication",
+            "job_id": "5aaacde6b90d4f3687f0919598843582",
+            "fault": "Actual directory write permission denied",
+            "accepted_geometry": false
+          },
+          {
+            "case": "expired",
+            "job_id": "ecd0a161e0924ab5b7c91071e47cc758",
+            "clock": "Persisted timestamp accelerated; not a six-hour wall-clock wait",
+            "downloads_withheld": true
+          }
+        ],
+        "page_errors": []
+      }
+    }
+  ],
+  "screenshots": {
+    "accepted-preview.png": {
+      "bytes": 29786,
+      "sha256": "5cfd5869c7be13121132445e9446c0b36f759b9000ced80a12357f6bb7149779"
+    },
+    "downloads-and-report.png": {
+      "bytes": 109981,
+      "sha256": "a196734689dfcd00dbab63f34fa9ec5d45f0cc266d42da37d8f5aaaa86e79193"
+    },
+    "expired.png": {
+      "bytes": 83978,
+      "sha256": "f0be52deb63d77804a45f32667cd14fc953efc205d4cf5b3ec2aab84bbaadc9f"
+    },
+    "multiple-tabs.png": {
+      "bytes": 97318,
+      "sha256": "cd77e4d7438d3185bf558f9c12857cec632340a82f1183defdd3418e436055fe"
+    },
+    "rejected.png": {
+      "bytes": 101059,
+      "sha256": "0e3234999732ead1a7741d3c1db150ce3d9beb4a0c0c5ae4a90644900f5b9bd4"
+    }
+  },
+  "limitations": [
+    "Zero provider calls; AI availability/fallback is real missing-credential behavior, not live accuracy.",
+    "Unsupported request seeded through real HTTP; expiry uses accelerated persisted timestamps, not a six-hour wait.",
+    "Production backend image rebuild/fresh install remains B14."
+  ]
+}

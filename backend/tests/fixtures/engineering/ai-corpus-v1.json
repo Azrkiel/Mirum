@@ -1,0 +1,1069 @@
+{
+  "version": "engineering_ai_corpus_v1",
+  "scope": "Fixed synthetic benchmark inputs and oracle response fixtures; NOT live-provider evidence",
+  "live_gate": "B13/V15: zero silent requirement drops or unreviewed execution, >=8/10 complete accurate drafts",
+  "cases": [
+    {
+      "id": "C01",
+      "kind": "complete",
+      "prompt": "Prepare a homogeneous solid rectangular cantilever, length 200 mm, width 10 mm. Mode bounded_thickness, thickness choices [5.0, 10.0, 15.0] mm. Static +Z tip force 40 N at X=L; ideal clamp X=0, positive XYZ datum, linear elasticity. Maximum tip displacement 1 mm; digital dimensional tolerance 0.01 mm. Use illustrative modulus 70000 MPa and allowable 120 MPa, source reference exactly \"Illustrative benchmark material inputs; not certified stock\". No added geometry or other claims.",
+      "expected_state": "proposed",
+      "expected_content": {
+        "schema_version": "engineering_brief_v1",
+        "capability": {
+          "id": "rectangular_cantilever",
+          "version": "1.0.0",
+          "numerical_policy_version": "beam_numerical_v1",
+          "resource_policy_version": "engineering_resources_v1"
+        },
+        "requirements": {
+          "units": "mm_N_MPa",
+          "length_mm": 200.0,
+          "width_mm": 10.0,
+          "dimensional_tolerance_mm": 0.01,
+          "tip_force_n": 40.0,
+          "max_tip_deflection_mm": 1.0,
+          "material": {
+            "youngs_modulus_mpa": 70000.0,
+            "allowable_stress_mpa": 120.0,
+            "source_kind": "illustrative",
+            "reference": "Illustrative benchmark material inputs; not certified stock"
+          },
+          "assumptions": "ideal_clamp_end_force_linear_elastic"
+        },
+        "mode": "bounded_thickness",
+        "candidate_heights_mm": [
+          5.0,
+          10.0,
+          15.0
+        ]
+      },
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "proposed",
+        "fields": {
+          "schema_version": "engineering_brief_v1",
+          "capability": {
+            "id": "rectangular_cantilever",
+            "version": "1.0.0",
+            "numerical_policy_version": "beam_numerical_v1",
+            "resource_policy_version": "engineering_resources_v1"
+          },
+          "requirements": {
+            "units": "mm_N_MPa",
+            "length_mm": 200.0,
+            "width_mm": 10.0,
+            "dimensional_tolerance_mm": 0.01,
+            "tip_force_n": 40.0,
+            "max_tip_deflection_mm": 1.0,
+            "material": {
+              "youngs_modulus_mpa": 70000.0,
+              "allowable_stress_mpa": 120.0,
+              "source_kind": "illustrative",
+              "reference": "Illustrative benchmark material inputs; not certified stock"
+            },
+            "assumptions": "ideal_clamp_end_force_linear_elastic"
+          },
+          "mode": "bounded_thickness",
+          "candidate_heights_mm": [
+            5.0,
+            10.0,
+            15.0
+          ]
+        },
+        "questions": [],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "C02",
+      "kind": "complete",
+      "prompt": "Prepare a homogeneous solid rectangular cantilever, length 21 cm, width 10 mm. Mode bounded_thickness, thickness choices [5.0, 10.0, 15.0] mm. Static +Z tip force 41 N at X=L; ideal clamp X=0, positive XYZ datum, linear elasticity. Maximum tip displacement 1 mm; digital dimensional tolerance 0.01 mm. Use illustrative modulus 70000 MPa and allowable 120 MPa, source reference exactly \"Illustrative benchmark material inputs; not certified stock\". No added geometry or other claims.",
+      "expected_state": "proposed",
+      "expected_content": {
+        "schema_version": "engineering_brief_v1",
+        "capability": {
+          "id": "rectangular_cantilever",
+          "version": "1.0.0",
+          "numerical_policy_version": "beam_numerical_v1",
+          "resource_policy_version": "engineering_resources_v1"
+        },
+        "requirements": {
+          "units": "mm_N_MPa",
+          "length_mm": 210.0,
+          "width_mm": 10.0,
+          "dimensional_tolerance_mm": 0.01,
+          "tip_force_n": 41.0,
+          "max_tip_deflection_mm": 1.0,
+          "material": {
+            "youngs_modulus_mpa": 70000.0,
+            "allowable_stress_mpa": 120.0,
+            "source_kind": "illustrative",
+            "reference": "Illustrative benchmark material inputs; not certified stock"
+          },
+          "assumptions": "ideal_clamp_end_force_linear_elastic"
+        },
+        "mode": "bounded_thickness",
+        "candidate_heights_mm": [
+          5.0,
+          10.0,
+          15.0
+        ]
+      },
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "proposed",
+        "fields": {
+          "schema_version": "engineering_brief_v1",
+          "capability": {
+            "id": "rectangular_cantilever",
+            "version": "1.0.0",
+            "numerical_policy_version": "beam_numerical_v1",
+            "resource_policy_version": "engineering_resources_v1"
+          },
+          "requirements": {
+            "units": "mm_N_MPa",
+            "length_mm": 210.0,
+            "width_mm": 10.0,
+            "dimensional_tolerance_mm": 0.01,
+            "tip_force_n": 41.0,
+            "max_tip_deflection_mm": 1.0,
+            "material": {
+              "youngs_modulus_mpa": 70000.0,
+              "allowable_stress_mpa": 120.0,
+              "source_kind": "illustrative",
+              "reference": "Illustrative benchmark material inputs; not certified stock"
+            },
+            "assumptions": "ideal_clamp_end_force_linear_elastic"
+          },
+          "mode": "bounded_thickness",
+          "candidate_heights_mm": [
+            5.0,
+            10.0,
+            15.0
+          ]
+        },
+        "questions": [],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "C03",
+      "kind": "complete",
+      "prompt": "Prepare a homogeneous solid rectangular cantilever, length 220 mm, width 10 mm. Mode bounded_thickness, thickness choices [5.0, 10.0, 15.0] mm. Static +Z tip force 42 N at X=L; ideal clamp X=0, positive XYZ datum, linear elasticity. Maximum tip displacement 1 mm; digital dimensional tolerance 0.01 mm. Use illustrative modulus 70000 MPa and allowable 120 MPa, source reference exactly \"Illustrative benchmark material inputs; not certified stock\". No added geometry or other claims.",
+      "expected_state": "proposed",
+      "expected_content": {
+        "schema_version": "engineering_brief_v1",
+        "capability": {
+          "id": "rectangular_cantilever",
+          "version": "1.0.0",
+          "numerical_policy_version": "beam_numerical_v1",
+          "resource_policy_version": "engineering_resources_v1"
+        },
+        "requirements": {
+          "units": "mm_N_MPa",
+          "length_mm": 220.0,
+          "width_mm": 10.0,
+          "dimensional_tolerance_mm": 0.01,
+          "tip_force_n": 42.0,
+          "max_tip_deflection_mm": 1.0,
+          "material": {
+            "youngs_modulus_mpa": 70000.0,
+            "allowable_stress_mpa": 120.0,
+            "source_kind": "illustrative",
+            "reference": "Illustrative benchmark material inputs; not certified stock"
+          },
+          "assumptions": "ideal_clamp_end_force_linear_elastic"
+        },
+        "mode": "bounded_thickness",
+        "candidate_heights_mm": [
+          5.0,
+          10.0,
+          15.0
+        ]
+      },
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "proposed",
+        "fields": {
+          "schema_version": "engineering_brief_v1",
+          "capability": {
+            "id": "rectangular_cantilever",
+            "version": "1.0.0",
+            "numerical_policy_version": "beam_numerical_v1",
+            "resource_policy_version": "engineering_resources_v1"
+          },
+          "requirements": {
+            "units": "mm_N_MPa",
+            "length_mm": 220.0,
+            "width_mm": 10.0,
+            "dimensional_tolerance_mm": 0.01,
+            "tip_force_n": 42.0,
+            "max_tip_deflection_mm": 1.0,
+            "material": {
+              "youngs_modulus_mpa": 70000.0,
+              "allowable_stress_mpa": 120.0,
+              "source_kind": "illustrative",
+              "reference": "Illustrative benchmark material inputs; not certified stock"
+            },
+            "assumptions": "ideal_clamp_end_force_linear_elastic"
+          },
+          "mode": "bounded_thickness",
+          "candidate_heights_mm": [
+            5.0,
+            10.0,
+            15.0
+          ]
+        },
+        "questions": [],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "C04",
+      "kind": "complete",
+      "prompt": "Prepare a homogeneous solid rectangular cantilever, length 23 cm, width 10 mm. Mode fixed_design, thickness choices [15.0] mm. Static +Z tip force 43 N at X=L; ideal clamp X=0, positive XYZ datum, linear elasticity. Maximum tip displacement 1 mm; digital dimensional tolerance 0.01 mm. Use illustrative modulus 70000 MPa and allowable 120 MPa, source reference exactly \"Illustrative benchmark material inputs; not certified stock\". No added geometry or other claims.",
+      "expected_state": "proposed",
+      "expected_content": {
+        "schema_version": "engineering_brief_v1",
+        "capability": {
+          "id": "rectangular_cantilever",
+          "version": "1.0.0",
+          "numerical_policy_version": "beam_numerical_v1",
+          "resource_policy_version": "engineering_resources_v1"
+        },
+        "requirements": {
+          "units": "mm_N_MPa",
+          "length_mm": 230.0,
+          "width_mm": 10.0,
+          "dimensional_tolerance_mm": 0.01,
+          "tip_force_n": 43.0,
+          "max_tip_deflection_mm": 1.0,
+          "material": {
+            "youngs_modulus_mpa": 70000.0,
+            "allowable_stress_mpa": 120.0,
+            "source_kind": "illustrative",
+            "reference": "Illustrative benchmark material inputs; not certified stock"
+          },
+          "assumptions": "ideal_clamp_end_force_linear_elastic"
+        },
+        "mode": "fixed_design",
+        "candidate_heights_mm": [
+          15.0
+        ]
+      },
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "proposed",
+        "fields": {
+          "schema_version": "engineering_brief_v1",
+          "capability": {
+            "id": "rectangular_cantilever",
+            "version": "1.0.0",
+            "numerical_policy_version": "beam_numerical_v1",
+            "resource_policy_version": "engineering_resources_v1"
+          },
+          "requirements": {
+            "units": "mm_N_MPa",
+            "length_mm": 230.0,
+            "width_mm": 10.0,
+            "dimensional_tolerance_mm": 0.01,
+            "tip_force_n": 43.0,
+            "max_tip_deflection_mm": 1.0,
+            "material": {
+              "youngs_modulus_mpa": 70000.0,
+              "allowable_stress_mpa": 120.0,
+              "source_kind": "illustrative",
+              "reference": "Illustrative benchmark material inputs; not certified stock"
+            },
+            "assumptions": "ideal_clamp_end_force_linear_elastic"
+          },
+          "mode": "fixed_design",
+          "candidate_heights_mm": [
+            15.0
+          ]
+        },
+        "questions": [],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "C05",
+      "kind": "complete",
+      "prompt": "Prepare a homogeneous solid rectangular cantilever, length 240 mm, width 10 mm. Mode bounded_thickness, thickness choices [5.0, 10.0, 15.0] mm. Static +Z tip force 44 N at X=L; ideal clamp X=0, positive XYZ datum, linear elasticity. Maximum tip displacement 1 mm; digital dimensional tolerance 0.01 mm. Use illustrative modulus 70000 MPa and allowable 120 MPa, source reference exactly \"Illustrative benchmark material inputs; not certified stock\". No added geometry or other claims.",
+      "expected_state": "proposed",
+      "expected_content": {
+        "schema_version": "engineering_brief_v1",
+        "capability": {
+          "id": "rectangular_cantilever",
+          "version": "1.0.0",
+          "numerical_policy_version": "beam_numerical_v1",
+          "resource_policy_version": "engineering_resources_v1"
+        },
+        "requirements": {
+          "units": "mm_N_MPa",
+          "length_mm": 240.0,
+          "width_mm": 10.0,
+          "dimensional_tolerance_mm": 0.01,
+          "tip_force_n": 44.0,
+          "max_tip_deflection_mm": 1.0,
+          "material": {
+            "youngs_modulus_mpa": 70000.0,
+            "allowable_stress_mpa": 120.0,
+            "source_kind": "illustrative",
+            "reference": "Illustrative benchmark material inputs; not certified stock"
+          },
+          "assumptions": "ideal_clamp_end_force_linear_elastic"
+        },
+        "mode": "bounded_thickness",
+        "candidate_heights_mm": [
+          5.0,
+          10.0,
+          15.0
+        ]
+      },
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "proposed",
+        "fields": {
+          "schema_version": "engineering_brief_v1",
+          "capability": {
+            "id": "rectangular_cantilever",
+            "version": "1.0.0",
+            "numerical_policy_version": "beam_numerical_v1",
+            "resource_policy_version": "engineering_resources_v1"
+          },
+          "requirements": {
+            "units": "mm_N_MPa",
+            "length_mm": 240.0,
+            "width_mm": 10.0,
+            "dimensional_tolerance_mm": 0.01,
+            "tip_force_n": 44.0,
+            "max_tip_deflection_mm": 1.0,
+            "material": {
+              "youngs_modulus_mpa": 70000.0,
+              "allowable_stress_mpa": 120.0,
+              "source_kind": "illustrative",
+              "reference": "Illustrative benchmark material inputs; not certified stock"
+            },
+            "assumptions": "ideal_clamp_end_force_linear_elastic"
+          },
+          "mode": "bounded_thickness",
+          "candidate_heights_mm": [
+            5.0,
+            10.0,
+            15.0
+          ]
+        },
+        "questions": [],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "C06",
+      "kind": "complete",
+      "prompt": "Prepare a homogeneous solid rectangular cantilever, length 25 cm, width 10 mm. Mode bounded_thickness, thickness choices [5.0, 10.0, 15.0] mm. Static +Z tip force 45 N at X=L; ideal clamp X=0, positive XYZ datum, linear elasticity. Maximum tip displacement 1 mm; digital dimensional tolerance 0.01 mm. Use illustrative modulus 70 GPa and allowable 120 MPa, source reference exactly \"Illustrative benchmark material inputs; not certified stock\". No added geometry or other claims.",
+      "expected_state": "proposed",
+      "expected_content": {
+        "schema_version": "engineering_brief_v1",
+        "capability": {
+          "id": "rectangular_cantilever",
+          "version": "1.0.0",
+          "numerical_policy_version": "beam_numerical_v1",
+          "resource_policy_version": "engineering_resources_v1"
+        },
+        "requirements": {
+          "units": "mm_N_MPa",
+          "length_mm": 250.0,
+          "width_mm": 10.0,
+          "dimensional_tolerance_mm": 0.01,
+          "tip_force_n": 45.0,
+          "max_tip_deflection_mm": 1.0,
+          "material": {
+            "youngs_modulus_mpa": 70000.0,
+            "allowable_stress_mpa": 120.0,
+            "source_kind": "illustrative",
+            "reference": "Illustrative benchmark material inputs; not certified stock"
+          },
+          "assumptions": "ideal_clamp_end_force_linear_elastic"
+        },
+        "mode": "bounded_thickness",
+        "candidate_heights_mm": [
+          5.0,
+          10.0,
+          15.0
+        ]
+      },
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "proposed",
+        "fields": {
+          "schema_version": "engineering_brief_v1",
+          "capability": {
+            "id": "rectangular_cantilever",
+            "version": "1.0.0",
+            "numerical_policy_version": "beam_numerical_v1",
+            "resource_policy_version": "engineering_resources_v1"
+          },
+          "requirements": {
+            "units": "mm_N_MPa",
+            "length_mm": 250.0,
+            "width_mm": 10.0,
+            "dimensional_tolerance_mm": 0.01,
+            "tip_force_n": 45.0,
+            "max_tip_deflection_mm": 1.0,
+            "material": {
+              "youngs_modulus_mpa": 70000.0,
+              "allowable_stress_mpa": 120.0,
+              "source_kind": "illustrative",
+              "reference": "Illustrative benchmark material inputs; not certified stock"
+            },
+            "assumptions": "ideal_clamp_end_force_linear_elastic"
+          },
+          "mode": "bounded_thickness",
+          "candidate_heights_mm": [
+            5.0,
+            10.0,
+            15.0
+          ]
+        },
+        "questions": [],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "C07",
+      "kind": "complete",
+      "prompt": "Prepare a homogeneous solid rectangular cantilever, length 260 mm, width 10 mm. Mode bounded_thickness, thickness choices [5.0, 10.0, 15.0] mm. Static +Z tip force 46 N at X=L; ideal clamp X=0, positive XYZ datum, linear elasticity. Maximum tip displacement 1 mm; digital dimensional tolerance 0.01 mm. Use illustrative modulus 70 GPa and allowable 120 MPa, source reference exactly \"Illustrative benchmark material inputs; not certified stock\". No added geometry or other claims.",
+      "expected_state": "proposed",
+      "expected_content": {
+        "schema_version": "engineering_brief_v1",
+        "capability": {
+          "id": "rectangular_cantilever",
+          "version": "1.0.0",
+          "numerical_policy_version": "beam_numerical_v1",
+          "resource_policy_version": "engineering_resources_v1"
+        },
+        "requirements": {
+          "units": "mm_N_MPa",
+          "length_mm": 260.0,
+          "width_mm": 10.0,
+          "dimensional_tolerance_mm": 0.01,
+          "tip_force_n": 46.0,
+          "max_tip_deflection_mm": 1.0,
+          "material": {
+            "youngs_modulus_mpa": 70000.0,
+            "allowable_stress_mpa": 120.0,
+            "source_kind": "illustrative",
+            "reference": "Illustrative benchmark material inputs; not certified stock"
+          },
+          "assumptions": "ideal_clamp_end_force_linear_elastic"
+        },
+        "mode": "bounded_thickness",
+        "candidate_heights_mm": [
+          5.0,
+          10.0,
+          15.0
+        ]
+      },
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "proposed",
+        "fields": {
+          "schema_version": "engineering_brief_v1",
+          "capability": {
+            "id": "rectangular_cantilever",
+            "version": "1.0.0",
+            "numerical_policy_version": "beam_numerical_v1",
+            "resource_policy_version": "engineering_resources_v1"
+          },
+          "requirements": {
+            "units": "mm_N_MPa",
+            "length_mm": 260.0,
+            "width_mm": 10.0,
+            "dimensional_tolerance_mm": 0.01,
+            "tip_force_n": 46.0,
+            "max_tip_deflection_mm": 1.0,
+            "material": {
+              "youngs_modulus_mpa": 70000.0,
+              "allowable_stress_mpa": 120.0,
+              "source_kind": "illustrative",
+              "reference": "Illustrative benchmark material inputs; not certified stock"
+            },
+            "assumptions": "ideal_clamp_end_force_linear_elastic"
+          },
+          "mode": "bounded_thickness",
+          "candidate_heights_mm": [
+            5.0,
+            10.0,
+            15.0
+          ]
+        },
+        "questions": [],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "C08",
+      "kind": "complete",
+      "prompt": "Prepare a homogeneous solid rectangular cantilever, length 27 cm, width 10 mm. Mode fixed_design, thickness choices [15.0] mm. Static +Z tip force 47 N at X=L; ideal clamp X=0, positive XYZ datum, linear elasticity. Maximum tip displacement 1 mm; digital dimensional tolerance 0.01 mm. Use illustrative modulus 70 GPa and allowable 120 MPa, source reference exactly \"Illustrative benchmark material inputs; not certified stock\". No added geometry or other claims.",
+      "expected_state": "proposed",
+      "expected_content": {
+        "schema_version": "engineering_brief_v1",
+        "capability": {
+          "id": "rectangular_cantilever",
+          "version": "1.0.0",
+          "numerical_policy_version": "beam_numerical_v1",
+          "resource_policy_version": "engineering_resources_v1"
+        },
+        "requirements": {
+          "units": "mm_N_MPa",
+          "length_mm": 270.0,
+          "width_mm": 10.0,
+          "dimensional_tolerance_mm": 0.01,
+          "tip_force_n": 47.0,
+          "max_tip_deflection_mm": 1.0,
+          "material": {
+            "youngs_modulus_mpa": 70000.0,
+            "allowable_stress_mpa": 120.0,
+            "source_kind": "illustrative",
+            "reference": "Illustrative benchmark material inputs; not certified stock"
+          },
+          "assumptions": "ideal_clamp_end_force_linear_elastic"
+        },
+        "mode": "fixed_design",
+        "candidate_heights_mm": [
+          15.0
+        ]
+      },
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "proposed",
+        "fields": {
+          "schema_version": "engineering_brief_v1",
+          "capability": {
+            "id": "rectangular_cantilever",
+            "version": "1.0.0",
+            "numerical_policy_version": "beam_numerical_v1",
+            "resource_policy_version": "engineering_resources_v1"
+          },
+          "requirements": {
+            "units": "mm_N_MPa",
+            "length_mm": 270.0,
+            "width_mm": 10.0,
+            "dimensional_tolerance_mm": 0.01,
+            "tip_force_n": 47.0,
+            "max_tip_deflection_mm": 1.0,
+            "material": {
+              "youngs_modulus_mpa": 70000.0,
+              "allowable_stress_mpa": 120.0,
+              "source_kind": "illustrative",
+              "reference": "Illustrative benchmark material inputs; not certified stock"
+            },
+            "assumptions": "ideal_clamp_end_force_linear_elastic"
+          },
+          "mode": "fixed_design",
+          "candidate_heights_mm": [
+            15.0
+          ]
+        },
+        "questions": [],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "C09",
+      "kind": "complete",
+      "prompt": "Prepare a homogeneous solid rectangular cantilever, length 280 mm, width 10 mm. Mode bounded_thickness, thickness choices [5.0, 10.0, 15.0] mm. Static +Z tip force 48 N at X=L; ideal clamp X=0, positive XYZ datum, linear elasticity. Maximum tip displacement 1 mm; digital dimensional tolerance 0.01 mm. Use illustrative modulus 70 GPa and allowable 120 MPa, source reference exactly \"Illustrative benchmark material inputs; not certified stock\". No added geometry or other claims.",
+      "expected_state": "proposed",
+      "expected_content": {
+        "schema_version": "engineering_brief_v1",
+        "capability": {
+          "id": "rectangular_cantilever",
+          "version": "1.0.0",
+          "numerical_policy_version": "beam_numerical_v1",
+          "resource_policy_version": "engineering_resources_v1"
+        },
+        "requirements": {
+          "units": "mm_N_MPa",
+          "length_mm": 280.0,
+          "width_mm": 10.0,
+          "dimensional_tolerance_mm": 0.01,
+          "tip_force_n": 48.0,
+          "max_tip_deflection_mm": 1.0,
+          "material": {
+            "youngs_modulus_mpa": 70000.0,
+            "allowable_stress_mpa": 120.0,
+            "source_kind": "illustrative",
+            "reference": "Illustrative benchmark material inputs; not certified stock"
+          },
+          "assumptions": "ideal_clamp_end_force_linear_elastic"
+        },
+        "mode": "bounded_thickness",
+        "candidate_heights_mm": [
+          5.0,
+          10.0,
+          15.0
+        ]
+      },
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "proposed",
+        "fields": {
+          "schema_version": "engineering_brief_v1",
+          "capability": {
+            "id": "rectangular_cantilever",
+            "version": "1.0.0",
+            "numerical_policy_version": "beam_numerical_v1",
+            "resource_policy_version": "engineering_resources_v1"
+          },
+          "requirements": {
+            "units": "mm_N_MPa",
+            "length_mm": 280.0,
+            "width_mm": 10.0,
+            "dimensional_tolerance_mm": 0.01,
+            "tip_force_n": 48.0,
+            "max_tip_deflection_mm": 1.0,
+            "material": {
+              "youngs_modulus_mpa": 70000.0,
+              "allowable_stress_mpa": 120.0,
+              "source_kind": "illustrative",
+              "reference": "Illustrative benchmark material inputs; not certified stock"
+            },
+            "assumptions": "ideal_clamp_end_force_linear_elastic"
+          },
+          "mode": "bounded_thickness",
+          "candidate_heights_mm": [
+            5.0,
+            10.0,
+            15.0
+          ]
+        },
+        "questions": [],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "C10",
+      "kind": "complete",
+      "prompt": "Prepare a homogeneous solid rectangular cantilever, length 29 cm, width 10 mm. Mode bounded_thickness, thickness choices [5.0, 10.0, 15.0] mm. Static +Z tip force 49 N at X=L; ideal clamp X=0, positive XYZ datum, linear elasticity. Maximum tip displacement 1 mm; digital dimensional tolerance 0.01 mm. Use illustrative modulus 70 GPa and allowable 120 MPa, source reference exactly \"Illustrative benchmark material inputs; not certified stock\". No added geometry or other claims.",
+      "expected_state": "proposed",
+      "expected_content": {
+        "schema_version": "engineering_brief_v1",
+        "capability": {
+          "id": "rectangular_cantilever",
+          "version": "1.0.0",
+          "numerical_policy_version": "beam_numerical_v1",
+          "resource_policy_version": "engineering_resources_v1"
+        },
+        "requirements": {
+          "units": "mm_N_MPa",
+          "length_mm": 290.0,
+          "width_mm": 10.0,
+          "dimensional_tolerance_mm": 0.01,
+          "tip_force_n": 49.0,
+          "max_tip_deflection_mm": 1.0,
+          "material": {
+            "youngs_modulus_mpa": 70000.0,
+            "allowable_stress_mpa": 120.0,
+            "source_kind": "illustrative",
+            "reference": "Illustrative benchmark material inputs; not certified stock"
+          },
+          "assumptions": "ideal_clamp_end_force_linear_elastic"
+        },
+        "mode": "bounded_thickness",
+        "candidate_heights_mm": [
+          5.0,
+          10.0,
+          15.0
+        ]
+      },
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "proposed",
+        "fields": {
+          "schema_version": "engineering_brief_v1",
+          "capability": {
+            "id": "rectangular_cantilever",
+            "version": "1.0.0",
+            "numerical_policy_version": "beam_numerical_v1",
+            "resource_policy_version": "engineering_resources_v1"
+          },
+          "requirements": {
+            "units": "mm_N_MPa",
+            "length_mm": 290.0,
+            "width_mm": 10.0,
+            "dimensional_tolerance_mm": 0.01,
+            "tip_force_n": 49.0,
+            "max_tip_deflection_mm": 1.0,
+            "material": {
+              "youngs_modulus_mpa": 70000.0,
+              "allowable_stress_mpa": 120.0,
+              "source_kind": "illustrative",
+              "reference": "Illustrative benchmark material inputs; not certified stock"
+            },
+            "assumptions": "ideal_clamp_end_force_linear_elastic"
+          },
+          "mode": "bounded_thickness",
+          "candidate_heights_mm": [
+            5.0,
+            10.0,
+            15.0
+          ]
+        },
+        "questions": [],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "A01",
+      "kind": "ambiguous",
+      "prompt": "A 200 mm by 10 mm beam, heights 5/10/15 mm; what force should it carry?",
+      "expected_state": "clarification_required",
+      "required_issue": "Specify the end force in N",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "clarification_required",
+        "fields": {},
+        "questions": [
+          "Specify the end force in N"
+        ],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "A02",
+      "kind": "ambiguous",
+      "prompt": "Make a beam 200 by 10 by 15, load 50, displacement 1.",
+      "expected_state": "clarification_required",
+      "required_issue": "Specify units for dimensions, force and displacement",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "clarification_required",
+        "fields": {},
+        "questions": [
+          "Specify units for dimensions, force and displacement"
+        ],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "A03",
+      "kind": "ambiguous",
+      "prompt": "Use 5 kg force on a 200 mm cantilever.",
+      "expected_state": "clarification_required",
+      "required_issue": "Kg is mass; specify N or an explicit reviewed conversion",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "clarification_required",
+        "fields": {},
+        "questions": [
+          "Kg is mass; specify N or an explicit reviewed conversion"
+        ],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "A04",
+      "kind": "ambiguous",
+      "prompt": "Use E=70000 MPa, allowable 120 MPa; I do not know the source.",
+      "expected_state": "clarification_required",
+      "required_issue": "Provide a material/allowable source reference",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "clarification_required",
+        "fields": {},
+        "questions": [
+          "Provide a material/allowable source reference"
+        ],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "A05",
+      "kind": "ambiguous",
+      "prompt": "Use aluminium for a 200 mm beam at 50 N.",
+      "expected_state": "clarification_required",
+      "required_issue": "Provide modulus, allowable and their source",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "clarification_required",
+        "fields": {},
+        "questions": [
+          "Provide modulus, allowable and their source"
+        ],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "A06",
+      "kind": "ambiguous",
+      "prompt": "The beam must be exactly 200 mm and exactly 250 mm long.",
+      "expected_state": "clarification_required",
+      "required_issue": "Resolve the conflicting length requirements",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "clarification_required",
+        "fields": {},
+        "questions": [
+          "Resolve the conflicting length requirements"
+        ],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "A07",
+      "kind": "ambiguous",
+      "prompt": "Use E=70000 MPa, force 50 N; choose any safe allowable.",
+      "expected_state": "clarification_required",
+      "required_issue": "Provide an explicitly approved allowable stress",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "clarification_required",
+        "fields": {},
+        "questions": [
+          "Provide an explicitly approved allowable stress"
+        ],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "A08",
+      "kind": "ambiguous",
+      "prompt": "A 200 x 10 mm beam at 50 N; choose whatever displacement is okay.",
+      "expected_state": "clarification_required",
+      "required_issue": "Provide the maximum displacement requirement",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "clarification_required",
+        "fields": {},
+        "questions": [
+          "Provide the maximum displacement requirement"
+        ],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "A09",
+      "kind": "ambiguous",
+      "prompt": "Convert my 5 kg payload to force, but I have not approved gravity.",
+      "expected_state": "clarification_required",
+      "required_issue": "Provide and acknowledge gravity and conversion reference",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "clarification_required",
+        "fields": {},
+        "questions": [
+          "Provide and acknowledge gravity and conversion reference"
+        ],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "A10",
+      "kind": "ambiguous",
+      "prompt": "Size thickness freely; I have not reviewed a candidate set.",
+      "expected_state": "clarification_required",
+      "required_issue": "Provide one to four candidate thicknesses for review",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "clarification_required",
+        "fields": {},
+        "questions": [
+          "Provide one to four candidate thicknesses for review"
+        ],
+        "unsupported_features": [],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "U01",
+      "kind": "unsupported",
+      "prompt": "Add a mounting hole through the beam.",
+      "expected_state": "unsupported",
+      "required_feature": "holes",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "unsupported",
+        "fields": {},
+        "questions": [],
+        "unsupported_features": [
+          "holes"
+        ],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "U02",
+      "kind": "unsupported",
+      "prompt": "Fillet every beam edge.",
+      "expected_state": "unsupported",
+      "required_feature": "fillets",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "unsupported",
+        "fields": {},
+        "questions": [],
+        "unsupported_features": [
+          "fillets"
+        ],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "U03",
+      "kind": "unsupported",
+      "prompt": "Make two separate solid beams.",
+      "expected_state": "unsupported",
+      "required_feature": "extra_bodies",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "unsupported",
+        "fields": {},
+        "questions": [],
+        "unsupported_features": [
+          "extra_bodies"
+        ],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "U04",
+      "kind": "unsupported",
+      "prompt": "Use a tapered varying cross-section beam.",
+      "expected_state": "unsupported",
+      "required_feature": "varying_cross_section",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "unsupported",
+        "fields": {},
+        "questions": [],
+        "unsupported_features": [
+          "varying_cross_section"
+        ],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "U05",
+      "kind": "unsupported",
+      "prompt": "Use two forces and a distributed load.",
+      "expected_state": "unsupported",
+      "required_feature": "other_loads",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "unsupported",
+        "fields": {},
+        "questions": [],
+        "unsupported_features": [
+          "other_loads"
+        ],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "U06",
+      "kind": "unsupported",
+      "prompt": "Use a simply supported beam, not a clamp.",
+      "expected_state": "unsupported",
+      "required_feature": "other_supports",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "unsupported",
+        "fields": {},
+        "questions": [],
+        "unsupported_features": [
+          "other_supports"
+        ],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "U07",
+      "kind": "unsupported",
+      "prompt": "Use length 200 mm, width 30 mm and height 30 mm.",
+      "expected_state": "unsupported",
+      "required_feature": "non_slender_section",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "unsupported",
+        "fields": {},
+        "questions": [],
+        "unsupported_features": [
+          "non_slender_section"
+        ],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "U08",
+      "kind": "unsupported",
+      "prompt": "Include thermal expansion and heat transfer.",
+      "expected_state": "unsupported",
+      "required_feature": "thermal",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "unsupported",
+        "fields": {},
+        "questions": [],
+        "unsupported_features": [
+          "thermal"
+        ],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "U09",
+      "kind": "unsupported",
+      "prompt": "Qualify fatigue life for a million cycles.",
+      "expected_state": "unsupported",
+      "required_feature": "fatigue",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "unsupported",
+        "fields": {},
+        "questions": [],
+        "unsupported_features": [
+          "fatigue"
+        ],
+        "contradictions": []
+      }
+    },
+    {
+      "id": "U10",
+      "kind": "unsupported",
+      "prompt": "Certify compliance and release this for manufacturing.",
+      "expected_state": "unsupported",
+      "required_feature": "standards_certification",
+      "fixture_response": {
+        "schema_version": "engineering_proposal_v1",
+        "state": "unsupported",
+        "fields": {},
+        "questions": [],
+        "unsupported_features": [
+          "standards_certification"
+        ],
+        "contradictions": []
+      }
+    }
+  ]
+}

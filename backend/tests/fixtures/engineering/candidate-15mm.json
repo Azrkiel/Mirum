@@ -1,0 +1,72 @@
+{
+  "schema_version": "engineering_candidate_v1",
+  "content": {
+    "schema_version": "engineering_brief_v1",
+    "capability": {
+      "id": "rectangular_cantilever",
+      "version": "1.0.0",
+      "numerical_policy_version": "beam_numerical_v1",
+      "resource_policy_version": "engineering_resources_v1"
+    },
+    "requirements": {
+      "units": "mm_N_MPa",
+      "length_mm": 200.0,
+      "width_mm": 10.0,
+      "dimensional_tolerance_mm": 0.01,
+      "tip_force_n": 50.0,
+      "max_tip_deflection_mm": 1.0,
+      "material": {
+        "youngs_modulus_mpa": 70000.0,
+        "allowable_stress_mpa": 120.0,
+        "source_kind": "illustrative",
+        "reference": "User-reviewed illustrative aluminium inputs; not certified stock properties"
+      },
+      "assumptions": "ideal_clamp_end_force_linear_elastic"
+    },
+    "mode": "bounded_thickness",
+    "candidate_heights_mm": [
+      5.0,
+      10.0,
+      15.0
+    ],
+    "required_checks": [
+      "native_geometry",
+      "dimensional_evidence_budget",
+      "independent_step_read",
+      "independent_step_transfer",
+      "single_rectangular_solid",
+      "planar_faces",
+      "finite_measurements",
+      "size_requirements",
+      "datum_frame",
+      "axis_aligned_faces",
+      "rectangular_face_pairs",
+      "complete_prism_metrics",
+      "measured_root_section",
+      "mesh_convergence",
+      "analytic_benchmark",
+      "equilibrium",
+      "small_deflection",
+      "small_strain",
+      "stress_allowable",
+      "displacement_requirement"
+    ]
+  },
+  "brief_sha256": "c4badb1233b61663b6ad9df6a3bc1b6693a1a646d2351b6f3d92ad65145cd2fb",
+  "fixed_requirements_sha256": "ff35e6e33e1c72b0dd9d6ba8bb9cd7ffe952a7150b3c09de14fa5d50f6c79617",
+  "specification": {
+    "family": "rectangular_cantilever",
+    "units": "mm_N_MPa",
+    "length_mm": 200.0,
+    "width_mm": 10.0,
+    "height_mm": 15.0,
+    "dimensional_tolerance_mm": 0.01,
+    "youngs_modulus_mpa": 70000.0,
+    "allowable_stress_mpa": 120.0,
+    "tip_force_n": 50.0,
+    "max_tip_deflection_mm": 1.0,
+    "material_reference": "User-reviewed illustrative aluminium inputs; not certified stock properties",
+    "assumptions": "ideal_clamp_end_force_linear_elastic"
+  },
+  "candidate_sha256": "ea24df76b14e63537703414894783a2fd5316e548c640d53f6dfac062fdc1845"
+}

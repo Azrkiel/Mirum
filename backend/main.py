@@ -19,14 +19,15 @@ from collections.abc import AsyncGenerator
 
 from contextlib import asynccontextmanager
 
+import config
 import google.generativeai as genai
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
+from client_key import client_key
 
 from agents import (
     ScriptError,
@@ -161,21 +162,38 @@ def _verification_warning(cert: dict | None) -> str:
 
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
+    from startup_checks import enforce
+    enforce()
     from process_runner import ProcessRunner
+    from engineering.api_v1 import create_runtime
+    # Registry generators share the old endpoints' runners (and their single slot). The getter is
+    # late-bound: regen_lifespan below sets app.state.regen_runner; dragster_runner is set just after.
+    application.state.engineering = create_runtime(
+        generators={"regen_chamber": lambda: application.state.regen_runner,
+                    # glider runs through the shared cem.api.jobs singleton; no runner to hand over
+                    "glider_cem": lambda: None,
+                    "co2_dragster": lambda: application.state.dragster_runner})
     application.state.dragster_runner = ProcessRunner(max_processes=3, timeout=30, memory_mb=1536)
     cleanup_tmp_parts()
     logger.info("Startup: cleared stale tmp_parts")
-    try:
-        yield
-    finally:
-        await application.state.dragster_runner.close()
-        from gliders.api import jobs as glider_jobs
-        await glider_jobs.close()
-        from cem.api import jobs as cem_jobs
-        await cem_jobs.close()
+    from engineering.regen_web import regen_lifespan
+    async with regen_lifespan(application):
+        try:
+            yield
+        finally:
+            try:
+                await application.state.engineering.jobs.close()
+            finally:
+                application.state.engineering.store.close()
+                application.state.engineering = None
+            await application.state.dragster_runner.close()
+            from gliders.api import jobs as glider_jobs
+            await glider_jobs.close()
+            from cem.api import jobs as cem_jobs
+            await cem_jobs.close()
 
 
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_key)
 app = FastAPI(title="Text-to-CAD API", version="0.1.0", lifespan=_lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -193,16 +211,46 @@ app.add_middleware(
 )
 
 
+_ENGINEERING_ID_SEGMENT = re.compile(r"^(/engineering/v1/(?:drafts|briefs|jobs))/[^/?]+")
+_ID_MASK = lambda m: m.group(1) + "/{id}"
+
+
+def _loggable_path(request: Request) -> str:
+    """Raw path, except /engineering/v1 resource ids (bearer secrets) are never logged:
+    use the matched route template, or mask the id segment if no route matched."""
+    path = request.url.path
+    if not path.startswith("/engineering/v1"):
+        return path
+    template = getattr(request.scope.get("route"), "path", None)
+    if isinstance(template, str) and template.startswith("/engineering/v1"):
+        return template
+    return _ENGINEERING_ID_SEGMENT.sub(_ID_MASK, path)
+
+
+class _MaskEngineeringIds(logging.Filter):
+    """uvicorn's access log prints the raw request target; mask /engineering/v1 ids there too."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str) and args[2].startswith("/engineering/v1"):
+            record.args = (*args[:2], _ENGINEERING_ID_SEGMENT.sub(_ID_MASK, args[2]), *args[3:])
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_MaskEngineeringIds())
+
+
 @app.middleware("http")
 async def audit_log(request: Request, call_next):
     start = time.time()
     response = await call_next(request)
+    if request.url.path.startswith('/engineering/v1'):
+        response.headers['Cache-Control'] = 'no-store'
     elapsed = time.time() - start
     logger.info(
         "%s %s %s %d %.3fs",
         request.client.host if request.client else "-",
         request.method,
-        request.url.path,
+        _loggable_path(request),
         response.status_code,
         elapsed,
     )
@@ -220,7 +268,8 @@ async def access_token_gate(request: Request, call_next):
     if expected:
         supplied = request.headers.get("X-Mirum-Access-Token", "")
         if not hmac.compare_digest(supplied.encode(), expected.encode()):
-            return JSONResponse(status_code=401, content={"detail": "Access token required."})
+            return JSONResponse(status_code=401, content={"detail": "Access token required."},
+                                headers={'Cache-Control': 'no-store'})
     return await call_next(request)
 
 
@@ -668,8 +717,44 @@ async def _apply_diff_and_export(
     return updated_manifest, new_scripts, step_files, parts_to_regenerate, parts_to_skip
 
 
+_ASSURANCE_UNVERIFIED = "unverified_geometry"
+
+
+def _rules_draft(capability_id: str, prompt: str) -> dict | None:
+    """Rules-only draft for a routed capability; None when it has no installed proposer.
+
+    Stdlib/rules proposers only: no provider, no key, no model call. Any failure omits
+    the draft and the UI opens the capability's form instead.
+    """
+    try:
+        from engineering import proposer as _proposer
+        payload, issues, provenance = _proposer.rules_proposer(capability_id).propose(prompt)
+        return {
+            'payload': payload,
+            'issues': [i.model_dump(mode='json') if hasattr(i, 'model_dump') else i for i in issues],
+            'provenance': (provenance.model_dump(mode='json')
+                           if hasattr(provenance, 'model_dump') else provenance),
+        }
+    except Exception:
+        return None
+
+
 async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = False) -> AsyncGenerator[str, None]:
     """Run the full pipeline, yielding SSE progress events."""
+    from engineering.router import route as _route_capability
+    decision = _route_capability(prompt)
+    if decision.capability_id:
+        event = {'step': 'route', 'status': 'done', 'workflow': decision.capability_id,
+                 'capability_id': decision.capability_id, 'assurance': decision.assurance,
+                 'reason': decision.reason,
+                 'detail': ('Routed to the deterministic CO2 dragster workflow'
+                            if decision.capability_id == 'co2_dragster'
+                            else f'Routed to the {decision.capability_id} checked-design workflow')}
+        draft = _rules_draft(decision.capability_id, prompt)
+        if draft is not None:
+            event['draft'] = draft
+        yield 'data: ' + json.dumps(event) + '\n\n'
+        return
 
     # --- Step 1: REA (parallel with Planner) + Planner ---
     yield _event("planner", "running")
@@ -727,6 +812,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event(label, "error", _user_error(e))
             error_complete = {
                 "step": "complete",
+                "assurance": _ASSURANCE_UNVERIFIED,
                 "status": "error",
                 "message": _user_error(e),
                 "detail": _safe_error(e),   # operator-grade, redacted
@@ -744,6 +830,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event(label, "error", _safe_error(e))
             error_complete = {
                 "step": "complete",
+                "assurance": _ASSURANCE_UNVERIFIED,
                 "status": "error",
                 "message": _safe_error(e),
                 "script": getattr(e, "script", ""),
@@ -782,6 +869,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event("export", "error", safe_tb)
             error_complete = {
                 "step": "complete",
+                "assurance": _ASSURANCE_UNVERIFIED,
                 "status": "error",
                 "message": safe_tb,
                 "script": final_script,
@@ -861,6 +949,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                     yield _event("machinist", "error", _user_error(e))
                     error_complete = {
                         "step": "complete",
+                        "assurance": _ASSURANCE_UNVERIFIED,
                         "status": "error",
                         "message": _user_error(e),
                         "detail": _safe_error(e),   # operator-grade, redacted
@@ -875,6 +964,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
                     yield _event("machinist", "error", _safe_error(e))
                     error_complete = {
                         "step": "complete",
+                        "assurance": _ASSURANCE_UNVERIFIED,
                         "status": "error",
                         "message": _safe_error(e),
                         "script": getattr(e, "script", ""),
@@ -902,6 +992,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event("assembler", "error", _safe_error(e))
             error_complete = {
                 "step": "complete",
+                "assurance": _ASSURANCE_UNVERIFIED,
                 "status": "error",
                 "message": _safe_error(e),
                 "script": e.script,
@@ -914,6 +1005,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event("assembler", "error", _safe_error(e))
             error_complete = {
                 "step": "complete",
+                "assurance": _ASSURANCE_UNVERIFIED,
                 "status": "error",
                 "message": _safe_error(e),
                 "script": getattr(e, "script", ""),
@@ -940,6 +1032,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             yield _event("assembler", "error", safe_tb)
             error_complete = {
                 "step": "complete",
+                "assurance": _ASSURANCE_UNVERIFIED,
                 "status": "error",
                 "message": safe_tb,
                 "script": final_script,
@@ -958,7 +1051,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
             failures = "; ".join(assembly_joint_report.get("failures", [])[:5]) or "unavailable"
             msg = _safe_error(f"Assembly joint verification failed: {failures}")
             yield _event("assembler", "error", msg)
-            yield f"data: {json.dumps({'step': 'complete', 'status': 'error', 'message': msg, 'script': final_script})}\n\n"
+            yield f"data: {json.dumps({'step': 'complete', 'assurance': _ASSURANCE_UNVERIFIED, 'status': 'error', 'message': msg, 'script': final_script})}\n\n"
             return
         yield _event("assembler", "done")
 
@@ -984,6 +1077,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         yield _event("export", "error", msg)
         error_complete = {
             "step": "complete",
+            "assurance": _ASSURANCE_UNVERIFIED,
             "status": "error",
             "message": msg,
             "script": final_script,
@@ -1345,7 +1439,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     if geometry_certificate is None or geometry_certificate.get("passed") is not True:
         message = "Required geometry validation failed or was unavailable."
         yield _event("geometry", "error", message)
-        yield f"data: {json.dumps({'step': 'complete', 'status': 'error', 'message': message, 'script': final_script})}\n\n"
+        yield f"data: {json.dumps({'step': 'complete', 'assurance': _ASSURANCE_UNVERIFIED, 'status': 'error', 'message': message, 'script': final_script})}\n\n"
         return
 
     # Bill of materials (assemblies): identical parts collapse into quantities;
@@ -1390,6 +1484,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         run_id, downloads = "", {}
     complete_payload = {
         "step": "complete",
+        "assurance": _ASSURANCE_UNVERIFIED,
         "status": "done",
         "run_id": run_id,
         "downloads": downloads,
@@ -1569,6 +1664,27 @@ async def dragster_presets(request: Request):
                        for name, entry in DRAGSTER_STYLES.items()]}
 
 
+class DragsterInterpretRequest(BaseModel):
+    model_config = {'extra': 'forbid', 'strict': True}
+    prompt: str = Field(min_length=1, max_length=2000)
+    base_spec: DragsterSpecV2 | None = None
+
+
+@app.post("/dragsters/interpret")
+@limiter.limit("10/minute")
+async def interpret_dragster(body: DragsterInterpretRequest, request: Request):
+    from dragsters.extraction import interpret, ExtractionUnavailable, InvalidBaseSpec, UNAVAILABLE_MESSAGE
+    if not config.ENGINEERING_AI_DRAFTS:  # flag is read once at import (config); the attribute is checked per request; restart to change
+        return JSONResponse(status_code=503, content={'message': _safe_error(UNAVAILABLE_MESSAGE)})
+    try:
+        return await interpret(body.prompt, body.base_spec)
+    except InvalidBaseSpec:
+        return JSONResponse(status_code=422, content={'detail': [
+            {'loc': ['body', 'base_spec'], 'msg': 'base_spec failed validation', 'type': 'value_error'}]})
+    except ExtractionUnavailable:
+        return JSONResponse(status_code=503, content={'message': _safe_error(UNAVAILABLE_MESSAGE)})
+
+
 @app.post("/generate")
 @limiter.limit("5/minute")
 async def generate(body: GenerateRequest, request: Request):
@@ -1636,6 +1752,8 @@ async def auth_check():
 # Explicit typed, no-LLM engineering path; existing routes retain their scope.
 from engineering.api import attach_engineering_routes
 attach_engineering_routes(app, limiter)
+from engineering.api_v1 import attach_v1_routes
+attach_v1_routes(app, limiter)
 from gliders.api import attach_glider_routes
 attach_glider_routes(app, limiter)
 from cem.api import attach_cem_routes
@@ -1833,11 +1951,18 @@ async def refine_assembly(body: RefineRequest, request: Request):
 # ---------------------------------------------------------------------------
 
 class PMIRequest(BaseModel):
-    """Request body for /pmi/extract and /pmi/annotate endpoints."""
-    prompt: str
+    """Request body for /pmi/extract."""
+    prompt: str = Field(..., max_length=5000)   # same limit as GenerateRequest
     part_id: str
     script: str = ""
-    step_path: str = ""        # Server-side path; only valid within /tmp/mirum/work/
+
+
+class PMIAnnotateRequest(BaseModel):
+    """Request body for /pmi/annotate: the STEP is named by run id, never by path."""
+    model_config = ConfigDict(extra="forbid")   # legacy `step_path` clients fail loudly (422)
+    prompt: str = Field(..., max_length=5000)
+    part_id: str = Field(..., max_length=128)
+    run_id: str = Field(..., max_length=64)     # opaque id from the pipeline "complete" event
 
 
 @app.post("/pmi/extract")
@@ -2058,27 +2183,19 @@ async def generate_xfoil_pdf_report(body: PlotsRequest, request: Request):
 
 @app.post("/pmi/annotate")
 @limiter.limit("10/minute")
-async def annotate_step_with_pmi(body: PMIRequest, request: Request):
-    """T3-08: Attach PMI annotations to an existing STEP file.
+async def annotate_step_with_pmi(body: PMIAnnotateRequest, request: Request):
+    """T3-08: Attach PMI annotations to a generated run's STEP file.
 
-    Takes a STEP file path (must be in /tmp/mirum/work/) and a design prompt,
-    extracts PMI from the prompt, attaches it to the STEP file using XCAF,
-    and returns the annotated STEP file as base64.
+    Takes the opaque ``run_id`` from the pipeline's "complete" event (the same
+    id used by GET /download/{run_id}/step) and a design prompt, extracts PMI
+    from the prompt, attaches it to a copy of the run's STEP using XCAF, and
+    returns the annotated STEP as base64. The stored artifact is never
+    modified. No client-supplied filesystem path is accepted.
 
     Falls back to writing a .pmi.json sidecar if XCAF is unavailable.
     """
-    if not body.step_path:
-        return {"status": "error", "detail": "step_path is required"}
-
-    # Security: only allow paths under _WORK_DIR
-    step_resolved = pathlib.Path(body.step_path).resolve()
-    if not str(step_resolved).startswith(str(_WORK_DIR.resolve())):
-        return {"status": "error", "detail": "step_path must be within the work directory"}
-
-    if not step_resolved.exists():
-        return {"status": "error", "detail": f"STEP file not found: {body.step_path}"}
-
-    # Extract PMI
+    # Pure regex, run first so a no-PMI prompt does not reveal whether the run
+    # id exists. (A prompt with PMI still does; acceptable for a uuid4 id.)
     pmi = extract_pmi_from_prompt(body.prompt, body.part_id)
     if pmi is None:
         return {
@@ -2087,30 +2204,46 @@ async def annotate_step_with_pmi(body: PMIRequest, request: Request):
             "message": "No PMI annotations found in prompt — STEP file unchanged.",
         }
 
-    # Attach PMI to STEP
+    artifacts.sweep()
+    step_resolved = artifacts.artifact_path(body.run_id, "step")
+    if step_resolved is None or not step_resolved.is_file():
+        # Malformed, unknown and expired ids are indistinguishable; the id is
+        # never echoed back.
+        return {"status": "error", "detail": "Artifact not found or expired."}
+
     output_path = _work_path(uuid.uuid4().hex + "_pmi.step")
-    success, result_path = attach_pmi_to_step(str(step_resolved), [pmi], output_path)
-
-    if not success:
-        return {"status": "error", "detail": result_path}
-
     try:
-        with open(result_path, "rb") as f:
-            data_b64 = base64.b64encode(f.read()).decode("utf-8")
-    except Exception as e:
-        return {"status": "error", "detail": f"Could not read output file: {e}"}
-    finally:
+        success, result_path = attach_pmi_to_step(str(step_resolved), [pmi], output_path)
+        if not success:
+            logger.warning("PMI attach failed: %s", _safe_error(result_path))
+            return {"status": "error", "detail": "PMI annotation failed"}
+        if result_path != output_path:
+            # Fail closed: only the fresh work file is ever read or removed, so
+            # a stray result path (e.g. the stored artifact) cannot be returned
+            # or deleted.
+            logger.warning("PMI attach returned an unexpected output path")
+            return {"status": "error", "detail": "PMI annotation failed"}
         try:
-            os.remove(result_path)
-        except OSError:
-            pass
+            with open(output_path, "rb") as f:
+                data_b64 = base64.b64encode(f.read()).decode("utf-8")
+        except Exception as e:
+            logger.warning("PMI output unreadable: %s", _safe_error(e))
+            return {"status": "error", "detail": "Could not read annotated output"}
+    finally:
+        # Remove only our own output copy and its fallback sidecar
+        # (_attach_pmi_fallback), on success and failure alike.
+        for leftover in (output_path, output_path.replace(".step", ".pmi.json")):
+            try:
+                os.remove(leftover)
+            except OSError:
+                pass
 
     return {
         "status": "ok",
         "has_pmi": True,
         "n_annotations": len(pmi.annotations),
         "data_b64": data_b64,
-        "filename": f"{body.part_id}_pmi.step",
+        "filename": f"{_sanitize_part_id(body.part_id)}_pmi.step",
         "format": "step_ap242",
         "annotations_summary": [
             {"face": a.face_selector, "type": a.tolerance_type, "value": a.value}

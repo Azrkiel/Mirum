@@ -1,0 +1,59 @@
+{
+  "scope": "development_target_borrowed_from_conventional_numerical_reference_not_family_qualification",
+  "source_branch": "cem-task-a-aerodynamic-verification",
+  "source_commit": "6b4df7a38a5e5eaf700686ff21fde9acd62683d3",
+  "source_path": "backend/cem/data/aero-conventional-reference-v1.json",
+  "requirements": {
+    "objective": "distance_m",
+    "mode": "maximize",
+    "reference_target": null,
+    "minimum_performance": null,
+    "launch": {
+      "height_m": 10.0,
+      "method": "drop",
+      "launch_speed_m_s": null
+    },
+    "environment": {
+      "kind": "still_air",
+      "wind_m_s": 0.0,
+      "uplift_m_s": 0.0,
+      "thermal": null,
+      "ridge": null,
+      "altitude_m": 0.0,
+      "temperature_c": 15.0
+    },
+    "constraints": {
+      "max_span_m": 1.4,
+      "max_length_m": 0.95,
+      "max_mass_kg": 0.5,
+      "max_speed_m_s": 15.0,
+      "payload": null
+    },
+    "process": "balsa",
+    "construction": "screening_oml",
+    "discovery": {
+      "wing_shape": "baseline",
+      "families": "all",
+      "budget_evals": 40,
+      "seed": 42,
+      "top_k": 3
+    }
+  },
+  "stability_limits": {
+    "static_margin_min": 0.05,
+    "static_margin_max": 0.2,
+    "dutch_roll_min_damping": 0.05,
+    "spiral_min_time_to_double_s": 8.0
+  },
+  "reference_initial_guess": {
+    "glide_speed_m_s": 14.0,
+    "alpha_trim_deg": 0.0,
+    "glide_angle_deg": 10.0
+  },
+  "family_hardware": "retain_each_family_archive_do_not_copy_reference_hardware",
+  "required_maneuver_and_disturbance_moments_nm": null,
+  "required_control_authority_envelope": null,
+  "qualified_family_alpha_envelope_deg": null,
+  "construction_measurements_available": false,
+  "production_admission": false
+}

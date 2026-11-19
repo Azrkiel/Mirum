@@ -15,6 +15,7 @@ from backend.dragsters.hardware import wheel_envelopes
 from backend.dragsters.local import render_preview
 from dragster_state import DragsterState
 from dragster_fields import GROUPS, field_info
+from workspace import empty_state, section_header
 
 _ROOT = Path(__file__).resolve().parent
 EXAMPLE = (_ROOT / 'backend/dragsters/examples/wedge.json' if (_ROOT / 'backend').is_dir()
@@ -152,8 +153,6 @@ def render_evidence(report):
 
 
 def render_dragster(backend, headers):
-    st.title('CO2 dragster — deterministic bodies')
-    st.caption('Demonstration geometry in mm. No provider key required. No manufacturing, cartridge-fit, competition or performance certification.')
     if 'dragster_state' not in st.session_state:
         st.session_state.dragster_state = DragsterState()
         load_editor(canonical_spec_v2(load_preset('wedge')))
@@ -161,77 +160,97 @@ def render_dragster(backend, headers):
     if pending:
         load_editor(pending)
     state = st.session_state.dragster_state
-    with st.expander('Load strict versioned JSON'):
-        upload = st.file_uploader('Dragster parameters JSON', type=['json'])
-        pasted = st.text_area('Or paste complete wedge parameters JSON')
-        if st.button('Load wedge parameters'):
+    controls, output = st.columns([.4, .6], gap='large')
+    with controls:
+        # Load before the number widgets are instantiated: Streamlit forbids
+        # mutating a widget's session value after it has rendered in this run.
+        with st.expander('Import parameters'):
+            upload = st.file_uploader('Parameters JSON', type=['json'])
+            pasted = st.text_area('Paste parameters JSON')
+            if st.button('Load parameters'):
+                try:
+                    load_editor(upload.getvalue().decode('utf-8') if upload is not None else pasted)
+                    state.error = None
+                except (ValueError, UnicodeError) as exc:
+                    state.error = str(exc)
+        selected = st.radio('Body style', list(REGISTRY), format_func=lambda name: REGISTRY[name].label,
+                            key='dragster_style', horizontal=True)
+        current = st.session_state.dragster_draft
+        if selected != current['style']:
+            dirty = json.dumps(current, sort_keys=True) != st.session_state.dragster_loaded
+            if not dirty or st.button('Discard edits and load preset'):
+                st.session_state.dragster_pending_preset = canonical_spec_v2(load_preset(selected))
+                st.rerun()
+            st.warning('The draft has unsaved edits. Discard them explicitly to switch styles.')
+        info = st.session_state.get('dragster_import_info')
+        if info:
+            st.info(info)
+        with st.container(border=True):
+            section_header('Dimensions', 'Millimetres. Generate to apply draft edits.')
+            st.caption('X: nose to rear; Y: transverse; Z: up. Shape heights are above body bottom. Axle Z = wheel diameter/2; ground (wheel contact) = Z=0. Pocket Z is above ground.')
+            draft = render_editor()
+            payload = json.dumps(draft, sort_keys=True, separators=(',', ':'), allow_nan=False)
+            valid = True
+            spec = None
             try:
-                load_editor(upload.getvalue().decode('utf-8') if upload is not None else pasted)
-                state.error = None
-            except (ValueError, UnicodeError) as exc:
-                state.error = str(exc)
-    selected = st.radio('Body style', list(REGISTRY), format_func=lambda name: REGISTRY[name].label,
-                        key='dragster_style', horizontal=True)
-    current = st.session_state.dragster_draft
-    if selected != current['style']:
-        dirty = json.dumps(current, sort_keys=True) != st.session_state.dragster_loaded
-        if not dirty or st.button('Discard edits and load preset'):
-            st.session_state.dragster_pending_preset = canonical_spec_v2(load_preset(selected))
-            st.rerun()
-        st.warning('The draft has unsaved edits. Discard them explicitly to switch styles.')
-    info = st.session_state.get('dragster_import_info')
-    if info:
-        st.info(info)
-    st.subheader('Edited parameters')
-    st.caption('Edits are a draft. X: nose to rear; Y: transverse; Z: up. Shape heights are above body bottom. Axle Z = wheel diameter/2; ground (wheel contact) = Z=0. Pocket Z is above ground.')
-    draft = render_editor()
-    payload = json.dumps(draft, sort_keys=True, separators=(',', ':'), allow_nan=False)
-    valid = True
-    try:
-        spec = parse_any(payload)
-        st.download_button('Save edited parameters JSON', canonical(spec), 'edited-spec.json', 'application/json')
-    except ValueError as exc:
-        valid = False
-        errors = exc.errors() if hasattr(exc, 'errors') else None
-        message = (f"{'.'.join(map(str, errors[0]['loc'])) or 'spec'}: {errors[0]['msg']}" if errors else str(exc))
-        st.error('Edited parameters are invalid: ' + message)
-    job = st.session_state.get('dragster_job')
-    if st.button('Generate accepted ' + draft['style'].replace('_', ' '), type='primary', disabled=job is not None or not valid) and job is None and valid:
-        st.session_state.dragster_job = start_attempt(state, payload, backend, headers())
-        st.rerun()
-    legacy = st.session_state.get('dragster_legacy_payload')
-    if legacy and st.button('Generate as v1', disabled=job is not None):
-        st.session_state.dragster_job = start_attempt(state, legacy, backend, headers())
-        st.rerun()
-    poll_attempt(state)
-    if state.error:
-        st.error(state.error)
-    if state.accepted is None:
-        st.info('No accepted result yet. Correct the parameters and generate again.')
-        return
-    accepted = state.accepted
-    st.subheader('Last accepted result')
-    matches = valid and canonical(parse_any(payload)) == canonical(parse_any(json.dumps(accepted['spec'])))
-    st.info('Edited parameters match displayed result.' if matches else
-            'Edited parameters differ from displayed result. Preview and downloads retain the accepted revision.')
-    st.caption('Accepted revision: ' + accepted['revision_id'])
-    with st.expander('Parameters belonging to displayed result'):
-        st.json(accepted['spec'])
-    envelopes = None
-    if accepted['spec']['schema_version'] == 2 and st.checkbox('Show wheel envelopes'):
-        envelopes = wheel_envelopes(parse_any(json.dumps(accepted['spec'])))
-        st.caption('Wheel envelope — not in STEP. Display/check envelopes only.')
-    render_preview(state.files['glb'], envelopes=envelopes)
-    st.success('Required STEP checks passed; STEP-derived preview and all four artifacts verified.')
-    render_evidence(accepted['report'])
-    with st.expander('Accepted verification report'):
-        st.json(accepted['report'])
-    st.caption('Downloads are verified copies retained in this session. Server copies expire (default 6 hours, or earlier under storage caps). Save parameters to regenerate after reloading.')
-    for fmt, label, name, mime in [('step', 'STEP', 'body.step', 'application/step'),
-                                  ('glb', 'GLB', 'preview.glb', 'model/gltf-binary'),
-                                  ('spec', 'accepted parameters', 'spec.json', 'application/json'),
-                                  ('report', 'report', 'report.json', 'application/json')]:
-        st.download_button('Download ' + label, state.files[fmt], name, mime)
+                spec = parse_any(payload)
+            except ValueError as exc:
+                valid = False
+                errors = exc.errors() if hasattr(exc, 'errors') else None
+                message = (f"{'.'.join(map(str, errors[0]['loc'])) or 'spec'}: {errors[0]['msg']}" if errors else str(exc))
+                st.error('Edited parameters are invalid: ' + message)
+            job = st.session_state.get('dragster_job')
+            if st.button('Generate body', type='primary', use_container_width=True,
+                         disabled=job is not None or not valid) and job is None and valid:
+                st.session_state.dragster_job = start_attempt(state, payload, backend, headers())
+                st.rerun()
+            legacy = st.session_state.get('dragster_legacy_payload')
+            if legacy and st.button('Generate as v1', disabled=job is not None):
+                st.session_state.dragster_job = start_attempt(state, legacy, backend, headers())
+                st.rerun()
+            poll_attempt(state)
+            if state.error:
+                st.error(state.error)
+            if spec is not None:
+                st.download_button('Save draft JSON', canonical(spec), 'edited-spec.json', 'application/json')
+        st.caption('Demonstration geometry in mm. No provider key required. No manufacturing, cartridge-fit, competition or performance certification.')
+    with output:
+        with st.container(border=True):
+            section_header('Design output')
+            model, evidence = st.tabs(['Model', 'Verification'])
+            accepted = state.accepted
+            with model:
+                if accepted is None:
+                    empty_state('No accepted model', 'Set the dimensions and select Generate body.')
+                else:
+                    matches = valid and canonical(parse_any(payload)) == canonical(parse_any(json.dumps(accepted['spec'])))
+                    st.info('Edited parameters match displayed result.' if matches else
+                            'Edited parameters differ from displayed result. Preview and downloads retain the accepted revision.')
+                    envelopes = None
+                    if accepted['spec']['schema_version'] == 2 and st.checkbox('Show wheel envelopes'):
+                        envelopes = wheel_envelopes(parse_any(json.dumps(accepted['spec'])))
+                        st.caption('Wheel envelope - not in STEP. Display/check envelopes only.')
+                    render_preview(state.files['glb'], envelopes=envelopes)
+                    columns = st.columns(4)
+                    for column, fmt, label, name, mime in zip(columns,
+                            ['step', 'glb', 'spec', 'report'],
+                            ['STEP', 'GLB', 'Parameters', 'Report'],
+                            ['body.step', 'preview.glb', 'spec.json', 'report.json'],
+                            ['application/step', 'model/gltf-binary', 'application/json', 'application/json']):
+                        with column:
+                            st.download_button(label, state.files[fmt], name, mime, use_container_width=True)
+                    st.caption('Accepted revision: ' + accepted['revision_id'])
+                    st.caption('Downloads are verified copies retained in this session. Server copies expire (default 6 hours, or earlier under storage caps). Save parameters to regenerate after reloading.')
+            with evidence:
+                if accepted is None:
+                    st.caption('STEP checks appear after a successful generation.')
+                else:
+                    st.success('Required STEP checks passed; STEP-derived preview and all four artifacts verified.')
+                    render_evidence(accepted['report'])
+                    with st.expander('Parameters belonging to displayed result'):
+                        st.json(accepted['spec'])
+                    with st.expander('Accepted verification report'):
+                        st.json(accepted['report'])
 
 
 @st.fragment(run_every=.5)
@@ -239,7 +258,7 @@ def poll_attempt(state):
     job = st.session_state.get('dragster_job')
     if job is not None:
         attempt, future, cancelled = job
-        if st.button('Cancel wedge attempt'):
+        if st.button('Cancel generation'):
             cancelled.set()
             state.fail(attempt, 'Attempt cancelled; previous accepted result retained')
             state.attempt = ''
@@ -253,4 +272,4 @@ def poll_attempt(state):
                 state.fail(attempt, str(exc))
             st.session_state.dragster_job = None
             st.rerun()
-        st.info('Building, verifying STEP, generating preview, and publishing artifacts…')
+        st.info('Generating geometry and checking STEP…')

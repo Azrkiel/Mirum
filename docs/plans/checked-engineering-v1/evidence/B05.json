@@ -1,0 +1,19 @@
+{
+  "task": "B05",
+  "starting_commit": "0d328401a29a188b5c0b40369703442dfc422c08",
+  "tested_implementation_commit": "8df711e43d240b4b0cd5a70bb985695f60533c5f",
+  "image": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "runtime": "B01 Linux x86_64, Python 3.10.22, CadQuery 2.6.1, OCP 7.8.1.1.post1, NumPy 2.2.6, Pydantic 2.9.2, pytest 8.3.3; network none; source read-only",
+  "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly mirum-checked-b01:b9c5565 python -m pytest -q -p no:cacheprovider --tb=short backend/tests/test_engineering_briefs.py backend/tests/test_engineering_contracts.py backend/tests/test_engineering_capabilities.py backend/tests/test_engineering_spec.py backend/tests/test_engineering_fea.py backend/tests/test_cem_requirements.py",
+  "exit_code": 0,
+  "result": "166 passed in 9.30s",
+  "scope": "Provider-free service/repository tests plus schema, capability, spec, numerical and CEM regressions; no native execution or provider request claimed for this task.",
+  "limitations": "No task blocker. Memory storage is intentionally process-local; B09 supplies durable transactions and retention. B11/B12 own transport and actual browser review. No API/provider/native/publication qualification is implied.",
+  "source_sha256": {
+    "backend/engineering/briefs.py": "7e053781bf46ddf9e9a82e991b5f4e687227ad1ece2decf523bc5f6c72512bf3",
+    "backend/tests/test_engineering_briefs.py": "0fc80b7bf8528da56242418d61b96548097206b991906da946f8c89d1a5d5394",
+    "docs/plans/checked-engineering-v1/PREPARATION.md": "35c765eb94c002f136c2db92a8538be0def0c7f19dd20f318e364bdb4f8e1dd1",
+    "docs/plans/checked-engineering-v1/STATUS.md": "8ae1e94143625d5b2053c8a4aa66c189ad5a85f1011858de3cef7be12d53ab88"
+  },
+  "log_sha256": "2acfba9a82ca8cfbe69fbb75e073f8604d0da61e49721d52645c65c93568667d"
+}

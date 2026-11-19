@@ -44,7 +44,7 @@ def test_edited_style_switch_needs_explicit_discard():
 def test_invalid_draft_disables_generate():
     at = app()
     next(n for n in at.number_input if n.label == 'pocket_center_z_mm').set_value(60.0).run()
-    assert button(at, 'Generate accepted wedge').disabled
+    assert button(at, 'Generate body').disabled
     assert any('pocket_center_z_mm' in e.value for e in at.error)
     assert at.session_state.dragster_state.accepted is None
 
@@ -52,7 +52,7 @@ def test_invalid_draft_disables_generate():
 def test_v1_load_upgrades_and_displays_default_provenance():
     at = app()
     at.text_area[0].set_value(dragster_ui.EXAMPLE.read_text()).run()
-    button(at, 'Load wedge parameters').click().run()
+    button(at, 'Load parameters').click().run()
     assert at.session_state.dragster_draft['schema_version'] == 2
     assert at.session_state.dragster_draft['wheels']['width_mm'] == 6.0
     assert any('wheels.width_mm' in item.value and '6 mm' in item.value for item in at.info)
@@ -71,7 +71,7 @@ def test_v1_upgrade_failure_sends_original_json(monkeypatch):
     at = app()
     raw = dragster_ui.EXAMPLE.read_text()
     at.text_area[0].set_value(raw).run()
-    button(at, 'Load wedge parameters').click().run()
+    button(at, 'Load parameters').click().run()
     assert any('this v1 file still generates as v1' in item.value for item in at.info)
     button(at, 'Generate as v1').click().run()
     assert sent == [raw]
@@ -125,7 +125,7 @@ def test_v2_evidence_panel_and_failed_attempt_retains_acceptance(monkeypatch, tm
         future.set_exception(ValueError('forced failure'))
         return state.begin(), future, Event()
     monkeypatch.setattr(dragster_ui, 'start_attempt', failed)
-    button(at, 'Generate accepted wedge').click().run()
+    button(at, 'Generate body').click().run()
     assert at.session_state.dragster_state.files == files
     assert any('forced failure' in item.value for item in at.error)
 

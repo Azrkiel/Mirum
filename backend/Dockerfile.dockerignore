@@ -1,0 +1,33 @@
+.git
+.env
+.env.*
+.venv
+.hermes
+.claude
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.cache
+output/*
+!output/wing_assembly_oml_reference.json
+**/telemetry_logs
+**/tmp_parts
+artifacts
+*.zip
+deploy/fly/*.toml
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+
+# backend/Dockerfile only. BuildKit uses this file INSTEAD of the root .dockerignore, so the
+# root rules above are repeated. Tests stay out of the release image; only the fixed B13
+# corpus (needed by the b13-eval stage) is let back in.
+backend/tests
+!backend/tests/fixtures
+backend/tests/fixtures/*
+!backend/tests/fixtures/engineering
+backend/tests/fixtures/engineering/*
+!backend/tests/fixtures/engineering/ai-corpus-v1.json

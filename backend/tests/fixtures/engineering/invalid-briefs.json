@@ -1,0 +1,9 @@
+[
+  {"field": "length_mm", "value": true},
+  {"field": "length_mm", "value": "200"},
+  {"field": "width_mm", "value": 21.0},
+  {"field": "units", "value": "kg"},
+  {"field": "assumptions", "value": "simply_supported"},
+  {"field": "holes", "value": 1},
+  {"field": "max_tip_deflection_mm", "value": 5.0}
+]

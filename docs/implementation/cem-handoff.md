@@ -4,6 +4,15 @@ Date: 2026-11-03. This document describes the implementation left in the workspa
 
 ## Start here
 
+**Governing decision (2026-11-05):** [low-Re method validity and section-evidence
+policy](cem-low-re-method-decision.md). Every lifting/control section must be at
+Re ≥ 50,000 at the lowest declared speed, with a degraded band from 50,000 to
+70,000. NeuralFoil plus its confidence gate is the primary section source.
+XFOIL is a single-point spot check on selected designs, and accuracy is anchored
+to measured wind-tunnel data. This supersedes earlier requirements for complete
+XFOIL banks at Re 33,000. The active backlog is
+[cem-remaining-section-work.md](cem-remaining-section-work.md).
+
 Shape-discovery continuation: [bounded wing planform search](cem-shape-discovery.md)
 adds opt-in five-station chord exploration with explicit screening limits.
 The user selected shape discovery ahead of further physical load-path work.
@@ -294,7 +303,7 @@ Preserve these as historical source/runtime-bound results. A changed implementat
 - Missing/nonfinite/stale/incomplete evidence must fail closed. Keep parent validation as well as worker-side checks.
 - Preserve strict schemas, compute caps, rate limits, credential-free worker environments, shared solver admission and cancellation cleanup.
 - Keep exact archive/elite membership, parameter revisions, per-part measurements, ZIP report equality and download hash validation. A plausible identity/status alone is not evidence.
-- Do not lower Re/confidence/stall/structural gates to make search return something. The current station floor is Re 30,000 and confidence 0.8.
+- Do not lower Re/confidence/stall/structural gates to make search return something. The station floor in code is still Re 30,000 with confidence 0.8. The [low-Re decision](cem-low-re-method-decision.md) raises the required floor to **Re 50,000**, with a degraded band to 70,000. That code change is pending, so treat 50,000 as the rule now and never go below it.
 - The original legacy glider export had open/inconsistently oriented meshes unsuitable for volume measurement. Reuse the closed CEM construction/measurement path or independently prove a replacement; do not quietly repair missing geometry inside the verifier.
 - STL units are millimetres; aerodynamic calculations and measured properties use SI. Preserve the explicit 0.001 import scale.
 - Use fresh job/output directories. Reusing a completed directory can contaminate packaging with stale files.
@@ -306,3 +315,43 @@ Preserve these as historical source/runtime-bound results. A changed implementat
 ## First task for the next builder
 
 Create one reviewable G2/G3 slice that installs a physically coherent spar/skin/rib construction for a supported family and measures its actual material mass, CG, inertia and installed section/load-path evidence. Add adversarial geometry/mass tests and keep `accepted_for_manufacture=false` until that particular construction passes all declared physical/process gates. Then use this closure path to support genuinely new G4 shapes.
+
+## CI coverage note (2026-11-16)
+
+The offline CI image (`Dockerfile.verify`) sets `MIRUM_XFOIL_BIN` to the mock
+`analysis/tests/mock_xfoil`, and has no AVL. The following tests run the real
+natively built XFOIL and are **not run in CI: they need the native aero build**.
+They skip, through the `native_xfoil` fixture in `backend/tests/conftest.py`,
+unless `MIRUM_XFOIL_BIN` resolves to a compiled (ELF) executable:
+
+- `test_cem_aero_polar_audit.py::test_native_initialization_audit_replays_without_running_tools`
+- `test_cem_aero_section_qualification.py::test_native_narrow_section_rejects_missing_midpoint_and_replays_failure`
+- `test_cem_coordinate_audit.py::test_native_coordinate_audit_replays_without_promoting_qualification` (2 params)
+- `test_cem_family_coordinate_polars.py`: `test_native_exact_coordinate_reference_and_parent_replay`,
+  `test_native_coordinate_vaccel_is_explicit_and_replayed`,
+  `test_native_reflex_and_deflected_coordinates_are_not_replaced_by_naca`,
+  `test_native_panel_settings_bound_to_commands_and_reconstruction`
+- `test_cem_family_coupled_aero.py::test_actual_coordinate_polars_drive_native_coupled_swept_case`,
+  `test_native_canard_adjacent_alpha_continuation_stays_inside_real_polar_coverage`
+
+Build and run (Linux, needs gfortran, cmake, make, patch, curl, git, X11 headers):
+
+```
+python scripts/cem/build_native_aero.py --directory work/native-aero
+export MIRUM_XFOIL_BIN=$PWD/work/native-aero/Xfoil/bin/xfoil MIRUM_AVL_BIN=$PWD/work/native-aero/avl-build/src/avl
+python -m pytest backend/tests -k "native or actual_coordinate_polars" -q
+```
+
+`cem-coordinate-window-results.json` is copied into the image so the window
+coverage tests run in CI.
+
+`test_cem_window_coverage.py::test_actual_installed_states_are_not_covered_by_historical_narrow_windows`
+is also **not run in CI: it needs the receipt's runtime**. `installed_sha256` hashes
+exact float coordinates, and aerosandbox's NACA coordinates differ in the last bits
+(up to 5.6e-17, 23 of 798 values for NACA 2412 on Windows/numpy 2.4.6) across numpy
+builds and CPU SIMD paths. The test rebuilds each installed state. If the
+rebuilt foil digests differ from the receipt it skips (the historical windows cannot be
+matched). If they match, it replays the coverage check; the exact `installed_sha256` is
+asserted only in the receipt's own runtime (Python 3.12.14, numpy 2.2.6, scipy 1.15.3,
+aerosandbox 4.2.10), because other floats in the payload also differ in the last bits
+between runners (2026-11-17: a foils-only skip still turned `main` red).

@@ -1,0 +1,66 @@
+{
+  "task": "B08",
+  "starting_commit": "28d37b3eda9e9bc6b819c453f639c82472eed6c1",
+  "tested_implementation_commit": "0a72a033c57f8d7f9bdb3970ae114f26ad187051",
+  "image": "sha256:9c18650a306cd167cce98465427ba633948c47aa525d43f874b2fecdb0cc2583",
+  "runtime": "B01 Linux x86_64, Python 3.10.22, CadQuery 2.6.1, OCP 7.8.1.1.post1, NumPy 2.2.6, Pydantic 2.9.2, pytest 8.3.3; network none; source read-only",
+  "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly mirum-checked-b01:b9c5565 python -m pytest -q -p no:cacheprovider --tb=short backend/tests/test_engineering_policy.py backend/tests/test_engineering_search.py backend/tests/test_engineering_cantilever.py backend/tests/test_engineering_briefs.py backend/tests/test_engineering_contracts.py backend/tests/test_engineering_capabilities.py backend/tests/test_engineering_spec.py backend/tests/test_engineering_fea.py backend/tests/test_engineering_native.py backend/tests/test_engineering_service.py backend/tests/test_engineering_api.py backend/tests/test_cem_requirements.py",
+  "exit_code": 0,
+  "result": "244 passed, 18 warnings in 186.03s (0:03:06)",
+  "scope": "Real native adapter/search/policy decisions and wrong-size native rejection; mutated negative fixtures explicitly test missing, stale, malformed and false-pass evidence. All predecessor native/service/API/CEM regressions ran. Separate real probe captured accepted bytes and report hashes at this SHA.",
+  "limitations": "No task blocker. Acceptance here describes a candidate under the pinned digital model; B09/B10 must commit only after complete atomic publication. Hashes establish consistency, not authenticity or physical qualification. Full API/browser/live-provider release gates remain open.",
+  "source_sha256": {
+    "backend/engineering/cantilever.py": "94bd708d360d65e517434145b1b801a34ed8b80c5432324cf08021951ff78c87",
+    "backend/engineering/policy.py": "2e057c4bd3212ee52c99cdeb4ef855c28ba950bf8154eaba2317fcbac3fc0b1a",
+    "backend/engineering/search.py": "65e7a3d33c205b0cb0324f6dd9d3167947b8280b4ac3aa80984c3ec5d20b15e2",
+    "backend/tests/test_engineering_policy.py": "70fdca95e1be42264ee9e6fac5a5de4c14a99684fe0d81597150f7bcdf104867",
+    "docs/plans/checked-engineering-v1/POLICY.md": "3573b0335b61903c25a58c6e1ce9f8e151d75318b73a4ceba0233c026f2819e5",
+    "docs/plans/checked-engineering-v1/STATUS.md": "9fa2c37b987fe9108f2c91e66f283ab584a2a15304fb527442e1f0a1d845e54a"
+  },
+  "log_sha256": "060aebd41c186464c3b4d06c9ae849df0f1f57b9ce3a3970be57910a0f72337a",
+  "native_probe": {
+    "implementation_sha": "0a72a033c57f8d7f9bdb3970ae114f26ad187051",
+    "seconds": 23.96245071200019,
+    "scope": "Real adapter/search/policy; shared reviewed-brief fixture is a caller seam, not a browser/user click",
+    "outcome": "selected",
+    "selected_height_mm": 15.0,
+    "physics": {
+      "elements": 16,
+      "degrees_of_freedom": 32,
+      "tip_displacement_mm": 0.6772486772477769,
+      "tip_rotation_rad": 0.00507936507935922,
+      "root_bending_stress_mpa": 26.66666666659267,
+      "root_reaction_force_n": -49.999999999949466,
+      "root_reaction_moment_n_mm": -9999.99999997225,
+      "relative_equilibrium_residual": 2.9096725029376103e-12,
+      "strain_energy_n_mm": 16.93121693110831,
+      "second_moment_mm4": 2812.5
+    },
+    "runtime": {
+      "python": "3.10.22",
+      "cadquery": "2.6.1",
+      "ocp": "7.8.1.1.post1",
+      "numpy": "2.2.6"
+    },
+    "artifacts": {
+      "model.py": {
+        "bytes": 105,
+        "sha256": "4c34a2b6a94ea9bb86ca05a0764ad1ab096e9eef071cb1a071ed93b3695ed0a8"
+      },
+      "model.step": {
+        "bytes": 15415,
+        "sha256": "a321610e91950c1027aa705abbaf47dfa9b00a3fbd70e40a74d99260b58119fa"
+      },
+      "preview.glb": {
+        "bytes": 3300,
+        "sha256": "df341c8a183290eb5499a577e262868f4b700e83e99451b50ecca5b8618c70c5"
+      },
+      "native-reports.json": {
+        "bytes": 140761,
+        "sha256": "9e98dcca87c80035ed915db5dd38e8586e28d8c76866eb7cf1553ba36a44ae2e"
+      }
+    },
+    "command": "docker run --rm --network none --mount type=bind,source=C:/Users/jiang/Mirum-checked-design-v1,target=/workspace,readonly --mount type=bind,source=C:/Users/jiang/mirum-evidence/B08,target=/evidence mirum-checked-b01:b9c5565 python /evidence/native_probe.py 0a72a033c57f8d7f9bdb3970ae114f26ad187051",
+    "reproduction_script": "import asyncio\nimport hashlib\nfrom importlib.metadata import version\nimport json\nfrom pathlib import Path\nimport platform\nimport sys\nimport time\n\nfrom engineering.contracts import EngineeringBrief\nfrom engineering.policy import assess\nfrom engineering.search import search\n\nroot = Path('/evidence')\nbrief = EngineeringBrief.model_validate_json(Path('backend/tests/fixtures/engineering/finalized-brief.json').read_text())\nstarted = time.monotonic()\nresult = asyncio.run(search(brief))\nassert result.state == 'selected'\nassert [a.outcome.value for a in result.attempts] == ['rejected', 'rejected', 'accepted']\nassert all(assess(e['candidate'], e).available for e in result.evaluations)\nfor path, content in result.selected['artifacts'].items():\n    (root/path).write_bytes(content)\nreports = [dict(candidate=e['candidate'].model_dump(mode='json'), report=e['report'],\n                report_sha256=e['report_sha256'], checks=[c.model_dump(mode='json') for c in e['checks']])\n           for e in result.evaluations]\n(root/'native-reports.json').write_text(json.dumps(reports, indent=2))\nfiles = ['model.py', 'model.step', 'preview.glb', 'native-reports.json']\nmanifest = dict(implementation_sha=sys.argv[1], seconds=time.monotonic()-started,\n    scope='Real adapter/search/policy; shared reviewed-brief fixture is a caller seam, not a browser/user click',\n    outcome=result.state, selected_height_mm=result.selected['candidate'].specification.height_mm,\n    physics=result.selected['report']['physics']['solution'],\n    runtime=dict(python=platform.python_version(), cadquery=version('cadquery'), ocp=version('cadquery-ocp'), numpy=version('numpy')),\n    artifacts={f: dict(bytes=(root/f).stat().st_size, sha256=hashlib.sha256((root/f).read_bytes()).hexdigest()) for f in files})\n(root/'native-probe.json').write_text(json.dumps(manifest, indent=2))\nprint(json.dumps(manifest))\n"
+  }
+}

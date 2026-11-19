@@ -8,6 +8,45 @@ import pathlib
 import secrets
 import signal
 import sys
+from contextvars import ContextVar
+
+# Children get only these variables when no explicit env is passed. Anything
+# matching a secret-looking pattern is dropped even if it would otherwise match.
+_ENV_ALLOW = frozenset({
+    'PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TMP', 'TEMP', 'PYTHONPATH', 'PYTHONHASHSEED',
+    'SYSTEMROOT', 'WINDIR', 'USERPROFILE'})
+_ENV_DENY = ('KEY', 'TOKEN', 'SECRET', 'PASSWORD', 'PASSWD', 'PASS', 'AUTH', 'DSN', 'PRIVATE', 'CRED',
+             'SIG', 'COOKIE', 'SESSION', 'GOOGLE_', 'GEMINI_')
+_ENV_DENY_SUFFIX = ('_URL', '_URI')  # may embed credentials
+
+
+def _minimal_env() -> dict:
+    """Allowlisted, secret-free copy of the parent environment."""
+    out = {}
+    for name, value in os.environ.items():
+        upper = name.upper()
+        if name not in _ENV_ALLOW and not upper.startswith('MIRUM_'):
+            continue
+        if any(bad in upper for bad in _ENV_DENY) or upper.endswith(_ENV_DENY_SUFFIX):
+            continue
+        out[name] = value
+    return out
+
+
+process_owner = ContextVar('mirum_process_owner', default=None)
+
+
+def recover_process_owner(owner):
+    """Reap only descendants tagged by a former exclusive volume owner."""
+    needle = b'MIRUM_ENGINEERING_OWNER=' + owner.encode('ascii')
+    for entry in pathlib.Path('/proc').iterdir():
+        if not entry.name.isdecimal() or int(entry.name) == os.getpid():
+            continue
+        try:
+            if needle in (entry / 'environ').read_bytes().split(b'\0'):
+                ProcessRunner._kill_token_process(int(entry.name))
+        except (OSError, ProcessLookupError):
+            continue
 
 _KILL_ROUNDS = 5      # bounded rescans for token-bearing processes after the first kill
 _KILL_PAUSE = 0.01    # seconds between rescans; yields to the event loop
@@ -140,7 +179,9 @@ class ProcessRunner:
         task = asyncio.current_task()
         self._tasks.add(task)
         token = secrets.token_hex(16)
-        child_env = dict(os.environ if env is None else env, MIRUM_PROCESS_TOKEN=token)
+        child_env = dict(_minimal_env() if env is None else env, MIRUM_PROCESS_TOKEN=token)
+        if process_owner.get():
+            child_env['MIRUM_ENGINEERING_OWNER'] = process_owner.get()
         try:
             async with self._slots:
                 limited_command=[sys.executable,'-I',os.path.join(os.path.dirname(__file__),'_memory_entry.py'),

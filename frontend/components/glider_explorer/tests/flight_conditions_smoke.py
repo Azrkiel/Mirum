@@ -11,7 +11,7 @@ with sync_playwright() as p:
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
     page.goto(os.environ.get('MIRUM_UI_URL', 'http://127.0.0.1:8501'))
-    page.get_by_text('Passive glider distance search', exact=True).click()
+    page.get_by_text('Glider Search', exact=True).click()
     page.get_by_text('Explore one design', exact=True).click()
     frame = page.frame_locator('iframe').last
     frame.locator('#status').filter(has_text='Canonical preview').wait_for(timeout=20000)

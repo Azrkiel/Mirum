@@ -1,0 +1,17 @@
+# Runner tooling for .github/workflows/b13-step12.yml only (Playwright driver). The browser is the runner's
+# system Google Chrome; nothing is downloaded by playwright install.
+# Install: pip install --require-hashes --only-binary=:all: --no-deps -r b13-step12-playwright.lock
+# Hashes are the PyPI-published sha256 of the linux x86_64 / pure-python wheels (greenlet: every CPython
+# manylinux x86_64 wheel from 3.10 to 3.14 so the runner's python3 may move).
+playwright==1.64.1 \
+    --hash=sha256:577b8d88778c245cfbd145ae17cf53044f084b1b46c55c69081d4069d56057e2
+pyee==13.0.0 \
+    --hash=sha256:48195a3cddb3b1515ce0695ed76036b5ccc2ef3a9f963ff9f77aec0139845498
+typing_extensions==4.15.0 \
+    --hash=sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548
+greenlet==3.5.6 \
+    --hash=sha256:eed88b64a5e5da72d6a71cdc5aaeefaa5ced9b748f8d19f89800b339961dad39 \
+    --hash=sha256:1c20ea32a73d17b9b60e3371240e17b0068120c98a5ec01a224a7dd8c89733ba \
+    --hash=sha256:975736b002ed080d124cf81a79cb7e05cb26d6b3f5c7a7b651c0fcce70353aa1 \
+    --hash=sha256:f98e8215e172f567ce80eeaed9107fb4d32b6c44f26983d9b8334658136a205a \
+    --hash=sha256:9a09d59bef1db94f384b5bcc2d523694d338f3df6b757aeeaf7baca5d0c0be88

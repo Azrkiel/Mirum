@@ -183,6 +183,48 @@ The main form reuses the baseline standalone offline Plotly orbit viewer. This
 avoids the generic viewer's external Babylon.js CDN dependency; other Mirum
 viewers/workflows retain their existing behavior.
 
+## Text input
+
+CO2 dragster intent is detected before the generic planner. A matching prompt
+produces one SSE event with `step=route`, `status=done` and
+`workflow=co2_dragster`; that routing step makes no provider call. Pinewood/derby
+cars without CO2, full-size race cars, and standalone cartridge/nozzle requests
+retain their existing paths. The dragster UI handoff follows D7's merge.
+
+`POST /dragsters/interpret` takes `{prompt, base_spec}` with a 1–2000-character
+prompt and an optional complete strict v2 base spec, at 10 requests/minute.
+It returns reviewable JSON only; it never builds CAD. Name one style, or supply
+a base spec when refining. Explicit quantities become allowlisted numeric patches;
+inch/cm/density conversions and set/add/scale operations are deterministic.
+Qualitative edits ask how much. Unsupported features apply nothing. Invalid
+geometry returns clarification with field names rather than widening bounds.
+
+An existing material name must be supplied in the parameter form before changing
+its density; the extractor does not invent names. A new stock block needs all
+three dimensions. Explicitly switching styles starts from the new style preset.
+Responses include changed values and per-field provenance. Provider failures or
+a missing Heavy key return HTTP 503 with a fixed safe message; the parameter
+form remains usable. Extraction uses a request-local Heavy-key client and the
+configured LITE model; it does not reconfigure the generic pipeline's client.
+
+Spend guard: besides the 10/minute per-IP limit, the route has a process-wide
+cap on provider calls per rolling 24 hours, set by `MIRUM_DRAGSTER_INTERPRET_DAILY_CAP`
+(read once in `backend/config.py`; default 200; `0` disables the endpoint's
+provider path; negative or non-numeric values fall back to 0 or 200 respectively).
+Only requests that would call the provider count; style clarifications do not.
+The counter is in memory, per worker process, and resets on restart. A reached cap
+returns the same fixed 503 as a provider failure, without calling the provider.
+
+The `unsupported` and `questions` strings come from the model (or, for validation
+messages, from the spec validator). The server strips control characters and angle
+brackets and limits each to 200 characters, but they are still model text: the UI
+must render them as plain text, never as HTML or Markdown.
+
+The opt-in sample lives in `backend/dragsters/eval/`, separate from the generic
+eval corpus. It contains 15 prompts. Run `python -m dragsters.eval.run_live`
+only after user approval; it spends Gemini quota and writes a markdown comparison
+under `output/qa-reports/`. Live sample: not run, awaiting user approval.
+
 ## Limits
 
 Wedge only; no wheels, assemblies, added hardware dimensions, stock constraints,

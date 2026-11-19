@@ -1,0 +1,6 @@
+# B13 step 12 provider-free rehearsal: plain compose.release.yml with its own volume name. No AI flag, no
+# provider variable, no secret anywhere. Used only by .github/workflows/b13-step12-rehearsal.yml.
+#   docker compose -p <project> -f compose.release.yml -f e2e/compose/b13-step12-rehearsal.override.yml up -d --wait
+volumes:
+  mirum_engineering:
+    name: b13s12-rehearsal-engineering
