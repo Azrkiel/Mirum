@@ -11,27 +11,12 @@ import re
 import subprocess
 import time
 from pathlib import Path
-from urllib.parse import urlparse
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = Path(os.environ.get("MIRUM_E2E_ARTIFACTS", REPO_ROOT / "e2e" / "artifacts"))
-LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
-LOCAL_SCHEMES = {"data", "blob", "about"}
-
 _state: dict = {"evidence": None, "stack": None}
-
-
-def _is_loopback(url: str) -> bool:
-    parsed = urlparse(url)
-    if parsed.scheme in LOCAL_SCHEMES:
-        return True
-    return (parsed.hostname or "") in {h.strip("[]") for h in LOOPBACK_HOSTS}
-
-
-def _needs_stack(item: pytest.Item) -> bool:
-    return item.get_closest_marker("browser") is not None or "stack" in getattr(item, "fixturenames", ())
 
 
 def pytest_collection_modifyitems(items):
@@ -72,7 +57,9 @@ def evidence(stack, token):
             ev.add_lock_hash(REPO_ROOT / lock)
         for service in ("backend", "frontend"):
             ev.set_pip_freeze(service, stack.pip_freeze(service))
-    except Exception as exc:  # evidence gathering must not mask test results
+    except Exception as exc:
+        if os.environ.get("CI") == "true":
+            raise  # CI must never go green with incomplete evidence
         ev.add_note("evidence_error", type(exc).__name__)
     _state["evidence"] = ev
     yield ev
@@ -117,18 +104,10 @@ def external_requests() -> list[str]:
 
 @pytest.fixture
 def page(_browser, external_requests):
-    """A page whose context blocks (and records) every request that leaves loopback."""
-    context = _browser.new_context(viewport={"width": 1400, "height": 1000})
+    """A page whose context blocks (and records) every request and WebSocket leaving loopback."""
+    from harness.guard import guarded_context
 
-    def guard(route):
-        url = route.request.url
-        if _is_loopback(url):
-            route.continue_()
-        else:
-            external_requests.append(url)
-            route.abort()
-
-    context.route("**/*", guard)
+    context = guarded_context(_browser, external_requests, viewport={"width": 1400, "height": 1000})
     pg = context.new_page()
     pg.set_default_timeout(30_000)
     yield pg

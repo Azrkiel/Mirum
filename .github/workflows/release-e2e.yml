@@ -3,6 +3,10 @@ name: Release e2e
 # Browser end-to-end suite against the pinned release images run through compose.release.yml.
 # Runs on demand, and on a pull request only while it carries the `e2e` label. No secrets: the
 # access token is generated per run, masked, and passed through the environment only.
+#
+# Release evidence: ONLY a workflow_dispatch run on main counts (artifact `release-e2e-artifacts`).
+# Pull-request runs upload `release-e2e-artifacts-pr`, are same-repo only (fork PRs would run
+# attacker-controlled test code) and are never proof of a release.
 
 on:
   workflow_dispatch:
@@ -23,7 +27,10 @@ concurrency:
 jobs:
   release-e2e:
     name: Release e2e (compose + Chromium)
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'e2e')
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (contains(github.event.pull_request.labels.*.name, 'e2e') &&
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -54,6 +61,16 @@ jobs:
           git diff --quiet && test -z "$(git status --porcelain)"
           docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml down -v --remove-orphans
 
+      - name: Override changes only the volume name
+        run: |
+          set -euo pipefail
+          base=$(docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml config --format json | jq -S 'del(.volumes[].name)')
+          merged=$(docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml config --format json | jq -S 'del(.volumes[].name)')
+          if [ "$base" != "$merged" ]; then
+            diff <(echo "$base") <(echo "$merged") | sed "s/$MIRUM_E2E_TOKEN/***/g" || true
+            echo "e2e override changes more than volume names"; exit 1
+          fi
+
       - name: Start the release stack
         run: docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml up -d --wait --wait-timeout 300
 
@@ -83,7 +100,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-e2e-artifacts
+          name: release-e2e-artifacts${{ github.event_name == 'pull_request' && '-pr' || '' }}
           path: |
             e2e/artifacts/**/*.png
             e2e/artifacts/**/*.json

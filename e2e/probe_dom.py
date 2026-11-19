@@ -13,6 +13,9 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from harness.guard import guarded_context  # noqa: E402
+
 UI_URL = os.environ.get("MIRUM_E2E_UI_URL", "http://127.0.0.1:8501")
 
 JS = """
@@ -48,7 +51,8 @@ def main() -> int:
     result: dict = {}
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
-        page = browser.new_context(viewport={"width": 1400, "height": 1000}).new_page()
+        external: list[str] = []
+        page = guarded_context(browser, external, viewport={"width": 1400, "height": 1000}).new_page()
         page.goto(UI_URL, wait_until="domcontentloaded")
         gate = page.get_by_label("Access token", exact=True)
         gate.wait_for(state="visible", timeout=60_000)
@@ -62,6 +66,7 @@ def main() -> int:
         result["st_key_supported"] = any("checked_new_" in c for c in result["beam"]["st_key_classes"])
         result["version_meta"] = page.evaluate("() => (document.querySelector('meta[name=generator]') || {}).content || null")
         page.screenshot(path=str(out_dir / "probe_beam.png"), full_page=True)
+        result["external_requests"] = external
         browser.close()
     (out_dir / "dom_probe.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     print("st_key_supported:", result["st_key_supported"])
