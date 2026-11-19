@@ -161,9 +161,16 @@ for fmt in ('generator-cleaned-stl', 'generator-report', 'generator-spec-canonic
     if status != 200 or not content:
         fail(f'v1 artifact {fmt} not downloadable: {status}')
     v1[fmt] = content
-if (v1['generator-cleaned-stl'] != files['stl'] or v1['generator-report'] != files['report']
-        or v1['generator-spec-canonical'] != files['spec']):
-    fail('v1 artifact bytes differ from the browser route')
+pairs = {'stl': 'generator-cleaned-stl', 'report': 'generator-report', 'spec': 'generator-spec-canonical'}
+differs = {k: {'browser_sha256': sha(files[k]), 'v1_sha256': sha(v1[f]), 'browser_bytes': len(files[k]),
+               'v1_bytes': len(v1[f])} for k, f in pairs.items() if v1[f] != files[k]}
+if differs:
+    record['steps']['checked_route'] = {'accepted': True, 'gate': True, 'differs_from_browser_route': differs}
+    if 'report' in differs:  # name the differing top-level report keys (values may be large; keys only)
+        a_, b_ = json.loads(files['report']), json.loads(v1['generator-report'])
+        record['steps']['checked_route']['report_keys_differing'] = sorted(
+            k for k in set(a_) | set(b_) if a_.get(k) != b_.get(k))
+    fail('v1 artifact bytes differ from the browser route: ' + ', '.join(sorted(differs)))
 with zipfile.ZipFile(io.BytesIO(v1['zip'])) as z:
     uncompressed = sum(i.file_size for i in z.infolist())
 # publisher stored_bytes = every stored payload + manifest + package.zip + METADATA_RESERVE
