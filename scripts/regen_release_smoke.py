@@ -162,14 +162,25 @@ for fmt in ('generator-cleaned-stl', 'generator-report', 'generator-spec-canonic
         fail(f'v1 artifact {fmt} not downloadable: {status}')
     v1[fmt] = content
 pairs = {'stl': 'generator-cleaned-stl', 'report': 'generator-report', 'spec': 'generator-spec-canonical'}
-differs = {k: {'browser_sha256': sha(files[k]), 'v1_sha256': sha(v1[f]), 'browser_bytes': len(files[k]),
-               'v1_bytes': len(v1[f])} for k, f in pairs.items() if v1[f] != files[k]}
+differs = {k: {'browser_sha256': sha(files[k]), 'v1_sha256': sha(v1[f])} for k, f in pairs.items()
+           if v1[f] != files[k]}
+if 'report' in differs:
+    # Each route runs its own builder, and the report embeds that run's builder statistics
+    # (measurements.builder), which are not reproducible. Every other report field, including the
+    # STL digests and every check, must still be identical; the STL and spec bytes must be exact.
+    ra, rb = json.loads(files['report']), json.loads(v1['generator-report'])
+    for r in (ra, rb):
+        r.get('measurements', {}).pop('builder', None)
+    if ra == rb:
+        del differs['report']
+        record.setdefault('notes', []).append('report differs only in measurements.builder (per-run builder stats)')
+    else:
+        differs['report']['top_level_keys_differing'] = sorted(k for k in set(ra) | set(rb) if ra.get(k) != rb.get(k))
+        differs['report']['measurement_keys_differing'] = sorted(
+            k for k in set(ra.get('measurements', {})) | set(rb.get('measurements', {}))
+            if ra.get('measurements', {}).get(k) != rb.get('measurements', {}).get(k))
 if differs:
     record['steps']['checked_route'] = {'accepted': True, 'gate': True, 'differs_from_browser_route': differs}
-    if 'report' in differs:  # name the differing top-level report keys (values may be large; keys only)
-        a_, b_ = json.loads(files['report']), json.loads(v1['generator-report'])
-        record['steps']['checked_route']['report_keys_differing'] = sorted(
-            k for k in set(a_) | set(b_) if a_.get(k) != b_.get(k))
     fail('v1 artifact bytes differ from the browser route: ' + ', '.join(sorted(differs)))
 with zipfile.ZipFile(io.BytesIO(v1['zip'])) as z:
     uncompressed = sum(i.file_size for i in z.infolist())
@@ -180,7 +191,7 @@ record['steps']['checked_route'] = {'accepted': True, 'gate': True, 'lifecycle':
                                     'wall_seconds': round(wall_v1, 2),
                                     'artifact_sha256': {k: sha(v) for k, v in sorted(v1.items())},
                                     'artifact_bytes': {k: len(v) for k, v in sorted(v1.items())},
-                                    'identical_to_browser_route': True,
+                                    'identical_to_browser_route': 'stl,spec bytes; report except measurements.builder',
                                     'stored_bytes_measured': stored_bytes}
 record['peak_container_memory_bytes'] = peak_rss_bytes()
 record['gate'] = 'browser_route+checked_route'
