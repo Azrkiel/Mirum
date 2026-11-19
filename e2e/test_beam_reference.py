@@ -43,7 +43,7 @@ def drive_to_run(page, ui_url, token, api, *, allowable: float | None = None):
     assert prepared["brief_sha256"] == brief_sha
     requirements = prepared["draft"]["content"]["requirements"]
     assert requirements["length_mm"] == spec["length_mm"]
-    assert requirements["allowable_stress_mpa"] if "allowable_stress_mpa" in requirements else True
+    assert requirements["material"]["allowable_stress_mpa"] == spec["allowable_stress_mpa"]
     assert prepared["draft"]["content"]["candidate_heights_mm"] == HEIGHTS
     beam.acknowledge()
     brief_id, brief_sha_final = beam.finalize()
