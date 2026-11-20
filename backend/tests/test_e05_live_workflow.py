@@ -75,7 +75,17 @@ def test_concurrency_is_shared_with_b13_live_and_never_cancels():
 def test_input_validation_is_first_and_reserves_nothing_before_it():
     body = text()
     validate = body.index('Validate inputs')
-    assert body.index('      - uses: actions/checkout@v4') > validate
+    assert body.index('      - uses: actions/checkout@') > validate
+    # Actions are pinned by full commit SHA, like the other secret-using workflows (#110 review LOW 4).
+    for action in ('actions/checkout', 'actions/upload-artifact'):
+        assert re.search(re.escape(action) + r'@[0-9a-f]{40} ', body), action
+
+
+def test_job_fails_unless_the_qualification_passed():
+    s = step('Fail the job unless the qualification passed')
+    assert 'result == "passed"' in s and 'run["exit"] == 0' in s
+    body = text()
+    assert body.index('Fail the job unless') > body.index('Upload safe evidence')
     assert '[[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9-]{5,62}$ ]]' in step('Validate inputs')
     assert '[[ "$AUTHORIZATION" =~ ^[A-Za-z0-9._-]{6,80}$ ]]' in step('Validate inputs')
     assert 'bad capability' in step('Validate inputs')

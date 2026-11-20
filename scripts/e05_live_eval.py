@@ -209,19 +209,33 @@ def run(output, capabilities, *, sha, image_id, run_id, authorization, pace_seco
                     corpus_sha256=dict(CORPUS_SHA256), capabilities={}, qualification='blocked')
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
-    for capability in capabilities:
-        budget = budget_factory()
-        proposer = proposer_factory(capability, budget)
-        result = run_capability(capability, [{k: v for k, v in c.items() if k != 'fixture_response'}
-                                             for c in corpora[capability]],
-                                proposer, budget, pace_seconds=pace_seconds)
-        result['gate'] = gate(result)
-        evidence['capabilities'][capability] = result
-    evidence['qualification'] = ('passed' if all(v['gate'] == 'passed' for v in evidence['capabilities'].values())
-                                 and evidence['capabilities'] else 'blocked')
-    temporary = output / 'e05-live.json.tmp'
-    temporary.write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
-    temporary.replace(output / 'e05-live.json')
+
+    def write():
+        # Written after every capability and on any exit, so spent calls are always on record.
+        temporary = output / 'e05-live.json.tmp'
+        temporary.write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
+        temporary.replace(output / 'e05-live.json')
+
+    try:
+        for capability in capabilities:
+            budget = budget_factory()
+            try:
+                proposer = proposer_factory(capability, budget)
+                result = run_capability(capability, [{k: v for k, v in c.items() if k != 'fixture_response'}
+                                                     for c in corpora[capability]],
+                                        proposer, budget, pace_seconds=pace_seconds)
+                result['gate'] = gate(result)
+            except Exception as error:
+                # Record what was spent before re-raising; the error class only, never its message.
+                evidence['capabilities'][capability] = dict(gate='blocked', error=type(error).__name__,
+                                                            calls_used=getattr(budget, 'used', lambda: None)())
+                raise
+            evidence['capabilities'][capability] = result
+            write()
+        evidence['qualification'] = ('passed' if all(v['gate'] == 'passed' for v in evidence['capabilities'].values())
+                                     and evidence['capabilities'] else 'blocked')
+    finally:
+        write()
     return evidence
 
 

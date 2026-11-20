@@ -67,7 +67,7 @@ jobs:
               || { echo "run_id ${RUN_ID} already reserved; never repeated"; exit 1; }
           done
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -119,10 +119,24 @@ jobs:
 
       - name: Upload safe evidence (JSON only)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e05-${{ inputs.run_id }}
           path: |
             ${{ runner.temp }}/evidence/**/*.json
           retention-days: 90
           if-no-files-found: warn
+
+      # After the upload: a blocked or failed qualification turns the job red (b13-live only records it).
+      - name: Fail the job unless the qualification passed
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/evidence" <<'PY'
+          import json, sys
+          from pathlib import Path
+          run = json.loads((Path(sys.argv[1]) / "run.json").read_text())
+          evidence = Path(sys.argv[1]) / "e05-live.json"
+          result = json.loads(evidence.read_text()).get("qualification") if evidence.exists() else None
+          print(f"exit={run['exit']} qualification={result}")
+          sys.exit(0 if run["exit"] == 0 and result == "passed" else 1)
+          PY

@@ -224,3 +224,23 @@ def test_glider_runs_configure_the_legacy_client_with_the_approved_key(tmp_path,
     monkeypatch.delenv('GEMINI_API_KEY_PRO', raising=False)
     live.configure_legacy_client()
     assert configured == [{'api_key': 'planted-heavy'}]
+
+
+def test_evidence_is_on_disk_for_finished_capabilities_when_a_later_one_crashes(tmp_path):
+    """#110 review M3: spend for capability 1 must be recorded even if capability 2 fails."""
+    def factory(capability, budget):
+        if capability == 'regen_chamber':
+            raise RuntimeError('provider construction failed SECRET-ISH-DETAIL')
+        p = proposal(state='clarification_required', payload={'specification': {}})
+        p.reasons = ('x',)
+        return FixedProposer([p] * 40)
+
+    with pytest.raises(RuntimeError):
+        e05.run(tmp_path / 'out', ('co2_dragster', 'regen_chamber'), sha=SHA, image_id=IMAGE,
+                run_id='run-test-02', authorization='owner-test', proposer_factory=factory)
+    text = (tmp_path / 'out' / 'e05-live.json').read_text(encoding='utf-8')
+    evidence = json.loads(text)
+    assert 'co2_dragster' in evidence['capabilities'] and 'gate' in evidence['capabilities']['co2_dragster']
+    assert evidence['capabilities']['regen_chamber'] == dict(gate='blocked', error='RuntimeError', calls_used=0)
+    assert evidence['qualification'] == 'blocked'
+    assert 'SECRET-ISH-DETAIL' not in text
