@@ -244,10 +244,29 @@ def attach_v1_routes(app,limiter):
                     raise HTTPException(503,'AI draft preparation is not enabled')
                 if body.input or body.prompt is None: raise ValueError('AI entry requires a prompt and empty initial input')
                 if len(body.prompt)>proposal_contract.MAX_PROMPT: raise ValueError('AI entry prompt is too long')
+                client=client_key(request)
+                size=len(body.prompt.encode())
+                # Deterministic family gate for every generator (contract rule 1; dragster_proposer is
+                # pinned, so it lives here): another family -> unsupported, several -> clarification.
+                # Decided without a provider call or a budget unit; the draft records the refusal.
+                from .briefs import InputIssue
+                from .router import route
+                routed=route(body.prompt)
+                gate=(('unsupported','This request matches another capability; no draft of the requested capability was made')
+                      if routed.capability_id not in (None,body.capability) else
+                      ('clarification_required','This request matches several capabilities; describe one object')
+                      if routed.capability_id is None and routed.reason.startswith('Ambiguous') else None)
+                if gate is not None:
+                    await asyncio.to_thread(value.quota.admit_draft,client,ai=False,size=size)
+                    def create_refusal():
+                        created=value.briefs.create(dict(capability=proposal_contract.reference(get_generator(body.capability))),
+                            extra_issues=(InputIssue(field='request',state=gate[0],reason=gate[1]),))
+                        value.quota.record_draft(created.draft.draft_id,client,len(created.model_dump_json()))
+                        return created
+                    return prepared_view(await asyncio.to_thread(create_refusal))
                 budget=value.proposer.budget
                 if not budget.has_capacity(): return unavailable()
-                client=client_key(request)
-                await asyncio.to_thread(value.quota.admit_draft,client,ai=True,size=len(body.prompt.encode()))
+                await asyncio.to_thread(value.quota.admit_draft,client,ai=True,size=size)
                 proposer=proposal_contract.ai_proposer(body.capability,enabled=value.ai_enabled,budget=budget)
                 try:
                     proposal=proposal_contract.conform(body.capability,await proposer.propose(body.prompt))
