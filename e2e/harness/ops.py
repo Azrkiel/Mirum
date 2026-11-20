@@ -31,15 +31,22 @@ for proc in Path("/proc").iterdir():
     try:
         stat = (proc / "stat").read_bytes().rsplit(b")", 1)[1].split()
         argv = (proc / "cmdline").read_bytes().removesuffix(b"\0")
-        env = (proc / "environ").read_bytes().split(b"\0")
     except (FileNotFoundError, ProcessLookupError):
         continue
+    try:
+        env = (proc / "environ").read_bytes().split(b"\0")
+        unreadable = False
+    except (FileNotFoundError, ProcessLookupError):
+        continue
+    except PermissionError:
+        # Another uid's process: report it with unknown token/owner instead of crashing.
+        env, unreadable = [], True
     owner = next((item.split(b"=", 1)[1].decode(errors="replace")
                   for item in env if item.startswith(b"MIRUM_ENGINEERING_OWNER=")), None)
     rows.append(dict(pid=int(proc.name), ppid=int(stat[1]),
                      argv=[arg.decode(errors="replace") for arg in argv.split(b"\0")] if argv else [],
                      has_token=any(item.startswith(b"MIRUM_PROCESS_TOKEN=") for item in env),
-                     owner=owner))
+                     owner=owner, unreadable=unreadable))
 print(json.dumps(rows))
 """
 
@@ -321,7 +328,9 @@ class Ops:
     def signal(self, svc: str, pid: int, sig: str) -> None:
         _integer(pid, 1)
         name = _signal_name(sig)
-        self._run(["docker", "exec", "-u", "10001:10001", self.container_id(svc), "kill", "-" + name, str(pid)])
+        # The release image has no `kill` binary: send the signal from the image's python.
+        code = f"import os, signal; os.kill({pid}, signal.SIG{name})"
+        self._run(["docker", "exec", "-u", "10001:10001", self.container_id(svc), "python", "-c", code])
 
     def api_host_pid(self, svc: str) -> int:
         init = self._run(["docker", "inspect", "-f", "{{.State.Pid}}", self.container_id(svc)]).strip()

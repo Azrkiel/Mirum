@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from harness.api import Api, TOKEN_HEADER
 from harness.storage_flows import (
     CaseLog,
+    aggregate_status,
     artifact_digests,
     beam_brief,
     classify_429,
@@ -30,15 +31,46 @@ _REGEN = "regen_chamber"
 
 @pytest.mark.parametrize("variant", ["reference", "low_allowable"])
 def test_beam_brief_reviews_current_draft(variant: str) -> None:
-    expected_input = json.loads(
+    example = json.loads(
         (Path(__file__).resolve().parents[2] / "examples/engineering/cantilever.json").read_text(
             encoding="utf-8"
         )
     )
-    if variant == "low_allowable":
-        expected_input["specification"]["allowable_stress_mpa"] = 1.0
-    fields = ["specification.allowable_stress_mpa", "candidate_heights_mm"]
-    entry = {"id": _BEAM, "review_fields": fields}
+    spec = example["specification"]
+    expected_input = {
+        "schema_version": "engineering_brief_v1",
+        "capability": {
+            "id": _BEAM,
+            "version": "cap-v",
+            "numerical_policy_version": "num-v",
+            "resource_policy_version": "res-v",
+        },
+        "requirements": {
+            "units": spec["units"],
+            "length_mm": spec["length_mm"],
+            "width_mm": spec["width_mm"],
+            "dimensional_tolerance_mm": spec["dimensional_tolerance_mm"],
+            "tip_force_n": spec["tip_force_n"],
+            "max_tip_deflection_mm": spec["max_tip_deflection_mm"],
+            "material": {
+                "youngs_modulus_mpa": spec["youngs_modulus_mpa"],
+                "allowable_stress_mpa": 1.0 if variant == "low_allowable" else spec["allowable_stress_mpa"],
+                "source_kind": "illustrative",
+                "reference": "User-reviewed illustrative aluminium inputs; not certified stock properties",
+            },
+            "assumptions": spec["assumptions"],
+        },
+        "mode": "bounded_thickness",
+        "candidate_heights_mm": example["candidate_heights_mm"],
+    }
+    fields = ["requirements.allowable_stress_mpa", "candidate_heights_mm"]
+    entry = {
+        "id": _BEAM,
+        "version": "cap-v",
+        "numerical": {"version": "num-v"},
+        "resources": {"version": "res-v"},
+        "review_fields": fields,
+    }
     _exercise_brief(beam_brief, variant, entry, expected_input, {}, fields)
 
 
@@ -137,7 +169,10 @@ def test_brief_http_failure_reports_redacted_excerpt(path: str) -> None:
         if endpoint == path:
             return httpx.Response(503, text=f"service rejected {_TOKEN} " + "x" * 1000)
         if endpoint == "/capabilities":
-            return httpx.Response(200, json={"capabilities": [{"id": _BEAM, "review_fields": []}]})
+            return httpx.Response(200, json={"capabilities": [{
+                "id": _BEAM, "version": "v", "numerical": {"version": "n"},
+                "resources": {"version": "r"}, "review_fields": [],
+            }]})
         assert endpoint in {"/drafts", "/drafts/draft"}
         return httpx.Response(201 if endpoint == "/drafts" else 200, json={
             "draft": {"draft_id": "draft", "revision": 1}, "brief_sha256": "sha",
@@ -239,11 +274,11 @@ def test_case_log_schema_and_deterministic_bytes(tmp_path: Path) -> None:
         "source_sha": "source",
         "image_ids": {"backend": "image-b", "frontend": "image-f"},
         "cases": [
-            {"case_id": "S01", "mechanism": "cancel", "kind": "R", "expiry_accelerated": False,
+            {"case_id": "S01", "mechanism": "cancel", "kind": "R", "status": "not exercised", "expiry_accelerated": False,
              "observations": {"running": True}},
-            {"case_id": "S08a", "mechanism": "rename", "kind": "F", "expiry_accelerated": False,
+            {"case_id": "S08a", "mechanism": "rename", "kind": "not_injected", "status": "not exercised", "expiry_accelerated": False,
              "observations": {"status": 503}},
-            {"case_id": "S10", "mechanism": "update expiry", "kind": "A", "expiry_accelerated": True,
+            {"case_id": "S10", "mechanism": "update expiry", "kind": "A", "status": "not exercised", "expiry_accelerated": True,
              "observations": {"status": 410}},
         ],
     }
@@ -251,6 +286,107 @@ def test_case_log_schema_and_deterministic_bytes(tmp_path: Path) -> None:
     contents = (json.dumps(expected, sort_keys=True, indent=2) + "\n").encode()
     assert path.read_bytes() == contents
     assert cases.write().read_bytes() == contents
+
+
+def test_fault_case_is_not_injected_unless_observed(tmp_path: Path) -> None:
+    cases = CaseLog(tmp_path, "source", {})
+    cases.record("S08c", "remount", "F", {"fault_injected": False, "remount_error": "busy"})
+    cases.record("S08a", "rename", "F", {"fault_injected": True}, status="passed")
+    cases.record("S03", "stop", "F", "not a mapping")
+    written = json.loads(cases.write().read_text())["cases"]
+    assert [(c["case_id"], c["kind"]) for c in written] == [
+        ("S08c", "not_injected"), ("S08a", "F"), ("S03", "not_injected")]
+    assert written[0]["observations"] == {"fault_injected": False, "remount_error": "busy"}
+    assert written[1]["status"] == "passed"
+
+
+def test_case_log_rejects_invalid_status(tmp_path: Path) -> None:
+    cases = CaseLog(tmp_path, "source", {})
+    with pytest.raises(ValueError, match="status"):
+        cases.record("S01", "cancel", "R", {}, status="ok")
+    cases.record("S01", "cancel", "R", {})
+    cases.set_status("S01", "failed")
+    assert json.loads(cases.write().read_text())["cases"][0]["status"] == "failed"
+
+
+class _Report:
+    def __init__(self, outcome: str) -> None:
+        self.outcome = outcome
+
+
+def _item(setup: str | None, call: str | None = None, teardown: str | None = None) -> object:
+    item = type("Item", (), {})()
+    for name, outcome in (("setup", setup), ("call", call), ("teardown", teardown)):
+        if outcome:
+            setattr(item, f"rep_{name}", _Report(outcome))
+    return item
+
+
+@pytest.mark.parametrize("items, expected", [
+    ([], "not exercised"),
+    ([_item(None)], "not exercised"),
+    ([_item("passed", "passed", "passed")], "passed"),
+    ([_item("passed", "passed")], "passed"),
+    ([_item("passed", "failed")], "failed"),
+    ([_item("failed")], "error"),
+    ([_item("passed", "passed", "failed")], "error"),
+    ([_item("skipped")], "skipped"),
+    ([_item("passed", "skipped")], "skipped"),
+    ([_item("passed", "passed"), _item("failed")], "error"),
+    ([_item("passed", "passed"), _item("passed", "failed")], "failed"),
+    ([_item("passed", "passed"), _item("passed")], "not exercised"),
+    ([_item("passed", "passed"), _item("skipped")], "passed"),
+])
+def test_aggregate_status(items: list, expected: str) -> None:
+    assert aggregate_status(items) == expected
+
+
+def test_conftest_hook_stores_phase_reports() -> None:
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("e2e_conftest", Path(__file__).resolve().parents[1] / "conftest.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    item = _item(None)
+    for when, outcome in (("setup", "passed"), ("call", "failed"), ("teardown", "passed")):
+        report = type("R", (), {"when": when, "outcome": outcome, "duration": 0.0})()
+        generator = module.pytest_runtest_makereport(item, None)
+        next(generator)
+        with pytest.raises(StopIteration):
+            generator.send(type("O", (), {"get_result": lambda self, r=report: r})())
+        assert getattr(item, f"rep_{when}") is report
+    assert aggregate_status([item]) == "failed"
+
+
+_SENTINEL_KEY = "AIza" + "S" * 35
+
+
+def test_case_log_scrubs_and_fails_closed_on_api_keys(tmp_path: Path) -> None:
+    cases = CaseLog(tmp_path, "source", {})
+    cases.record("S09a", "regen", "R", {"backend_logs_tail": f"key={_SENTINEL_KEY} done",
+                                         "worker_diagnostics": {"worker_logs": {"p": f"x{_SENTINEL_KEY}"}}})
+    text = cases.write().read_text()
+    assert _SENTINEL_KEY not in text and "[redacted]" in text
+    # A key that survives scrubbing (here: smuggled in via the mechanism) still blocks the write.
+    leaky = CaseLog(tmp_path / "leaky", "source", {})
+    leaky.record("S01", f"mech {_SENTINEL_KEY}", "R", {})
+    with pytest.raises(ValueError) as exc:
+        leaky.write()
+    assert _SENTINEL_KEY not in str(exc.value)
+    assert not (tmp_path / "leaky" / "storage-cases.json").exists()
+
+
+def test_case_log_scrubs_and_fails_closed_on_env_credentials(tmp_path: Path) -> None:
+    env = {"MIRUM_GEMINI_API_KEY": "sentinel-env-key-value", "SOME_SECRET": "sentinel-secret-value",
+           "DB_PASSWORD": "sentinel-pass-value", "SHORT_TOKEN": "tiny", "PATH": "/usr/sentinel-path-bin"}
+    cases = CaseLog(tmp_path, "source", {}, environ=env)
+    cases.record("S09a", "regen", "R", {"tail": "a sentinel-env-key-value b sentinel-secret-value c "
+                                                  "sentinel-pass-value d tiny e /usr/sentinel-path-bin"})
+    observed = json.loads(cases.write().read_text())["cases"][0]["observations"]["tail"]
+    assert observed == "a [redacted] b [redacted] c [redacted] d tiny e /usr/sentinel-path-bin"
+    leaky = CaseLog(tmp_path / "leaky", "source", {}, environ=env)
+    leaky.record("sentinel-env-key-value", "mech", "R", {})
+    with pytest.raises(ValueError):
+        leaky.write()
 
 
 def test_case_log_rejects_invalid_kind(tmp_path: Path) -> None:

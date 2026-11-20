@@ -60,7 +60,8 @@ def test_lifecycle(rig: tuple) -> None:
         stack.compose_argv("up", "-d", "--wait", "--wait-timeout", "45", "--no-deps", "backend"),
         ps, stack.compose_argv("rm", "-s", "-f", "backend"), up, ps,
         ps, ["docker", "exec", "-u", "10001:10001", "new", "python", "-c", "print('OK')"],
-        ps, ["docker", "exec", "-u", "10001:10001", "new", "kill", "-STOP", "17"],
+        ps, ["docker", "exec", "-u", "10001:10001", "new", "python", "-c",
+         "import os, signal; os.kill(17, signal.SIGSTOP)"],
     ]
     assert runner.call_args_list[0].kwargs["env"]["MIRUM_ACCESS_TOKEN"] == stack.config.token
 
@@ -99,8 +100,10 @@ def test_process_inventory_uses_only_selected_environment_fields(
     runner.side_effect = run
     rows = sorted(ops.processes("backend"), key=lambda row: row["pid"])
     assert rows == [
-        {"pid": 41, "ppid": 7, "argv": ["python", "worker.py"], "has_token": True, "owner": "owner"},
-        {"pid": 42, "ppid": 7, "argv": ["python", "worker.py"], "has_token": False, "owner": None},
+        {"pid": 41, "ppid": 7, "argv": ["python", "worker.py"], "has_token": True, "owner": "owner",
+         "unreadable": False},
+        {"pid": 42, "ppid": 7, "argv": ["python", "worker.py"], "has_token": False, "owner": None,
+         "unreadable": False},
     ]
 
 
@@ -305,3 +308,11 @@ def test_failure_redaction(rig: tuple, failure: str) -> None:
     with pytest.raises(StackError) as exc:
         ops.container_id("backend")
     assert token not in str(exc.value) and "***" in str(exc.value)
+
+
+def test_processes_script_tolerates_unreadable_environ() -> None:
+    if not Path("/proc/1/environ").exists():
+        pytest.skip("needs Linux /proc")
+    out = subprocess.run([sys.executable, "-c", module._PROCESSES], capture_output=True, text=True, check=True).stdout
+    rows = json.loads(out)
+    assert rows and all("unreadable" in row for row in rows)

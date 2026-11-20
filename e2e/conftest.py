@@ -167,8 +167,8 @@ def shot(request, evidence):
 def pytest_runtest_makereport(item, call):
     outcome = yield
     report = outcome.get_result()
-    if report.when == "call":
-        item.rep_call = report
+    # Real setup/call/teardown outcomes; the storage case logs derive each case status from these.
+    setattr(item, f"rep_{report.when}", report)
     ev = _state.get("evidence")
     if ev is not None and report.when in ("setup", "call", "teardown"):
         if report.when == "call" or report.outcome != "passed":
