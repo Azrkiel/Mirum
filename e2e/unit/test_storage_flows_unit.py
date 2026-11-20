@@ -168,7 +168,10 @@ def test_brief_http_failure_reports_redacted_excerpt(path: str) -> None:
         if endpoint == path:
             return httpx.Response(503, text=f"service rejected {_TOKEN} " + "x" * 1000)
         if endpoint == "/capabilities":
-            return httpx.Response(200, json={"capabilities": [{"id": _BEAM, "review_fields": []}]})
+            return httpx.Response(200, json={"capabilities": [{
+                "id": _BEAM, "version": "v", "numerical": {"version": "n"},
+                "resources": {"version": "r"}, "review_fields": [],
+            }]})
         assert endpoint in {"/drafts", "/drafts/draft"}
         return httpx.Response(201 if endpoint == "/drafts" else 200, json={
             "draft": {"draft_id": "draft", "revision": 1}, "brief_sha256": "sha",
