@@ -24,7 +24,7 @@ from harness.api import Api, TOKEN_HEADER
 from harness.guard import guarded_context
 from harness.ops import Ops
 from harness.stack import Stack, StackConfig
-from harness.storage_flows import CaseLog, artifact_digests, classify_429, regen_brief, submit, wait_for
+from harness.storage_flows import CaseLog, aggregate_status, artifact_digests, classify_429, regen_brief, submit, wait_for
 from harness.ui import CheckedBeam, sign_in
 
 pytestmark = pytest.mark.retention
@@ -104,13 +104,30 @@ def client(ops: Ops) -> Iterator[Api]:
         api.close()
 
 
+# Case id -> (test function, parametrize variant); the log status is the real pytest outcome.
+CASE_TESTS = {
+    "S10": ("test_s10_held_download", None),
+    "S12(i)": ("test_s12_persistence", "i"),
+    "S12(ii)": ("test_s12_persistence", "ii"),
+    "S13": ("test_s13_offline_replay", None),
+    "S14": ("test_s14_tamper", None),
+    "S15(real)": ("test_s15_interrupted_views", None),
+    "S15(expired)": ("test_s15_expired_view", None),
+}
+
+
 @pytest.fixture(scope="module")
-def cases(ops: Ops) -> Iterator[CaseLog]:
+def cases(ops: Ops, request: pytest.FixtureRequest) -> Iterator[CaseLog]:
     log = CaseLog(OUT, os.environ.get("GITHUB_SHA") or "local", ops.stack.image_ids(),
                   redact=[ops.stack.config.token])
     try:
         yield log
     finally:
+        for case_id, (test, variant) in CASE_TESTS.items():
+            items = [item for item in request.session.items
+                     if getattr(item, "originalname", None) == test
+                     and (variant is None or item.callspec.params.get("variant") == variant)]
+            log.set_status(case_id, aggregate_status(items))
         log.write()
 
 
@@ -349,6 +366,7 @@ def test_s14_tamper(client: Api, ops: Ops, cases: CaseLog, typed_beam: str) -> N
                 assert view["delivery"] == "unavailable" and view["artifacts"] == {}
         assert _disk(ops, job_id) == {"bundle": True, "staging": []}
         obs["idle"] = _idle(ops)
+        obs["fault_injected"] = True  # Both tampered reads were refused by the integrity gates.
 
 
 @pytest.fixture(scope="module")

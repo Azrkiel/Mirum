@@ -19,7 +19,7 @@ from harness.api import Api
 from harness.ops import Ops
 from harness.stack import Stack, StackConfig, StackError
 from harness.storage_flows import (
-    CaseLog, artifact_digests, beam_brief, classify_429, regen_brief, submit, wait_for,
+    CaseLog, aggregate_status, artifact_digests, beam_brief, classify_429, regen_brief, submit, wait_for,
 )
 
 pytestmark = pytest.mark.capacity
@@ -114,6 +114,7 @@ def case(request: pytest.FixtureRequest, capacity_run: tuple) -> Iterator[Case]:
         config = replace(config, compose_files=(*config.compose_files, path))
     ops = Ops(Stack(config))
     current = Case(ops, plain, api)
+    ready = False
 
     def expired(*_: object) -> None:
         raise TimeoutError(f"{case_id} exceeded the case or module time budget")
@@ -132,6 +133,7 @@ def case(request: pytest.FixtureRequest, capacity_run: tuple) -> Iterator[Case]:
             loop = os.environ["MIRUM_STORAGE_LOOP_MOUNT"]
             assert os.path.ismount(loop), "Workflow loop filesystem is missing"
             assert current.probe("print(root.stat().st_dev)") == os.stat(loop).st_dev
+        ready = True
         yield current
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
@@ -148,7 +150,9 @@ def case(request: pytest.FixtureRequest, capacity_run: tuple) -> Iterator[Case]:
             else:
                 os.environ["MIRUM_E2E_PROJECT"] = old_project
             current.observed["ops_notes"] = ops.notes + plain.notes
-            log.record(case_id, mechanism, kind, current.observed)
+            # Setup that failed before the yield leaves nothing exercised; otherwise use the real call outcome.
+            status = aggregate_status([request.node]) if ready else "not exercised"
+            log.record(case_id, mechanism, kind, current.observed, status=status)
 
 
 _WORKER_DIAGNOSTICS = r"""
@@ -315,6 +319,7 @@ def test_immutable_publication(case: Case) -> None:
     try:
         case.ops.host_chattr("bundles", "+i")
         job = _failed_publication(case, brief, key)  # bundles.py:309.
+        case.observed["fault_injected"] = True  # The immutable bundle directory failed the publication.
     finally:
         case.ops.host_chattr("bundles", "-i")
     _recover(case, brief, key, job)
@@ -338,6 +343,7 @@ def test_staging_enospc(case: Case) -> None:
     )
     case.observed["staging_write_errno"] = probe_errno
     assert probe_errno == errno.ENOSPC
+    case.observed["fault_injected"] = True
     brief = beam_brief(case.api)["brief_id"]
     key = uuid4().hex
     job = _failed_publication(case, brief, key)
@@ -396,6 +402,7 @@ def test_read_only_observation(case: Case) -> None:
         else:
             readonly = case.probe("print(json.dumps(bool(os.statvfs(root).f_flag & os.ST_RDONLY)))")
         case.observed["backend_mount_readonly"] = readonly
+        case.observed["fault_injected"] = readonly is True
         if readonly:
             assert _regen_worker(case), "Regen worker exited before the read-only window"
             _observe(case, job, "during_regen")
@@ -482,6 +489,7 @@ def test_sparse_accounting(case: Case) -> None:
         filled = _usage(case)
         case.observed.update(baseline=baseline, with_sparse=filled)
         assert filled["logical_bytes"] == baseline["logical_bytes"] + 481 * MIB
+        case.observed["fault_injected"] = True
         # jobs.py:142-147 checks apparent file lengths, independent of actual device free space.
         _refusal(case, submit(case.api, brief, uuid4().hex))
         assert _states(case) == before
@@ -513,6 +521,7 @@ def test_device_free_space(case: Case) -> None:
         )
         case.observed["free_before_after_and_logical_size"] = pressure
         assert 0 < pressure[1] < 32 * MIB and pressure[2] == 0
+        case.observed["fault_injected"] = True
         job = _failed_publication(case, brief, key)
         assert case.probe("print(shutil.disk_usage(root).free)") < 32 * MIB
     finally:

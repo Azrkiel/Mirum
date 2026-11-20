@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 from collections.abc import Callable, Iterable, Mapping
 from copy import deepcopy
@@ -234,33 +235,104 @@ def artifact_digests(api: Api, job_id: str, formats: Iterable[str]) -> dict[str,
     return digests
 
 
+_API_KEY = re.compile(r"AIza[0-9A-Za-z_-]{35}")
+_SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASS", re.IGNORECASE)
+_MIN_SECRET_LEN = 8  # Shorter env values ("1", "true") would redact ordinary text.
+STATUSES = ("passed", "failed", "error", "skipped", "not exercised")
+
+
+def environment_secrets(environ: Mapping[str, str] | None = None) -> tuple[str, ...]:
+    """Values of every env var whose name suggests a credential."""
+    source = os.environ if environ is None else environ
+    return tuple(sorted({value for name, value in source.items()
+                         if _SECRET_NAME.search(name) and len(value) >= _MIN_SECRET_LEN}))
+
+
+def aggregate_status(items: Iterable[object]) -> str:
+    """Case status from real pytest outcomes stored by conftest as item.rep_setup/rep_call/rep_teardown."""
+    outcomes = []
+    for item in items:
+        setup, call, teardown = (getattr(item, f"rep_{name}", None) for name in ("setup", "call", "teardown"))
+        if setup is None:
+            outcomes.append("not exercised")
+        elif setup.outcome == "failed":
+            outcomes.append("error")
+        elif setup.outcome == "skipped" or (call is not None and call.outcome == "skipped"):
+            outcomes.append("skipped")
+        elif call is None:
+            outcomes.append("not exercised")
+        elif call.outcome == "failed":
+            outcomes.append("failed")
+        elif teardown is not None and teardown.outcome == "failed":
+            outcomes.append("error")
+        else:
+            outcomes.append("passed")
+    if not outcomes:
+        return "not exercised"
+    for status in ("failed", "error"):
+        if status in outcomes:
+            return status
+    if "not exercised" in outcomes:
+        return "not exercised"
+    return "skipped" if all(status == "skipped" for status in outcomes) else "passed"
+
+
 class CaseLog:
     """Collect storage observations and atomically write the case log."""
 
     def __init__(
         self, out_dir: Path, source_sha: str, image_ids: Mapping[str, str],
-        redact: Iterable[str] = (),
+        redact: Iterable[str] = (), environ: Mapping[str, str] | None = None,
     ) -> None:
         self._out_dir = Path(out_dir)
         self._source_sha = source_sha
         self._image_ids = dict(image_ids)
         self._redact = tuple(value for value in redact if value)
+        self._env_secrets = environment_secrets(environ)
         self._cases: list[dict] = []
+
+    def _scrub(self, value: object) -> object:
+        """Replace API-key shapes and env credential values in observed strings."""
+        if isinstance(value, str):
+            for secret in self._env_secrets:
+                value = value.replace(secret, "[redacted]")
+            return _API_KEY.sub("[redacted]", value)
+        if isinstance(value, Mapping):
+            return {self._scrub(key): self._scrub(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [self._scrub(item) for item in value]
+        return value
 
     def record(
         self, case_id: str, mechanism: str, kind: str, observations: object,
-        expiry_accelerated: bool = False,
+        expiry_accelerated: bool = False, status: str = "not exercised",
     ) -> None:
-        """Record one real, fault-injected, or accelerated case."""
+        """Record one real, fault-injected, or accelerated case.
+
+        An "F" case is recorded as "not_injected" unless its observations say fault_injected is true.
+        """
         if kind not in ("R", "F", "A"):
             raise ValueError("Unknown storage case kind")
+        if status not in STATUSES:
+            raise ValueError("Unknown storage case status")
+        injected = isinstance(observations, Mapping) and observations.get("fault_injected") is True
+        if kind == "F" and not injected:
+            kind = "not_injected"
         self._cases.append({
             "case_id": case_id,
             "mechanism": mechanism,
             "kind": kind,
+            "status": status,
             "expiry_accelerated": kind == "A" or expiry_accelerated,
-            "observations": deepcopy(observations),
+            "observations": self._scrub(deepcopy(observations)),
         })
+
+    def set_status(self, case_id: str, status: str) -> None:
+        if status not in STATUSES:
+            raise ValueError("Unknown storage case status")
+        for case in self._cases:
+            if case["case_id"] == case_id:
+                case["status"] = status
 
     def write(self) -> Path:
         """Reject configured secrets before replacing the case log."""
@@ -272,9 +344,9 @@ class CaseLog:
         serialized = json.dumps(
             document, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False,
         ) + "\n"
-        if any(
+        if _API_KEY.search(serialized) or any(
             value in serialized or json.dumps(value, ensure_ascii=False)[1:-1] in serialized
-            for value in self._redact
+            for value in (*self._redact, *self._env_secrets)
         ):
             message = "Storage case log contains a redacted value"
             if any(value in message for value in self._redact):

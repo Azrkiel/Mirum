@@ -19,6 +19,14 @@ ARTIFACTS = Path(os.environ.get("MIRUM_E2E_ARTIFACTS", REPO_ROOT / "e2e" / "arti
 _state: dict = {"evidence": None, "stack": None}
 
 
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Keep the real setup/call/teardown outcomes on the item for the storage case logs."""
+    outcome = yield
+    report = outcome.get_result()
+    setattr(item, f"rep_{report.when}", report)
+
+
 def pytest_collection_modifyitems(items):
     for item in items:
         if "e2e/unit/" in item.nodeid.replace("\\", "/") or "unit/" in item.nodeid.replace("\\", "/"):

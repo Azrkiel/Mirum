@@ -19,7 +19,7 @@ import pytest
 from harness.api import Api
 from harness.ops import Ops
 from harness.stack import Stack, StackConfig
-from harness.storage_flows import CaseLog, beam_brief, classify_429, regen_brief, submit, wait_for
+from harness.storage_flows import CaseLog, aggregate_status, beam_brief, classify_429, regen_brief, submit, wait_for
 
 pytestmark = pytest.mark.lifecycle
 
@@ -89,8 +89,17 @@ def _healthy(api: Api) -> None:
     pytest.fail("Authenticated backend health did not reach HTTP 200 within 180 s")
 
 
+def _case_items(items: list, case: str) -> list:
+    """Items whose real outcome decides a case: S05/S06 own their tests, S01-S04b the interruption."""
+    name = {"S05": "test_s05_orphans", "S06": "test_s06_never_accepted"}.get(case, "test_interruption")
+    return [item for item in items
+            if getattr(item, "originalname", None) == name
+            and (case in {"S05", "S06"} or getattr(item, "callspec", None) is not None
+                 and item.callspec.id == case)]
+
+
 @pytest.fixture(scope="module")
-def lifecycle_run() -> Iterator[Run]:
+def lifecycle_run(request: pytest.FixtureRequest) -> Iterator[Run]:
     token = os.environ["MIRUM_E2E_TOKEN"]
     cfg = StackConfig(ROOT, (ROOT / "compose.release.yml", ROOT / "e2e/compose/e2e.override.yml"),
                       os.environ["MIRUM_E2E_PROJECT"], token)
@@ -105,7 +114,8 @@ def lifecycle_run() -> Iterator[Run]:
         run.api.close()
         for case, (mechanism, kind) in CASES.items():
             observations = run.evidence.get(case, {"status": "not exercised"})
-            log.record(case, mechanism, kind, {**observations, "ops_notes": run.ops.notes})
+            log.record(case, mechanism, kind, {**observations, "ops_notes": run.ops.notes},
+                       status=aggregate_status(_case_items(request.session.items, case)))
         log.write()
 
 
@@ -171,6 +181,7 @@ def _deadline(run: Run, job: Job, pid: int, obs: dict) -> None:
     state = run.ops.exec_py("backend", f"print(open('/proc/{pid}/stat').read().rsplit(')', 1)[1].split()[0])")
     assert state.strip() == "T", "Builder did not enter SIGSTOP state"
     obs["builder_state"] = state.strip()
+    obs["fault_injected"] = True  # The builder is verifiably stopped.
     # Each poll must answer successfully while the builder is stopped. No synthetic clock or expiry.
     assert run.api.get("/auth/check").status_code == 200
     active = run.api.get_job(job.id)
