@@ -419,7 +419,7 @@ jobs:
         # The repo's backend/tests is mounted read-only over the image's (fixtures-only) directory so
         # `backend.tests.*` imports resolve; everything else comes from the shipped dependency closure.
         run: |
-          set -uo pipefail
+          set -u +e   # a failing pytest run must still be recorded below
           files="test_engineering_bundles.py test_engineering_bundle_limits.py test_engineering_jobs.py
             test_engineering_quota.py test_engineering_api_v1.py test_engineering_api_v1_limits.py
             test_engineering_capabilities.py test_engineering_regen_run_bytes.py test_regen_budget.py
