@@ -20,8 +20,8 @@ def _load(name: str) -> dict:
 
 
 def _glider_spec(api) -> dict:
-    """The repository's glider-distance example mission, pinned to the server's calibration."""
-    example = json.loads((FIXTURES.parents[1] / "examples" / "cem" / "glider-distance.json").read_text(encoding="utf-8"))
+    """The repository's glider-foam-core example mission, pinned to the server's calibration."""
+    example = json.loads((FIXTURES.parents[1] / "examples" / "cem" / "glider-foam-core.json").read_text(encoding="utf-8"))
     metadata = api.get("/cem/glider/metadata").json()
     requirements = example["requirements"]
     requirements["reference_target"] = 50.0  # the example's 1200 m is infeasible from a 10 m drop
