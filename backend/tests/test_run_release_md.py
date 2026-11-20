@@ -103,6 +103,13 @@ def test_malformed_step_info_rejected(tmp_path, info):
     "if true; then exit; fi",
     "export -p",
     "declare -p",
+    "set +o pipefail",
+    "set +o errexit",
+    "sh -x other.sh",
+    "set",
+    "printenv",
+    "env | sort",
+    "export -p | grep X",
 ])
 def test_forbidden_content_rejected(tmp_path, code):
     with pytest.raises(ValueError, match="forbidden"):
@@ -149,6 +156,22 @@ def test_log_filter_cli_through_a_real_pipe(tmp_path):
                        input=feed, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     assert "s3cr3t" not in log.read_text(encoding="utf-8")
+
+
+def test_log_filter_keeps_redacting_earlier_tokens_after_a_new_mask(tmp_path):
+    import io
+    log = tmp_path / "l.log"
+    rr.filter_log(io.StringIO("::add-mask::first\n::add-mask::second\nfirst second\n"), io.StringIO(), str(log))
+    assert log.read_text(encoding="utf-8").strip() == "*** ***"
+
+
+def test_log_filter_cli_survives_non_utf8_bytes(tmp_path):
+    log = tmp_path / "l.log"
+    r = subprocess.run([sys.executable, str(ROOT / "scripts" / "run_release_md.py"), "--filter", str(log)],
+                       input=b"::add-mask::tok\n\xff\xfe bad tok\nafter\n", capture_output=True)
+    assert r.returncode == 0, r.stderr
+    text = log.read_text(encoding="utf-8")
+    assert "tok" not in text and "after" in text
 
 
 def test_check_timing_requires_every_step_passed_in_order(tmp_path):

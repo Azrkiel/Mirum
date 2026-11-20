@@ -28,9 +28,12 @@ _FORBIDDEN = [
     (re.compile(r"\bset\s+-[a-zA-Z]*x"), "set -x"),
     (re.compile(r"\b(echo|printf)\b[^\n|;&<>]*\$\{?MIRUM_ACCESS_TOKEN\b"), "token print"),
     (re.compile(r"\bprintenv\b[^\n]*MIRUM_ACCESS_TOKEN"), "token print"),
-    (re.compile(r"^\s*(env|export|declare\s+-[xp]|export\s+-p)\s*$", re.M), "environment dump"),
-    (re.compile(r"\bset\s+-o\s+xtrace\b|\bbash\s+-[a-zA-Z]*x"), "tracing"),
-    (re.compile(r"\bset\s+\+[a-zA-Z]*[eu]"), "set +e/+u"),
+    (re.compile(r"^\s*(env|export|set|printenv|declare\s+-[xp]|export\s+-p)\s*($|[;&|)])", re.M),
+     "environment dump"),
+    (re.compile(r"\b(declare|typeset)\s+-[a-zA-Z]*p|\bexport\s+-p\b"), "environment dump"),
+    (re.compile(r"\bset\s+-o\s+xtrace\b|\b(ba|da|z|k)?sh\s+-[a-zA-Z]*x"), "tracing"),
+    # Any `set +...` loosens the session (errexit, nounset, pipefail); none is needed.
+    (re.compile(r"\bset\s+\+"), "set +"),
     (re.compile(r"\btrap\b"), "trap"),
     (re.compile(r"\breturn\b"), "return"),
     # A step may fail with a non-zero exit; it may never end the session successfully.
@@ -88,16 +91,20 @@ def extract(path):
 
 def filter_log(src, dst, log_path):
     """Copy src to dst and log_path line by line; after a `::add-mask::<tok>` line, replace
-    every literal occurrence of tok in the log file. The mask line itself is not logged."""
-    tok = ""
+    every literal occurrence of every announced tok in the log file. Mask lines are not logged."""
+    toks = set()
     with open(log_path, "a", encoding="utf-8") as log:
         for line in src:
             if line.startswith(MASK):
                 tok = line[len(MASK):].rstrip("\r\n")
+                if tok:
+                    toks.add(tok)
                 dst.write(line)
                 dst.flush()
                 continue
-            safe = line.replace(tok, "***") if tok else line
+            safe = line
+            for tok in sorted(toks, key=len, reverse=True):
+                safe = safe.replace(tok, "***")
             dst.write(safe)
             dst.flush()
             log.write(safe)
@@ -161,7 +168,10 @@ def main(argv=None):
     g.add_argument("--check-timing", metavar="JSON")
     a = ap.parse_args(argv)
     if a.filter:
-        filter_log(sys.stdin, sys.stdout, a.filter)
+        # Step output may hold any bytes: never crash the pipe on a decode error.
+        src = open(sys.stdin.fileno(), encoding="utf-8", errors="replace", closefd=False)
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        filter_log(src, sys.stdout, a.filter)
         return 0
     try:
         steps = extract(a.file)
