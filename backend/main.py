@@ -1670,13 +1670,21 @@ from dragsters.styles import REGISTRY as DRAGSTER_STYLES, load_preset as dragste
 from dragsters.api import stream as dragster_stream
 
 
-@app.post("/dragsters/generate")
+from engineering.api import BodyLimitedRoute as _BodyLimitedRoute
+
+
 @limiter.limit("5/minute")
 async def generate_dragster(body: DragsterSpec | DragsterSpecV2, request: Request):
     request.state.dragster_attempt_id = uuid.uuid4().hex
     return StreamingResponse(dragster_stream(body, request, _safe_error, request.app.state.dragster_runner),
                              media_type="text/event-stream",
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+# Pre-parse body cap (MIRUM_ENGINEERING_MAX_BODY_BYTES, 64 KiB): the spec is parsed before the
+# rate limiter runs and invalid bodies are not counted, so an unbounded body must never be buffered.
+app.router.add_api_route("/dragsters/generate", generate_dragster, methods=["POST"],
+                         route_class_override=_BodyLimitedRoute)
 
 
 @app.get("/dragsters/presets")
@@ -1693,7 +1701,6 @@ class DragsterInterpretRequest(BaseModel):
     base_spec: DragsterSpecV2 | None = None
 
 
-@app.post("/dragsters/interpret")
 @limiter.limit("10/minute")
 async def interpret_dragster(body: DragsterInterpretRequest, request: Request):
     from dragsters.extraction import interpret, ExtractionUnavailable, InvalidBaseSpec, UNAVAILABLE_MESSAGE
@@ -1706,6 +1713,10 @@ async def interpret_dragster(body: DragsterInterpretRequest, request: Request):
             {'loc': ['body', 'base_spec'], 'msg': 'base_spec failed validation', 'type': 'value_error'}]})
     except ExtractionUnavailable:
         return JSONResponse(status_code=503, content={'message': _safe_error(UNAVAILABLE_MESSAGE)})
+
+
+app.router.add_api_route("/dragsters/interpret", interpret_dragster, methods=["POST"],
+                         route_class_override=_BodyLimitedRoute)
 
 
 @app.post("/generate")
