@@ -17,6 +17,8 @@ from dragster_state import DragsterState
 from dragster_fields import GROUPS, field_info
 from workspace import empty_state, section_header
 
+MAX_IMPORT_BYTES = 64 * 1024     # same order as the backend body cap; the worker accepts 16 KiB specs
+
 _ROOT = Path(__file__).resolve().parent
 EXAMPLE = (_ROOT / 'backend/dragsters/examples/wedge.json' if (_ROOT / 'backend').is_dir()
            else _ROOT.parent / 'backend/dragsters/examples/wedge.json')
@@ -169,7 +171,10 @@ def render_dragster(backend, headers):
             pasted = st.text_area('Paste parameters JSON')
             if st.button('Load parameters'):
                 try:
-                    load_editor(upload.getvalue().decode('utf-8') if upload is not None else pasted)
+                    raw = upload.getvalue() if upload is not None else pasted.encode('utf-8')
+                    if len(raw) > MAX_IMPORT_BYTES:     # a spec is a few KiB; never parse a huge file
+                        raise ValueError(f'Parameters file is too large (limit {MAX_IMPORT_BYTES // 1024} KiB).')
+                    load_editor(raw.decode('utf-8'))
                     state.error = None
                 except (ValueError, UnicodeError) as exc:
                     state.error = str(exc)
