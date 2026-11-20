@@ -24,7 +24,9 @@ import hashlib
 import json
 import math
 import os
+import re
 import stat
+from pathlib import Path
 
 from pydantic import ValidationError
 
@@ -32,6 +34,7 @@ from cem.core import canonical_json
 from .capabilities import REGEN, UnsupportedCapability
 from .contracts import (ArtifactIdentity, CheckState, EngineeringBrief, GeneratorBriefContent,
                         GeneratorCandidate, GeneratorCheckResult, Measurement)
+from .regen_cli import RUNTIME_SO
 from .regen_spec import RegenChamberSpec, canonical_spec, specification_digest
 
 POLL_SECONDS = 0.25
@@ -59,6 +62,40 @@ class RegenUnavailable(RuntimeError):
 
 def _sha(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def _file_sha256(path: Path) -> str | None:
+    try:
+        if path.is_file():
+            from .regen_mesh import sha256_file
+            return sha256_file(path)
+    except OSError:
+        # Optional worker files may disappear before hashing finishes.
+        pass
+    return None
+
+
+def regen_provenance(env=None) -> dict:
+    """Capture worker file identities and the resource policy for this evaluation."""
+    if env is None:
+        env = os.environ
+    builder = Path(env.get('REGEN_BUILDER', '/opt/regen/app/builder'))
+    runtime = builder.parent / RUNTIME_SO
+    image_id = env.get('REGEN_IMAGE_ID', '')
+    return {
+        'runtime_so_sha256': _file_sha256(runtime),
+        'builder_sha256': _file_sha256(builder),
+        'builder_path': str(builder),
+        'runtime_so_path': str(runtime),
+        'gcc_lib_path': env.get('REGEN_GCC_LIB', '/opt/regen/lib'),
+        'image_id': image_id if re.fullmatch(r'[A-Za-z0-9:._@/-]{1,128}', image_id) else None,
+        'run_bytes': REGEN.resources.run_bytes,
+        'resource_policy_version': REGEN.resources.version,
+    }
+
+
+def with_provenance(evaluation: dict, env=None) -> dict:
+    return {**evaluation, 'provenance': regen_provenance(env)}
 
 
 def _num(value) -> float:
@@ -337,10 +374,11 @@ class RegenAdapter:
         except Exception:
             raise RegenUnavailable('Regen runner could not complete the job') from None
         try:
-            return await self._collect(runner, job, spec, candidate)
+            result = await self._collect(runner, job, spec, candidate)
         finally:
             # The evaluation holds every byte it needs; free the runner's tmpfs copy now.
             await asyncio.to_thread(runner.release, job['id'])
+        return await asyncio.to_thread(with_provenance, result)
 
     async def _collect(self, runner, job, spec, candidate) -> dict:
         from .regen_web import FILES
