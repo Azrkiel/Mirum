@@ -119,6 +119,7 @@ def test_init_script_has_every_required_step():
     assert '[ ! -L "$SRC" ]' in text
     assert 'chown -h "$APP_UID:$APP_GID" "$SRC"' in text and 'chmod 0700 "$SRC"' in text
     assert '[ "$(stat -c %u "$VOLUME")" = "0" ]' in text
+    assert '[ -z "$(find "$VOLUME" -maxdepth 0 -perm /022)" ]' in text
     assert '[ -d "$SRC" ] && [ ! -L "$SRC" ]' in text
     assert '[ "$(stat -c %u:%g:%a "$DST")" = "$APP_UID:$APP_GID:700" ]' in text
     assert 'SRC="$VOLUME/engineering"' in text and "DST=/tmp/mirum/engineering" in text

@@ -35,6 +35,7 @@ mount -t tmpfs -o "size=256M,uid=$APP_UID,gid=$APP_GID,mode=0700,nosuid,nodev" t
 #    The volume root must be root-owned (the app user can never plant a symlink there), and the
 #    directory is re-checked right before chown/chmod; chown -h never follows a link.
 [ "$(stat -c %u "$VOLUME")" = "0" ] || fail "$VOLUME is not owned by root"
+[ -z "$(find "$VOLUME" -maxdepth 0 -perm /022)" ] || fail "$VOLUME is group/world writable"
 [ ! -L "$SRC" ] || fail "$SRC is a symlink"
 [ -e "$SRC" ] || mkdir "$SRC"
 [ -d "$SRC" ] && [ ! -L "$SRC" ] || fail "$SRC is not a real directory"
