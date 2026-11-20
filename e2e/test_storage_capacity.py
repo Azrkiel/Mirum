@@ -439,9 +439,10 @@ def test_real_capacity(case: Case) -> None:
         result = case.api.wait_job(job, timeout_s=180)
         attempts[-1]["job_id"] = job
         if (result["lifecycle"], result["outcome"]) != ("completed", "accepted"):
-            attempts[-1]["unexpected_result"] = {k: result.get(k) for k in ("lifecycle", "outcome", "delivery", "detail", "reason", "message", "error")}
+            attempts[-1]["unexpected_result"] = {k: result.get(k) for k in ("lifecycle", "outcome", "delivery", "failures", "clarifications", "attempts", "bundle")}
             case.observed["backend_logs_tail"] = case.ops.stack.logs(120)[-6000:]
-        assert (result["lifecycle"], result["outcome"]) == ("completed", "accepted"), json.dumps(result)[:500]
+        assert (result["lifecycle"], result["outcome"]) == ("completed", "accepted"), (
+            f"{result['lifecycle']}/{result['outcome']} failures={result.get('failures')}")
         size = result["bundle"]["stored_bytes"]  # jobs.py:223-225 retains this reservation.
         assert size > 0
         retained += size
