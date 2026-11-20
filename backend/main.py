@@ -765,9 +765,7 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
     """Run the full pipeline, yielding SSE progress events."""
     event = _route_event(prompt)
     if event is not None:
-        yield 'data: ' + json.dumps(event) + '
-
-'
+        yield 'data: ' + json.dumps(event) + '\n\n'
         return
 
     # --- Step 1: REA (parallel with Planner) + Planner ---
