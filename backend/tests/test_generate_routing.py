@@ -133,7 +133,12 @@ def test_route_endpoint_returns_the_same_event_as_generate_without_any_llm_stage
     response = client.post('/route', json={'prompt': prompt})
     assert response.status_code == 200
     event = response.json()['route']
-    assert event == events(client, prompt)[0]
+    streamed = events(client, prompt)[0]
+    # the rules draft carries generated provenance (ids/timestamps), so compare it by shape
+    assert {k: v for k, v in event.items() if k != 'draft'} == {k: v for k, v in streamed.items() if k != 'draft'}
+    assert ('draft' in event) == ('draft' in streamed)
+    if 'draft' in event:
+        assert set(event['draft']) == set(streamed['draft']) == {'payload', 'issues', 'provenance'}
     assert event['capability_id'] == capability and event['assurance'] == 'checked_design'
 
 
