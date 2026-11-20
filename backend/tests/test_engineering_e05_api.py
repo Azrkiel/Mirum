@@ -10,6 +10,7 @@ import asyncio
 import copy
 import importlib
 import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -20,6 +21,7 @@ from engineering.briefs import BriefService, MemoryBriefRepository
 from engineering.capabilities import get_generator
 from engineering.limits import AiCallBudget
 from engineering.proposer import ProviderReply, ProviderSettings
+from engineering.store import SQLiteProposalLedger
 
 try:  # registers the repo's offline_models fixture where fastapi exists (CI); a no-op on the host
     from backend.tests.test_native_api_hardening_ports import offline_models  # noqa: F401
@@ -239,7 +241,8 @@ def test_regen_ai_draft_is_unverified_and_uses_one_budget_unit(ai_client, monkey
     before = budget.used()
     response = post_ai(ai_client, 'regen_chamber', REGEN_PROMPT)
     assert response.status_code == 201, response.text
-    assert calls and all(c['budget'] is budget and c['enabled'] is True for c in calls)
+    # The shared budget, seen through the durable spend recorder (M1).
+    assert calls and all(c['budget'].inner is budget and c['enabled'] is True for c in calls)
     body = response.json()
     assert body['draft']['content'] is not None
     provenance = body['draft']['provenance']
@@ -333,6 +336,72 @@ def test_invalid_ai_input_is_422_and_spends_nothing(ai_client, monkeypatch, over
     response = ai_client.post('/engineering/v1/drafts', json=body)
     assert response.status_code == 422, response.text
     assert budget.used() == before and calls == []
+
+
+def spend_rows(value):
+    with value.store.transaction() as db:
+        return [tuple(row) for row in db.execute('SELECT * FROM generator_spend').fetchall()]
+
+
+def test_generator_spend_reseeds_the_budget_after_a_restart(ai_client, monkeypatch, tmp_path):
+    """M1: every generator provider call (proposed, repaired, clarification, unavailable after a
+    call) is recorded before the call, so a rebuilt runtime seeds beam + generator spend."""
+    from engineering.api_v1 import create_runtime
+    from engineering.proposer import ProposalAudit, ProviderSettings
+    value = runtime()
+    SQLiteProposalLedger(value.store).claim(ProposalAudit(draft_id='beam-draft', draft_revision=1,
+        settings=ProviderSettings(provider='fixture', sdk_version='fixture', model='fixture', temperature=0., max_tokens=1024),
+        status='proposed', calls=2, request_characters=10, request_sha256='0' * 64))  # two beam calls
+    install_factory(monkeypatch, FakeProvider([MARKER + ' not json', REGEN_GOOD]))
+    assert post_ai(ai_client, 'regen_chamber', REGEN_PROMPT).status_code == 201  # 2 calls (repair)
+    install_factory(monkeypatch, FakeExtract(dict(status='needs_clarification', questions=['Which launch?'])))
+    assert post_ai(ai_client, 'glider_cem', GLIDER_PROMPT).status_code == 201  # 1 call, clarification
+    install_factory(monkeypatch, FakeProvider(error=RuntimeError(SECRET)))
+    assert_unavailable(post_ai(ai_client, 'regen_chamber', REGEN_PROMPT))  # 1 call, then unavailable
+    install_factory(monkeypatch, fake_interpret())
+    assert post_ai(ai_client, 'co2_dragster', DRAGSTER_PROMPT).status_code == 201  # 1 call
+    generator_calls = 2 + 1 + 1 + 1
+    rows = spend_rows(value)
+    assert len(rows) == generator_calls
+    blob = json.dumps(rows)
+    assert MARKER not in blob and SECRET not in blob and REGEN_PROMPT not in blob and GLIDER_PROMPT not in blob
+    # Restart: a fresh runtime on a copy of this volume's database (the live app keeps its owner lock).
+    import sqlite3
+    restarted = tmp_path / 'restarted'
+    restarted.mkdir(mode=0o700)
+    copy_db = sqlite3.connect(restarted / 'engineering.sqlite3')
+    with value.store._lock:
+        value.store.db.backup(copy_db)
+    copy_db.close()
+    monkeypatch.setenv('MIRUM_ENGINEERING_DATA_DIR', str(restarted))
+    rebuilt = create_runtime()
+    try:
+        assert rebuilt.proposer.budget.used() == 2 + generator_calls
+    finally:
+        rebuilt.store.close()
+
+
+def test_flag_off_generator_ai_records_no_spend_and_reads_no_key(client, monkeypatch):
+    read = []
+
+    class Spy(dict):
+        def get(self, key, default=None):
+            read.append(key)
+            return super().get(key, default)
+
+        def __getitem__(self, key):
+            read.append(key)
+            return super().__getitem__(key)
+
+        def __contains__(self, key):
+            read.append(key)
+            return super().__contains__(key)
+    monkeypatch.setattr(os, 'environ', Spy(os.environ))
+    for capability, prompt in (('regen_chamber', REGEN_PROMPT), ('glider_cem', GLIDER_PROMPT),
+                               ('co2_dragster', DRAGSTER_PROMPT)):
+        assert post_ai(client, capability, prompt).status_code == 503
+    assert not [key for key in list(read) if 'GEMINI' in str(key)]
+    assert spend_rows(runtime()) == []
 
 
 def test_beam_ai_mode_keeps_its_own_path_and_flag_message(client, monkeypatch):

@@ -267,7 +267,13 @@ def attach_v1_routes(app,limiter):
                 budget=value.proposer.budget
                 if not budget.has_capacity(): return unavailable()
                 await asyncio.to_thread(value.quota.admit_draft,client,ai=True,size=size)
-                proposer=proposal_contract.ai_proposer(body.capability,enabled=value.ai_enabled,budget=budget)
+                # Each reserved unit is written to the ledger before its provider call, so a restart
+                # re-seeds generator spend too (capability id and request sha only; never the prompt).
+                import hashlib
+                from .store import GeneratorSpendBudget
+                spend=GeneratorSpendBudget(budget,SQLiteProposalLedger(value.store),body.capability,
+                                           hashlib.sha256(body.prompt.encode()).hexdigest())
+                proposer=proposal_contract.ai_proposer(body.capability,enabled=value.ai_enabled,budget=spend)
                 try:
                     proposal=proposal_contract.conform(body.capability,await proposer.propose(body.prompt))
                 except proposal_contract.NonConformingProposal:
