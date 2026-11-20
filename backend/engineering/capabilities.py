@@ -498,7 +498,7 @@ REGEN = GeneratorDescriptor(
         _ref('BUILDER_TIMEOUT_S', 'engineering.regen_cli', 'BUILDER_TIMEOUT_S', 600, 'backend/engineering/regen_cli.py'),
         _inline('JobRunner.timeout_s', 900, 'backend/engineering/regen_web.py:64'),
         _inline('JobRunner.output_limit_bytes', 1 << 30, 'backend/engineering/regen_web.py:64'),
-        _inline('worker.RLIMIT_AS_bytes', 4 << 30, 'backend/engineering/regen_web.py:322')),
+        _inline('worker.RLIMIT_AS_bytes', 4 << 30, 'backend/engineering/regen_web.py:385')),
     primary_artifact='generator-cleaned.stl',
     payloads=('generator-cleaned.stl', 'generator-report.json', 'generator-spec.canonical.json'),
     adapter='engineering.regen_adapter:RegenAdapter',
