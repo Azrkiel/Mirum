@@ -130,6 +130,19 @@ class JobRunner:
             self._kill(proc)
         return True
 
+    def release(self, job_id: str) -> bool:
+        """Drop a finished job's folder and record now. The checked route calls this once it has
+        copied the output into its own bundle: keeping a second copy on the /tmp tmpfs for the
+        retention window left too little space for the next regen run (ENOSPC). False when the
+        job is unknown or still queued/running (cancel those instead)."""
+        with self.lock:
+            job = self.jobs.get(job_id)
+            if job is None or job['status'] in ('queued', 'running'):
+                return False
+            shutil.rmtree(self.root / job_id, ignore_errors=True)
+            del self.jobs[job_id]
+            return True
+
     def _run(self, job_id):
         folder = self.root / job_id
         out = folder / 'output'
