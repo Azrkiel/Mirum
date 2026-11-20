@@ -151,6 +151,24 @@ def case(request: pytest.FixtureRequest, capacity_run: tuple) -> Iterator[Case]:
             log.record(case_id, mechanism, kind, current.observed)
 
 
+_WORKER_DIAGNOSTICS = r"""
+import glob, os, shutil
+out = {"disk": {}, "worker_logs": {}, "cgroup": {}}
+for name, path in (("tmp", "/tmp"), ("volume", str(root)), ("root", "/")):
+    usage = shutil.disk_usage(path)
+    out["disk"][name] = {"total": usage.total, "free": usage.free}
+for path in sorted(glob.glob("/tmp/regen-web-*/*/worker.log"))[-3:]:
+    with open(path, "rb") as handle:
+        out["worker_logs"][path] = handle.read()[-2500:].decode(errors="replace")
+for name in ("memory.events", "memory.max", "memory.peak", "memory.current"):
+    try:
+        out["cgroup"][name] = open("/sys/fs/cgroup/" + name).read().strip()
+    except OSError as error:
+        out["cgroup"][name] = repr(error)
+print(json.dumps(out))
+"""
+
+
 def _admit(case: Case, brief: str, key: str) -> str:
     response = submit(case.api, brief, key)
     assert response.status_code == 202, f"Job admission returned HTTP {response.status_code}"
@@ -441,6 +459,7 @@ def test_real_capacity(case: Case) -> None:
         if (result["lifecycle"], result["outcome"]) != ("completed", "accepted"):
             attempts[-1]["unexpected_result"] = {k: result.get(k) for k in ("lifecycle", "outcome", "delivery", "failures", "clarifications", "attempts", "bundle")}
             case.observed["backend_logs_tail"] = case.ops.stack.logs(120)[-6000:]
+            case.observed["worker_diagnostics"] = case.probe(_WORKER_DIAGNOSTICS)
         assert (result["lifecycle"], result["outcome"]) == ("completed", "accepted"), (
             f"{result['lifecycle']}/{result['outcome']} failures={result.get('failures')}")
         size = result["bundle"]["stored_bytes"]  # jobs.py:223-225 retains this reservation.

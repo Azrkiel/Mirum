@@ -31,15 +31,22 @@ for proc in Path("/proc").iterdir():
     try:
         stat = (proc / "stat").read_bytes().rsplit(b")", 1)[1].split()
         argv = (proc / "cmdline").read_bytes().removesuffix(b"\0")
-        env = (proc / "environ").read_bytes().split(b"\0")
     except (FileNotFoundError, ProcessLookupError):
         continue
+    try:
+        env = (proc / "environ").read_bytes().split(b"\0")
+        unreadable = False
+    except (FileNotFoundError, ProcessLookupError):
+        continue
+    except PermissionError:
+        # Another uid's process: report it with unknown token/owner instead of crashing.
+        env, unreadable = [], True
     owner = next((item.split(b"=", 1)[1].decode(errors="replace")
                   for item in env if item.startswith(b"MIRUM_ENGINEERING_OWNER=")), None)
     rows.append(dict(pid=int(proc.name), ppid=int(stat[1]),
                      argv=[arg.decode(errors="replace") for arg in argv.split(b"\0")] if argv else [],
                      has_token=any(item.startswith(b"MIRUM_PROCESS_TOKEN=") for item in env),
-                     owner=owner))
+                     owner=owner, unreadable=unreadable))
 print(json.dumps(rows))
 """
 

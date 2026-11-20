@@ -306,3 +306,11 @@ def test_failure_redaction(rig: tuple, failure: str) -> None:
     with pytest.raises(StackError) as exc:
         ops.container_id("backend")
     assert token not in str(exc.value) and "***" in str(exc.value)
+
+
+def test_processes_script_tolerates_unreadable_environ() -> None:
+    if not Path("/proc/1/environ").exists():
+        pytest.skip("needs Linux /proc")
+    out = subprocess.run([sys.executable, "-c", module._PROCESSES], capture_output=True, text=True, check=True).stdout
+    rows = json.loads(out)
+    assert rows and all("unreadable" in row for row in rows)
