@@ -10,7 +10,7 @@ import streamlit as st
 from engineering_state import CheckedState
 from engineering_ui import APIError, _plain, _refs
 from engineering_v1 import (create_generator_draft, draft_specification, edited_specification, finalize,
-                            leaf_fields, parse_specification_json, outcome_message, patch_body, result_heading, result_view, submit, text_for,
+                            leaf_fields, parse_specification_json, outcome_message, patch_body, result_heading, result_view, state_line, submit, text_for,
                             verified_download)
 
 
@@ -58,7 +58,7 @@ def _result(client, state, entry):
     view = result_view(job, entry)
     active = job.get('lifecycle') not in ('completed', 'unavailable', 'cancelled')
     if view['label']: st.markdown('**' + view['label'] + '**')
-    st.text('State: ' + str(job.get('lifecycle')) + ' | engineering outcome: ' + str(job.get('outcome')))
+    st.text(state_line(entry, job))
     if active:
         st.info('Native checks are running for this immutable reviewed brief.')
         if st.button('Cancel current job', key='v1gen_cancel_' + cid):

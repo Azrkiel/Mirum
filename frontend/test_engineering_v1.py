@@ -574,3 +574,17 @@ def test_missing_claim_on_a_generator_falls_back_to_the_weakest_wording():
     from engineering_v1 import result_view
     e = entry('glider_cem')
     assert result_view(job(artifacts={'zip': True}), e)['label'] == 'Screened'
+
+
+def test_state_line_follows_the_claim_and_no_glider_text_says_accepted():
+    import re
+    from engineering_v1 import outcome_message, result_heading, result_view, state_line
+    assert state_line(claim_entry('rectangular_cantilever'), job()) == 'State: completed | engineering outcome: accepted'
+    assert state_line(claim_entry('co2_dragster'), job()) == 'State: completed | engineering outcome: geometry checks passed'
+    assert state_line(claim_entry('glider_cem'), job('rejected')) == 'State: completed | engineering outcome: rejected'
+    e = claim_entry('glider_cem')
+    texts = [state_line(e, job()), result_heading(e), result_view(job(artifacts={'zip': True}), e)['label']]
+    texts += [outcome_message(e, j)[1] for j in (job(), job('rejected'), job('x', lifecycle='cancelled'), job('x', lifecycle='unavailable'))]
+    assert 'engineering outcome: screened' in texts[0]
+    for t in texts:
+        assert 'accepted' not in re.sub('not accepted for manufacture', '', t, flags=re.I).lower(), t
