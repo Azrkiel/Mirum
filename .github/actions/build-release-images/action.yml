@@ -147,6 +147,8 @@ runs:
         out_dir="$(dirname "$EVIDENCE_PATH")"
         mkdir -p "$out_dir"
         token=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')   # throwaway, never a real secret
+        # Passed by name only (-e NAME), so the value never appears in a docker argv.
+        export MIRUM_ACCESS_TOKEN="$token" SMOKE_TOKEN="$token"
         vol="mirum-smoke-eng-$RANDOM"
         docker volume create "$vol" >/dev/null
         # The engineering volume must be owned by uid 10001 and not group/world writable.
@@ -155,15 +157,15 @@ runs:
           --memory 4g --memory-swap 4g --pids-limit 512 \
           --tmpfs /tmp:rw,size=256m,mode=1777 --tmpfs /tmp/mirum:rw,size=256m,uid=10001,gid=10001,mode=0700 \
           -v "$vol:/tmp/mirum/engineering" \
-          -e MIRUM_ACCESS_TOKEN="$token" -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent \
+          -e MIRUM_ACCESS_TOKEN -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent \
           mirum-backend:release)
         cleanup() { docker logs "$cid" > "$RUNNER_TEMP/regen-smoke-container.log" 2>&1 || true; docker rm -f "$cid" >/dev/null 2>&1 || true; docker volume rm -f "$vol" >/dev/null 2>&1 || true; }
         trap cleanup EXIT
         # K1: same scratch sizes as the release compose (/tmp and /tmp/mirum at 256 MiB), and two runs
-        # back to back in one container, so a space leak between runs fails here, not in production.
+        # back to back in one container: run 2 proves run 1's leftovers do not exhaust the 256 MiB scratch.
         for run in 1 2; do
           out="$out_dir/regen-release-smoke.json"; [ "$run" = 1 ] || out="$out_dir/regen-release-smoke-run$run.json"
-          docker exec -i -e SMOKE_TOKEN="$token" -e SMOKE_RUN="$run" -e SMOKE_SPEC="$(cat picogk-builder/examples/reference.json)" "$cid" \
+          docker exec -i -e SMOKE_TOKEN -e SMOKE_RUN="$run" -e SMOKE_SPEC="$(cat picogk-builder/examples/reference.json)" "$cid" \
             python - < scripts/regen_release_smoke.py > "$out" \
             || { cat "$out"; docker logs "$cid" 2>&1 | tail -60; exit 1; }
           cat "$out"

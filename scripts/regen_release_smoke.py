@@ -2,7 +2,7 @@
 
 The container runs read-only with --network none, so everything goes to the loopback API with the
 access token. Env: SMOKE_TOKEN, SMOKE_SPEC (reference spec JSON), SMOKE_RUN (run number; repeated runs in one
-container use distinct idempotency keys and must each pass, which exercises scratch eviction between runs). Prints one JSON record on stdout
+container use distinct idempotency keys and must each pass, so run 1's leftovers cannot exhaust scratch). Prints one JSON record on stdout
 and exits non-zero unless the reference job is ACCEPTED on BOTH routes (both gate): the browser route and
 the checked (v1) route. The checked route's artifact hashes must equal the browser route's. The measured
 stored bytes of the checked run are recorded (steps.checked_route.stored_bytes_measured).
