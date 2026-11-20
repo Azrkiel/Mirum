@@ -208,3 +208,19 @@ def test_budget_is_per_capability_and_cannot_be_refunded():
     assert budget.reserve() is False
     assert budget.denied == 1
     assert budget.used() == 2
+
+
+def test_glider_runs_configure_the_legacy_client_with_the_approved_key(tmp_path, monkeypatch):
+    """cem.extraction uses the legacy google.generativeai global client, which only main.py configures;
+    the live script must configure it with GEMINI_API_KEY_HEAVY or every glider case is unavailable."""
+    import sys
+    import types
+    live = e05
+    configured = []
+    fake = types.ModuleType('google.generativeai')
+    fake.configure = lambda **kw: configured.append(kw)
+    monkeypatch.setitem(sys.modules, 'google.generativeai', fake)
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'planted-heavy')
+    monkeypatch.delenv('GEMINI_API_KEY_PRO', raising=False)
+    live.configure_legacy_client()
+    assert configured == [{'api_key': 'planted-heavy'}]
