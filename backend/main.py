@@ -739,20 +739,32 @@ def _rules_draft(capability_id: str, prompt: str) -> dict | None:
         return None
 
 
-async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = False) -> AsyncGenerator[str, None]:
-    """Run the full pipeline, yielding SSE progress events."""
+def _route_event(prompt: str) -> dict | None:
+    """Deterministic capability routing: the `route` SSE event for a checked capability, else None.
+
+    Provider-free (rules router + rules proposer). Shared by /generate and /route so the UI can
+    decide the path before any /clarify or /plan call.
+    """
     from engineering.router import route as _route_capability
     decision = _route_capability(prompt)
-    if decision.capability_id:
-        event = {'step': 'route', 'status': 'done', 'workflow': decision.capability_id,
-                 'capability_id': decision.capability_id, 'assurance': decision.assurance,
-                 'reason': decision.reason,
-                 'detail': ('Routed to the deterministic CO2 dragster workflow'
-                            if decision.capability_id == 'co2_dragster'
-                            else f'Routed to the {decision.capability_id} checked-design workflow')}
-        draft = _rules_draft(decision.capability_id, prompt)
-        if draft is not None:
-            event['draft'] = draft
+    if not decision.capability_id:
+        return None
+    event = {'step': 'route', 'status': 'done', 'workflow': decision.capability_id,
+             'capability_id': decision.capability_id, 'assurance': decision.assurance,
+             'reason': decision.reason,
+             'detail': ('Routed to the deterministic CO2 dragster workflow'
+                        if decision.capability_id == 'co2_dragster'
+                        else f'Routed to the {decision.capability_id} checked-design workflow')}
+    draft = _rules_draft(decision.capability_id, prompt)
+    if draft is not None:
+        event['draft'] = draft
+    return event
+
+
+async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = False) -> AsyncGenerator[str, None]:
+    """Run the full pipeline, yielding SSE progress events."""
+    event = _route_event(prompt)
+    if event is not None:
         yield 'data: ' + json.dumps(event) + '\n\n'
         return
 
@@ -1508,6 +1520,17 @@ async def _pipeline(prompt: str, run_aero: bool = False, run_struct: bool = Fals
         },
     }
     yield f"data: {json.dumps(complete_payload)}\n\n"
+
+
+@app.post("/route")
+@limiter.limit("15/minute")
+async def route_prompt(body: GenerateRequest, request: Request):
+    """Provider-free route decision: the checked-capability `route` event for this prompt, or null.
+
+    The UI calls this before /clarify and /plan so a checked-capability prompt never reaches a
+    provider. Same deterministic router as /generate; no key, no model call.
+    """
+    return {"route": _route_event(body.prompt)}
 
 
 @app.post("/clarify")

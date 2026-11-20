@@ -336,6 +336,14 @@ class RegenAdapter:
             raise
         except Exception:
             raise RegenUnavailable('Regen runner could not complete the job') from None
+        try:
+            return await self._collect(runner, job, spec, candidate)
+        finally:
+            # The evaluation holds every byte it needs; free the runner's tmpfs copy now.
+            await asyncio.to_thread(runner.release, job['id'])
+
+    async def _collect(self, runner, job, spec, candidate) -> dict:
+        from .regen_web import FILES
         spec_bytes = canonical_spec(spec).encode()
         if job['status'] == 'rejected' and isinstance(job.get('report'), dict):
             return build_evaluation(candidate, job['report'], report_bytes=rejected_report_bytes(job['report']),
