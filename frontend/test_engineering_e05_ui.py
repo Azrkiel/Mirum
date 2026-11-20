@@ -393,3 +393,12 @@ def test_unknown_job_claim_falls_back_to_the_entry_then_the_weakest():
     from engineering_v1 import claim_of
     assert claim_of(dict(id='co2_dragster', claim='geometry_checks_only'), dict(claim='bogus')) == 'geometry_checks_only'
     assert claim_of(_bare_entry('co2_dragster'), dict(claim='bogus')) == 'screening_only'
+
+
+def test_attempt_rows_follow_the_claim_and_never_read_accepted_for_generators():
+    """#111 review LOW-2: the attempts table relabels 'accepted' like the state line."""
+    from engineering_v1 import attempt_outcome
+    passing = {'outcome': 'accepted'}
+    assert attempt_outcome({'claim': 'screening_only'}, {}, passing) == 'screened'
+    assert attempt_outcome({'claim': 'geometry_checks_only'}, {}, passing) == 'geometry checks passed'
+    assert attempt_outcome({'claim': 'geometry_checks_only'}, {}, {'outcome': 'rejected'}) == 'rejected'

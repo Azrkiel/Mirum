@@ -230,6 +230,14 @@ def outcome_message(entry, job):
     return 'error', f'A required execution or publication stage is unavailable. No {noun} package is offered.'
 
 
+def attempt_outcome(entry, job, attempt):
+    """An attempt row's outcome, relabelled from the claim like the state line (never a bare 'accepted')."""
+    outcome = attempt.get('outcome')
+    if outcome == 'accepted':
+        outcome = {None: 'accepted', 'geometry_checks_only': 'geometry checks passed', 'screening_only': 'screened'}[claim_of(entry, job)]
+    return str(outcome)
+
+
 def state_line(entry, job):
     """The 'State | engineering outcome' line; the raw job outcome is relabelled from the claim."""
     outcome = job.get('outcome')

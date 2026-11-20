@@ -10,7 +10,7 @@ import streamlit as st
 
 from engineering_state import CheckedState
 from engineering_ui import APIError, _plain, _refs
-from engineering_v1 import (ai_enabled, ai_available, ai_origins, field_label, is_ai_draft, propose_ai_draft,
+from engineering_v1 import (attempt_outcome, ai_enabled, ai_available, ai_origins, field_label, is_ai_draft, propose_ai_draft,
                             review_ack_required, unverified_fields, create_generator_draft, draft_specification, edited_specification, finalize,
                             leaf_fields, parse_specification_json, outcome_message, patch_body, result_heading, result_view, state_line, submit, text_for,
                             verified_download)
@@ -105,7 +105,7 @@ def _result(client, state, entry):
     for reason in job.get('failures', []) or []: st.text(str(reason))
     attempts = job.get('attempts') or []
     if attempts:
-        st.dataframe([dict(outcome=str(a.get('outcome')), reasons='; '.join(map(str, a.get('failures') or [])) or 'All mandatory digital checks passed')
+        st.dataframe([dict(outcome=attempt_outcome(entry, job, a), reasons='; '.join(map(str, a.get('failures') or [])) or 'All mandatory digital checks passed')
                       for a in attempts], hide_index=True, use_container_width=True)
     if job.get('delivery') != 'available':
         if job.get('outcome') == 'accepted': st.error('Required package integrity or storage is unavailable. Downloads are withheld.')

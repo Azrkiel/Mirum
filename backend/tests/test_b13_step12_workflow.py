@@ -218,12 +218,27 @@ def test_driver_tooling_comes_from_hashed_locks():
 def test_ai_flag_is_only_in_the_step12_override():
     assert AI_FLAG in text(OVERRIDE)
     assert re.search(r'^      ' + AI_FLAG + r': "1"$', text(OVERRIDE), re.M)
-    holders = []
-    for path in list(ROOT.glob('compose*.yml')) + list((ROOT / 'e2e').rglob('*.yml')) + list(WORKFLOWS.glob('*.yml')) \
-            + list((ROOT / '.github' / 'actions').rglob('*.yml')):
-        if AI_FLAG in path.read_text(encoding='utf-8'):
-            holders.append(path.relative_to(ROOT).as_posix())
-    assert holders == ['e2e/compose/b13-step12.override.yml'], holders
+    # Every config file of any extension (yml, env, toml, json, sh...) under the compose, e2e, CI and
+    # deploy trees: moving the flag into another file type must not slip past this guard. Python tests
+    # and Markdown docs only name the flag; they cannot set it.
+    files = [p for p in ROOT.glob('compose*') if p.is_file()] + [
+        p for tree in ('e2e', '.github', 'deploy') for p in (ROOT / tree).rglob('*')
+        if p.is_file() and p.suffix not in ('.py', '.md') and '__pycache__' not in p.parts]
+    holders, env_refs = [], []
+    for path in files:
+        try:
+            body = path.read_text(encoding='utf-8')
+        except (UnicodeDecodeError, OSError):
+            continue
+        rel = path.relative_to(ROOT).as_posix()
+        if AI_FLAG in body:
+            holders.append(rel)
+        if 'e05-ai-offline.env' in body and rel != 'e2e/compose/e05-ai-offline.env':
+            env_refs.append(rel)
+    # The B13 step-12 override and the E05 offline e2e env file (no egress, placeholder key) only.
+    assert sorted(holders) == ['e2e/compose/b13-step12.override.yml', 'e2e/compose/e05-ai-offline.env'], holders
+    # That env file is loaded only by its own e2e override, never by a release/prod compose or Fly config.
+    assert env_refs == ['e2e/compose/e05-ai-offline.override.yml'], env_refs
     assert AI_FLAG not in text(ROOT / 'compose.release.yml')
 
 
