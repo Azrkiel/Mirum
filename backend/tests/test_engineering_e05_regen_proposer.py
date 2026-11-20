@@ -222,7 +222,9 @@ def test_provider_schema_is_gemini_subset():
 def test_factory_builds_proposer_only_when_enabled():
     budget = AiCallBudget(daily_calls=1, concurrency=1)
     built = pc.ai_proposer('regen_chamber', enabled=True, budget=budget)
-    assert isinstance(built, AiProposer) and built.budget is budget
+    # By name: another test may drop the module from sys.modules, so a re-import makes a new class object.
+    assert (type(built).__module__, type(built).__qualname__) == ('engineering.regen_proposer', 'AiProposer')
+    assert built.budget is budget
     assert isinstance(built, pc.CapabilityAiProposer)
     assert pc.ai_proposer('regen_chamber', enabled=False) is None
 
