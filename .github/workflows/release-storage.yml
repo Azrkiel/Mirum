@@ -95,6 +95,11 @@ jobs:
         # sudo: relied on by the tests' `sudo -n` host helpers; this only proves it is available.
         run: sudo -n true
 
+      - name: Harness unit tests (test_*_unit.py)
+        env:
+          CI: "true"
+        run: '"$E2E_PY" -m pytest -c e2e/pytest-storage.ini --tb=short e2e/unit'
+
       - name: Start the backend only
         run: docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE up -d --wait --wait-timeout 300 --no-deps backend
 
