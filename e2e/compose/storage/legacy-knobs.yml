@@ -1,0 +1,7 @@
+# S11 test overlay: tightens the legacy (non-engineering) artifact cleanup knobs so eviction is
+# observable. Allowlisted by release-storage.yml: only these two backend env keys may change.
+services:
+  backend:
+    environment:
+      MIRUM_ARTIFACT_MAX_RUNS: "1"
+      MIRUM_ARTIFACT_TTL_S: "1"

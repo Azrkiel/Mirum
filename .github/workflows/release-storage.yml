@@ -1,0 +1,461 @@
+name: Release storage
+
+# R6 slow lane: storage and process-control cases against the pinned release images
+# (docs/plans/2026-11-19-r6-design.md, section 2). One compose project per job, mirum-st-<job>;
+# only backend is started (up -d --wait --no-deps backend); `down -v` touches only that job's own
+# throwaway project. No secrets: the access token is generated per run and masked.
+#
+# Triggers: workflow_dispatch (input `jobs`: comma list of lifecycle,capacity,retention,
+# native-on-release, or `all`; input `smoke`) and pull_request only while the PR carries the
+# `storage` label and comes from this repository (fork PRs would run attacker-controlled test code).
+#
+# Release evidence: ONLY a workflow_dispatch run on main counts (artifacts `release-storage-<job>`).
+# Every other run uploads `release-storage-<job>-nonrelease`. Artifacts are JSON and PNG only.
+#
+# `smoke=true` (dispatch only) accepts "no tests collected for the marker" (pytest exit 5) so the
+# plumbing (build, stack up/down, overlays, loop volume, S16) can be proven before the test modules
+# exist. Any other exit code still fails, and smoke never applies to pull_request runs.
+#
+# sudo is used ONLY in these named steps (hosted runners have passwordless sudo; nothing here is a
+# secret-bearing step):
+#   capacity: "Create 512 MiB loop volume" (mkfs on a file, mount, chown 10001, rmdir lost+found),
+#             "Verify host helper privileges" (`sudo -n true`, relied on by the tests' chattr,
+#             fallocate and remount helpers), "Remove loop volume" (umount), and one `sudo ls -ld`
+#             in the smoke overlay step.
+#   lifecycle: "Verify host helper privileges" (the S04b poller uses `sudo -n kill -STOP`).
+# The test helpers only run `sudo -n` when CI=true.
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: "Comma list of lifecycle,capacity,retention,native-on-release, or all"
+        type: string
+        default: all
+      smoke:
+        description: "Accept 'no tests collected' (exit 5) while the test modules do not exist yet"
+        type: boolean
+        default: false
+  pull_request:
+    types: [labeled, synchronize, reopened]
+
+permissions: {}
+
+concurrency:
+  group: release-storage-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  ARTIFACT_SUFFIX: ${{ (github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main') && '-nonrelease' || '' }}
+
+jobs:
+  lifecycle:
+    name: Lifecycle (S01-S06)
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+      (inputs.jobs == 'all' || contains(format(',{0},', replace(inputs.jobs, ' ', '')), ',lifecycle,'))) ||
+      (github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'storage') &&
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      MIRUM_E2E_PROJECT: mirum-st-lifecycle
+      COMPOSE_BASE: -f compose.release.yml -f e2e/compose/e2e.override.yml
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/build-release-images
+        with:
+          evidence-path: release-evidence/release-images.json
+
+      - name: Generate run-local token
+        run: |
+          token=$(openssl rand -hex 32)
+          echo "::add-mask::$token"
+          {
+            echo "MIRUM_ACCESS_TOKEN=$token"
+            echo "MIRUM_E2E_TOKEN=$token"
+          } >> "$GITHUB_ENV"
+
+      - name: Install e2e tooling (hashed lock)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/e2e-venv"
+          "$RUNNER_TEMP/e2e-venv/bin/python" -m pip install --require-hashes --only-binary=:all: --no-deps -r e2e/requirements.lock
+          echo "E2E_PY=$RUNNER_TEMP/e2e-venv/bin/python" >> "$GITHUB_ENV"
+
+      - name: Verify host helper privileges (sudo -n)
+        # sudo: relied on by the tests' `sudo -n` host helpers; this only proves it is available.
+        run: sudo -n true
+
+      - name: Start the backend only
+        run: docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE up -d --wait --wait-timeout 300 --no-deps backend
+
+      - name: Run lifecycle cases (-m lifecycle)
+        env:
+          CI: "true"
+          SMOKE: ${{ inputs.smoke && 'true' || 'false' }}
+        run: |
+          set +e
+          "$E2E_PY" -m pytest -c e2e/pytest-storage.ini --tb=short -m lifecycle e2e
+          rc=$?
+          set -e
+          mkdir -p e2e/artifacts/storage/lifecycle
+          printf '{"job": "lifecycle", "pytest_exit_code": %s, "smoke": %s, "source_sha": "%s"}\n' "$rc" "$SMOKE" "$GITHUB_SHA" > e2e/artifacts/storage/lifecycle/run-status.json
+          if [ "$rc" = 5 ] && [ "$SMOKE" = true ]; then
+            echo "smoke: no tests collected for marker lifecycle, accepted"
+            exit 0
+          fi
+          exit "$rc"
+
+      - name: Compose logs on failure (token redacted)
+        if: failure()
+        run: |
+          docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE ps -a || true
+          docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE logs --no-color --tail 300 backend 2>&1 \
+            | sed "s/$MIRUM_E2E_TOKEN/***/g" || true
+
+      - name: Upload evidence (PNG and JSON only)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-storage-lifecycle${{ env.ARTIFACT_SUFFIX }}
+          path: |
+            e2e/artifacts/**/*.png
+            e2e/artifacts/**/*.json
+            release-evidence/*.json
+          if-no-files-found: warn
+
+      - name: Remove this job's own throwaway project
+        if: always()
+        run: docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE down -v --remove-orphans || true
+
+  capacity:
+    name: Capacity (S07-S09, S11)
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+      (inputs.jobs == 'all' || contains(format(',{0},', replace(inputs.jobs, ' ', '')), ',capacity,'))) ||
+      (github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'storage') &&
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      MIRUM_E2E_PROJECT: mirum-st-capacity
+      COMPOSE_BASE: -f compose.release.yml -f e2e/compose/e2e.override.yml
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/build-release-images
+        with:
+          evidence-path: release-evidence/release-images.json
+
+      - name: Generate run-local token
+        run: |
+          token=$(openssl rand -hex 32)
+          echo "::add-mask::$token"
+          {
+            echo "MIRUM_ACCESS_TOKEN=$token"
+            echo "MIRUM_E2E_TOKEN=$token"
+          } >> "$GITHUB_ENV"
+
+      - name: Install e2e tooling (hashed lock)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/e2e-venv"
+          "$RUNNER_TEMP/e2e-venv/bin/python" -m pip install --require-hashes --only-binary=:all: --no-deps -r e2e/requirements.lock
+          echo "E2E_PY=$RUNNER_TEMP/e2e-venv/bin/python" >> "$GITHUB_ENV"
+
+      - name: Verify host helper privileges (sudo -n)
+        # sudo: relied on by the tests' `sudo -n` host helpers; this only proves it is available.
+        run: sudo -n true
+
+      - name: Create 512 MiB loop volume (sudo)
+        # sudo: mount needs root. The image lives under RUNNER_TEMP; the mount is owned by uid 10001
+        # with mode 0700 and no lost+found so the backend startup guards and "volume clean" checks pass.
+        run: |
+          set -euo pipefail
+          img="$RUNNER_TEMP/mirum-loop.img"
+          mnt="$RUNNER_TEMP/mirum-loop"
+          truncate -s 512M "$img"
+          mkfs.ext4 -q -F -m 0 "$img"
+          mkdir -p "$mnt"
+          sudo mount -o loop "$img" "$mnt"
+          sudo rmdir "$mnt/lost+found"
+          sudo chown 10001:10001 "$mnt"
+          sudo chmod 0700 "$mnt"
+          echo "MIRUM_STORAGE_LOOP_MOUNT=$mnt" >> "$GITHUB_ENV"
+          echo "MIRUM_STORAGE_LOOP_IMAGE=$img" >> "$GITHUB_ENV"
+          df -h "$mnt"
+
+      - name: Overlays change only their allowlisted paths
+        run: |
+          set -euo pipefail
+          cfg() { docker compose -p "$MIRUM_E2E_PROJECT" "$@" config --format json | jq -S .; }
+          check() {
+            name="$1"; allow="$2"
+            base="$RUNNER_TEMP/cfg-base.json"; merged="$RUNNER_TEMP/cfg-$name.json"
+            cfg $COMPOSE_BASE > "$base"
+            cfg $COMPOSE_BASE -f "e2e/compose/storage/$name.yml" > "$merged"
+            # An empty config on either side must not pass vacuously.
+            for f in "$base" "$merged"; do
+              test -s "$f" && test "$(jq -r 'type' "$f")" = object && test "$(jq -r '.services.backend | type' "$f")" = object \
+                || { echo "empty or invalid compose config: $f"; exit 1; }
+            done
+            # Leaf entries (path + value) that differ between base and merged, reported as paths only:
+            # the config holds the access token, so values are never printed.
+            changed=$(jq -nc --slurpfile b "$base" --slurpfile m "$merged" '
+              def entries: [tostream | select(length == 2) | {p: (.[0] | map(tostring) | join("/")), v: .[1]}];
+              (($b[0] | entries) as $be | ($m[0] | entries) as $me | (($be - $me) + ($me - $be)) | map(.p) | unique)')
+            echo "$name changed paths: $changed"
+            bad=$(jq -nc --argjson c "$changed" --argjson a "$allow" '
+              $c | map(select(. as $p | ($a | any(. as $x | $p == $x or ($p | startswith($x + "/")))) | not))')
+            test "$bad" = "[]" || { echo "$name overlay changes paths outside its allowlist: $bad"; exit 1; }
+            missing=$(jq -nc --argjson c "$changed" --argjson a "$allow" '
+              $a | map(select(. as $x | ($c | any(. == $x or startswith($x + "/"))) | not))')
+            test "$missing" = "[]" || { echo "$name overlay does not change expected paths: $missing"; exit 1; }
+            # Everything outside the allowlist is identical by construction; assert the hardening
+            # and the token explicitly as well.
+            for k in mem_limit read_only cap_drop ports user environment.MIRUM_ACCESS_TOKEN security_opt pids_limit; do
+              [ "$(jq -c ".services.backend.$k" "$base")" = "$(jq -c ".services.backend.$k" "$merged")" ] \
+                || { echo "$name overlay changed backend.$k"; exit 1; }
+            done
+          }
+          check legacy-knobs '["services/backend/environment/MIRUM_ARTIFACT_MAX_RUNS","services/backend/environment/MIRUM_ARTIFACT_TTL_S"]'
+          check staging-tiny '["services/backend/tmpfs/2"]'
+          check small-volume '["volumes/mirum_engineering/driver_opts","volumes/mirum_engineering/name"]'
+          rm -f "$RUNNER_TEMP"/cfg-*.json
+
+      - name: Start the backend only
+        run: docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE up -d --wait --wait-timeout 300 --no-deps backend
+
+      - name: Smoke - each overlay brings the backend up and is applied
+        if: inputs.smoke
+        run: |
+          set -euo pipefail
+          up() { docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE -f "e2e/compose/storage/$1.yml" up -d --wait --wait-timeout 300 --no-deps backend; }
+          down() { docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE -f "e2e/compose/storage/$1.yml" down -v --remove-orphans; }
+          ex() { docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE -f "e2e/compose/storage/$1.yml" exec -T backend "${@:2}"; }
+          # the plain stack from the previous step is replaced by each overlay stack in turn
+          docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE down -v --remove-orphans
+
+          up legacy-knobs
+          ex legacy-knobs python -c 'import os; assert os.environ["MIRUM_ARTIFACT_MAX_RUNS"] == "1" and os.environ["MIRUM_ARTIFACT_TTL_S"] == "1"'
+          down legacy-knobs
+
+          up staging-tiny
+          ex staging-tiny sh -c 'grep " /tmp/mirum/engineering/staging " /proc/mounts | tee /dev/stderr | grep -q "size=16k"'
+          down staging-tiny
+
+          up small-volume
+          ex small-volume sh -c 'grep " /tmp/mirum/engineering " /proc/mounts | tee /dev/stderr | grep -q ext4'
+          ex small-volume python -c 'import os; s = os.statvfs("/tmp/mirum/engineering"); mib = s.f_blocks * s.f_frsize // 2**20; print("volume MiB", mib); assert 400 < mib < 520'
+          sudo ls -ld "$MIRUM_STORAGE_LOOP_MOUNT"
+          down small-volume
+          test -d "$MIRUM_STORAGE_LOOP_MOUNT"   # down -v removed the docker volume, not the loop mount
+          mkdir -p e2e/artifacts/storage/capacity
+          echo '{"smoke_overlays": ["legacy-knobs", "staging-tiny", "small-volume"], "result": "ok"}' > e2e/artifacts/storage/capacity/smoke-overlays.json
+
+      - name: Run capacity cases (-m capacity)
+        env:
+          CI: "true"
+          SMOKE: ${{ inputs.smoke && 'true' || 'false' }}
+          MIRUM_STORAGE_LOOP_MOUNT: ${{ env.MIRUM_STORAGE_LOOP_MOUNT }}
+        run: |
+          set +e
+          "$E2E_PY" -m pytest -c e2e/pytest-storage.ini --tb=short -m capacity e2e
+          rc=$?
+          set -e
+          mkdir -p e2e/artifacts/storage/capacity
+          printf '{"job": "capacity", "pytest_exit_code": %s, "smoke": %s, "source_sha": "%s"}\n' "$rc" "$SMOKE" "$GITHUB_SHA" > e2e/artifacts/storage/capacity/run-status.json
+          if [ "$rc" = 5 ] && [ "$SMOKE" = true ]; then
+            echo "smoke: no tests collected for marker capacity, accepted"
+            exit 0
+          fi
+          exit "$rc"
+
+      - name: Compose logs on failure (token redacted)
+        if: failure()
+        run: |
+          docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE ps -a || true
+          docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE logs --no-color --tail 300 backend 2>&1 \
+            | sed "s/$MIRUM_E2E_TOKEN/***/g" || true
+
+      - name: Upload evidence (PNG and JSON only)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-storage-capacity${{ env.ARTIFACT_SUFFIX }}
+          path: |
+            e2e/artifacts/**/*.png
+            e2e/artifacts/**/*.json
+            release-evidence/*.json
+          if-no-files-found: warn
+
+      - name: Remove this job's own throwaway project
+        if: always()
+        run: docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE down -v --remove-orphans || true
+
+      - name: Remove loop volume (sudo)
+        # sudo: umount needs root.
+        if: always()
+        run: |
+          sudo umount "$RUNNER_TEMP/mirum-loop" || true
+          rm -f "$RUNNER_TEMP/mirum-loop.img"
+
+  retention:
+    name: Retention (S10, S12-S15)
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+      (inputs.jobs == 'all' || contains(format(',{0},', replace(inputs.jobs, ' ', '')), ',retention,'))) ||
+      (github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'storage') &&
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      MIRUM_E2E_PROJECT: mirum-st-retention
+      COMPOSE_BASE: -f compose.release.yml -f e2e/compose/e2e.override.yml
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/build-release-images
+        with:
+          evidence-path: release-evidence/release-images.json
+
+      - name: Generate run-local token
+        run: |
+          token=$(openssl rand -hex 32)
+          echo "::add-mask::$token"
+          {
+            echo "MIRUM_ACCESS_TOKEN=$token"
+            echo "MIRUM_E2E_TOKEN=$token"
+          } >> "$GITHUB_ENV"
+
+      - name: Install e2e tooling (hashed lock)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/e2e-venv"
+          "$RUNNER_TEMP/e2e-venv/bin/python" -m pip install --require-hashes --only-binary=:all: --no-deps -r e2e/requirements.lock
+          echo "E2E_PY=$RUNNER_TEMP/e2e-venv/bin/python" >> "$GITHUB_ENV"
+
+      - name: Install Chromium (S15 failure views)
+        run: '"$E2E_PY" -m playwright install --with-deps chromium'
+
+      - name: Start the backend only
+        run: docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE up -d --wait --wait-timeout 300 --no-deps backend
+
+      - name: Run retention cases (-m retention)
+        env:
+          CI: "true"
+          SMOKE: ${{ inputs.smoke && 'true' || 'false' }}
+        run: |
+          set +e
+          "$E2E_PY" -m pytest -c e2e/pytest-storage.ini --tb=short -m retention e2e
+          rc=$?
+          set -e
+          mkdir -p e2e/artifacts/storage/retention
+          printf '{"job": "retention", "pytest_exit_code": %s, "smoke": %s, "source_sha": "%s"}\n' "$rc" "$SMOKE" "$GITHUB_SHA" > e2e/artifacts/storage/retention/run-status.json
+          if [ "$rc" = 5 ] && [ "$SMOKE" = true ]; then
+            echo "smoke: no tests collected for marker retention, accepted"
+            exit 0
+          fi
+          exit "$rc"
+
+      - name: Compose logs on failure (token redacted)
+        if: failure()
+        run: |
+          docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE ps -a || true
+          docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE logs --no-color --tail 300 backend 2>&1 \
+            | sed "s/$MIRUM_E2E_TOKEN/***/g" || true
+
+      - name: Upload evidence (PNG and JSON only)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-storage-retention${{ env.ARTIFACT_SUFFIX }}
+          path: |
+            e2e/artifacts/**/*.png
+            e2e/artifacts/**/*.json
+            release-evidence/*.json
+          if-no-files-found: warn
+
+      - name: Remove this job's own throwaway project
+        if: always()
+        run: docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE down -v --remove-orphans || true
+
+  native-on-release:
+    name: S16 existing storage and process tests on the release image
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+      (inputs.jobs == 'all' || contains(format(',{0},', replace(inputs.jobs, ' ', '')), ',native-on-release,'))) ||
+      (github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'storage') &&
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/build-release-images
+        with:
+          evidence-path: release-evidence/release-images.json
+
+      - name: Run the S16 files inside the release image (no network, read-only root)
+        # The repo's backend/tests is mounted read-only over the image's (fixtures-only) directory so
+        # `backend.tests.*` imports resolve; everything else comes from the shipped dependency closure.
+        run: |
+          set -uo pipefail
+          files="test_engineering_bundles.py test_engineering_bundle_limits.py test_engineering_jobs.py
+            test_engineering_quota.py test_engineering_api_v1.py test_engineering_api_v1_limits.py
+            test_engineering_capabilities.py test_engineering_regen_run_bytes.py test_regen_budget.py
+            test_startup_checks.py test_process_lifecycle_ports.py test_process_descendant_ports.py
+            test_execution_lifecycle_ports.py test_manifest_integrity.py"
+          args=""
+          for f in $files; do test -f "backend/tests/$f" || { echo "missing S16 file $f"; exit 1; }; args="$args backend/tests/$f"; done
+          mkdir -p e2e/artifacts/storage/native-on-release
+          out=e2e/artifacts/storage/native-on-release/s16-pytest.txt
+          docker run --rm --network none --read-only --tmpfs /tmp --user 10001:10001 \
+            -v "$PWD/backend/tests:/app/backend/tests:ro" -w /app --entrypoint python \
+            mirum-backend:release -m pytest -q --tb=short -p no:cacheprovider --import-mode=importlib \
+            -o asyncio_default_fixture_loop_scope=function -m "not live" $args > "$out" 2>&1
+          rc=$?
+          tail -25 "$out"
+          python3 - "$rc" "$out" $files <<'PY'
+          import json, os, re, subprocess, sys
+          rc, out, files = int(sys.argv[1]), sys.argv[2], sys.argv[3:]
+          text = open(out, encoding="utf-8", errors="replace").read()
+          summary = text.strip().splitlines()[-1] if text.strip() else ""
+          counts = {k: int(v) for v, k in re.findall(r"(\d+) (passed|failed|skipped|deselected|error|errors|xfailed|xpassed)", summary)}
+          image = subprocess.check_output(["docker", "image", "inspect", "mirum-backend:release", "--format", "{{.Id}}"], text=True).strip()
+          record = {"job": "native-on-release", "pytest_exit_code": rc, "summary_line": summary, "counts": counts,
+                    "files": files, "image_id": image, "source_sha": os.environ.get("GITHUB_SHA"),
+                    "native_gate_comparison": "not obtained: native gate counts are per shard, not per file"}
+          json.dump(record, open("e2e/artifacts/storage/native-on-release/s16-counts.json", "w"), indent=2, sort_keys=True)
+          print(json.dumps(record, indent=2, sort_keys=True))
+          PY
+          exit "$rc"
+
+      - name: Upload evidence (PNG and JSON only)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-storage-native-on-release${{ env.ARTIFACT_SUFFIX }}
+          path: |
+            e2e/artifacts/**/*.json
+            release-evidence/*.json
+          if-no-files-found: warn
