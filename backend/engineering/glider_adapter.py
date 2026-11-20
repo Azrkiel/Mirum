@@ -12,6 +12,7 @@ The evaluation's ``report`` is a composite, bound by digest:
 
 - ``specification``: the reviewed specification;
 - ``discovery``: digest and counts of the discovery ``result.json`` (summary only);
+- ``selection``: selected family and process, and the discovery calibration state;
 - ``binding`` / ``artifact``: tallies computed from the bytes by this adapter;
 - ``design``: the design ``result.json``, verbatim, or ``None`` when discovery found no candidate.
 
@@ -224,10 +225,10 @@ def assemble_evaluation(candidate: GeneratorCandidate, *, discovery: bytes, desi
                 ('design calibration', report_design.get('calibration_version') == spec['calibration_version']),
                 ('selected elite', report_design.get('elite_id') == selected['elite_id']),
                 ('output id', report_design.get('output_id') == found.get('output_id')),
-                ('cem version', report_design.get('cem_version') == found.get('cem_version')),
-                ('design revision', isinstance(report_design.get('design_revision_sha256'), str))):
+                ('cem version', report_design.get('cem_version') == found.get('cem_version'))):
             if not ok:
                 failed_binding.append(label)
+        revision_matches = False
         mismatches = int(_sha(bundle) != report_design.get('bundle_sha256'))
         parts = _dig(report_design, 'bundle', 'parts')
         parts = parts if isinstance(parts, list) else []
@@ -236,17 +237,39 @@ def assemble_evaluation(candidate: GeneratorCandidate, *, discovery: bytes, desi
                 names = set(z.namelist())
                 if sum(i.file_size for i in z.infolist()) > ZIP_EXPANDED_BYTES:
                     raise ValueError('Archive budget exceeded')
+                try:
+                    bundled_design = _strict_loads(z.read('design.json'))
+                    ids = {k: report_design.get(k) for k in ('output_id', 'cem_version', 'implementation_sha256',
+                                                            'calibration_version', 'requirements_sha256')}
+                    expected = digest(dict(identity=ids, parameters=selected['parameters'],
+                                           placement=bundled_design['final_placement'], process=selected['process']))
+                    revision_matches = (report_design.get('design_revision_sha256') == expected
+                                        and bundled_design['design_revision_sha256'] == expected)
+                except Exception:
+                    # An unreadable design entry or missing revision input fails this binding.
+                    pass
                 extra = tuple((z.read(p['file']), p['sha256']) for p in parts if p['file'] in names)
                 mismatches += sum(1 for p in parts if p['file'] not in names)
                 # a part whose bytes differ from its claimed hash is a mismatch, not a pass
                 mismatches += sum(1 for data, claimed in extra if _sha(data) != claimed)
         except (zipfile.BadZipFile, ValueError, KeyError, TypeError):
             extra, mismatches = (), mismatches + 1
+        if not revision_matches:
+            failed_binding.append('design revision')
         artifact = dict(hash_mismatches=mismatches, bundle_bytes=len(bundle))
+    calibration_state = _dig(found, 'calibration', 'state')
+    capabilities = found.get('capabilities')
+    if isinstance(capabilities, dict):
+        calibration_state = capabilities.get('physical_calibration', calibration_state)
+    kind = _dig(selected, 'parameters', 'tail', 'kind')     # CEM records the layout as the tail kind
+    family = {'conventional': 'conventional', 'T': 't_tail', 'V': 'v_tail'}.get(kind) if isinstance(kind, str) else None
+    selection = dict(family=family, process=_dig(selected, 'process'),
+                     calibration_state=calibration_state)
     report = dict(schema=SCHEMA, specification=spec,
                   discovery=dict(result_sha256=_sha(discovery), output_id=found.get('output_id'),
                                  archive_elites=archive, candidates=len(candidates),
                                  selected_elite_id=None if selected is None else selected['elite_id']),
+                  selection={key: value if isinstance(value, str) else None for key, value in selection.items()},
                   binding=dict(mismatches=len(failed_binding), failed=failed_binding),
                   artifact=artifact, design=report_design)
     split = _split(report)
