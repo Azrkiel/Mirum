@@ -1,0 +1,10 @@
+# S08a/S09c test overlay: binds the engineering volume to a 512 MiB ext4 loop mount made by
+# release-storage.yml ("Create 512 MiB loop volume" step, uses sudo). Allowlisted by that
+# workflow: only volumes.mirum_engineering.driver_opts and .name may change.
+volumes:
+  mirum_engineering:
+    name: "${MIRUM_E2E_PROJECT:?required}_loop_engineering"
+    driver_opts:
+      type: none
+      o: bind
+      device: "${MIRUM_STORAGE_LOOP_MOUNT:?required}"
