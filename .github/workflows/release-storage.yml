@@ -434,7 +434,16 @@ jobs:
           for f in $files; do test -f "backend/tests/$f" || { echo "missing S16 file $f"; exit 1; }; args="$args backend/tests/$f"; done
           mkdir -p e2e/artifacts/storage/native-on-release
           out=e2e/artifacts/storage/native-on-release/s16-pytest.txt
-          docker run --rm --network none --read-only --tmpfs /tmp --user 10001:10001 \
+          # Same isolation and environment as ci.yml's native gate. The image's release settings
+          # (MIRUM_DEPLOYMENT=release, MIRUM_ENGINEERING_REQUIRE_VOLUME=1) refuse the unit tests'
+          # tmp_path data dirs by design; S16 checks the shipped dependency closure, and the release
+          # guards themselves are covered by release-guards.yml, so the test container runs in
+          # development mode. No key: the placeholder is the native gate's offline fixture value.
+          docker run --rm --network none --read-only --init --cap-drop ALL --security-opt no-new-privileges \
+            --memory 4g --cpus 2 --tmpfs /tmp:rw,exec,size=1g,mode=1777 --user 10001:10001 \
+            -e MIRUM_DEPLOYMENT=development -e MIRUM_ENGINEERING_REQUIRE_VOLUME=0 \
+            -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent \
+            -e GEMINI_API_KEY= -e GOOGLE_API_KEY= \
             -v "$PWD/backend/tests:/app/backend/tests:ro" -w /app --entrypoint python \
             mirum-backend:release -m pytest -q --tb=short -p no:cacheprovider --import-mode=importlib \
             -o asyncio_default_fixture_loop_scope=function -m "not live" $args > "$out" 2>&1
