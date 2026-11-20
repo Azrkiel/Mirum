@@ -265,7 +265,8 @@ def configure_legacy_client():
     """glider_cem calls cem.extraction.extract, which uses the legacy google.generativeai global client.
     backend/main.py configures it at import (PRO key, falling back to HEAVY); this script never imports
     main.py, so configure it here with the approved HEAVY key, exactly as main.py does when PRO is blank."""
-    import google.generativeai as genai
+    import importlib
+    genai = importlib.import_module('google.generativeai')   # resolves through sys.modules (testable)
     genai.configure(api_key=os.environ['GEMINI_API_KEY_HEAVY'])
 
 
