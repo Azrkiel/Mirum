@@ -80,7 +80,7 @@ WORKFLOWS = (
 _DRAFT_RE = re.compile(r"Draft (\S+) \| revision (\d+) \| brief SHA-256 ([0-9a-f]{64})")
 _BRIEF_RE = re.compile(r"Finalized brief (\S+) \| ([0-9a-f]{64})")
 _JOB_RE = re.compile(r"Job (\S+) \| brief SHA-256 ([0-9a-f]{64})")
-_TERMINAL_RE = re.compile(r"State: (completed|unavailable|cancelled) \| engineering outcome: (\w+)")
+_TERMINAL_RE = re.compile(r"State: (completed|unavailable|cancelled) \| engineering outcome: (\w[\w ]*)")
 CHECKED_LABEL_TEXT = "Checked design"
 BEAM_PREVIEW_TRACE = "Measured STEP preview"
 
@@ -144,6 +144,10 @@ class CheckedFlow(Workspace):
     def checked_label(self) -> Locator:
         """The bold 'Checked design' assurance label of an accepted generator run."""
         return self.page.locator("strong").get_by_text(CHECKED_LABEL_TEXT, exact=True)
+
+    def assurance_label(self, text: str) -> Locator:
+        """The bold claim label of a passing generator run ('Geometry checks passed', 'Screened')."""
+        return self.page.locator("strong").get_by_text(text, exact=True)
 
     @property
     def plotly_chart(self) -> Locator:

@@ -255,7 +255,9 @@ def test_capabilities_do_not_leak_internal_import_strings_or_paths(client):
     entry=client.get('/engineering/v1/capabilities').json()['capabilities'][1]
     assert set(entry)=={'id','version','label','numerical_version','base_checks','conditional_checks','unsupported_features',
         'selection_rule','limitations','primary_artifact','payloads','available','review_fields','review_fields_prefix',
-        'engineering_certified','standards','limits','resources','numerical'}
+        'engineering_certified','standards','claim','limits','resources','numerical'}
+    # Wave E: the claim labels results in API clients and the UI (geometry_checks_only / screening_only).
+    assert entry['claim'] in ('geometry_checks_only','screening_only')
     assert all(set(l)=={'name','value'} for l in entry['limits'])
     assert entry['numerical']=={'version':entry['numerical_version']}
 

@@ -133,5 +133,6 @@ def test_typed_form_still_completes_for_a_generator_with_ai_on(token, page):
     view.finalize()
     view.run_checks()
     lifecycle, outcome = view.wait_terminal(600_000)
-    assert (lifecycle, outcome) == ("completed", "accepted"), (lifecycle, outcome)
+    # The dragster is geometry_checks_only: its passing state line reads "geometry checks passed" (Wave E P2).
+    assert (lifecycle, outcome) == ("completed", "geometry checks passed"), (lifecycle, outcome)
     _shot(page, "form_path_result")
