@@ -86,7 +86,7 @@ def _result(client, state, entry):
     try: job = client.request('GET', '/jobs/' + state.job_id)
     except APIError as error:
         st.error(str(error)); return
-    st.subheader(result_heading(entry))
+    st.subheader(result_heading(entry, job))
     st.caption(_plain('Job ' + str(job.get('job_id')) + ' | brief SHA-256 ' + str(job.get('brief_sha256'))))
     if job.get('expired') or job.get('delivery') == 'expired':
         st.warning('Expired. The download window ended. Review a new request to generate again.'); return

@@ -191,19 +191,22 @@ def submit(client, brief):
     return client.request('POST', '/jobs', job_body(brief))
 
 
-def claim_of(entry):
-    """None = checked design (the beam has no claim). A generator without a claim gets the weakest one."""
+def claim_of(entry, job=None):
+    """None = checked design (the beam has no claim). The job's own claim wins (the capability list may not carry
+    one); a generator without any claim gets the weakest one."""
     if not isinstance(entry, dict) or entry.get('id') == BEAM_ID: return None
-    claim = entry.get('claim')
-    return claim if claim in ('geometry_checks_only', 'screening_only') else 'screening_only'
+    for source in (job, entry):
+        claim = source.get('claim') if isinstance(source, dict) else None
+        if claim in ('geometry_checks_only', 'screening_only'): return claim
+    return 'screening_only'
 
 
-def accepted_label(entry):
-    return {None: CHECKED_LABEL, 'geometry_checks_only': 'Geometry checks passed', 'screening_only': 'Screened'}[claim_of(entry)]
+def accepted_label(entry, job=None):
+    return {None: CHECKED_LABEL, 'geometry_checks_only': 'Geometry checks passed', 'screening_only': 'Screened'}[claim_of(entry, job)]
 
 
-def result_heading(entry):
-    return {None: 'Checked result', 'geometry_checks_only': 'Geometry check result', 'screening_only': 'Screening result'}[claim_of(entry)]
+def result_heading(entry, job=None):
+    return {None: 'Checked result', 'geometry_checks_only': 'Geometry check result', 'screening_only': 'Screening result'}[claim_of(entry, job)]
 
 
 _NOT_EVALUATED = 'Standards conformity, manufactured behavior and material qualification: not evaluated.'
@@ -211,7 +214,7 @@ _NOT_EVALUATED = 'Standards conformity, manufactured behavior and material quali
 
 def outcome_message(entry, job):
     """(streamlit kind, text) for a terminal job; wording follows the capability claim."""
-    claim = claim_of(entry)
+    claim = claim_of(entry, job)
     if job.get('outcome') == 'accepted':
         if claim is None: text = 'Accepted under the declared digital model. ' + _NOT_EVALUATED
         elif claim == 'geometry_checks_only':
@@ -231,7 +234,7 @@ def state_line(entry, job):
     """The 'State | engineering outcome' line; the raw job outcome is relabelled from the claim."""
     outcome = job.get('outcome')
     if outcome == 'accepted':
-        outcome = {None: 'accepted', 'geometry_checks_only': 'geometry checks passed', 'screening_only': 'screened'}[claim_of(entry)]
+        outcome = {None: 'accepted', 'geometry_checks_only': 'geometry checks passed', 'screening_only': 'screened'}[claim_of(entry, job)]
     return 'State: ' + str(job.get('lifecycle')) + ' | engineering outcome: ' + str(outcome)
 
 
@@ -241,7 +244,7 @@ def result_view(job, entry=None):
     if job.get('delivery') == 'available':
         offered = job.get('artifacts') or {}
         downloads = [dict(format=f, name=n, mime=m) for f, (n, m) in DOWNLOADS.items() if offered.get(f) is True]
-    return dict(label=accepted_label(entry) if accepted else None, outcome=job.get('outcome'),
+    return dict(label=accepted_label(entry, job) if accepted else None, outcome=job.get('outcome'),
                 lifecycle=job.get('lifecycle'), downloads=downloads)
 
 

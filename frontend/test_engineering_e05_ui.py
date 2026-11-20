@@ -366,3 +366,30 @@ def test_glider_ai_screens_never_say_accepted(monkeypatch):
     _propose(app, cid)
     assert not app.exception
     assert not any('Accepted' in t or 'Checked design' in t for t in _texts(app))
+
+
+# ------------------------------------------------- the job's own claim wins over a capability entry without one
+
+def _bare_entry(capability_id):
+    return dict(id=capability_id, version='1.0.0')
+
+
+@pytest.mark.parametrize('capability_id,claim,label,heading,line', [
+    ('co2_dragster', 'geometry_checks_only', 'Geometry checks passed', 'Geometry check result', 'geometry checks passed'),
+    ('regen_chamber', 'geometry_checks_only', 'Geometry checks passed', 'Geometry check result', 'geometry checks passed'),
+    ('glider_cem', 'screening_only', 'Screened', 'Screening result', 'screened'),
+])
+def test_job_claim_labels_a_capability_entry_that_carries_none(capability_id, claim, label, heading, line):
+    from engineering_v1 import accepted_label, result_heading, result_view, state_line
+    entry = _bare_entry(capability_id)
+    job = dict(outcome='accepted', delivery='available', lifecycle='completed', claim=claim, artifacts={})
+    assert accepted_label(entry, job) == label
+    assert result_heading(entry, job) == heading
+    assert result_view(job, entry)['label'] == label
+    assert state_line(entry, job).endswith('engineering outcome: ' + line)
+
+
+def test_unknown_job_claim_falls_back_to_the_entry_then_the_weakest():
+    from engineering_v1 import claim_of
+    assert claim_of(dict(id='co2_dragster', claim='geometry_checks_only'), dict(claim='bogus')) == 'geometry_checks_only'
+    assert claim_of(_bare_entry('co2_dragster'), dict(claim='bogus')) == 'screening_only'
