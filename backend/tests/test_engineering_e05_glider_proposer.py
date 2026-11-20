@@ -1,0 +1,216 @@
+"""E05 glider_cem AI proposer: offline, fake extract, no network, no sleeps."""
+from __future__ import annotations
+
+import asyncio
+import copy
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+import pytest
+
+from cem.glider import calibration
+from cem.glider.requirements import GliderMissionRequirements
+from engineering import proposal_contract as pc
+from engineering.capabilities import GLIDER
+from engineering.glider_proposer import (AiProposer, CALIBRATION_QUESTION, FAMILIES_QUESTION,
+                                         NOT_A_GLIDER, PROMPT_VERSION, UNAVAILABLE)
+from engineering.limits import AiCallBudget
+
+PROMPT = 'Design a glider launched by drop that maximizes distance, using conventional and t_tail families.'
+BACKEND = Path(__file__).resolve().parents[1]
+SECRET = 'SECRET-EXC-TEXT-9137'
+
+
+def requirements(**over):
+    body = GliderMissionRequirements(launch=dict(method='drop')).model_dump(mode='json')
+    body['discovery']['families'] = ['conventional', 't_tail']
+    for key, value in over.items():
+        body[key] = value
+    return body
+
+
+def review(req=None):
+    return dict(status='review_requirements', requirements=req or requirements())
+
+
+class FakeExtract:
+    def __init__(self, result=None, error=None):
+        self.result, self.error, self.calls, self.prompts = result, error, 0, []
+
+    async def __call__(self, prompt):
+        self.calls += 1
+        self.prompts.append(prompt)
+        if self.error:
+            raise self.error
+        return copy.deepcopy(self.result)
+
+
+def run(extract, budget=None, prompt=PROMPT, base_spec=None):
+    budget = budget or AiCallBudget(daily_calls=5, concurrency=1)
+    proposal = asyncio.run(AiProposer(budget, extract).propose(prompt, base_spec))
+    pc.conform('glider_cem', proposal)
+    return proposal, budget
+
+
+def origins(proposal):
+    return {o.field: o for o in proposal.provenance.field_origins}
+
+
+def test_complete_mission_is_proposed():
+    req = requirements()
+    req['constraints']['max_span_m'] = 1.2
+    extract = FakeExtract(review(req))
+    proposal, budget = run(extract)
+    assert proposal.state == 'proposed' and not proposal.issues and not proposal.reasons
+    spec = proposal.payload['specification']
+    assert proposal.payload['capability'] == pc.reference(GLIDER)
+    assert spec['calibration_version'] == calibration.version(calibration.initial())
+    assert proposal.provenance.input_mode == 'ai'
+    got = origins(proposal)
+    assert len(got) == len(GLIDER.review_fields(spec))
+    cal = got['specification.calibration_version']
+    assert cal.origin == 'policy' and 'shipped default' in cal.reference
+    span = got['specification.requirements.constraints.max_span_m']
+    assert span.origin == 'ai_proposed' and 'unverified proposal' in span.reference
+    assert PROMPT_VERSION in span.reference
+    assert got['specification.requirements.launch.method'].origin == 'ai_proposed'
+    assert got['specification.requirements.discovery.families'].origin == 'ai_proposed'
+    for name in ('constraints.max_length_m', 'discovery.budget_evals', 'process'):
+        assert got['specification.requirements.' + name].origin == 'policy'
+    assert extract.calls == 1 and budget.used() == 1
+
+
+def test_needs_clarification_has_no_spec():
+    extract = FakeExtract(dict(status='needs_clarification', questions=['Which launch?', 7, 'x' * 500]))
+    proposal, _ = run(extract)
+    assert proposal.state == 'clarification_required'
+    assert 'specification' not in proposal.payload
+    assert [i.field for i in proposal.issues] == ['request', 'request']
+    assert len(proposal.issues[1].reason) == 240
+    assert proposal.reasons == tuple(i.reason for i in proposal.issues)
+    assert proposal.provenance.input_mode == 'form' and not proposal.provenance.field_origins
+
+
+def test_empty_questions_get_generic_question():
+    proposal, _ = run(FakeExtract(dict(status='needs_clarification', questions='nope')))
+    assert proposal.state == 'clarification_required' and len(proposal.issues) == 1
+
+
+def test_families_all_needs_clarification_with_partial_spec():
+    req = requirements()
+    req['discovery']['families'] = 'all'
+    proposal, _ = run(FakeExtract(review(req)))
+    assert proposal.state == 'clarification_required'
+    assert [i.field for i in proposal.issues] == ['specification.requirements.discovery.families']
+    assert proposal.reasons == (FAMILIES_QUESTION,)
+    spec = proposal.payload['specification']
+    assert spec['requirements']['discovery']['families'] == 'all'
+    assert spec['calibration_version'] == calibration.version(calibration.initial())
+    assert proposal.provenance.input_mode == 'ai'
+
+
+def test_thermal_environment_is_unsupported():
+    req = requirements()
+    req['environment'] = dict(kind='thermal', thermal=dict(core_uplift_m_s=1.0, radius_m=50, distance_m=100))
+    proposal, _ = run(FakeExtract(review(req)))
+    assert proposal.state == 'unsupported' and 'specification' not in proposal.payload
+    assert [i.field for i in proposal.issues] == ['specification.requirements.environment']
+    assert proposal.reasons == tuple(i.reason for i in proposal.issues)
+
+
+def test_unsupported_family_is_unsupported():
+    req = requirements()
+    req['discovery']['families'] = ['conventional', 'canard']
+    proposal, _ = run(FakeExtract(review(req)))
+    assert proposal.state == 'unsupported' and 'specification' not in proposal.payload
+    assert [i.field for i in proposal.issues] == ['specification.requirements.discovery.families']
+
+
+def test_calibration_mention_needs_clarification():
+    prompt = PROMPT + ' Use the latest flight test calibration.'
+    proposal, _ = run(FakeExtract(review()), prompt=prompt)
+    assert proposal.state == 'clarification_required'
+    assert [i.field for i in proposal.issues] == ['specification.calibration_version']
+    assert proposal.reasons == (CALIBRATION_QUESTION,)
+    spec = proposal.payload['specification']
+    assert 'calibration_version' not in spec
+    assert 'specification.calibration_version' not in origins(proposal)
+
+
+def test_unreadable_calibration_needs_clarification(monkeypatch):
+    def boom():
+        raise OSError(SECRET)
+    monkeypatch.setattr(calibration, 'initial', boom)
+    proposal, _ = run(FakeExtract(review()))
+    assert proposal.state == 'clarification_required'
+    assert [i.field for i in proposal.issues] == ['specification.calibration_version']
+    assert 'calibration_version' not in proposal.payload['specification']
+    assert SECRET not in json.dumps(proposal.reasons)
+
+
+def test_extract_error_is_unavailable_and_not_refunded():
+    extract = FakeExtract(error=RuntimeError(SECRET))
+    proposal, budget = run(extract)
+    assert proposal.state == 'unavailable' and proposal.reasons == UNAVAILABLE
+    assert extract.calls == 1 and budget.used() == 1
+    assert budget._inflight == 0
+    blob = json.dumps([proposal.payload, proposal.reasons, [i.reason for i in proposal.issues],
+                       proposal.provenance.model_dump(mode='json')], default=str)
+    assert SECRET not in blob and PROMPT not in blob
+
+
+def test_zero_budget_is_unavailable_without_call():
+    extract = FakeExtract(review())
+    proposal, budget = run(extract, AiCallBudget(daily_calls=0, concurrency=1))
+    assert proposal.state == 'unavailable' and extract.calls == 0 and budget.used() == 0
+
+
+@pytest.mark.parametrize('result', [dict(status='weird'), dict(status='review_requirements', requirements=[1]),
+                                    dict(status='review_requirements'), 'text', None])
+def test_unknown_reply_is_unavailable(result):
+    proposal, budget = run(FakeExtract(result))
+    assert proposal.state == 'unavailable' and budget.used() == 1
+
+
+def test_router_precheck_blocks_other_capability():
+    extract = FakeExtract(review())
+    proposal, budget = run(extract, prompt='Design a CO2 dragster car with a teardrop body for a 3 inch track.')
+    assert proposal.state == 'unsupported' and proposal.reasons == (NOT_A_GLIDER,)
+    assert extract.calls == 0 and budget.used() == 0
+
+
+@pytest.mark.parametrize('prompt', ['', '   ', 'x' * 2001, None, 5])
+def test_bad_prompt_raises(prompt):
+    extract = FakeExtract(review())
+    with pytest.raises(ValueError):
+        asyncio.run(AiProposer(AiCallBudget(daily_calls=5, concurrency=1), extract).propose(prompt))
+    assert extract.calls == 0
+
+
+def test_invalid_requirements_give_partial_spec_without_input_values():
+    req = requirements()
+    req['constraints']['max_span_m'] = 3.0
+    proposal, _ = run(FakeExtract(review(req)))
+    assert proposal.state == 'clarification_required'
+    assert [i.field for i in proposal.issues] == ['specification.requirements.constraints.max_span_m']
+    assert '3.0' not in json.dumps(proposal.reasons)
+    assert proposal.payload['specification']['requirements']['constraints']['max_span_m'] == 3.0
+    assert proposal.provenance.input_mode == 'ai'
+
+
+def test_factory_builds_proposer_when_enabled_and_none_when_off():
+    budget = AiCallBudget(daily_calls=1, concurrency=1)
+    built = pc.ai_proposer('glider_cem', enabled=True, budget=budget)
+    assert isinstance(built, AiProposer) and built.budget is budget
+    assert isinstance(built, pc.CapabilityAiProposer)
+    assert pc.ai_proposer('glider_cem', enabled=False, budget=budget) is None
+
+
+def test_import_pulls_no_extraction_or_sdk():
+    code = ('import sys, engineering.glider_proposer\n'
+            'bad = [m for m in ("cem.extraction", "google.genai", "google.generativeai") if m in sys.modules]\n'
+            'print(bad)\nsys.exit(1 if bad else 0)')
+    done = subprocess.run([sys.executable, '-c', code], cwd=BACKEND, capture_output=True, text=True)
+    assert done.returncode == 0, done.stdout + done.stderr
