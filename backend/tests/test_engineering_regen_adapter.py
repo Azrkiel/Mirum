@@ -633,14 +633,14 @@ def test_release_drops_only_finished_jobs(tmp_path):
     from engineering import regen_web as web
     runner = web.JobRunner(tmp_path / 'r')
     try:
-        for job_id, status in (('done', 'accepted'), ('busy', 'running'), ('wait', 'queued')):
+        for job_id, status in (('done', 'accepted'), ('busy', 'running'), ('wait', 'queued'), ('gone', 'cancelled')):
             (runner.root / job_id / 'output').mkdir(parents=True)
             runner.jobs[job_id] = dict(id=job_id, status=status, updated=time.time())
         assert runner.release('busy') is False and runner.release('wait') is False
-        assert runner.release('nope') is False
+        assert runner.release('gone') is False and runner.release('nope') is False
         assert runner.release('done') is True and runner.release('done') is False
-        assert set(runner.jobs) == {'busy', 'wait'}
-        assert sorted(p.name for p in runner.root.iterdir()) == ['busy', 'wait']
+        assert set(runner.jobs) == {'busy', 'wait', 'gone'}
+        assert sorted(p.name for p in runner.root.iterdir()) == ['busy', 'gone', 'wait']
     finally:
         runner.jobs.clear()
         runner.close()

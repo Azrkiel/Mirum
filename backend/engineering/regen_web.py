@@ -134,10 +134,11 @@ class JobRunner:
         """Drop a finished job's folder and record now. The checked route calls this once it has
         copied the output into its own bundle: keeping a second copy on the /tmp tmpfs for the
         retention window left too little space for the next regen run (ENOSPC). False when the
-        job is unknown or still queued/running (cancel those instead)."""
+        job is unknown, still queued/running (cancel those instead), or cancelled (its worker may
+        still be exiting; _prune frees it later)."""
         with self.lock:
             job = self.jobs.get(job_id)
-            if job is None or job['status'] in ('queued', 'running'):
+            if job is None or job['status'] in ('queued', 'running', 'cancelled'):
                 return False
             shutil.rmtree(self.root / job_id, ignore_errors=True)
             del self.jobs[job_id]
@@ -212,7 +213,10 @@ class JobRunner:
             self._update(job_id, status='unavailable', message='Generator could not complete. Check the server log.')
         finally:
             # Failed outputs must not accumulate large unservable meshes.
-            if self.jobs[job_id]['status'] != 'accepted':
+            # release() may already have dropped the record (and its folder) once it went terminal.
+            with self.lock:
+                job = self.jobs.get(job_id)
+            if job is not None and job['status'] != 'accepted':
                 shutil.rmtree(out, ignore_errors=True)
 
     @staticmethod
