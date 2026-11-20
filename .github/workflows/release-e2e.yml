@@ -105,6 +105,29 @@ jobs:
         env:
           CI: "true"
 
+      # E05 P4 (AI entry mode, no provider reachable). The module is not in pytest.ini's python_files, so the
+      # steps above never collect it. Case 1 runs on the default stack (AI flag off); the stack is then replaced
+      # by one with the flag on, a placeholder key and a backend on an internal network (no egress, no published
+      # port). No secret is involved: the key is a literal placeholder in the override.
+      - name: E05 flag-off case (default stack)
+        run: '"$E2E_PY" -m pytest -c e2e/pytest.ini --tb=short e2e/test_e05_ai_offline.py -k flag_off'
+        env:
+          CI: "true"
+
+      - name: Replace the stack with the E05 offline AI stack
+        run: |
+          docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml down --remove-orphans
+          docker compose -p mirum-e2e-ai -f compose.release.yml -f e2e/compose/e05-ai-offline.override.yml up -d --wait --wait-timeout 300
+
+      - name: E05 AI cases (offline stack)
+        run: '"$E2E_PY" -m pytest -c e2e/pytest.ini --tb=short e2e/test_e05_ai_offline.py -k "not flag_off" -v'
+        env:
+          CI: "true"
+
+      - name: Stop the E05 offline stack
+        if: always()
+        run: docker compose -p mirum-e2e-ai -f compose.release.yml -f e2e/compose/e05-ai-offline.override.yml down -v --remove-orphans || true
+
       # The freeze claim covers the whole run: no step may have changed a tracked file.
       - name: Tracked files unchanged at the end (freeze run)
         if: always() && inputs.clean
@@ -116,6 +139,7 @@ jobs:
           docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml ps -a || true
           docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml logs --no-color --tail 300 2>&1 \
             | sed "s/$MIRUM_E2E_TOKEN/***/g" || true
+          docker compose -p mirum-e2e-ai -f compose.release.yml -f e2e/compose/e05-ai-offline.override.yml logs --no-color --tail 200 2>&1             | sed "s/$MIRUM_E2E_TOKEN/***/g" || true
 
       - name: Upload screenshots and evidence (PNG and JSON only)
         if: always()
