@@ -25,7 +25,7 @@ def test_glider_package_reads_screened_not_checked_or_accepted():
 def test_geometry_only_packages_say_geometry_checks_passed():
     for d in (DRAGSTER, REGEN):
         text = report_md(d)
-        assert text.splitlines()[0] == f'# Geometry-checked {d.label} result'
+        assert text.splitlines()[0] == f'# Geometry Checked {d.label} result'
         assert 'Outcome: geometry checks passed' in text
         assert 'Checked design' not in text and 'Accepted' not in text
 

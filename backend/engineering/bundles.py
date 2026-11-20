@@ -221,7 +221,7 @@ class BundlePublisher:
                               report_sha256=e['report_sha256'],generator_report=e['report']) for e in result.evaluations])
         # Heading and outcome line come from the capability claim, not the job outcome alone.
         screening=descriptor.claim=='screening_only'
-        heading=f'# {"Screened" if screening else "Geometry-checked"} {descriptor.label} result'
+        heading=f'# {"Screened" if screening else "Geometry Checked"} {descriptor.label} result'
         outcome_line=outcome
         if outcome=='accepted':
             outcome_line=('screened; not accepted for manufacture; not engineering certified' if screening
