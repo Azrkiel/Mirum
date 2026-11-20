@@ -1,0 +1,29 @@
+{
+  "task": "E01",
+  "state": "complete",
+  "deployed": false,
+  "date": "2026-11-20",
+  "pr": 105,
+  "starting_sha": "8075394",
+  "tested_implementation_sha": "8ea50efc91e8a8e2da28e09dbe5e0a80412b3ba5",
+  "runs": {
+    "ci": {"actions_run": 44797149610, "result": "success",
+           "native_shards": [{"shard": "0/3", "passed": 1464, "skipped": 2},
+                             {"shard": "1/3", "passed": 1461, "skipped": 4},
+                             {"shard": "2/3", "passed": 1453, "skipped": 12}],
+           "skipped_total": 18},
+    "picogk_runtime_build_and_test": {"actions_run": 44797149619, "result": "success",
+           "native_regen_tests": {"tests": 9, "passed": 9, "failures": 0, "errors": 0, "skipped": 0},
+           "defect_cases": 5, "artifact": "regen-native-evidence"},
+    "release_images": {"actions_run": 44797149612, "result": "success"},
+    "picogk_browser_contracts": {"actions_run": 44797149721, "result": "success"}
+  },
+  "criteria": {
+    "S1": "met", "S2": "met_with_limitation", "S3": "met", "S4": "met",
+    "A1": "met_with_limitation", "A2": "met", "A3": "met", "A4": "met"
+  },
+  "limitations": [
+    "v1 deadline is the shared 420 s",
+    "provenance is on the adapter evaluation, not copied into the exported bundle"
+  ]
+}
