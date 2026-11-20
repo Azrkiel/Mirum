@@ -92,10 +92,76 @@ def test_malformed_step_info_rejected(tmp_path, info):
     'echo "$MIRUM_ACCESS_TOKEN"',
     'printf "%s\\n" "${MIRUM_ACCESS_TOKEN}"',
     "printenv MIRUM_ACCESS_TOKEN",
+    "set -o xtrace",
+    "bash -x other.sh",
+    "set +e\nfalse",
+    "set +u",
+    "trap - EXIT",
+    "return 0",
+    "exit 0",
+    "true; exit",
+    "if true; then exit; fi",
+    "export -p",
+    "declare -p",
 ])
 def test_forbidden_content_rejected(tmp_path, code):
     with pytest.raises(ValueError, match="forbidden"):
         rr.extract(md(tmp_path, ("bash release-step=a", code)))
+
+
+def test_nonzero_exit_on_error_allowed(tmp_path):
+    code = 'if [ -e x ]; then\n  echo exists >&2\n  exit 1\nfi'
+    assert rr.extract(md(tmp_path, ("bash release-step=a", code))) == [("a", code)]
+
+
+@pytest.mark.parametrize("text", [
+    "# T\n  " + FENCE + "bash release-step=a\n  echo hidden\n  " + FENCE + "\n",     # indented fence
+    "# T\n~~~bash release-step=a\necho tilde\n~~~\n",                                    # tilde fence
+    "# T\n" + FENCE + "md\n" + FENCE + "bash release-step=a\necho nested\n" + FENCE + "\n",  # nested in another fence
+])
+def test_step_marker_outside_a_top_level_fence_rejected(tmp_path, text):
+    with pytest.raises(ValueError, match="release-step marker"):
+        rr.extract(md(tmp_path, text=text))
+
+
+def test_prose_mention_without_equals_is_fine(tmp_path):
+    p = md(tmp_path, text="Run the `release-step` blocks.\n\n" + FENCE + "bash release-step=a\ntrue\n" + FENCE + "\n")
+    assert rr.extract(p) == [("a", "true")]
+
+
+@pytest.mark.parametrize("tok", ["abc123def", "a+b/c.d*e(f[g", "x$y\\z"])
+def test_log_filter_redacts_token_literally(tmp_path, tok):
+    import io
+    src = io.StringIO(f"before {tok}\n::add-mask::{tok}\nline with {tok} twice {tok}\nclean\n")
+    out = io.StringIO()
+    log = tmp_path / "release-docs.log"
+    rr.filter_log(src, out, str(log))
+    logged = log.read_text(encoding="utf-8")
+    assert "::add-mask::" not in logged
+    assert logged.splitlines()[1:] == ["line with *** twice ***", "clean"]
+    assert f"line with *** twice ***" in out.getvalue()
+
+
+def test_log_filter_cli_through_a_real_pipe(tmp_path):
+    log = tmp_path / "l.log"
+    feed = "::add-mask::s3cr3t+tok\nuse s3cr3t+tok here\n"
+    r = subprocess.run([sys.executable, str(ROOT / "scripts" / "run_release_md.py"), "--filter", str(log)],
+                       input=feed, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert "s3cr3t" not in log.read_text(encoding="utf-8")
+
+
+def test_check_timing_requires_every_step_passed_in_order(tmp_path):
+    steps = [("a", "true"), ("b", "true")]
+    t = tmp_path / "t.json"
+    t.write_text(json.dumps({"steps": [{"id": "a", "status": "passed"}, {"id": "b", "status": "passed"}]}))
+    rr.check_timing(steps, t)
+    for rows in ([{"id": "a", "status": "passed"}],
+                 [{"id": "a", "status": "passed"}, {"id": "b", "status": "failed"}],
+                 [{"id": "b", "status": "passed"}, {"id": "a", "status": "passed"}]):
+        t.write_text(json.dumps({"steps": rows}))
+        with pytest.raises(ValueError, match="timing mismatch"):
+            rr.check_timing(steps, t)
 
 
 def test_token_use_in_header_allowed(tmp_path):

@@ -271,6 +271,9 @@ services:
       MIRUM_DRAGSTER_INTERPRET_DAILY_CAP: "0"
       GEMINI_API_KEY_HEAVY: ${GEMINI_API_KEY_HEAVY:?required}
 YAML
+  # The key never touches the command line or shell history, but once exported it is in the
+  # backend container's environment: anyone with access to the Docker socket can read it
+  # (docker inspect, /proc/<pid>/environ). Disable AI drafts and revoke the key when done.
   read -rs -p 'Gemini key: ' GEMINI_API_KEY_HEAVY
   printf '\n'
   export GEMINI_API_KEY_HEAVY

@@ -34,7 +34,7 @@ jobs:
     env:
       COMPOSE_PROJECT_NAME: mirum-release-docs
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
@@ -57,10 +57,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RELEASE_WORK"
-          # Log filter: pass everything through, redact any token announced by ::add-mask::.
-          bash "$RUNNER_TEMP/release-steps.sh" 2>&1 | awk -v outf="$RELEASE_WORK/release-docs.log" '
-            /^::add-mask::/ { tok = substr($0, 12); print; fflush(); next }
-            { line = $0; if (tok != "") gsub(tok, "***", line); print line; print line >> outf; fflush(outf); fflush() }'
+          # Log filter: pass everything through; the artifact log gets the token (announced by
+          # ::add-mask::) replaced literally, and never the mask line itself.
+          bash "$RUNNER_TEMP/release-steps.sh" 2>&1 | python3 -u scripts/run_release_md.py --filter "$RELEASE_WORK/release-docs.log"
+
+      - name: Every release step passed, in order
+        run: python3 scripts/run_release_md.py --check-timing "${{ runner.temp }}/mirum-release/release-steps.json"
 
       - name: Compose state on failure (masked)
         if: failure()
@@ -71,7 +73,7 @@ jobs:
 
       - name: Upload step timing and JSON evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-docs-artifacts${{ (github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main') && '-nonrelease' || '' }}
           path: |
@@ -89,10 +91,10 @@ jobs:
           files=(-f compose.release.yml)
           [ -f "$RELEASE_WORK/restore.compose.yml" ] && files+=(-f "$RELEASE_WORK/restore.compose.yml")
           docker compose "${files[@]}" down --remove-orphans || true
-          # Only volumes this workflow's own project created, by exact name.
-          for f in source-volume restore-volume; do
-            [ -f "$RELEASE_WORK/$f" ] || continue
-            v=$(head -n1 "$RELEASE_WORK/$f")
-            case "$v" in "$COMPOSE_PROJECT_NAME"_*) docker volume rm "$v" || true ;; esac
-          done
+          # Only this run's restore volume, by exact pattern: <project>_mirum_engineering-restore-<16 hex>.
+          # (The project's own volume is removed by exact name below.)
+          if [ -f "$RELEASE_WORK/restore-volume" ]; then
+            v=$(head -n1 "$RELEASE_WORK/restore-volume")
+            if [[ "$v" =~ ^${COMPOSE_PROJECT_NAME}_mirum_engineering-restore-[0-9a-f]{16}$ ]]; then docker volume rm "$v" || true; fi
+          fi
           docker volume rm "${COMPOSE_PROJECT_NAME}_mirum_engineering" 2>/dev/null || true
