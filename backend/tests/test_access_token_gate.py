@@ -28,7 +28,7 @@ def test_unset_token_leaves_api_open(client, monkeypatch):
 def test_missing_or_wrong_token_is_rejected_before_any_route(client, monkeypatch, header):
     monkeypatch.setenv('MIRUM_ACCESS_TOKEN', 'fixture-token')
     headers = {} if header is None else {'X-Mirum-Access-Token': header}
-    for method, path in [('get', '/auth/check'), ('post', '/run'), ('post', '/generate'),
+    for method, path in [('get', '/auth/check'), ('post', '/run'), ('post', '/generate'), ('post', '/route'),
                          ('get', '/stats'), ('get', '/openapi.json'), ('post', '/gliders/search'),
                          ('get', '/gliders/search/missing'),
                          ('get', '/gliders/search/missing/geometry/missing'),

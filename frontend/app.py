@@ -243,6 +243,50 @@ def _progress_md(steps: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
+def apply_route(ev: dict, prompt: str) -> bool:
+    """Queue the checked-design target for a `route` event and rerun. False when it names none."""
+    from route_labels import route_target
+    target = route_target(ev, prompt)
+    if not target:
+        return False
+    st.session_state.pending_workflow = target["workflow"]
+    if target["capability_id"]:
+        st.session_state.pending_v1 = {"capability_id": target["capability_id"],
+                                       "prompt": target["prompt"]}
+    st.session_state.route_notice = target["notice"]
+    st.rerun()
+    return True
+
+
+def fetch_route(prompt: str) -> dict | str | None:
+    """Ask the backend's provider-free router before any provider call.
+
+    Returns the `route` event for a checked capability, None when the router answers that the prompt
+    matches no checked capability (the labelled LLM fallback may proceed), or the string "unavailable"
+    when the router could not answer (error, rate limit, timeout, malformed reply). Unavailable fails
+    closed: the caller must not fall through to /clarify or /plan, which would spend provider calls on
+    a prompt that may belong to a checked capability.
+    """
+    try:
+        resp = requests.post(
+            f"{BACKEND_URL}/route",
+            headers=_auth_headers(),
+            json={"prompt": prompt},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return "unavailable"
+        body = resp.json()
+        if not isinstance(body, dict) or "route" not in body:
+            return "unavailable"
+        ev = body["route"]
+        if ev is None:
+            return None
+        return ev if isinstance(ev, dict) else "unavailable"
+    except Exception:
+        return "unavailable"
+
+
 def stream_pipeline(prompt: str, progress_ph) -> None:
     """Stream SSE events from /generate, updating session state."""
     steps, idx = [], {}
@@ -294,15 +338,7 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
                 step, status = ev["step"], ev["status"]
 
                 if step == "route":
-                    from route_labels import route_target
-                    target = route_target(ev, prompt)
-                    if target:
-                        st.session_state.pending_workflow = target["workflow"]
-                        if target["capability_id"]:
-                            st.session_state.pending_v1 = {"capability_id": target["capability_id"],
-                                                           "prompt": target["prompt"]}
-                        st.session_state.route_notice = target["notice"]
-                        st.rerun()
+                    if apply_route(ev, prompt):
                         return
                     continue
 
@@ -1041,9 +1077,23 @@ with inputs_col:
 
         if generate and prompt.strip():
             p = prompt.strip()
-            # Step 1: Clarification (optional, fast)
-            ambs = fetch_clarifications(p)
-            if ambs:
+            # Step 0: deterministic route, no provider: checked capabilities never reach /clarify or /plan
+            routed = fetch_route(p)
+            if routed == "unavailable":
+                # Fail closed: never spend provider calls when the router could not decide.
+                st.error("Routing is temporarily unavailable. Please try again in a moment.")
+                ambs = None
+            elif routed is not None:
+                # A checked route: open it. If this page cannot map it, still fail closed (no provider call).
+                if not apply_route(routed, p):
+                    st.error("This request matched a checked capability this page cannot open. Please reload.")
+                ambs = None
+            else:
+                # Step 1: Clarification (optional, fast)
+                ambs = fetch_clarifications(p)
+            if ambs is None:
+                pass
+            elif ambs:
                 st.session_state.pending_clarifications = ambs
                 st.session_state.clarification_prompt = p
                 st.session_state.show_clarification = True

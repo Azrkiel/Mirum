@@ -152,6 +152,7 @@ and rendered, not a second execution of the script. Files are kept for 6 hours.
 | `/engineering/v1/*` | GET, POST, PATCH | Checked cantilever design: reviewed typed brief, deterministic no-LLM solver, evidence-gated package. Typed path available; AI draft mode off by default (see below) |
 | `/plan` | POST | Planner only, returns the manifest |
 | `/requirements` | POST | Requirements extraction only |
+| `/route` | POST | Provider-free route decision: the checked-capability `route` event for a prompt, or `null` |
 | `/clarify` | POST | Returns clarifying questions for a vague prompt |
 | `/download/{run_id}/{fmt}` | GET | Downloads the accepted `step` or `glb` of a `/generate` run (6 h retention) |
 | `/run` | POST | Runs a CadQuery script you supply and returns a GLB |
