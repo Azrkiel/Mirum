@@ -517,3 +517,74 @@ def test_draft_form_has_one_editable_field_per_review_field_and_no_ai_control(mo
     assert len(editable) == len(leaf_fields(DRAGSTER_SPEC))
     assert not any('AI' in b.label for b in app.button)
     assert [c for c in backend.calls if c[2] and c[2].get('mode') == 'ai'] == []
+
+
+# ------------------------------------------------- claim-driven labels
+
+CLAIMS = {'co2_dragster': 'geometry_checks_only', 'regen_chamber': 'geometry_checks_only', 'glider_cem': 'screening_only'}
+
+
+def claim_entry(capability_id):
+    e = entry(capability_id)
+    if capability_id in CLAIMS:
+        e['claim'] = CLAIMS[capability_id]
+    return e
+
+
+def test_accepted_label_per_capability_claim():
+    from engineering_v1 import result_view
+    art = {'zip': True}
+    assert result_view(job(artifacts=art), claim_entry(BEAM))['label'] == 'Checked design'
+    assert result_view(job(artifacts=art), claim_entry('glider_cem'))['label'] == 'Screened'
+    for cid in ('co2_dragster', 'regen_chamber'):
+        assert result_view(job(artifacts=art), claim_entry(cid))['label'] == 'Geometry checks passed'
+
+
+def test_beam_wording_is_unchanged():
+    from engineering_v1 import outcome_message, result_heading
+    e = claim_entry(BEAM)
+    assert outcome_message(e, job()) == ('success', 'Accepted under the declared digital model. Standards conformity, manufactured behavior and material qualification: not evaluated.')
+    assert outcome_message(e, job('rejected'))[1] == 'A required check did not pass. The report gives the measured reasons; no accepted geometry is offered.'
+    assert outcome_message(e, job('x', lifecycle='cancelled'))[1] == 'Cancelled before terminal commit. No accepted package is offered.'
+    assert outcome_message(e, job('x', lifecycle='unavailable'))[1] == 'A required execution or publication stage is unavailable. No accepted package is offered.'
+    assert result_heading(e) == 'Checked result'
+
+
+def test_geometry_only_message_says_geometry_checks_passed():
+    from engineering_v1 import outcome_message
+    for cid in ('co2_dragster', 'regen_chamber'):
+        kind, text = outcome_message(claim_entry(cid), job())
+        assert kind == 'success' and text.startswith('Geometry checks passed')
+        assert 'Checked design' not in text and 'Accepted' not in text
+
+
+def test_glider_surfaces_never_say_checked_design_or_accepted():
+    from engineering_v1 import outcome_message, result_heading, result_view
+    e = claim_entry('glider_cem')
+    surfaces = [result_view(job(artifacts={'zip': True}), e)['label'], result_heading(e)]
+    for j in (job(), job('rejected'), job('x', lifecycle='cancelled'), job('x', lifecycle='unavailable')):
+        surfaces.append(outcome_message(e, j)[1])
+    ok = outcome_message(e, job())[1]
+    assert 'not accepted for manufacture; not engineering certified' in ok and ok.startswith('Screened')
+    for s in surfaces:
+        assert 'Checked' not in s and 'Accepted' not in s
+
+
+def test_missing_claim_on_a_generator_falls_back_to_the_weakest_wording():
+    from engineering_v1 import result_view
+    e = entry('glider_cem')
+    assert result_view(job(artifacts={'zip': True}), e)['label'] == 'Screened'
+
+
+def test_state_line_follows_the_claim_and_no_glider_text_says_accepted():
+    import re
+    from engineering_v1 import outcome_message, result_heading, result_view, state_line
+    assert state_line(claim_entry('rectangular_cantilever'), job()) == 'State: completed | engineering outcome: accepted'
+    assert state_line(claim_entry('co2_dragster'), job()) == 'State: completed | engineering outcome: geometry checks passed'
+    assert state_line(claim_entry('glider_cem'), job('rejected')) == 'State: completed | engineering outcome: rejected'
+    e = claim_entry('glider_cem')
+    texts = [state_line(e, job()), result_heading(e), result_view(job(artifacts={'zip': True}), e)['label']]
+    texts += [outcome_message(e, j)[1] for j in (job(), job('rejected'), job('x', lifecycle='cancelled'), job('x', lifecycle='unavailable'))]
+    assert 'engineering outcome: screened' in texts[0]
+    for t in texts:
+        assert 'accepted' not in re.sub('not accepted for manufacture', '', t, flags=re.I).lower(), t

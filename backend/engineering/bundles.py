@@ -219,8 +219,15 @@ class BundlePublisher:
             reasons=list(result.reasons),
             evaluations=[dict(candidate_sha256=e['candidate'].candidate_sha256,
                               report_sha256=e['report_sha256'],generator_report=e['report']) for e in result.evaluations])
-        rows=[f'# Checked {descriptor.label} result','',f'Job: {job_id}',f'Brief: {brief.brief_sha256}',
-            f'Outcome: {outcome}','',
+        # Heading and outcome line come from the capability claim, not the job outcome alone.
+        screening=descriptor.claim=='screening_only'
+        heading=f'# {"Screened" if screening else "Geometry Checked"} {descriptor.label} result'
+        outcome_line=outcome
+        if outcome=='accepted':
+            outcome_line=('screened; not accepted for manufacture; not engineering certified' if screening
+                          else 'geometry checks passed')
+        rows=[heading,'',f'Job: {job_id}',f'Brief: {brief.brief_sha256}',
+            f'Outcome: {outcome_line}','',
             'Digital evidence from the capability verifier, not physical testing, manufacturing release or standards certification.',
             f'Selection: {descriptor.selection_rule}.','',
             '| Check | State | Reason |','|---|---|---|']

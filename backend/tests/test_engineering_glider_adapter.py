@@ -48,26 +48,48 @@ def part_bytes(name):
     return f'stl:{name}'.encode()
 
 
-def bundle_zip(parts=PARTS, tamper=None):
+def fixture_identity(candidate):
+    return dict(requirements_sha256=candidate.candidate_sha256,
+                calibration_version=candidate.content.specification['calibration_version'],
+                output_id='0123456789ab', cem_version='c' * 64, implementation_sha256='e' * 64)
+
+
+def fixture_elite(candidate, elite_id):
+    objective, span, kind = {ELITE_LOW: (90.0, 0.9, 'V'), ELITE_HIGH: (140.0, 1.1, 'T')}[elite_id]
+    process = candidate.content.specification['requirements']['process']
+    return dict(elite_id=elite_id, result=dict(objective_value=objective),
+                parameters=dict(wing=dict(span=span), tail=dict(kind=kind)), process='balsa' if process == 'auto' else process)
+
+
+def fixture_design(candidate, selected):
+    final_placement = dict(tail_incidence_deg=1.0)
+    revision = digest(dict(identity=fixture_identity(candidate), parameters=selected['parameters'],
+                           placement=final_placement, process=selected['process']))
+    return dict(final_placement=final_placement, design_revision_sha256=revision)
+
+
+def bundle_zip(parts=PARTS, tamper=None, *, candidate=None, selected=None):
+    candidate = candidate or make_candidate()
+    selected = selected or fixture_elite(candidate, ELITE_HIGH)
     out = io.BytesIO()
     with zipfile.ZipFile(out, 'w') as z:
         for name in parts:
             data = part_bytes(name) + (b'!' if name == tamper else b'')
             z.writestr(f'0123456789ab_{name}.stl', data)
-        z.writestr('design.json', b'{}')
+        z.writestr('design.json', enc(fixture_design(candidate, selected)))
         z.writestr('performance_report.json', b'{}')
     return out.getvalue()
 
 
-def design_report(candidate, bundle: bytes, **changes):
+def design_report(candidate, bundle: bytes, *, selected=None, **changes):
     """A screened design report shaped like ``cem.glider.service._package`` output."""
+    selected = selected or fixture_elite(candidate, ELITE_HIGH)
     manifest = [dict(name=n, file=f'0123456789ab_{n}.stl', sha256=sha(part_bytes(n)), material='foam')
                 for n in PARTS]
     report = dict(
-        requirements_sha256=candidate.candidate_sha256,
-        calibration_version=candidate.content.specification['calibration_version'],
-        output_id='0123456789ab', cem_version='c' * 64, elite_id=ELITE_HIGH,
-        design_revision_sha256='d' * 64, status='screened', minimum_performance_passed=True,
+        **fixture_identity(candidate), elite_id=selected['elite_id'],
+        design_revision_sha256=fixture_design(candidate, selected)['design_revision_sha256'],
+        status='screened', minimum_performance_passed=True,
         accepted_for_manufacture=False, engineering_certified=False,
         closure=dict(
             state='passed', failures=[], mass_relative_error=0.012, measured_mass_kg=0.31,
@@ -90,11 +112,8 @@ def design_report(candidate, bundle: bytes, **changes):
 
 
 def discovery_report(candidate, candidates=(ELITE_LOW, ELITE_HIGH), **changes):
-    objective = {ELITE_LOW: 90.0, ELITE_HIGH: 140.0}
-    elites = [dict(elite_id=e, result=dict(objective_value=objective[e])) for e in candidates]
-    report = dict(requirements_sha256=candidate.candidate_sha256,
-                  calibration_version=candidate.content.specification['calibration_version'],
-                  output_id='0123456789ab', cem_version='c' * 64, status='completed', candidates=elites,
+    elites = [fixture_elite(candidate, elite_id) for elite_id in candidates]
+    report = dict(**fixture_identity(candidate), status='completed', candidates=elites,
                   requirements=candidate.content.specification['requirements'],
                   calibration=dict(state='fake', version=candidate.content.specification['calibration_version']),
                   per_process=dict(balsa=dict(archive=list(elites)), sheet_foam=dict(archive=[])))
@@ -110,12 +129,14 @@ def assembled(candidate=None, *, design_changes=None, tamper=None, discovery_cha
               no_design=False):
     from engineering.glider_adapter import assemble_evaluation
     candidate = candidate or make_candidate()
-    bundle = bundle_zip(tamper=tamper)
-    discovery = discovery_report(candidate, **({} if candidates is None else dict(candidates=candidates)),
-                                 **(discovery_changes or {}))
-    design = None if no_design else enc(design_report(candidate, bundle, **(design_changes or {})))
-    return candidate, assemble_evaluation(candidate, discovery=enc(discovery), design=design,
-                                          bundle=None if no_design else bundle)
+    discovery = discovery_report(candidate, **({} if candidates is None else dict(candidates=candidates)))
+    design = bundle = None
+    if not no_design:
+        selected = max(discovery['candidates'], key=lambda e: e['result']['objective_value'], default=None)
+        bundle = bundle_zip(tamper=tamper, candidate=candidate, selected=selected)
+        design = enc(design_report(candidate, bundle, selected=selected, **(design_changes or {})))
+    discovery.update(discovery_changes or {})
+    return candidate, assemble_evaluation(candidate, discovery=enc(discovery), design=design, bundle=bundle)
 
 
 def assess(candidate, evaluation):
@@ -384,10 +405,12 @@ class FakeJobs:
     """Same surface as ``cem.api.Jobs`` (``start``, ``completed``, ``task``) over canned results."""
     def __init__(self, root, candidate, *, candidates=(ELITE_LOW, ELITE_HIGH), busy_on=None, hang=False,
                  fail_design=False):
-        self.root, self.candidate, self.candidates = root, candidate, candidates
+        self.root, self.candidate = root, candidate
         self.busy_on, self.hang, self.fail_design = busy_on, hang, fail_design
         self.jobs, self.task, self.payloads = {}, None, []
-        self.bundle = bundle_zip()
+        self.discovery = discovery_report(candidate, candidates)
+        self.selected = max(self.discovery['candidates'], key=lambda e: e['result']['objective_value'], default=None)
+        self.bundle = bundle_zip(candidate=candidate, selected=self.selected)
 
     def start(self, payload):
         self.payloads.append(payload)
@@ -398,9 +421,10 @@ class FakeJobs:
         directory.mkdir()
         kind = payload['kind']
         if kind == 'discovery':
-            (directory / 'result.json').write_bytes(enc(discovery_report(self.candidate, self.candidates)))
+            (directory / 'result.json').write_bytes(enc(self.discovery))
         else:
-            (directory / 'result.json').write_bytes(enc(design_report(self.candidate, self.bundle)))
+            report = design_report(self.candidate, self.bundle, selected=self.selected)
+            (directory / 'result.json').write_bytes(enc(report))
             (directory / 'bundle.zip').write_bytes(self.bundle)
         status = 'failed' if (kind == 'design' and self.fail_design) else 'completed'
         self.jobs[key] = dict(status=status, directory=directory, kind=kind, identity=dict(output_id='x'))
