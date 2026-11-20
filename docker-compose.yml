@@ -66,6 +66,9 @@ services:
       - ./frontend/vn_diagram.py:/app/vn_diagram.py:ro
       - ./frontend/engineering_ui.py:/app/engineering_ui.py:ro
       - ./frontend/engineering_state.py:/app/engineering_state.py:ro
+    environment:
+      # Dev only: hot reload for the mounted sources (the image defaults to none).
+      STREAMLIT_SERVER_FILE_WATCHER_TYPE: auto
     depends_on:
       - backend
     restart: unless-stopped
