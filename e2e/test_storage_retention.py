@@ -25,7 +25,7 @@ from harness.guard import guarded_context
 from harness.ops import Ops
 from harness.stack import Stack, StackConfig
 from harness.storage_flows import CaseLog, artifact_digests, classify_429, regen_brief, submit, wait_for
-from harness.ui import AccessGate, CheckedBeam
+from harness.ui import CheckedBeam, sign_in
 
 pytestmark = pytest.mark.retention
 ROOT = Path(__file__).resolve().parents[1]
@@ -368,18 +368,15 @@ def _browser_job(browser: Browser, frontend: str, ops: Ops) -> Iterator[tuple[Pa
     try:
         page = context.new_page()
         page.set_default_timeout(20_000)
-        gate = AccessGate(page)
-        gate.open(frontend + "/?checked_workflow=1")
-        gate.submit(ops.stack.config.token)
+        sign_in(page, frontend, ops.stack.config.token)
         beam = CheckedBeam(page)
-        beam.save_draft.click()
-        page.get_by_text(re.compile(r"^I reviewed every value")).click()
-        beam.button("Finalize reviewed brief").click()
-        finalized = page.get_by_text(re.compile(r"^Finalized brief \S+ \|"))
-        brief_id = finalized.inner_text().split()[2]
-        beam.button("Run reviewed beam checks").click()
-        caption = page.get_by_text(re.compile(r"^Job [0-9a-f]{32} \| brief SHA-256"))
-        job_id = caption.inner_text().split()[1]
+        beam.open_form()
+        example = json.loads((ROOT / "examples/engineering/cantilever.json").read_text(encoding="utf-8"))
+        beam.type_requirements(example["specification"], example["candidate_heights_mm"])
+        beam.save_draft()
+        beam.acknowledge()
+        brief_id, _ = beam.finalize()
+        job_id = beam.run_checks()
         yield page, brief_id, job_id
     finally:
         context.close()
