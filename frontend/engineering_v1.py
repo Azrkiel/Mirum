@@ -1,7 +1,8 @@
 """Pure helpers for the checked-design v1 view (no streamlit, no network).
 
-Generators (dragster, regen, glider) are drafted through form or rules mode only; this
-module never builds an 'ai' draft. Review fields of a generator are the leaves of its
+initial_draft_body drafts generators through form or rules mode only and never builds an
+'ai' draft. AI drafts are built only by ai_draft_body, and only when the server reports
+ai_enabled. Review fields of a generator are the leaves of its
 normalized specification, computed here by the same rule the backend uses.
 """
 from copy import deepcopy
@@ -247,3 +248,82 @@ def result_view(job, entry=None):
 def verified_download(job, format, value):
     if format not in DOWNLOADS: raise ValueError('Unknown download format')
     return checked_bytes(job, DOWNLOADS[format][0], value)
+
+
+MAX_AI_PROMPT = 2000
+_AI_UNAVAILABLE = 'AI preparation unavailable; typed form remains available.'
+_AI_NOT_AVAILABLE = 'AI draft preparation is not available; the typed form remains available.'
+
+
+def ai_enabled(metadata):
+    return isinstance(metadata, dict) and metadata.get('ai_enabled') is True
+
+
+def ai_available(metadata):
+    return isinstance(metadata, dict) and metadata.get('ai_available') is True
+
+
+def ai_draft_body(entry, prompt):
+    if not is_generator(entry): raise ValueError('The beam uses its own form')
+    if not isinstance(prompt, str) or not prompt.strip(): raise ValueError('Describe the request')
+    if len(prompt) > MAX_AI_PROMPT: raise ValueError('Request exceeds 2000 characters')
+    return dict(mode='ai', capability=entry['id'], input={}, prompt=prompt)
+
+
+def _provenance(prepared):
+    draft = prepared.get('draft') if isinstance(prepared, dict) else None
+    prov = draft.get('provenance') if isinstance(draft, dict) else None
+    return prov if isinstance(prov, dict) else {}
+
+
+def ai_origins(prepared):
+    entries = _provenance(prepared).get('field_origins')
+    if not isinstance(entries, list): return {}
+    return {e['field']: e['origin'] for e in entries
+            if isinstance(e, dict) and isinstance(e.get('field'), str) and isinstance(e.get('origin'), str)}
+
+
+def is_ai_draft(prepared):
+    return _provenance(prepared).get('input_mode') == 'ai'
+
+
+def unverified_fields(prepared):
+    return tuple(f for f, o in ai_origins(prepared).items() if o == 'ai_proposed')
+
+
+def review_ack_required(prepared):
+    return bool(unverified_fields(prepared))
+
+
+def field_label(path, origins):
+    origin = (origins or {}).get(SPEC_PREFIX + path)
+    if origin == 'ai_proposed': return path + ' (AI-proposed, unverified)'
+    if origin == 'policy': return path + ' (policy default)'
+    return path
+
+
+def ai_status(prepared):
+    draft = prepared['draft']
+    states = [i.get('state') for i in prepared.get('issues') or [] if isinstance(i, dict)]
+    if 'unsupported' in states: return 'unsupported'
+    if draft.get('content') is None or 'clarification_required' in states: return 'clarification_required'
+    return 'proposed'
+
+
+def ai_failure_message(error):
+    body = getattr(error, 'body', None)
+    if isinstance(body, dict) and body.get('state') == 'unavailable': return _AI_UNAVAILABLE
+    return _AI_NOT_AVAILABLE
+
+
+def propose_ai_draft(client, entry, prompt):
+    body = ai_draft_body(entry, prompt)
+    try:
+        prepared = client.request('POST', '/drafts', body)
+    except Exception as error:
+        if getattr(error, 'status', None) != 503: raise
+        err_body = getattr(error, 'body', None)
+        kept = err_body.get('prepared') if isinstance(err_body, dict) else None
+        return dict(status='unavailable', prepared=kept if isinstance(kept, dict) else None,
+                    message=ai_failure_message(error))
+    return dict(status=ai_status(prepared), prepared=prepared, message=None)
