@@ -31,6 +31,9 @@ def test_three_styles_generate_and_download(stack, token, api, page, shot, exter
     ui = open_dragster(stack, token, page)
     for label, generator in STYLES:
         ui.choose_style(label)
+        if generator != STYLES[0][1]:
+            # the previous result stops matching once the new preset is loaded into the draft
+            expect(ui.match_notice).to_have_count(0, timeout=30_000)
         expect(ui.generate).to_be_enabled(timeout=30_000)
         ui.generate.click()
         ui.wait_accepted()
