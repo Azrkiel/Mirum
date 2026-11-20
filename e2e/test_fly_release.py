@@ -165,7 +165,7 @@ def test_backend_toml_settings():
     assert re.search(r'^MIRUM_OPEN_ACCESS = "1"$', text, re.M)
     assert re.search(r'^MIRUM_TRUSTED_CLIENT_HEADER = "1"$', text, re.M)
     assert re.search(r'\[mounts\]\s+source = "mirum_engineering"\s+destination = "/data"', text)
-    assert re.search(r'\[\[vm\]\]\s+size = "shared-cpu-4x"\s+memory = "8gb"', text)
+    assert re.search(r'\[\[vm\]\]\s+size = "performance-2x"\s+memory = "8gb"', text)
     assert 'auto_stop_machines = "stop"' in text and "min_machines_running = 0" in text
     assert "fly scale count 1" in read(BACKEND_TOML)
     assert 'app = "mirum-api"' in text and 'primary_region = "iad"' in text

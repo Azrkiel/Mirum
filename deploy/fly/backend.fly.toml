@@ -31,6 +31,9 @@ primary_region = "iad"
 
 # Exactly one machine: engineering storage supports a single API process
 # (volume lock). Keep it at one with `fly scale count 1 -a mirum-api`.
+# Dedicated CPUs (owner decision 2026-11-20): on shared-cpu-4x the regen reference
+# run took 427 s and the checked regen route hit its engineering deadline; on
+# performance-2x it took 107 s (CI runner: 56 s).
 [[vm]]
-  size = "shared-cpu-4x"
+  size = "performance-2x"
   memory = "8gb"
