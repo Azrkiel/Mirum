@@ -593,3 +593,54 @@ def test_a_generator_with_no_registered_adapter_is_unavailable_not_the_beam_adap
     result = v1_wait(client, v1_submit(client, regen_spec(), 'no-adapter'))
     assert result['lifecycle'] == 'unavailable' and result['outcome'] == 'not_evaluated', result
     assert not any(j['status'] != 'x' for j in app.state.regen_runner.jobs.values())    # never reached the runner
+
+
+@posix_only
+def test_v1_frees_the_runner_tmpfs_copy_after_each_accepted_run(stack, monkeypatch):
+    # RC1 R6 S09a: the runner kept each accepted output on the 256 MiB /tmp tmpfs for an hour, so
+    # the second sequential real regen run hit ENOSPC. The checked route copies what it needs.
+    client, app, web, tmp_path = stack
+    runner = app.state.regen_runner
+    accepted_worker(web, monkeypatch, tmp_path)
+    for key in ('free-1', 'free-2'):
+        result = v1_wait(client, v1_submit(client, regen_spec(), key))
+        assert result['outcome'] == 'accepted', result
+        assert runner.jobs == {} and not any(runner.root.iterdir()), list(runner.root.iterdir())
+        assert v1_file(client, result['job_id'], 'generator-cleaned-stl').status_code == 200
+
+
+@posix_only
+def test_v1_frees_the_runner_tmpfs_copy_after_a_rejection(stack, monkeypatch):
+    client, app, web, tmp_path = stack
+    runner = app.state.regen_runner
+    rejecting_builder(monkeypatch, tmp_path)
+    result = v1_wait(client, v1_submit(client, regen_spec(), 'free-rejected'))
+    assert result['outcome'] == 'rejected', result
+    assert runner.jobs == {} and not any(runner.root.iterdir())
+
+
+@posix_only
+def test_the_old_endpoint_still_keeps_its_result_for_download(stack, monkeypatch):
+    client, app, web, tmp_path = stack
+    accepted_worker(web, monkeypatch, tmp_path)
+    job, files, _ = old_path(client, app, regen_spec())
+    assert job['status'] == 'accepted' and files['stl']
+    assert job['id'] in app.state.regen_runner.jobs
+
+
+def test_release_drops_only_finished_jobs(tmp_path):
+    pytest.importorskip('fastapi')
+    from engineering import regen_web as web
+    runner = web.JobRunner(tmp_path / 'r')
+    try:
+        for job_id, status in (('done', 'accepted'), ('busy', 'running'), ('wait', 'queued'), ('gone', 'cancelled')):
+            (runner.root / job_id / 'output').mkdir(parents=True)
+            runner.jobs[job_id] = dict(id=job_id, status=status, updated=time.time())
+        assert runner.release('busy') is False and runner.release('wait') is False
+        assert runner.release('gone') is False and runner.release('nope') is False
+        assert runner.release('done') is True and runner.release('done') is False
+        assert set(runner.jobs) == {'busy', 'wait', 'gone'}
+        assert sorted(p.name for p in runner.root.iterdir()) == ['busy', 'gone', 'wait']
+    finally:
+        runner.jobs.clear()
+        runner.close()
