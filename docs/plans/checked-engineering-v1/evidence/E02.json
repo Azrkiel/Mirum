@@ -5,17 +5,29 @@
   "date": "2026-11-20",
   "pr": 106,
   "starting_sha": "8075394",
-  "tested_implementation_sha": "d75ae65d04d2cfdef7e7713d2fe6887b31885f15",
+  "tested_implementation_sha": "69d2f02b6a5402acf394536b7a6009451c221277",
   "note": "Docs-only commit(s) follow the tested SHA; they change no code.",
   "runs": {
     "ci_native_gate": {
-      "actions_run": 44797480132,
-      "head_sha": "d75ae65d04d2cfdef7e7713d2fe6887b31885f15",
+      "actions_run": 44800352084,
+      "head_sha": "69d2f02b6a5402acf394536b7a6009451c221277",
       "result": "success",
       "shards": {
-        "0/3": {"job": 136502481609, "passed": 1469, "skipped": 1},
-        "1/3": {"job": 136502481541, "passed": 1459, "skipped": 11},
-        "2/3": {"job": 136502481505, "passed": 1463, "skipped": 6}
+        "0/3": {
+          "job": 136512647297,
+          "passed": 1467,
+          "skipped": 3
+        },
+        "1/3": {
+          "job": 136512647152,
+          "passed": 1469,
+          "skipped": 1
+        },
+        "2/3": {
+          "job": 136512647647,
+          "passed": 1456,
+          "skipped": 14
+        }
       },
       "skipped_total": 18
     },
@@ -24,12 +36,22 @@
       "head_sha": "b0dcd462a768e8ac551f1fd7ba6ad61076748ca3",
       "result": "failure",
       "reason": "test_generator_package_publishes_exact_bytes_and_diagnostics_hold_no_geometry asserts 'Checked' in report.md; fixed in d75ae65 by heading 'Geometry Checked'"
+    },
+    "earlier_green_run": {
+      "actions_run": 44797480132,
+      "head_sha": "d75ae65d04d2cfdef7e7713d2fe6887b31885f15",
+      "result": "success",
+      "skipped_total": 18
     }
   },
   "host_checks": {
-    "frontend/test_engineering_v1.py": "59 passed",
+    "frontend/test_engineering_v1.py": "60 passed",
     "glider adapter + closure": "58 passed, 3 skipped",
     "glider labels": "3 passed"
   },
-  "claims": {"glider": "screening_only", "dragster": "geometry_checks_only", "regen": "geometry_checks_only"}
+  "claims": {
+    "glider": "screening_only",
+    "dragster": "geometry_checks_only",
+    "regen": "geometry_checks_only"
+  }
 }
