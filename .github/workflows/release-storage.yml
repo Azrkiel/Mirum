@@ -9,8 +9,8 @@ name: Release storage
 # native-on-release, or `all`; input `smoke`) and pull_request only while the PR carries the
 # `storage` label and comes from this repository (fork PRs would run attacker-controlled test code).
 #
-# Release evidence: ONLY a workflow_dispatch run on main counts (artifacts `release-storage-<job>`).
-# Every other run uploads `release-storage-<job>-nonrelease`. Artifacts are JSON and PNG only.
+# Release evidence: ONLY a non-smoke workflow_dispatch run on main counts (artifacts `release-storage-<job>`).
+# Every other run (including any smoke run) uploads `release-storage-<job>-nonrelease`. Artifacts are JSON and PNG only.
 #
 # `smoke=true` (dispatch input, or the label `storage-smoke` on a same-repo PR) accepts "no tests
 # collected for the marker" (pytest exit 5) so the plumbing (build, stack up/down, overlays, loop
@@ -23,6 +23,7 @@ name: Release storage
 #             fallocate and remount helpers), "Remove loop volume" (umount), and one `sudo ls -ld`
 #             in the smoke overlay step.
 #   lifecycle: "Verify host helper privileges" (the S04b poller uses `sudo -n kill -STOP`).
+#   retention: `playwright install --with-deps chromium` (apt via sudo, as in release-e2e).
 # The test helpers only run `sudo -n` when CI=true.
 
 on:
@@ -49,7 +50,7 @@ env:
   # smoke: dispatch input, or (so it can be proven from a branch, where gh cannot dispatch a workflow that
   # is not on the default branch yet) the label `storage-smoke` on a same-repo PR.
   SMOKE: ${{ (inputs.smoke || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'storage-smoke'))) && 'true' || 'false' }}
-  ARTIFACT_SUFFIX: ${{ (github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main') && '-nonrelease' || '' }}
+  ARTIFACT_SUFFIX: ${{ (github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main' || inputs.smoke) && '-nonrelease' || '' }}
 
 jobs:
   lifecycle:
@@ -205,6 +206,8 @@ jobs:
       - name: Overlays change only their allowlisted paths
         run: |
           set -euo pipefail
+          # The merged config contains the run token: remove the dumps on every exit path.
+          trap 'rm -f "$RUNNER_TEMP"/cfg-*.json' EXIT
           cfg() { docker compose -p "$MIRUM_E2E_PROJECT" "$@" config --format json | jq -S .; }
           check() {
             name="$1"; allow="$2"

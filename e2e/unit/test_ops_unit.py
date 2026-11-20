@@ -126,7 +126,8 @@ def config_output(name: str = "test_volume") -> str:
 def sidecar_argv(write: bool, code: str) -> list[str]:
     mount = "test_volume:/tmp/mirum/engineering" + ("" if write else ":ro")
     return ["docker", "run", "--rm", "--network", "none", "--read-only", "--user", "10001:10001",
-            "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--tmpfs", "/tmp", "-v",
+            "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "1g", "--pids-limit", "256",
+            "--tmpfs", "/tmp:rw,nosuid,noexec,size=256m", "-v",
             mount, "--entrypoint", "python", "mirum-backend:release", "-c", code]
 
 

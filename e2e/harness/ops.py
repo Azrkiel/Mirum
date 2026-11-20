@@ -361,7 +361,8 @@ class Ops:
     def _sidecar(self, code: str, write: bool, *args: str) -> str:
         mount = f"{self.volume_name()}:{_ROOT}" + ("" if write else ":ro")
         return self._run(["docker", "run", "--rm", "--network", "none", "--read-only", "--user", "10001:10001",
-                          "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--tmpfs", "/tmp",
+                          "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "1g",
+                          "--pids-limit", "256", "--tmpfs", "/tmp:rw,nosuid,noexec,size=256m",
                           "-v", mount, "--entrypoint", "python", "mirum-backend:release", "-c", code, *args],
                          _MAX_TIMEOUT)
 
