@@ -208,6 +208,9 @@ class GeneratorDescriptor(StrictModel):
     payloads: tuple[str, ...]
     adapter: str
     proposers: dict[str, str] = {}
+    # What a passing run means (Wave E contract). Labels in the API, UI and package come from
+    # this, never from the job outcome alone: "accepted" never reads as more than this claim.
+    claim: Literal['geometry_checks_only', 'screening_only']
     engineering_certified: Literal[False] = False
     standards: Literal['not_evaluated'] = 'not_evaluated'
     limitations: tuple[str, ...]
@@ -458,6 +461,7 @@ DRAGSTER = GeneratorDescriptor(
     primary_artifact='generator-body.step',
     payloads=('generator-spec.json', 'generator-report.json', 'generator-body.step', 'generator-preview.glb'),
     adapter='engineering.dragster_adapter:DragsterAdapter',
+    claim='geometry_checks_only',
     proposers={'rules': 'engineering.dragster_proposer:RulesProposer',
                'ai': 'engineering.dragster_proposer:AiProposer'},
     limitations=('Digital geometry checks of a parametric body; no aerodynamic, performance or competition-legality claim',
@@ -498,6 +502,9 @@ REGEN = GeneratorDescriptor(
     primary_artifact='generator-cleaned.stl',
     payloads=('generator-cleaned.stl', 'generator-report.json', 'generator-spec.canonical.json'),
     adapter='engineering.regen_adapter:RegenAdapter',
+    claim='geometry_checks_only',
+    # E05 (Wave E P3) installs this module; until then the declared proposer is "not installed".
+    proposers={'ai': 'engineering.regen_proposer:AiProposer'},
     limitations=('Geometry only: no gas dynamics, thermal, structural or manufacturing analysis',
                  'Simplified C1 cosine contour, not an optimized nozzle',
                  'Cancelling a run leaves the builder process to its own time limit',
@@ -537,6 +544,9 @@ GLIDER = GeneratorDescriptor(
     primary_artifact='generator-bundle.zip',
     payloads=('generator-bundle.zip', 'generator-result.json'),
     adapter='engineering.glider_adapter:GliderAdapter',
+    claim='screening_only',
+    # E05 (Wave E P3) installs this module; until then the declared proposer is "not installed".
+    proposers={'ai': 'engineering.glider_proposer:AiProposer'},
     limitations=('Reduced-order computational model; verified_gain and manufacturing_ready stay false',
                  'Floors are inline literals in cem/evidence.py; implementation_sha256 in each report binds them',
                  'Runs past 420 s or 32 MiB are unavailable here; the original endpoint still serves them'))
