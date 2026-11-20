@@ -113,19 +113,17 @@ jobs:
           if passed < 4 or bad or errors:
               sys.exit("native regen tests: need at least 4 passed and no failures")
           PY
-      - name: Require the 5 native defect cases as well (9 passed in total, skips do not count)
+      - name: Require the 5 native defect cases as well (9 of 9 passed, none skipped)
         run: |
           python - <<'PY'
           import sys
           import xml.etree.ElementTree as ET
           root = ET.parse("evidence/pytest/junit.xml").getroot()
           cases = list(root.iter("testcase"))
-          defects = [c for c in cases if "test_regen_native_defects" in c.get("classname", "")]
           ok = [c for c in cases if c.find("failure") is None and c.find("error") is None and c.find("skipped") is None]
-          ok_defects = [c for c in defects if c in ok]
-          print(f"passed={len(ok)} defect_cases={len(defects)} defect_passed={len(ok_defects)}")
-          if len(ok) < 9 or len(ok_defects) < 5:
-              sys.exit("native regen tests: need 9 passed including 5 defect cases")
+          print(f"testcases={len(cases)} passed={len(ok)}")
+          if len(ok) < 9 or len(ok) != len(cases):
+              sys.exit("native regen tests: need all 9 (4 existing + 5 defect cases) passed, none skipped")
           PY
       - name: Reference and small spec evidence (exit code, wall-clock, peak RSS, hashes)
         run: |
