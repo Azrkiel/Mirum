@@ -8,6 +8,18 @@ that produced them.
 It is a research project, pre-1.0. See [What doesn't work yet](#what-doesnt-work-yet)
 before relying on the output.
 
+## Release (RC1)
+
+The [RC1 release guide](RELEASE.md) covers the local Docker images. RC1 has no
+hosted deployment. Typed checked design works without a provider key for
+rectangular cantilevers, CO₂ dragsters, glider CEM and regenerative chamber
+geometry. AI drafts are off by default. Results carry no engineering certification.
+
+The release binds to loopback and uses a shared access token. It supports one
+backend process and one active checked job, with six jobs per client per hour,
+a 420-second deadline and six-hour download retention. Run storage is capped at
+512 MiB total.
+
 ## What it does
 
 - Reads a prompt and pulls out dimensions, material, and part type.

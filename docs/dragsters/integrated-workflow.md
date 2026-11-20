@@ -45,6 +45,27 @@ frontend image copies the same small shared modules. No hosting was changed.
 
 ## API and native execution
 
+### Three-style v2 API
+
+`POST /dragsters/generate` also accepts the complete strict v2 spec for `wedge`,
+`teardrop`, or `narrow_waist`. The same five-per-minute limit, bounded worker,
+SSE events and atomic four-artifact delivery apply. v2 reports identify their
+schema/style/generator and include independent STEP checks, wheel-clearance
+evidence, track widths, stock margins when supplied, and body mass when a material
+density is supplied. Wheel envelopes are checks/display geometry; they are not
+solids in the STEP file. The v1 generator and report contract remain available.
+
+`GET /dragsters/presets` (30 requests/minute) returns
+`{styles: [{name, label, preset}]}` in registry order. It loads no CAD kernel.
+
+```sh
+curl -N -H 'Content-Type: application/json' \
+  --data-binary @backend/dragsters/presets/teardrop.json \
+  http://127.0.0.1:8017/dragsters/generate
+```
+
+The paragraphs below describe the original v1 path, which stays supported.
+
 `POST /dragsters/generate` takes the complete strict version-1 spec as the JSON
 body (not a source script or an envelope). Unknown fields, unsupported
 version/style/units, booleans/strings in numeric fields, nonfinite values, and
@@ -113,6 +134,33 @@ accepted parameter JSON to regenerate after losing a session. This is a
 short-lived delivery buffer, not a permanent document store.
 
 ## Editor, cancellation and session state
+
+### Three-style v2 editor
+
+Choose **Low wedge**, **Smooth teardrop**, or **Narrow waist + raised rear housing**.
+A clean draft switches directly to its preset. After edits, use **Discard edits
+and load preset** to confirm replacement. Edit the grouped body/shape, axle/wheel,
+cartridge-pocket, optional stock, and optional material controls. Shape heights
+are above the body bottom; pocket Z is above ground; axle Z is half the wheel
+diameter, and wheel contact is ground Z=0. Invalid drafts show a field error and
+disable Generate. Edits never replace the accepted preview or downloads.
+
+Load v2 JSON directly. Loading v1 JSON upgrades it for review and displays field
+provenance, including the default 6 mm wheel width and 1.5 mm side clearance. If
+the v1 dimensions cannot upgrade, **Generate as v1** sends the original JSON
+unchanged through the v1 generation path.
+
+The accepted result shows check IDs, pass/fail and measured/threshold evidence,
+wheelbase, track widths, stock margins and body-only mass. A missing density shows
+**— (no density supplied)**. **Show wheel envelopes** overlays four translucent
+cylinders labelled **envelope — not in STEP** on the STEP-derived preview.
+These results make no manufacturing, cartridge-fit, competition or performance
+claims. A failed or cancelled attempt retains the previous accepted revision.
+
+Both frontend Dockerfiles copy the dragster package directory. Imports remain
+lightweight: CAD imports happen only inside generation/verification functions.
+The standalone local app also accepts v2 JSON and has a minimal style selector;
+its original v1 editor and three-file v1 CLI remain supported.
 
 Controls are reactive drafts; generating is explicit. Strict JSON load validates
 the whole input before changing controls. **Save edited parameters JSON** exports

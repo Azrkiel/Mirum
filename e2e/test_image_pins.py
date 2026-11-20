@@ -275,6 +275,39 @@ def test_mutation_missing_deployment_marker_is_detected():
     assert stage_env("FROM x AS release\nENV A=b\n", "release").get("MIRUM_DEPLOYMENT") is None
 
 
+def final_stage_env(text: str) -> dict[str, str]:
+    """ENV key=value pairs set in the last stage of a Dockerfile."""
+    env: dict[str, str] = {}
+    for ln in logical_lines(text):
+        up = ln.split(None, 1)[0].upper()
+        if up == "FROM":
+            env = {}
+        elif up == "ENV":
+            for tok in ln.split()[1:]:
+                if "=" in tok:
+                    k, v = tok.split("=", 1)
+                    env[k] = v
+    return env
+
+
+def test_frontend_image_disables_the_streamlit_file_watcher():
+    text = (ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
+    assert final_stage_env(text).get("STREAMLIT_SERVER_FILE_WATCHER_TYPE") == "none"
+    # A CLI flag would override the env var; no launch line or shipped config may set it.
+    # Only ENV may name it (checked above): no CMD/ENTRYPOINT/RUN/ARG line in any spelling.
+    for ln in logical_lines(text):
+        if ln.split(None, 1)[0].upper() != "ENV":
+            assert "filewatcher" not in ln.lower() and "file_watcher" not in ln.lower(), ln
+    for f in ("compose.release.yml", "frontend/.streamlit/config.toml"):
+        body = (ROOT / f).read_text(encoding="utf-8").lower()
+        assert "filewatcher" not in body and "file_watcher" not in body, f
+
+
+def test_mutation_watcher_left_on_is_detected():
+    text = "FROM a@sha256:" + "a" * 64 + "\nENV STREAMLIT_SERVER_FILE_WATCHER_TYPE=none\nFROM b\nENV A=b\n"
+    assert final_stage_env(text).get("STREAMLIT_SERVER_FILE_WATCHER_TYPE") is None
+
+
 # ---- review follow-ups (M1, M2, L1, L2, L4, L5) --------------------------------
 
 def pin_only_problems(text: str) -> list[str]:

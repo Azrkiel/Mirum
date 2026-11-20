@@ -98,3 +98,20 @@ def test_v1_report_keys_stay_unchanged(client):
     assert set(result['report']) == {'schema_version', 'generator_version', 'cadquery_version', 'spec_sha256',
         'step_sha256', 'solid_count', 'bounds_mm', 'volume_mm3',
         'checks', 'passed', 'engineering_certified', 'preview', 'revision_id', 'coordinate_frame'}
+
+
+@pytest.mark.parametrize('path', ['/dragsters/generate', '/dragsters/interpret'])
+def test_oversized_body_is_refused_before_parsing(client, path):
+    # Security review of #31 (MEDIUM): the spec is parsed before the rate limiter and invalid
+    # bodies are not counted, so the body cap must apply before any JSON is buffered or parsed.
+    big = b'{"schema_version": 2, "pad": "' + b'x' * (70 * 1024) + b'"}'
+    response = client.post(path, content=big, headers={'Content-Type': 'application/json'})
+    assert response.status_code == 413, response.text
+    small = client.post(path, content=b'{"schema_version": 2, "pad": "x"}', headers={'Content-Type': 'application/json'})
+    assert small.status_code in (422, 503), small.text     # reaches normal validation, unchanged
+
+
+def test_dragster_routes_are_still_registered_once():
+    routes = [(r.path, sorted(r.methods)) for r in main.app.routes if getattr(r, 'path', '').startswith('/dragsters/')]
+    assert routes.count(('/dragsters/generate', ['POST'])) == 1
+    assert routes.count(('/dragsters/interpret', ['POST'])) == 1

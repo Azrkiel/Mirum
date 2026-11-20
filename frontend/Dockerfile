@@ -25,7 +25,9 @@ COPY --from=explorer-build /build/dist /app/components/glider_explorer/dist
 COPY --from=viewer-assets /out/babylon/ /app/static/babylon/
 RUN chmod -R a+rX /app
 WORKDIR /app
-ENV HOME=/tmp PYTHONDONTWRITEBYTECODE=1
+# No file watcher in the image: a release container never hot-reloads, and the watcher
+# added ~0.5 s per session after any page imported backend/dragsters (dev compose sets auto).
+ENV HOME=/tmp PYTHONDONTWRITEBYTECODE=1 STREAMLIT_SERVER_FILE_WATCHER_TYPE=none
 USER 10001:10001
 EXPOSE 8501
 CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501"]

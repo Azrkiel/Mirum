@@ -40,7 +40,7 @@ jobs:
       - name: PicoGK Dockerfile, lock and workflow checks (full checkout; fails if files are missing)
         run: |
           pip install --require-hashes --only-binary=:all: -r picogk-builder/requirements-test.txt
-          python -m pytest -q --tb=short -p no:cacheprovider backend/tests/test_picogk_dockerfiles.py backend/tests/test_b13_step12_workflow.py
+          python -m pytest -q --tb=short -p no:cacheprovider backend/tests/test_picogk_dockerfiles.py backend/tests/test_b13_step12_workflow.py backend/tests/test_run_release_md.py
 
   airfoil-unit-tests:
     name: Airfoil unit tests (Group A + Group B via mock_xfoil)
