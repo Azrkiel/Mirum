@@ -12,9 +12,9 @@ name: Release storage
 # Release evidence: ONLY a workflow_dispatch run on main counts (artifacts `release-storage-<job>`).
 # Every other run uploads `release-storage-<job>-nonrelease`. Artifacts are JSON and PNG only.
 #
-# `smoke=true` (dispatch only) accepts "no tests collected for the marker" (pytest exit 5) so the
-# plumbing (build, stack up/down, overlays, loop volume, S16) can be proven before the test modules
-# exist. Any other exit code still fails, and smoke never applies to pull_request runs.
+# `smoke=true` (dispatch input, or the label `storage-smoke` on a same-repo PR) accepts "no tests
+# collected for the marker" (pytest exit 5) so the plumbing (build, stack up/down, overlays, loop
+# volume, S16) can be proven before the test modules exist. Any other exit code still fails.
 #
 # sudo is used ONLY in these named steps (hosted runners have passwordless sudo; nothing here is a
 # secret-bearing step):
@@ -46,6 +46,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # smoke: dispatch input, or (so it can be proven from a branch, where gh cannot dispatch a workflow that
+  # is not on the default branch yet) the label `storage-smoke` on a same-repo PR.
+  SMOKE: ${{ (inputs.smoke || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'storage-smoke'))) && 'true' || 'false' }}
   ARTIFACT_SUFFIX: ${{ (github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/main') && '-nonrelease' || '' }}
 
 jobs:
@@ -98,7 +101,6 @@ jobs:
       - name: Run lifecycle cases (-m lifecycle)
         env:
           CI: "true"
-          SMOKE: ${{ inputs.smoke && 'true' || 'false' }}
         run: |
           set +e
           "$E2E_PY" -m pytest -c e2e/pytest-storage.ini --tb=short -m lifecycle e2e
@@ -237,7 +239,7 @@ jobs:
         run: docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE up -d --wait --wait-timeout 300 --no-deps backend
 
       - name: Smoke - each overlay brings the backend up and is applied
-        if: inputs.smoke
+        if: env.SMOKE == 'true'
         run: |
           set -euo pipefail
           up() { docker compose -p "$MIRUM_E2E_PROJECT" $COMPOSE_BASE -f "e2e/compose/storage/$1.yml" up -d --wait --wait-timeout 300 --no-deps backend; }
@@ -266,7 +268,6 @@ jobs:
       - name: Run capacity cases (-m capacity)
         env:
           CI: "true"
-          SMOKE: ${{ inputs.smoke && 'true' || 'false' }}
           MIRUM_STORAGE_LOOP_MOUNT: ${{ env.MIRUM_STORAGE_LOOP_MOUNT }}
         run: |
           set +e
@@ -358,7 +359,6 @@ jobs:
       - name: Run retention cases (-m retention)
         env:
           CI: "true"
-          SMOKE: ${{ inputs.smoke && 'true' || 'false' }}
         run: |
           set +e
           "$E2E_PY" -m pytest -c e2e/pytest-storage.ini --tb=short -m retention e2e
