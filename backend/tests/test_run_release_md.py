@@ -1,6 +1,7 @@
 """Tests for scripts/run_release_md.py (extracts CI-executable blocks from RELEASE.md)."""
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -142,6 +143,8 @@ def test_cli_list_and_emit(tmp_path, capsys):
     assert "echo b" in out.read_text()
 
 
+@pytest.mark.skipif(os.environ.get("MIRUM_NATIVE_GATE_IMAGE") == "1" or not (ROOT / "RELEASE.md").exists(),
+                    reason="native gate image has no RELEASE.md; runs in ci.yml schema-tests")
 def test_real_release_md():
     steps = rr.extract(ROOT / "RELEASE.md")
     assert [i for i, _ in steps] == [
