@@ -293,8 +293,13 @@ def final_stage_env(text: str) -> dict[str, str]:
 def test_frontend_image_disables_the_streamlit_file_watcher():
     text = (ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
     assert final_stage_env(text).get("STREAMLIT_SERVER_FILE_WATCHER_TYPE") == "none"
-    release = (ROOT / "compose.release.yml").read_text(encoding="utf-8")
-    assert "FILE_WATCHER" not in release and "fileWatcher" not in release
+    # A CLI flag would override the env var; no launch line or shipped config may set it.
+    for ln in logical_lines(text):
+        if ln.split(None, 1)[0].upper() in ("CMD", "ENTRYPOINT"):
+            assert "filewatcher" not in ln.lower(), ln
+    for f in ("compose.release.yml", "frontend/.streamlit/config.toml"):
+        body = (ROOT / f).read_text(encoding="utf-8").lower()
+        assert "filewatcher" not in body and "file_watcher" not in body, f
 
 
 def test_mutation_watcher_left_on_is_detected():
