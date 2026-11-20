@@ -164,3 +164,29 @@ def test_large_mesh_preview_has_a_bounded_payload_without_changing_download():
     count = struct.unpack_from('<I', preview, 80)[0]
     assert 0 < count <= 60000 and len(preview) == 84 + 50 * count
     assert hashlib.sha256(original).hexdigest() == original_hash
+
+
+def test_accepted_result_disclaims_physics_and_offers_no_step(service, monkeypatch):
+    from streamlit.delta_generator import DeltaGenerator
+
+    download_filenames = []
+    download_button = DeltaGenerator.download_button
+
+    def capture_download(column, label, data, file_name=None, **kwargs):
+        download_filenames.append(file_name)
+        return download_button(column, label, data, file_name=file_name, **kwargs)
+
+    monkeypatch.setattr(DeltaGenerator, 'download_button', capture_download)
+    app = form()
+    generate(app)
+    service['status'] = 'accepted'
+    app.run()
+
+    assert not app.exception
+    disclaimer = 'No gas dynamics, thermal, structural, or manufacturing analysis was done'
+    assert any(disclaimer in warning.value for warning in app.warning)
+    assert len(app.get('download_button')) == 3
+    assert set(download_filenames) == {'nozzle.stl', 'report.json', 'spec.canonical.json'}
+    link_texts = [link.proto.url for link in app.get('link_button')]
+    link_texts.extend(markdown.value for markdown in app.markdown)
+    assert all(not re.search(r'\.ste?p\b', text, re.IGNORECASE) for text in link_texts)
