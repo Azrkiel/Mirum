@@ -20,11 +20,16 @@ def _load(name: str) -> dict:
 
 
 def _glider_spec(api) -> dict:
-    """The repository's glider-foam-core example mission, pinned to the server's calibration."""
-    example = json.loads((FIXTURES.parents[1] / "examples" / "cem" / "glider-foam-core.json").read_text(encoding="utf-8"))
+    """The repository's segmented-foam glider mission, pinned to the server's calibration.
+
+    The distance and foam-core examples cannot pass v1's closure floors: a straight full-span
+    spar cannot stay inside a dihedral wing (spar_enclosure), and the foam-core channel leaves
+    no candidate with the required wall. The segmented construction follows the wing with
+    four rods and verifies the delivered parts before recording enclosure.
+    """
+    example = json.loads((FIXTURES.parents[1] / "examples" / "cem" / "glider-segmented-foam.json").read_text(encoding="utf-8"))
     metadata = api.get("/cem/glider/metadata").json()
     requirements = example["requirements"]
-    requirements["reference_target"] = 50.0  # the example's 1200 m is infeasible from a 10 m drop
     requirements["discovery"]["families"] = ["conventional", "t_tail", "v_tail"]  # "all" is refused by v1
     return dict(requirements=requirements, calibration_version=metadata["calibration_version"])
 
@@ -63,9 +68,7 @@ def _reasons(node, path="", out=None):
 CASES = [  # regen first: its ~125 MiB bundle needs 256 MiB of free store (512 MiB volume, never cleared)
     pytest.param("regen_chamber", lambda api: _load("regen_spec.json"), 900_000, id="regen"),
     pytest.param("co2_dragster", lambda api: _load("dragster_spec.json"), 600_000, id="dragster"),
-    pytest.param("glider_cem", _glider_spec, 900_000, id="glider", marks=pytest.mark.xfail(
-        strict=True, reason="glider CEM rejects every example mission in the release image: "
-        "closure and spar-enclosure floors fail or lack evidence (see PR notes)")),
+    pytest.param("glider_cem", _glider_spec, 900_000, id="glider"),
 ]
 
 
