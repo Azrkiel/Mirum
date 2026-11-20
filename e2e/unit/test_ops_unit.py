@@ -100,8 +100,10 @@ def test_process_inventory_uses_only_selected_environment_fields(
     runner.side_effect = run
     rows = sorted(ops.processes("backend"), key=lambda row: row["pid"])
     assert rows == [
-        {"pid": 41, "ppid": 7, "argv": ["python", "worker.py"], "has_token": True, "owner": "owner"},
-        {"pid": 42, "ppid": 7, "argv": ["python", "worker.py"], "has_token": False, "owner": None},
+        {"pid": 41, "ppid": 7, "argv": ["python", "worker.py"], "has_token": True, "owner": "owner",
+         "unreadable": False},
+        {"pid": 42, "ppid": 7, "argv": ["python", "worker.py"], "has_token": False, "owner": None,
+         "unreadable": False},
     ]
 
 
