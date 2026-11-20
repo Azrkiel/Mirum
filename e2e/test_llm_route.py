@@ -12,7 +12,6 @@ BEAM_PROMPT = "Size a rectangular cantilever beam for a tip force with an allowa
 PLAIN_PROMPT = "A smooth ergonomic shell for a computer mouse, roughly 120mm long"
 
 
-@pytest.mark.xfail(strict=True, reason="UI calls /clarify and /plan before /generate routes; no key gives 'Planning failed'")
 def test_beam_prompt_routes_to_checked_design_with_notice(stack, token, page, shot, external_requests):
     sign_in(page, stack.config.ui_url, token)
     home = TextToCad(page)
@@ -21,6 +20,9 @@ def test_beam_prompt_routes_to_checked_design_with_notice(stack, token, page, sh
     expect(home.heading).to_have_text(CHECKED_WORKFLOW, timeout=60_000)
     shot(page, "route_beam")
     assert external_requests == []
+    logs = stack.logs(tail=2000)
+    assert '"POST /route ' in logs, "UI did not ask the provider-free router"
+    assert '"POST /clarify' not in logs and '"POST /plan' not in logs, "UI reached a provider endpoint before routing"
 
 
 def test_non_capability_prompt_gets_error_state_and_no_provider_call(stack, token, page, shot, external_requests):
