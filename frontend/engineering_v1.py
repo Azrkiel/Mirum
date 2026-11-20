@@ -190,13 +190,49 @@ def submit(client, brief):
     return client.request('POST', '/jobs', job_body(brief))
 
 
-def result_view(job):
+def claim_of(entry):
+    """None = checked design (the beam has no claim). A generator without a claim gets the weakest one."""
+    if not isinstance(entry, dict) or entry.get('id') == BEAM_ID: return None
+    claim = entry.get('claim')
+    return claim if claim in ('geometry_checks_only', 'screening_only') else 'screening_only'
+
+
+def accepted_label(entry):
+    return {None: CHECKED_LABEL, 'geometry_checks_only': 'Geometry checks passed', 'screening_only': 'Screened'}[claim_of(entry)]
+
+
+def result_heading(entry):
+    return {None: 'Checked result', 'geometry_checks_only': 'Geometry check result', 'screening_only': 'Screening result'}[claim_of(entry)]
+
+
+_NOT_EVALUATED = 'Standards conformity, manufactured behavior and material qualification: not evaluated.'
+
+
+def outcome_message(entry, job):
+    """(streamlit kind, text) for a terminal job; wording follows the capability claim."""
+    claim = claim_of(entry)
+    if job.get('outcome') == 'accepted':
+        if claim is None: text = 'Accepted under the declared digital model. ' + _NOT_EVALUATED
+        elif claim == 'geometry_checks_only':
+            text = 'Geometry checks passed under the declared digital model; no performance or competition claim. ' + _NOT_EVALUATED
+        else:
+            text = 'Screened under the declared digital model: not accepted for manufacture; not engineering certified. ' + _NOT_EVALUATED
+        return 'success', text
+    noun = 'screened' if claim == 'screening_only' else 'accepted'
+    if job.get('outcome') == 'rejected':
+        return 'warning', f'A required check did not pass. The report gives the measured reasons; no {noun} geometry is offered.'
+    if job.get('lifecycle') == 'cancelled':
+        return 'warning', f'Cancelled before terminal commit. No {noun} package is offered.'
+    return 'error', f'A required execution or publication stage is unavailable. No {noun} package is offered.'
+
+
+def result_view(job, entry=None):
     accepted = job.get('outcome') == 'accepted' and job.get('delivery') == 'available'
     downloads = []
     if job.get('delivery') == 'available':
         offered = job.get('artifacts') or {}
         downloads = [dict(format=f, name=n, mime=m) for f, (n, m) in DOWNLOADS.items() if offered.get(f) is True]
-    return dict(label=CHECKED_LABEL if accepted else None, outcome=job.get('outcome'),
+    return dict(label=accepted_label(entry) if accepted else None, outcome=job.get('outcome'),
                 lifecycle=job.get('lifecycle'), downloads=downloads)
 
 

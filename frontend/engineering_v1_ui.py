@@ -10,7 +10,7 @@ import streamlit as st
 from engineering_state import CheckedState
 from engineering_ui import APIError, _plain, _refs
 from engineering_v1 import (create_generator_draft, draft_specification, edited_specification, finalize,
-                            leaf_fields, parse_specification_json, patch_body, result_view, submit, text_for,
+                            leaf_fields, parse_specification_json, outcome_message, patch_body, result_heading, result_view, submit, text_for,
                             verified_download)
 
 
@@ -51,11 +51,11 @@ def _result(client, state, entry):
     try: job = client.request('GET', '/jobs/' + state.job_id)
     except APIError as error:
         st.error(str(error)); return
-    st.subheader('Checked result')
+    st.subheader(result_heading(entry))
     st.caption(_plain('Job ' + str(job.get('job_id')) + ' | brief SHA-256 ' + str(job.get('brief_sha256'))))
     if job.get('expired') or job.get('delivery') == 'expired':
         st.warning('Expired. The download window ended. Review a new request to generate again.'); return
-    view = result_view(job)
+    view = result_view(job, entry)
     active = job.get('lifecycle') not in ('completed', 'unavailable', 'cancelled')
     if view['label']: st.markdown('**' + view['label'] + '**')
     st.text('State: ' + str(job.get('lifecycle')) + ' | engineering outcome: ' + str(job.get('outcome')))
@@ -65,14 +65,8 @@ def _result(client, state, entry):
             try: client.request('POST', '/jobs/' + state.job_id + '/cancel'); st.rerun()
             except APIError as error: st.error(str(error))
         return
-    if job.get('outcome') == 'accepted':
-        st.success('Accepted under the declared digital model. Standards conformity, manufactured behavior and material qualification: not evaluated.')
-    elif job.get('outcome') == 'rejected':
-        st.warning('A required check did not pass. The report gives the measured reasons; no accepted geometry is offered.')
-    elif job.get('lifecycle') == 'cancelled':
-        st.warning('Cancelled before terminal commit. No accepted package is offered.')
-    else:
-        st.error('A required execution or publication stage is unavailable. No accepted package is offered.')
+    kind, text = outcome_message(entry, job)
+    getattr(st, kind)(text)
     for reason in job.get('failures', []) or []: st.text(str(reason))
     attempts = job.get('attempts') or []
     if attempts:
