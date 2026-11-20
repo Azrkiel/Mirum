@@ -1,7 +1,8 @@
 """Pure helpers for the checked-design v1 view (no streamlit, no network).
 
-Generators (dragster, regen, glider) are drafted through form or rules mode only; this
-module never builds an 'ai' draft. Review fields of a generator are the leaves of its
+initial_draft_body drafts generators through form or rules mode only and never builds an
+'ai' draft. AI drafts are built only by ai_draft_body, and only when the server reports
+ai_enabled. Review fields of a generator are the leaves of its
 normalized specification, computed here by the same rule the backend uses.
 """
 from copy import deepcopy
@@ -190,19 +191,22 @@ def submit(client, brief):
     return client.request('POST', '/jobs', job_body(brief))
 
 
-def claim_of(entry):
-    """None = checked design (the beam has no claim). A generator without a claim gets the weakest one."""
+def claim_of(entry, job=None):
+    """None = checked design (the beam has no claim). The job's own claim wins (the capability list may not carry
+    one); a generator without any claim gets the weakest one."""
     if not isinstance(entry, dict) or entry.get('id') == BEAM_ID: return None
-    claim = entry.get('claim')
-    return claim if claim in ('geometry_checks_only', 'screening_only') else 'screening_only'
+    for source in (job, entry):
+        claim = source.get('claim') if isinstance(source, dict) else None
+        if claim in ('geometry_checks_only', 'screening_only'): return claim
+    return 'screening_only'
 
 
-def accepted_label(entry):
-    return {None: CHECKED_LABEL, 'geometry_checks_only': 'Geometry checks passed', 'screening_only': 'Screened'}[claim_of(entry)]
+def accepted_label(entry, job=None):
+    return {None: CHECKED_LABEL, 'geometry_checks_only': 'Geometry checks passed', 'screening_only': 'Screened'}[claim_of(entry, job)]
 
 
-def result_heading(entry):
-    return {None: 'Checked result', 'geometry_checks_only': 'Geometry check result', 'screening_only': 'Screening result'}[claim_of(entry)]
+def result_heading(entry, job=None):
+    return {None: 'Checked result', 'geometry_checks_only': 'Geometry check result', 'screening_only': 'Screening result'}[claim_of(entry, job)]
 
 
 _NOT_EVALUATED = 'Standards conformity, manufactured behavior and material qualification: not evaluated.'
@@ -210,7 +214,7 @@ _NOT_EVALUATED = 'Standards conformity, manufactured behavior and material quali
 
 def outcome_message(entry, job):
     """(streamlit kind, text) for a terminal job; wording follows the capability claim."""
-    claim = claim_of(entry)
+    claim = claim_of(entry, job)
     if job.get('outcome') == 'accepted':
         if claim is None: text = 'Accepted under the declared digital model. ' + _NOT_EVALUATED
         elif claim == 'geometry_checks_only':
@@ -226,11 +230,19 @@ def outcome_message(entry, job):
     return 'error', f'A required execution or publication stage is unavailable. No {noun} package is offered.'
 
 
+def attempt_outcome(entry, job, attempt):
+    """An attempt row's outcome, relabelled from the claim like the state line (never a bare 'accepted')."""
+    outcome = attempt.get('outcome')
+    if outcome == 'accepted':
+        outcome = {None: 'accepted', 'geometry_checks_only': 'geometry checks passed', 'screening_only': 'screened'}[claim_of(entry, job)]
+    return str(outcome)
+
+
 def state_line(entry, job):
     """The 'State | engineering outcome' line; the raw job outcome is relabelled from the claim."""
     outcome = job.get('outcome')
     if outcome == 'accepted':
-        outcome = {None: 'accepted', 'geometry_checks_only': 'geometry checks passed', 'screening_only': 'screened'}[claim_of(entry)]
+        outcome = {None: 'accepted', 'geometry_checks_only': 'geometry checks passed', 'screening_only': 'screened'}[claim_of(entry, job)]
     return 'State: ' + str(job.get('lifecycle')) + ' | engineering outcome: ' + str(outcome)
 
 
@@ -240,10 +252,89 @@ def result_view(job, entry=None):
     if job.get('delivery') == 'available':
         offered = job.get('artifacts') or {}
         downloads = [dict(format=f, name=n, mime=m) for f, (n, m) in DOWNLOADS.items() if offered.get(f) is True]
-    return dict(label=accepted_label(entry) if accepted else None, outcome=job.get('outcome'),
+    return dict(label=accepted_label(entry, job) if accepted else None, outcome=job.get('outcome'),
                 lifecycle=job.get('lifecycle'), downloads=downloads)
 
 
 def verified_download(job, format, value):
     if format not in DOWNLOADS: raise ValueError('Unknown download format')
     return checked_bytes(job, DOWNLOADS[format][0], value)
+
+
+MAX_AI_PROMPT = 2000
+_AI_UNAVAILABLE = 'AI preparation unavailable; typed form remains available.'
+_AI_NOT_AVAILABLE = 'AI draft preparation is not available; the typed form remains available.'
+
+
+def ai_enabled(metadata):
+    return isinstance(metadata, dict) and metadata.get('ai_enabled') is True
+
+
+def ai_available(metadata):
+    return isinstance(metadata, dict) and metadata.get('ai_available') is True
+
+
+def ai_draft_body(entry, prompt):
+    if not is_generator(entry): raise ValueError('The beam uses its own form')
+    if not isinstance(prompt, str) or not prompt.strip(): raise ValueError('Describe the request')
+    if len(prompt) > MAX_AI_PROMPT: raise ValueError('Request exceeds 2000 characters')
+    return dict(mode='ai', capability=entry['id'], input={}, prompt=prompt)
+
+
+def _provenance(prepared):
+    draft = prepared.get('draft') if isinstance(prepared, dict) else None
+    prov = draft.get('provenance') if isinstance(draft, dict) else None
+    return prov if isinstance(prov, dict) else {}
+
+
+def ai_origins(prepared):
+    entries = _provenance(prepared).get('field_origins')
+    if not isinstance(entries, list): return {}
+    return {e['field']: e['origin'] for e in entries
+            if isinstance(e, dict) and isinstance(e.get('field'), str) and isinstance(e.get('origin'), str)}
+
+
+def is_ai_draft(prepared):
+    return _provenance(prepared).get('input_mode') == 'ai'
+
+
+def unverified_fields(prepared):
+    return tuple(f for f, o in ai_origins(prepared).items() if o == 'ai_proposed')
+
+
+def review_ack_required(prepared):
+    return bool(unverified_fields(prepared))
+
+
+def field_label(path, origins):
+    origin = (origins or {}).get(SPEC_PREFIX + path)
+    if origin == 'ai_proposed': return path + ' (AI-proposed, unverified)'
+    if origin == 'policy': return path + ' (policy default)'
+    return path
+
+
+def ai_status(prepared):
+    draft = prepared['draft']
+    states = [i.get('state') for i in prepared.get('issues') or [] if isinstance(i, dict)]
+    if 'unsupported' in states: return 'unsupported'
+    if draft.get('content') is None or 'clarification_required' in states: return 'clarification_required'
+    return 'proposed'
+
+
+def ai_failure_message(error):
+    body = getattr(error, 'body', None)
+    if isinstance(body, dict) and body.get('state') == 'unavailable': return _AI_UNAVAILABLE
+    return _AI_NOT_AVAILABLE
+
+
+def propose_ai_draft(client, entry, prompt):
+    body = ai_draft_body(entry, prompt)
+    try:
+        prepared = client.request('POST', '/drafts', body)
+    except Exception as error:
+        if getattr(error, 'status', None) != 503: raise
+        err_body = getattr(error, 'body', None)
+        kept = err_body.get('prepared') if isinstance(err_body, dict) else None
+        return dict(status='unavailable', prepared=kept if isinstance(kept, dict) else None,
+                    message=ai_failure_message(error))
+    return dict(status=ai_status(prepared), prepared=prepared, message=None)
