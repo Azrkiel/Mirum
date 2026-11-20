@@ -1,0 +1,129 @@
+name: E05 live qualification (manual)
+
+# Manual only. Spends the owner's Gemini key on the E05 generator proposers. Never runs on push or
+# pull_request, so forks and PRs never see the secret. The secret lives in environment b13-live,
+# which only main can deploy from. Each capability gets 30 provider calls, once: the reservation tag
+# is taken before any call and is never reused. Uploads safe JSON only; no prompts, replies or ledger.
+#
+# Residual risk (accepted 2026-11-17, same as b13-live): container egress is not restricted to
+# generativelanguage.googleapis.com. The image is built from main only.
+on:
+  workflow_dispatch:
+    inputs:
+      capability:
+        description: "co2_dragster, regen_chamber, glider_cem, or all (30 calls each)"
+        required: true
+        type: choice
+        options: [co2_dragster, regen_chamber, glider_cem, all]
+      run_id:
+        description: "Unique run id; reserved atomically as tags and never reused"
+        required: true
+        type: string
+      authorization:
+        description: "Owner authorization id"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: b13-live
+  cancel-in-progress: false
+
+jobs:
+  live:
+    if: github.ref == 'refs/heads/main'
+    environment: b13-live
+    permissions:
+      contents: write   # only to create the atomic reservation tags
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Validate inputs, enforce the per-capability budget, reserve the run atomically
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CAPABILITY: ${{ inputs.capability }}
+          RUN_ID: ${{ inputs.run_id }}
+          AUTHORIZATION: ${{ inputs.authorization }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9-]{5,62}$ ]] || { echo "bad run_id"; exit 1; }
+          [[ "$AUTHORIZATION" =~ ^[A-Za-z0-9._-]{6,80}$ ]] || { echo "bad authorization"; exit 1; }
+          case "$CAPABILITY" in
+            co2_dragster|regen_chamber|glider_cem) caps="$CAPABILITY";;
+            all) caps="co2_dragster regen_chamber glider_cem";;
+            *) echo "bad capability"; exit 1;;
+          esac
+          # Owner Q1 (2026-11-20): 30 calls per capability, total 90. One reservation per capability,
+          # ever: a spent budget is never refunded, so a second run needs new owner authorization.
+          for cap in $caps; do
+            used=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/e05-${cap}-" --jq 'length')
+            [ "$used" -lt 1 ] || { echo "${cap} budget already spent; needs new owner authorization"; exit 1; }
+          done
+          for cap in $caps; do
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f "ref=refs/tags/e05-${cap}-${RUN_ID}" -f "sha=${GITHUB_SHA}" >/dev/null \
+              || { echo "run_id ${RUN_ID} already reserved; never repeated"; exit 1; }
+          done
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Build the verification image at this commit
+        run: docker build -f Dockerfile.verify -t mirum-e05-live .
+
+      - name: Run
+        env:
+          KEY: ${{ secrets.B13_GEMINI_API_KEY }}
+          CAPABILITY: ${{ inputs.capability }}
+          RUN_ID: ${{ inputs.run_id }}
+          AUTHORIZATION: ${{ inputs.authorization }}
+        run: |
+          set -euo pipefail
+          [ -n "$KEY" ] || { echo "secret B13_GEMINI_API_KEY missing"; exit 1; }
+          umask 077
+          cred="$RUNNER_TEMP/provider.env"
+          name="e05-live-${RUN_ID}"
+          trap 'rm -f "$cred"; docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+          printf 'GEMINI_API_KEY_HEAVY=%s\n' "$KEY" > "$cred"
+          unset KEY
+          mkdir -p "$RUNNER_TEMP/evidence"
+          chmod 700 "$RUNNER_TEMP/evidence"
+          image_id=$(docker image inspect mirum-e05-live --format '{{.Id}}')
+          echo "image_id=$image_id sha=$GITHUB_SHA"
+          # Runs as the runner uid so the 0600 credential stays private. Only GEMINI_API_KEY_HEAVY
+          # carries the key; the PRO and generic names are blank so the glider key-mismatch guard passes.
+          status=0
+          timeout --signal=TERM --kill-after=10s 6000s docker run --rm --init --name "$name" --read-only \
+            --user "$(id -u):$(id -g)" \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --memory 2g --cpus 2 --pids-limit 256 \
+            --tmpfs /tmp:rw,size=256m,mode=1777 \
+            -v "$cred:/run/existing-provider.env:ro" \
+            -v "$RUNNER_TEMP/evidence:/evidence" \
+            -e HOME=/tmp \
+            -e GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt \
+            -e GEMINI_API_KEY_HEAVY= -e GEMINI_API_KEY= -e GOOGLE_API_KEY= \
+            -e GEMINI_API_KEY_PRO= -e GEMINI_API_KEY_LITE= -e GEMINI_API_KEYS= \
+            -e MIRUM_ENGINEERING_AI_DRAFTS=1 \
+            mirum-e05-live \
+            python scripts/e05_live_eval.py /evidence "$CAPABILITY" "$GITHUB_SHA" /run/existing-provider.env \
+              --run-id "$RUN_ID" --authorization "$AUTHORIZATION" --image-id "$image_id" --pace-seconds 12 \
+            || status=$?
+          rm -f "$cred"
+          printf '{"capability":"%s","run_id":"%s","sha":"%s","image_id":"%s","exit":%d}\n' \
+            "$CAPABILITY" "$RUN_ID" "$GITHUB_SHA" "$image_id" "$status" > "$RUNNER_TEMP/evidence/run.json"
+          echo "exit=$status"
+
+      - name: Upload safe evidence (JSON only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e05-${{ inputs.run_id }}
+          path: |
+            ${{ runner.temp }}/evidence/**/*.json
+          retention-days: 90
+          if-no-files-found: warn
