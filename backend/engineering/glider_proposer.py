@@ -19,7 +19,6 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from cem.glider import calibration
-from cem.glider.requirements import GliderMissionRequirements
 
 from . import proposal_contract, router
 from .briefs import InputIssue
@@ -73,15 +72,6 @@ def _walk(tree, path):
             return _MISSING
         tree = tree[part]
     return tree
-
-
-def _defaults(requirements):
-    """Documented defaults at the extracted launch method, or ``None`` if they cannot be built."""
-    try:
-        method = requirements['launch']['method']
-        return GliderMissionRequirements(launch=dict(method=method)).model_dump(mode='json')
-    except Exception:
-        return None
 
 
 def _calibration_version():
@@ -200,19 +190,17 @@ class AiProposer:
         return self._done('proposed', payload, (), provenance, ())
 
     def _provenance(self, spec, requirements, prompt) -> Provenance:
-        defaults = _defaults(requirements)
+        """Label by origin, not by value: every value present in the extraction output is an
+        unverified AI proposal, even when it equals a documented default; only what this proposer
+        fills (``calibration_version``, or any requirement absent from that output) is policy."""
         sha = hashlib.sha256(prompt.encode()).hexdigest()
         ai_reference = f'{sha}; {PROMPT_VERSION}; extraction; unverified proposal'[:240]
         origins = []
         for field in GLIDER.review_fields(spec):
             if field == _CALIBRATION_FIELD:
                 origins.append(FieldOrigin(field=field, origin='policy', reference=CALIBRATION_REFERENCE))
-                continue
-            path = field[len(_REQUIREMENTS_PREFIX):]
-            if (defaults is not None and path != 'launch.method'
-                    and _walk(defaults, path) is not _MISSING
-                    and _walk(defaults, path) == _walk(requirements, path)):
-                origins.append(FieldOrigin(field=field, origin='policy', reference=DEFAULT_REFERENCE))
-            else:
+            elif _walk(requirements, field[len(_REQUIREMENTS_PREFIX):]) is not _MISSING:
                 origins.append(FieldOrigin(field=field, origin='ai_proposed', reference=ai_reference))
+            else:
+                origins.append(FieldOrigin(field=field, origin='policy', reference=DEFAULT_REFERENCE))
         return _provenance('ai', origins)

@@ -87,9 +87,26 @@ def test_complete_mission_is_proposed():
     assert PROMPT_VERSION in span.reference
     assert got['specification.requirements.launch.method'].origin == 'ai_proposed'
     assert got['specification.requirements.discovery.families'].origin == 'ai_proposed'
+    # Every requirement came from the model's extraction output, so none is labeled policy (LOW-5).
     for name in ('constraints.max_length_m', 'discovery.budget_evals', 'process'):
-        assert got['specification.requirements.' + name].origin == 'policy'
+        assert got['specification.requirements.' + name].origin == 'ai_proposed'
+    assert [f for f, o in got.items() if o.origin == 'policy'] == ['specification.calibration_version']
     assert extract.calls == 1 and budget.used() == 1
+
+
+def test_model_value_equal_to_default_is_ai_proposed_and_proposer_policy_is_policy():
+    """LOW-5: label by origin, not by value. A model-supplied value equal to the documented
+    default is still an unverified AI proposal; only what the proposer fills is policy."""
+    req = requirements()
+    default = GliderMissionRequirements(launch=dict(method='drop')).model_dump(mode='json')
+    assert req['constraints']['max_length_m'] == default['constraints']['max_length_m']
+    proposal, _ = run(FakeExtract(review(req)))
+    got = origins(proposal)
+    same = got['specification.requirements.constraints.max_length_m']
+    assert same.origin == 'ai_proposed' and pc.UNVERIFIED in same.reference
+    cal = got['specification.calibration_version']
+    assert cal.origin == 'policy' and 'shipped default' in cal.reference
+    assert 'calibration_version' not in req  # filled by the proposer, never by the model
 
 
 def test_needs_clarification_has_no_spec():

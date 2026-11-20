@@ -72,7 +72,10 @@ def test_glider_corpus_case(case: dict, monkeypatch):
         expected_content = case['expected_content']
         assert expected_content
         assert set(origins) == set(GLIDER.review_fields(specification))
-        assert {path for path, origin in origins.items() if origin.origin == 'ai_proposed'} == set(expected_content)
+        # LOW-5: every requirement leaf came from the extraction output -> ai_proposed; only the
+        # proposer-filled calibration_version is policy.
+        assert {path for path, origin in origins.items() if origin.origin == 'ai_proposed'} ==             set(origins) - {'specification.calibration_version'}
+        assert set(expected_content) <= set(origins)
         for path, expected in expected_content.items():
             root, *parts = path.split('.')
             assert root == 'specification' and parts, path
@@ -83,5 +86,3 @@ def test_glider_corpus_case(case: dict, monkeypatch):
             assert pc.UNVERIFIED in origins[path].reference, path
         assert specification['calibration_version'] == calibration.version(calibration.initial())
         assert origins['specification.calibration_version'].origin == 'policy'
-        for path in origins.keys() - expected_content.keys():
-            assert origins[path].origin == 'policy', path
