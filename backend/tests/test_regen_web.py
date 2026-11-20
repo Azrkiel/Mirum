@@ -214,7 +214,7 @@ def test_submit_evicts_oldest_finished_until_reserve_is_free(browser, monkeypatc
     _fake_fs(monkeypatch, runner, total=300, per_job=100)    # 3 folders -> 0 free
     with caplog.at_level('INFO', logger=web.log.name):
         response = client.post('/api/jobs', json=spec_data())
-    assert response.status_code == 200
+    assert response.status_code == 202
     assert 'old' not in runner.jobs and not (runner.root / 'old').exists()
     assert 'mid' not in runner.jobs
     assert 'new' in runner.jobs and (runner.root / 'new').exists()
@@ -230,7 +230,7 @@ def test_submit_keeps_finished_jobs_when_space_is_enough(browser, monkeypatch):
     _finished(runner, 'a', 'accepted', now - 5)
     _finished(runner, 'b', 'rejected', now - 4)
     _fake_fs(monkeypatch, runner, total=1000, per_job=10)
-    assert client.post('/api/jobs', json=spec_data()).status_code == 200
+    assert client.post('/api/jobs', json=spec_data()).status_code == 202
     assert {'a', 'b'} <= set(runner.jobs)
 
 
@@ -257,6 +257,6 @@ def test_submit_succeeds_when_space_stays_short_after_evicting_everything(browse
     _finished(runner, 'b', 'unavailable', now - 4)
     _fake_fs(monkeypatch, runner, total=500, per_job=100)
     response = client.post('/api/jobs', json=spec_data())
-    assert response.status_code == 200
+    assert response.status_code == 202
     assert 'a' not in runner.jobs and 'b' not in runner.jobs
     assert wait_done(client, response.json()['id'])['status'] == 'accepted'
