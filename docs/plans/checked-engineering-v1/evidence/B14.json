@@ -1,0 +1,143 @@
+{
+  "task": "B14",
+  "state": "complete",
+  "deployed": false,
+  "deploy_note": "not deployed; deploy is a separate owner-approved stream",
+  "date": "2026-11-20",
+  "starting_sha": "a7f1953652b9bde252cb9e3742a472c0aa1b50d0",
+  "tested_implementation_sha": "a7f1953652b9bde252cb9e3742a472c0aa1b50d0",
+  "freeze_sha": "a7f1953652b9bde252cb9e3742a472c0aa1b50d0",
+  "runs": {
+    "ci_native_gate": {
+      "actions_run": 44726464166,
+      "event": "push",
+      "result": "success",
+      "passed": 4325,
+      "skipped": 18
+    },
+    "release_e2e_freeze": {
+      "actions_run": 44726477204,
+      "event": "workflow_dispatch",
+      "clean": true,
+      "result": "success",
+      "passed": 167,
+      "failed": 0
+    },
+    "release_storage": {
+      "actions_run": 44726481438,
+      "event": "workflow_dispatch",
+      "jobs": "all",
+      "result": "success",
+      "cases": 23,
+      "cases_passed": 23,
+      "not_injected": [
+        "S08c"
+      ],
+      "s16_passed": 311
+    },
+    "release_docs": {
+      "actions_run": 44726485338,
+      "event": "workflow_dispatch",
+      "result": "success",
+      "release_steps_passed": 13
+    },
+    "release_images": {
+      "actions_run": 44726489503,
+      "event": "workflow_dispatch",
+      "result": "success"
+    },
+    "release_guards": {
+      "actions_run": 44726494181,
+      "event": "workflow_dispatch",
+      "result": "success"
+    }
+  },
+  "image_ids": {
+    "mirum-backend:release": "sha256:0894fed5371a5e3db9f27d6deb519eb71d36eb98372b2e3d15d05433748dcefe",
+    "mirum-frontend:release": "sha256:6fedd6016fadc2d5fbfeedc4a575dde972c6d81b79802019dd4ebd591969c7b1",
+    "mirum-backend:b13-eval": "sha256:17d928dd6748a56b90ff14f4b25892b70433faa120add5670d0c9bb9d3b0f105"
+  },
+  "lock_sha256": {
+    "requirements-release.lock": "9ffe8a24069acd5776f4186a8393162a53819de7322f533b016939b6aedf7eed",
+    "frontend/requirements.lock": "d15d3875e94d853d75dc43d4c2a36c70d8731752d5e3b81a5c3a4dc3ed721e5d",
+    "e2e/requirements.lock": "a3063bfaede9534e102c8a998003aae5d2a09f8624fb1a1f4d74a365ddd6fd5e"
+  },
+  "live_calls": 0,
+  "lifetime_generation_calls": 91,
+  "acceptance": {
+    "1_fresh_setup_reproduces_reference_and_claims_match_b13": {
+      "result": "passed",
+      "evidence": [
+        "release_docs 44726485338",
+        "release_e2e_freeze 44726477204 test_beam_reference",
+        "release_images 44726489503",
+        "README.md correction in this PR"
+      ]
+    },
+    "2_ui_backend_availability_and_models_agree": {
+      "result": "passed",
+      "evidence": [
+        "e2e/test_llm_route_api.py",
+        "e2e/test_llm_route.py",
+        "e2e/test_generators.py",
+        "frontend/test_engineering_state.py",
+        "e2e/test_ai_parity.py",
+        "B13 step 12 (live)"
+      ]
+    },
+    "3_zip_identifies_revision_and_replay_inputs": {
+      "result": "passed",
+      "evidence": [
+        "brief.json and manifest.json (brief_sha256, payload sha256)",
+        "e2e/test_beam_reference.py",
+        "S13 offline replay",
+        "S14 tamper"
+      ],
+      "note": "ZIP does not embed software commit or image id"
+    },
+    "4_install_restart_expiry_recovery_usable": {
+      "result": "passed",
+      "evidence": [
+        "RELEASE.md executed 13/13 in release_docs",
+        "S12",
+        "S10 (accelerated)",
+        "S15",
+        "S01-S06",
+        "release_guards 44726494181"
+      ],
+      "note": "rollback and other release-manual blocks not executed in CI"
+    },
+    "5_typed_only_label_if_live_ai_unqualified": {
+      "result": "passed",
+      "note": "not triggered: live AI qualified (run 5, step 12); AI off by default"
+    }
+  },
+  "plan_steps_15_22": {
+    "15": "ticked",
+    "16": "ticked",
+    "17": "ticked",
+    "18": "ticked",
+    "19": "ticked",
+    "20": "ticked",
+    "21": "ticked",
+    "22": "ticked"
+  },
+  "limitations": [
+    "rollback/enable-ai/uninstall RELEASE.md blocks not executed in CI",
+    "S08c not_injected",
+    "ZIP omits software commit/image id",
+    "expiry accelerated",
+    "live rows on earlier SHAs, bridged by parity",
+    "stale wording in backend/config.py:80, docker-compose.yml:21, RELEASE.md Scoped AI setup, README glider PicoGK sentence"
+  ],
+  "deploy_blockers_out_of_scope": [
+    "deploy/fly/*.Dockerfile do not use release images or set MIRUM_DEPLOYMENT=release"
+  ],
+  "next_eligible": [
+    "E01",
+    "E02",
+    "E03",
+    "E04"
+  ],
+  "local_evidence": "C:/Users/jiang/mirum-evidence/RC1/a7f1953/"
+}
