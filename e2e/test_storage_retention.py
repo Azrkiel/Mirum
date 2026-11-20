@@ -395,13 +395,25 @@ def _capture(page: Page, state: str, job_id: str) -> dict:
     if state != "expired":
         expect(page.get_by_text(f"State: {state} | engineering outcome: not_evaluated", exact=True)).to_be_visible()
     expect(page.get_by_test_id("stDownloadButton")).to_have_count(0)
-    expect(page.get_by_role("button", name=re.compile(r"^Download "))).to_have_count(0)
+    # Package downloads are stDownloadButton (asserted absent above). Streamlit's own dataframe
+    # toolbar also has a "Download as CSV" button, so record every "Download" button and its
+    # nearest test-id ancestors, and require that none sits outside a Streamlit element toolbar.
+    others = page.evaluate(
+        "() => Array.from(document.querySelectorAll('button,[role=button]')).filter(b =>"
+        " /^Download /.test((b.getAttribute('aria-label') || b.getAttribute('title') || b.innerText || '').trim()))"
+        ".map(b => ({name: (b.getAttribute('aria-label') || b.getAttribute('title') || b.innerText || '').trim(),"
+        " in_toolbar: !!b.closest('[data-testid=stElementToolbar]'),"
+        " testids: (() => { const o = []; let n = b; while (n) { const t = n.getAttribute && n.getAttribute('data-testid');"
+        " if (t) o.push(t); n = n.parentElement; } return o.slice(0, 6); })()}))"
+    )
+    assert all(item["in_toolbar"] for item in others), others
     expect(page.get_by_role("heading", name="Revision-bound downloads")).to_have_count(0)
     OUT.mkdir(parents=True, exist_ok=True)
     shot = OUT / f"s15-{state}.png"
     label.scroll_into_view_if_needed()
     page.screenshot(path=str(shot), full_page=True, timeout=20_000)
-    return {"job_id": job_id, "label": messages[state], "downloads": 0, "screenshot": shot.name,
+    return {"job_id": job_id, "label": messages[state], "downloads": 0, "non_package_download_buttons": others,
+            "screenshot": shot.name,
             "sha256": hashlib.sha256(shot.read_bytes()).hexdigest()}
 
 
