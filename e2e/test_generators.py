@@ -31,10 +31,10 @@ def _glider_spec(api) -> dict:
 def _reasons(node, path="", out=None):
     """Failure-relevant leaves of a report, for the assertion message."""
     out = [] if out is None else out
-    keys = {"reason", "failures", "status", "verdict", "state", "failed", "measured", "limit", "name"}
+    keys = {"reason", "failed", "verdict"}
     if isinstance(node, dict):
         for key, value in node.items():
-            if key in keys and not isinstance(value, (dict, list)) or key in ("failures", "failed"):
+            if key in keys and value:
                 out.append(f"{path}.{key}={str(value)[:160]}")
             _reasons(value, f"{path}.{key}", out)
     elif isinstance(node, list):

@@ -180,7 +180,8 @@ class CheckedFlow(Workspace):
         cells = self.page.get_by_test_id("stDataFrame").last.locator('[role="gridcell"]')
         if not cells.count():
             return None
-        return [c.strip() for c in cells.all_inner_texts()]
+        texts = [c.strip() for c in cells.all_inner_texts()]
+        return texts if any(texts) else None  # empty cells: the grid is canvas-only
 
 
 class CheckedBeam(CheckedFlow):
