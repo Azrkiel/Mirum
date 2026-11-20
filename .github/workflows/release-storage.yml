@@ -29,7 +29,7 @@ on:
   workflow_dispatch:
     inputs:
       jobs:
-        description: "Comma list of lifecycle,capacity,retention,native-on-release, or all"
+        description: "Comma list (no spaces) of lifecycle,capacity,retention,native-on-release, or all"
         type: string
         default: all
       smoke:
@@ -56,7 +56,7 @@ jobs:
     name: Lifecycle (S01-S06)
     if: >-
       (github.event_name == 'workflow_dispatch' &&
-      (inputs.jobs == 'all' || contains(format(',{0},', replace(inputs.jobs, ' ', '')), ',lifecycle,'))) ||
+      (inputs.jobs == 'all' || contains(format(',{0},', inputs.jobs), ',lifecycle,'))) ||
       (github.event_name == 'pull_request' &&
       contains(github.event.pull_request.labels.*.name, 'storage') &&
       github.event.pull_request.head.repo.full_name == github.repository)
@@ -140,7 +140,7 @@ jobs:
     name: Capacity (S07-S09, S11)
     if: >-
       (github.event_name == 'workflow_dispatch' &&
-      (inputs.jobs == 'all' || contains(format(',{0},', replace(inputs.jobs, ' ', '')), ',capacity,'))) ||
+      (inputs.jobs == 'all' || contains(format(',{0},', inputs.jobs), ',capacity,'))) ||
       (github.event_name == 'pull_request' &&
       contains(github.event.pull_request.labels.*.name, 'storage') &&
       github.event.pull_request.head.repo.full_name == github.repository)
@@ -315,7 +315,7 @@ jobs:
     name: Retention (S10, S12-S15)
     if: >-
       (github.event_name == 'workflow_dispatch' &&
-      (inputs.jobs == 'all' || contains(format(',{0},', replace(inputs.jobs, ' ', '')), ',retention,'))) ||
+      (inputs.jobs == 'all' || contains(format(',{0},', inputs.jobs), ',retention,'))) ||
       (github.event_name == 'pull_request' &&
       contains(github.event.pull_request.labels.*.name, 'storage') &&
       github.event.pull_request.head.repo.full_name == github.repository)
@@ -398,7 +398,7 @@ jobs:
     name: S16 existing storage and process tests on the release image
     if: >-
       (github.event_name == 'workflow_dispatch' &&
-      (inputs.jobs == 'all' || contains(format(',{0},', replace(inputs.jobs, ' ', '')), ',native-on-release,'))) ||
+      (inputs.jobs == 'all' || contains(format(',{0},', inputs.jobs), ',native-on-release,'))) ||
       (github.event_name == 'pull_request' &&
       contains(github.event.pull_request.labels.*.name, 'storage') &&
       github.event.pull_request.head.repo.full_name == github.repository)
