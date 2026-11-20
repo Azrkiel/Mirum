@@ -32,15 +32,20 @@ mkdir /tmp/mirum
 mount -t tmpfs -o "size=256M,uid=$APP_UID,gid=$APP_GID,mode=0700,nosuid,nodev" tmpfs /tmp/mirum
 
 # 3. Engineering data dir on the volume: owner 10001:10001, mode 0700, non-recursive, never a symlink.
+#    The volume root must be root-owned (the app user can never plant a symlink there), and the
+#    directory is re-checked right before chown/chmod; chown -h never follows a link.
+[ "$(stat -c %u "$VOLUME")" = "0" ] || fail "$VOLUME is not owned by root"
 [ ! -L "$SRC" ] || fail "$SRC is a symlink"
 [ -e "$SRC" ] || mkdir "$SRC"
-[ -d "$SRC" ] || fail "$SRC is not a directory"
-chown "$APP_UID:$APP_GID" "$SRC"
+[ -d "$SRC" ] && [ ! -L "$SRC" ] || fail "$SRC is not a real directory"
+chown -h "$APP_UID:$APP_GID" "$SRC"
 chmod 0700 "$SRC"
 
-# 4. Bind the volume directory onto the exact mountpoint the guards require.
+# 4. Bind the volume directory onto the exact mountpoint the guards require, then confirm the
+#    mountpoint has the owner and mode the guards will check.
 mkdir "$DST"
 mount --bind "$SRC" "$DST"
+[ "$(stat -c %u:%g:%a "$DST")" = "$APP_UID:$APP_GID:700" ] || fail "$DST has the wrong owner or mode"
 
 # 5. Read-only root (code is already root-owned and read-only to the app user).
 mount -o remount,ro /

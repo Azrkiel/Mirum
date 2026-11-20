@@ -17,8 +17,9 @@ primary_region = "iad"
   MIRUM_OPEN_ACCESS = "1"
   # Rate limits key on the visitor address the frontend forwards in
   # X-Mirum-Client-IP. Safe ONLY because this backend is private (Flycast, no
-  # public IP): nobody but the frontend can reach it, so the header cannot be
-  # forged. Remove this line if the backend ever gets a public address.
+  # public IP): only apps in the same Fly organisation (all the owner's own) can
+  # reach it, so no outside visitor can forge the header. Remove this line if the
+  # backend ever gets a public address, or if untrusted apps join the org.
   MIRUM_TRUSTED_CLIENT_HEADER = "1"
 
 [http_service]

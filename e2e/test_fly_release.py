@@ -117,7 +117,10 @@ def test_init_script_has_every_required_step():
     assert re.search(r'mount -t tmpfs -o "size=256M,uid=\$APP_UID,gid=\$APP_GID,mode=0700\S*" tmpfs /tmp/mirum', text)
     assert "APP_UID=10001" in text and "APP_GID=10001" in text
     assert '[ ! -L "$SRC" ]' in text
-    assert 'chown "$APP_UID:$APP_GID" "$SRC"' in text and 'chmod 0700 "$SRC"' in text
+    assert 'chown -h "$APP_UID:$APP_GID" "$SRC"' in text and 'chmod 0700 "$SRC"' in text
+    assert '[ "$(stat -c %u "$VOLUME")" = "0" ]' in text
+    assert '[ -d "$SRC" ] && [ ! -L "$SRC" ]' in text
+    assert '[ "$(stat -c %u:%g:%a "$DST")" = "$APP_UID:$APP_GID:700" ]' in text
     assert 'SRC="$VOLUME/engineering"' in text and "DST=/tmp/mirum/engineering" in text
     assert 'mount --bind "$SRC" "$DST"' in text
     assert "mount -o remount,ro /" in text

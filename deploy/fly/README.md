@@ -130,6 +130,27 @@ directly could otherwise forge the header to dodge or poison the limits. If
 leave the setting off. `docker-compose.yml` publishes port 8000, so it stays off
 there.
 
+Flycast is private to the Fly organisation, not to one app: every app in the same
+org (including the staging apps below) can call `http://mirum-api.flycast` with no
+token and set `X-Mirum-Client-IP` freely. That is acceptable only while every app in
+the org is the owner's own; if untrusted apps ever share the org, turn the setting off.
+
+`[http_service]` is what Flycast routes to, so it stays in `backend.fly.toml`; the
+backend is private only because it has no public IP. Before and after every backend
+deploy, check:
+
+```sh
+fly ips list -a mirum-api   # must list only a private (Flycast) v6 address, no public v4/v6
+```
+
+and always pass `--no-public-ips`. Never run `fly ips allocate-v4/-v6` (without
+`--private`) on `mirum-api`.
+
+The `fly` image's default user is root because its entrypoint (the init script) must
+mount before dropping to uid 10001. Never override the entrypoint or the machine
+command on `mirum-api`: anything that bypasses `mirum-fly-init` would run as root on a
+writable root filesystem.
+
 ## Limits and residuals
 
 Generated CadQuery runs in a resource-bounded subprocess (AST allowlist, audit

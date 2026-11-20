@@ -43,6 +43,9 @@ runs:
         ep=$(docker image inspect mirum-backend-fly:release --format '{{json .Config.Entrypoint}}')
         echo "entrypoint=$ep"
         test "$ep" = '["/usr/local/bin/mirum-fly-init"]'
+        # Only the fly variant defaults to root (its init drops to 10001); the release image never does.
+        test "$(docker image inspect mirum-backend-fly:release --format '{{.Config.User}}')" = root
+        test "$(docker image inspect mirum-backend:release --format '{{.Config.User}}')" = 10001:10001
         docker run --rm --entrypoint sh mirum-backend-fly:release -c 'command -v setpriv && command -v mount && test "$(stat -c %u:%a /usr/local/bin/mirum-fly-init)" = "0:555"'
 
     # Privileged only so the init script can mount; apparmor=unconfined because Docker's default
