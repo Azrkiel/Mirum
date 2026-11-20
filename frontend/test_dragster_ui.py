@@ -91,3 +91,13 @@ def test_json_import_is_atomic_and_first_failure_is_clear():
     button(at, 'Load parameters').click().run()
     assert at.number_input(key='dragster_param_width_mm').value == 46.0
     assert not at.error and not at.exception
+
+
+def test_oversized_import_is_refused_before_parsing():
+    # Security review of #31 (LOW): never decode/parse a huge parameters file in the frontend.
+    at = app()
+    initial = at.number_input[0].value
+    at.text_area[0].set_value('{"pad":"' + 'x' * (dragster_ui.MAX_IMPORT_BYTES + 1) + '"}').run()
+    button(at, 'Load parameters').click().run()
+    assert at.number_input[0].value == initial
+    assert any('too large' in e.value for e in at.error)
