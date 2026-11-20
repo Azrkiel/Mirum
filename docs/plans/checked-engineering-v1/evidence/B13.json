@@ -831,5 +831,81 @@
     "unsupported_blocked": 10,
     "notes": "U07 (unsupported) returned clarification_required: blocked from finalization, not a pass/fail criterion. Steps 12-13 of the finish-B13 plan remain.",
     "safe_evidence_local": "C:/Users/jiang/mirum-evidence/B13/u5-20261117/actions-qual-k6/"
+  },
+  "live_ui_step12_2026_11_19": {
+    "workflow": "b13-step12.yml",
+    "run_id": "step12-20261119-c01",
+    "actions_run": 44638943618,
+    "source_sha": "86e632694fc62422f9f96fda56fe95055ef8aa80",
+    "case_id": "C01",
+    "authorization": "owner-q2-2026-11-19-max3",
+    "reservation_tag": "b13-s12-step12-20261119-c01",
+    "budget": {
+      "max_calls": 3,
+      "used": 1
+    },
+    "calls": {
+      "after_proposal": {
+        "calls": 1,
+        "initialized": true,
+        "rows": 1,
+        "statuses": [
+          "proposed"
+        ]
+      },
+      "after_run": {
+        "calls": 1,
+        "initialized": true,
+        "rows": 1,
+        "statuses": [
+          "proposed"
+        ]
+      },
+      "after_stop": {
+        "calls": 1,
+        "initialized": true,
+        "rows": 1,
+        "statuses": [
+          "proposed"
+        ]
+      },
+      "at_exit": {
+        "calls": 1,
+        "initialized": true,
+        "rows": 1,
+        "statuses": [
+          "proposed"
+        ]
+      },
+      "before": {
+        "calls": 0,
+        "initialized": true,
+        "rows": 0,
+        "statuses": []
+      },
+      "final": {
+        "calls": 1,
+        "initialized": true,
+        "rows": 1,
+        "statuses": [
+          "proposed"
+        ]
+      }
+    },
+    "checks": {
+      "displayed_vs_expected": true,
+      "brief_sha256_match": true,
+      "identity_vs_typed": true,
+      "downloads_match": "10/10",
+      "access_log_clean": true,
+      "raw_reply_absent": true
+    },
+    "image_ids": {
+      "mirum-backend:b13-eval": "sha256:0ba7b7b8bdb2691593648cbbff3bff719517e0ac3d47511da343182aac7a5407",
+      "mirum-backend:release": "sha256:26d72cd38d979df175c63347fc80f7441f9b5415b5a4af97838d0e447290cbe9",
+      "mirum-frontend:release": "sha256:a0f7ee4f66ae71c0030af1729b5d66bf349a9786bd50d7f8c12949611dd4c707"
+    },
+    "artifact": "b13-step12-step12-20261119-c01",
+    "safe_evidence_local": "C:/Users/jiang/mirum-evidence/B13/step12-20261119-c01/"
   }
 }

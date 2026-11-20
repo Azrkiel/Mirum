@@ -1,0 +1,7 @@
+# S08b test overlay: a 16 KiB tmpfs over the engineering staging directory so a publication write
+# hits a real ENOSPC. Use on a throwaway volume only (the nested mountpoint is left root-owned).
+# Allowlisted by release-storage.yml: exactly one appended backend tmpfs entry.
+services:
+  backend:
+    tmpfs:
+      - /tmp/mirum/engineering/staging:size=16k,uid=10001,gid=10001,mode=0700
