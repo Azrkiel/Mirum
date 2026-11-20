@@ -321,7 +321,9 @@ class Ops:
     def signal(self, svc: str, pid: int, sig: str) -> None:
         _integer(pid, 1)
         name = _signal_name(sig)
-        self._run(["docker", "exec", "-u", "10001:10001", self.container_id(svc), "kill", "-" + name, str(pid)])
+        # The release image has no `kill` binary: send the signal from the image's python.
+        code = f"import os, signal; os.kill({pid}, signal.SIG{name})"
+        self._run(["docker", "exec", "-u", "10001:10001", self.container_id(svc), "python", "-c", code])
 
     def api_host_pid(self, svc: str) -> int:
         init = self._run(["docker", "inspect", "-f", "{{.State.Pid}}", self.container_id(svc)]).strip()

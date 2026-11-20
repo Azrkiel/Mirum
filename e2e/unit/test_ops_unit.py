@@ -60,7 +60,8 @@ def test_lifecycle(rig: tuple) -> None:
         stack.compose_argv("up", "-d", "--wait", "--wait-timeout", "45", "--no-deps", "backend"),
         ps, stack.compose_argv("rm", "-s", "-f", "backend"), up, ps,
         ps, ["docker", "exec", "-u", "10001:10001", "new", "python", "-c", "print('OK')"],
-        ps, ["docker", "exec", "-u", "10001:10001", "new", "kill", "-STOP", "17"],
+        ps, ["docker", "exec", "-u", "10001:10001", "new", "python", "-c",
+         "import os, signal; os.kill(17, signal.SIGSTOP)"],
     ]
     assert runner.call_args_list[0].kwargs["env"]["MIRUM_ACCESS_TOKEN"] == stack.config.token
 

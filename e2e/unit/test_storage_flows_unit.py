@@ -30,15 +30,46 @@ _REGEN = "regen_chamber"
 
 @pytest.mark.parametrize("variant", ["reference", "low_allowable"])
 def test_beam_brief_reviews_current_draft(variant: str) -> None:
-    expected_input = json.loads(
+    example = json.loads(
         (Path(__file__).resolve().parents[2] / "examples/engineering/cantilever.json").read_text(
             encoding="utf-8"
         )
     )
-    if variant == "low_allowable":
-        expected_input["specification"]["allowable_stress_mpa"] = 1.0
-    fields = ["specification.allowable_stress_mpa", "candidate_heights_mm"]
-    entry = {"id": _BEAM, "review_fields": fields}
+    spec = example["specification"]
+    expected_input = {
+        "schema_version": "engineering_brief_v1",
+        "capability": {
+            "id": _BEAM,
+            "version": "cap-v",
+            "numerical_policy_version": "num-v",
+            "resource_policy_version": "res-v",
+        },
+        "requirements": {
+            "units": spec["units"],
+            "length_mm": spec["length_mm"],
+            "width_mm": spec["width_mm"],
+            "dimensional_tolerance_mm": spec["dimensional_tolerance_mm"],
+            "tip_force_n": spec["tip_force_n"],
+            "max_tip_deflection_mm": spec["max_tip_deflection_mm"],
+            "material": {
+                "youngs_modulus_mpa": spec["youngs_modulus_mpa"],
+                "allowable_stress_mpa": 1.0 if variant == "low_allowable" else spec["allowable_stress_mpa"],
+                "source_kind": "illustrative",
+                "reference": "User-reviewed illustrative aluminium inputs; not certified stock properties",
+            },
+            "assumptions": spec["assumptions"],
+        },
+        "mode": "bounded_thickness",
+        "candidate_heights_mm": example["candidate_heights_mm"],
+    }
+    fields = ["requirements.allowable_stress_mpa", "candidate_heights_mm"]
+    entry = {
+        "id": _BEAM,
+        "version": "cap-v",
+        "numerical": {"version": "num-v"},
+        "resources": {"version": "res-v"},
+        "review_fields": fields,
+    }
     _exercise_brief(beam_brief, variant, entry, expected_input, {}, fields)
 
 

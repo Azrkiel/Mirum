@@ -223,7 +223,10 @@ def _interrupt(run: Run, job: Job, obs: dict) -> None:
         obs["stop_elapsed_s"] = run.ops.stop("backend", 60)
         obs["exit_code"] = run.ops.exit_code("backend")
         _start(run)
-        assert obs["exit_code"] == 0
+        # uvicorn 0.30.6 re-raises the captured SIGTERM after its graceful shutdown, so a clean
+        # stop reports 143 (128+15), not 0. 137 would mean the grace period expired (SIGKILL).
+        assert obs["exit_code"] in (0, 143)
+        assert obs["stop_elapsed_s"] < 55
     elif job.case == "S03":
         _deadline(run, job, pid, obs)
     elif job.case == "S04a":

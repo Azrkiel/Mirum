@@ -107,10 +107,40 @@ def beam_brief(api: Api, variant: str = "reference") -> dict:
     """Finalize the cantilever example or its low-allowable variant."""
     if variant not in {"reference", "low_allowable"}:
         raise ValueError("Unknown beam variant")
-    inputs = json.loads(_BEAM_EXAMPLE.read_text(encoding="utf-8"))
+    # The beam draft takes the brief-content shape (briefs.BriefContent), not the legacy
+    # /engineering/generate body in examples/engineering/cantilever.json.
+    capability = _capability(api, _BEAM)
+    example = json.loads(_BEAM_EXAMPLE.read_text(encoding="utf-8"))
+    spec = example["specification"]
+    inputs = {
+        "schema_version": "engineering_brief_v1",
+        "capability": {
+            "id": capability["id"],
+            "version": capability["version"],
+            "numerical_policy_version": capability["numerical"]["version"],
+            "resource_policy_version": capability["resources"]["version"],
+        },
+        "requirements": {
+            "units": spec["units"],
+            "length_mm": spec["length_mm"],
+            "width_mm": spec["width_mm"],
+            "dimensional_tolerance_mm": spec["dimensional_tolerance_mm"],
+            "tip_force_n": spec["tip_force_n"],
+            "max_tip_deflection_mm": spec["max_tip_deflection_mm"],
+            "material": {
+                "youngs_modulus_mpa": spec["youngs_modulus_mpa"],
+                "allowable_stress_mpa": spec["allowable_stress_mpa"],
+                "source_kind": "illustrative",
+                "reference": "User-reviewed illustrative aluminium inputs; not certified stock properties",
+            },
+            "assumptions": spec["assumptions"],
+        },
+        "mode": "bounded_thickness",
+        "candidate_heights_mm": example["candidate_heights_mm"],
+    }
     if variant == "low_allowable":
-        inputs["specification"]["allowable_stress_mpa"] = 1.0
-    return _review_brief(api, _capability(api, _BEAM), inputs)
+        inputs["requirements"]["material"]["allowable_stress_mpa"] = 1.0
+    return _review_brief(api, capability, inputs)
 
 
 def regen_brief(api: Api, variant: str = "reference") -> dict:
