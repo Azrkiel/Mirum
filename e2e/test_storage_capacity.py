@@ -335,16 +335,20 @@ def _observe(case: Case, job: str, phase: str) -> None:
     response = case.api.get_job(job)
     sample = {"status": response.status_code}
     case.observed[phase] = sample
+    # "Never accepted" only holds under the fault. When the kernel refused the read-only remount
+    # (EBUSY) nothing was injected, the job legitimately completes, and that is only recorded.
+    injected = case.observed.get("backend_mount_readonly") is True
+    sample["fault_injected"] = injected
     if response.status_code == 200:
         record = response.json()
         sample.update(lifecycle=record["lifecycle"], outcome=record["outcome"])
-        assert record["outcome"] != "accepted"
+        assert not injected or record["outcome"] != "accepted"
     # A 500 by itself says nothing about the durable outcome. Read it independently.
     rows = case.ops.db_rows("SELECT json_extract(record,'$.lifecycle'),"
                             "json_extract(record,'$.outcome') FROM jobs WHERE id=?", (job,))
     assert len(rows) == 1, "Could not observe the durable regen record"
     sample["stored_lifecycle"], sample["stored_outcome"] = rows[0]
-    assert sample["stored_outcome"] != "accepted"
+    assert not injected or sample["stored_outcome"] != "accepted"
     assert response.status_code != 429, "Exploratory read was rate limited"
 
 
@@ -433,7 +437,11 @@ def test_real_capacity(case: Case) -> None:
             _cancel(case, job)
             pytest.fail("Storage admitted a regen job above the measured limit")
         result = case.api.wait_job(job, timeout_s=180)
-        assert (result["lifecycle"], result["outcome"]) == ("completed", "accepted")
+        attempts[-1]["job_id"] = job
+        if (result["lifecycle"], result["outcome"]) != ("completed", "accepted"):
+            attempts[-1]["unexpected_result"] = {k: result.get(k) for k in ("lifecycle", "outcome", "delivery", "detail", "reason", "message", "error")}
+            case.observed["backend_logs_tail"] = case.ops.stack.logs(120)[-6000:]
+        assert (result["lifecycle"], result["outcome"]) == ("completed", "accepted"), json.dumps(result)[:500]
         size = result["bundle"]["stored_bytes"]  # jobs.py:223-225 retains this reservation.
         assert size > 0
         retained += size
