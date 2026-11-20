@@ -1,7 +1,8 @@
 """Regen smoke test run INSIDE the release backend container (stdlib only; piped via `docker exec -i`).
 
 The container runs read-only with --network none, so everything goes to the loopback API with the
-access token. Env: SMOKE_TOKEN, SMOKE_SPEC (reference spec JSON). Prints one JSON record on stdout
+access token. Env: SMOKE_TOKEN, SMOKE_SPEC (reference spec JSON), SMOKE_RUN (run number; repeated runs in one
+container use distinct idempotency keys and must each pass, which exercises scratch eviction between runs). Prints one JSON record on stdout
 and exits non-zero unless the reference job is ACCEPTED on BOTH routes (both gate): the browser route and
 the checked (v1) route. The checked route's artifact hashes must equal the browser route's. The measured
 stored bytes of the checked run are recorded (steps.checked_route.stored_bytes_measured).
@@ -23,7 +24,10 @@ METADATA_RESERVE = 1024 ** 2  # backend/engineering/bundles.py METADATA_RESERVE,
 BASE = 'http://127.0.0.1:8000'
 TOKEN = os.environ['SMOKE_TOKEN']
 SPEC = json.loads(os.environ['SMOKE_SPEC'])
-record = {'steps': {}}
+RUN = os.environ.get('SMOKE_RUN', '1')
+if not RUN.isdigit() or len(RUN) > 3:
+    sys.exit('SMOKE_RUN must be a small run number')
+record = {'run': int(RUN), 'steps': {}}
 
 
 def call(method, path, body=None, raw=False):
@@ -175,7 +179,7 @@ if status != 201:
 t1 = time.monotonic()
 sampler = PeakSampler()
 sampler.start()
-status, sub = call('POST', '/engineering/v1/jobs', {'brief_id': brief['brief_id'], 'idempotency_key': 'release-smoke-1'})
+status, sub = call('POST', '/engineering/v1/jobs', {'brief_id': brief['brief_id'], 'idempotency_key': f'release-smoke-{RUN}'})
 if status != 202:
     fail(f'v1 job rejected at submit: {status} {sub!r}')
 job_id = sub['job_id']
