@@ -32,8 +32,9 @@ def test_three_styles_generate_and_download(stack, token, api, page, shot, exter
     for label, generator in STYLES:
         ui.choose_style(label)
         if generator != STYLES[0][1]:
-            # the previous result stops matching once the new preset is loaded into the draft
-            expect(ui.match_notice).to_have_count(0, timeout=30_000)
+            # the draft differs from the accepted result only once the new preset is loaded
+            ui.wait_style_loaded()
+            expect(ui.style_group.get_by_role("radio", name=label)).to_be_checked()
         expect(ui.generate).to_be_enabled(timeout=30_000)
         ui.generate.click()
         ui.wait_accepted()

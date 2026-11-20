@@ -12,6 +12,7 @@ WORKFLOW = "CO2 dragster"
 STYLE_RADIO = "Body style"
 GENERATE = "Generate body"
 MATCH_TEXT = "Edited parameters match displayed result."
+DIFFER_TEXT = "Edited parameters differ from displayed result."
 DOWNLOADS = ("STEP", "GLB", "Parameters", "Report")
 
 
@@ -42,6 +43,15 @@ class Dragster(Workspace):
     @property
     def match_notice(self) -> Locator:
         return self.page.get_by_text(MATCH_TEXT)
+
+    @property
+    def differ_notice(self) -> Locator:
+        return self.page.get_by_text(DIFFER_TEXT, exact=False)
+
+    def wait_style_loaded(self) -> None:
+        """A style switch is two reruns (pending preset, then load); the differ notice is the
+        positive signal that the second one finished and the draft holds the new preset."""
+        expect(self.differ_notice).to_be_visible(timeout=30_000)
 
     def wait_accepted(self) -> None:
         """The draft equals the accepted result only after a successful generation."""
