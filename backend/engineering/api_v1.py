@@ -232,7 +232,33 @@ def attach_v1_routes(app,limiter):
             raise ValueError('Input must name the requested capability')
         if body.capability!=CAPABILITY.id:
             if get_generator(body.capability) is None: raise ValueError('Unknown capability')
-            if body.mode=='ai': raise ValueError('AI drafts are not offered for this capability')
+            if body.mode=='ai':
+                # E05 generator AI drafts (Wave E P3). The beam's B13 path below is untouched; this branch
+                # shares its flag, its AiCallBudget (value.proposer.budget) and its unavailable report.
+                from . import proposal_contract
+                def unavailable(reasons=('AI preparation unavailable; typed form remains available',)):
+                    return JSONResponse(status_code=503,content=dict(state='unavailable',reasons=list(reasons),prepared=None),
+                        headers={'Cache-Control':'no-store'})
+                if not value.ai_enabled or value.proposer is None:
+                    # Flag off: no proposer is resolved, no module imported, no key read.
+                    raise HTTPException(503,'AI draft preparation is not enabled')
+                if body.input or body.prompt is None: raise ValueError('AI entry requires a prompt and empty initial input')
+                if len(body.prompt)>proposal_contract.MAX_PROMPT: raise ValueError('AI entry prompt is too long')
+                budget=value.proposer.budget
+                if not budget.has_capacity(): return unavailable()
+                client=client_key(request)
+                await asyncio.to_thread(value.quota.admit_draft,client,ai=True,size=len(body.prompt.encode()))
+                proposer=proposal_contract.ai_proposer(body.capability,enabled=value.ai_enabled,budget=budget)
+                try:
+                    proposal=proposal_contract.conform(body.capability,await proposer.propose(body.prompt))
+                except proposal_contract.NonConformingProposal:
+                    return unavailable()
+                if proposal.state=='unavailable': return unavailable(proposal.reasons)
+                def create_ai():
+                    created=value.briefs.create(proposal.payload,provenance=proposal.provenance,extra_issues=tuple(proposal.issues))
+                    value.quota.record_draft(created.draft.draft_id,client,len(created.model_dump_json()))
+                    return created
+                return prepared_view(await asyncio.to_thread(create_ai))
             if body.mode=='form':
                 if not isinstance(given,dict): raise ValueError('Input must name the requested capability')
                 # Resolve the exact versions before admission: an unknown version is a 422, not a draft.
@@ -320,6 +346,10 @@ def attach_v1_routes(app,limiter):
 
     def job_view(value,job):
         record=job.model_dump(mode='json')
+        # What a passing run means, next to every outcome: clients never read 'accepted' alone.
+        capability_id=record['capability']['id']
+        descriptor=get_generator(capability_id)
+        record['claim']='checked_design' if capability_id==CAPABILITY.id else (descriptor.claim if descriptor else None)
         if record.get('expired'): return dict(record,delivery='expired',artifacts={})
         with value.store._lock:
             row=value.store.db.execute('SELECT expires FROM jobs WHERE id=?',(job.job_id,)).fetchone()
@@ -329,7 +359,7 @@ def attach_v1_routes(app,limiter):
             expires=min(expires,publication_expiry) if expires is not None else publication_expiry
         except KeyError: pass
         if expires is not None and time.time()>=expires:
-            return dict(compact_run(record),delivery='expired',artifacts={},artifact_expires_at=expires)
+            return dict(compact_run(record),claim=record['claim'],delivery='expired',artifacts={},artifact_expires_at=expires)
         delivery='pending'
         formats={}
         if record['lifecycle'] in ('completed','unavailable','cancelled'):
