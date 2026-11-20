@@ -1,0 +1,134 @@
+name: Build and smoke the Fly backend image
+description: >-
+  Build the backend-fly bake target (stage "fly" of backend/Dockerfile, FROM release) in the Buildx builder
+  that already built the release images, check its shape, smoke it in a privileged container (volume at
+  /data, open-access opt-in, no token) and run the negative cases. Leaves mirum-backend-fly:release in the
+  local daemon. No registry access and no secrets.
+inputs:
+  builder:
+    description: Name of the Buildx builder that built the release images (output "builder" of build-release-images).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Compute PicoGK cache scopes
+      id: scope
+      shell: bash
+      run: |
+        echo "rt=picogk-runtime-${{ hashFiles('spike-picogk/Dockerfile.runtime') }}" >> "$GITHUB_OUTPUT"
+        echo "bd=picogk-regen-${{ hashFiles('picogk-builder/Dockerfile', 'picogk-builder/Program.cs', 'picogk-builder/builder.csproj') }}" >> "$GITHUB_OUTPUT"
+        echo "jobs=$(nproc)" >> "$GITHUB_OUTPUT"
+
+    # Same builder as the action, so the deps and release layers are reused as built; only the thin fly stage is new.
+    - name: Build the Fly backend image (backend-fly)
+      uses: docker/bake-action@5be5f02ff8819ecd3092ea6b2e6261c31774f2b4 # v6
+      env:
+        BUILD_JOBS: ${{ steps.scope.outputs.jobs }}
+      with:
+        source: .
+        builder: ${{ inputs.builder }}
+        files: picogk-builder/docker-bake.hcl
+        targets: backend-fly
+        load: true
+        set: |
+          runtime.cache-from=type=gha,scope=${{ steps.scope.outputs.rt }}
+          runtime.cache-to=type=gha,mode=max,scope=${{ steps.scope.outputs.rt }}
+          regen.cache-from=type=gha,scope=${{ steps.scope.outputs.bd }}
+          regen.cache-to=type=gha,mode=max,scope=${{ steps.scope.outputs.bd }}
+
+    - name: Fly image shape (entrypoint, user, tools)
+      shell: bash
+      run: |
+        set -euo pipefail
+        ep=$(docker image inspect mirum-backend-fly:release --format '{{json .Config.Entrypoint}}')
+        echo "entrypoint=$ep"
+        test "$ep" = '["/usr/local/bin/mirum-fly-init"]'
+        docker run --rm --entrypoint sh mirum-backend-fly:release -c 'command -v setpriv && command -v mount && test "$(stat -c %u:%a /usr/local/bin/mirum-fly-init)" = "0:555"'
+
+    # Privileged only so the init script can mount; apparmor=unconfined because Docker's default
+    # AppArmor profile denies mount(2) even with CAP_SYS_ADMIN. No token and no secrets.
+    - name: Smoke the Fly image (privileged container, volume at /data, open-access opt-in)
+      shell: bash
+      run: |
+        set -euo pipefail
+        img=mirum-backend-fly:release
+        priv="--cap-add SYS_ADMIN --security-opt apparmor=unconfined"
+        vol="mirum-fly-smoke-$RANDOM"
+        docker volume create "$vol" >/dev/null
+        # shellcheck disable=SC2086
+        cid=$(docker run -d $priv -v "$vol:/data" -p 127.0.0.1:18000:8000 \
+          -e MIRUM_OPEN_ACCESS=1 -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent "$img")
+        cleanup() { docker logs "$cid" > "$RUNNER_TEMP/fly-smoke.log" 2>&1 || true; docker rm -f "$cid" >/dev/null 2>&1 || true; docker volume rm -f "$vol" >/dev/null 2>&1 || true; }
+        trap cleanup EXIT
+        code=000
+        for _ in $(seq 1 90); do
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18000/auth/check || true)
+          [ "$code" = 200 ] && break
+          [ "$(docker inspect -f '{{.State.Running}}' "$cid")" = true ] || break
+          sleep 2
+        done
+        echo "/auth/check -> $code"
+        docker logs "$cid" 2>&1 | sed -E 's/(x-mirum-access-token[^ ]*).*/\1 [redacted]/I' | tail -40
+        test "$code" = 200
+        logs=$(docker logs "$cid" 2>&1)
+        grep -q 'MIRUM_STARTUP_OPEN_ACCESS' <<<"$logs"
+        if grep -q 'MIRUM_STARTUP_REFUSED' <<<"$logs"; then echo "unexpected MIRUM_STARTUP_REFUSED"; exit 1; fi
+        # The server process runs as 10001 with no capabilities and no privilege gain; the root is read-only.
+        docker exec "$cid" python -c '
+        import glob, re
+        for path in glob.glob("/proc/[0-9]*/cmdline"):
+            try:
+                cmd = open(path, "rb").read().replace(b"\0", b" ").decode()
+            except OSError:
+                continue
+            if "uvicorn" not in cmd:
+                continue
+            status = open(path.replace("cmdline", "status")).read()
+            uid = re.search(r"^Uid:\s+(\d+)\s+(\d+)", status, re.M).groups()
+            cap = re.search(r"^CapEff:\s+(\S+)", status, re.M).group(1)
+            nnp = re.search(r"^NoNewPrivs:\s+(\d)", status, re.M).group(1)
+            print("uvicorn", path.split("/")[2], "uid", uid, "CapEff", cap, "NoNewPrivs", nnp)
+            assert uid == ("10001", "10001") and int(cap, 16) == 0 and nnp == "1", status
+            break
+        else:
+            raise SystemExit("no uvicorn process found")
+        mounts = {line.split()[4]: line.split()[5] for line in open("/proc/self/mountinfo")}
+        assert "ro" in mounts["/"].split(","), mounts["/"]
+        print("root mount options", mounts["/"])
+        '
+
+    - name: Fly image negative cases (init refuses without /data; guards refuse without the opt-in)
+      shell: bash
+      run: |
+        set -euo pipefail
+        img=mirum-backend-fly:release
+        priv="--cap-add SYS_ADMIN --security-opt apparmor=unconfined"
+        # 1. No volume at /data: the init script must exit non-zero before anything starts.
+        set +e
+        # shellcheck disable=SC2086
+        out=$(timeout 120 docker run --rm $priv "$img" 2>&1)
+        rc=$?
+        set -e
+        echo "$out" | tail -5
+        test "$rc" -ne 0
+        grep -q 'MIRUM_FLY_INIT_REFUSED' <<<"$out"
+        # 2. Volume present but no opt-in (and 'true', which is not the opt-in): the backend refuses with access_token_missing.
+        for optin in unset true; do
+          vol="mirum-fly-neg-$RANDOM"
+          docker volume create "$vol" >/dev/null
+          args=()
+          [ "$optin" = unset ] || args=(-e "MIRUM_OPEN_ACCESS=$optin")
+          # shellcheck disable=SC2086
+          cid=$(docker run -d $priv -v "$vol:/data" -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent "${args[@]}" "$img")
+          set +e
+          rc=$(timeout 120 docker wait "$cid")
+          set -e
+          logs=$(docker logs "$cid" 2>&1)
+          docker rm -f "$cid" >/dev/null; docker volume rm -f "$vol" >/dev/null
+          echo "optin=$optin exit=$rc"
+          echo "$logs" | tail -8
+          test "$rc" != 0
+          grep -q 'MIRUM_STARTUP_REFUSED code=access_token_missing' <<<"$logs"
+          if grep -q 'MIRUM_STARTUP_OPEN_ACCESS' <<<"$logs"; then echo "unexpected MIRUM_STARTUP_OPEN_ACCESS"; exit 1; fi
+        done
+

@@ -182,6 +182,65 @@ def test_access_token_with_ten_distinct_chars_is_fine():
     assert run(env) == []
 
 
+def open_env(optin='1', token=None):
+    env = good_env()
+    env.pop('MIRUM_ACCESS_TOKEN')
+    if optin is not None:
+        env['MIRUM_OPEN_ACCESS'] = optin
+    if token is not None:
+        env['MIRUM_ACCESS_TOKEN'] = token
+    return env
+
+
+@pytest.mark.parametrize('token', [None, ''])
+def test_open_access_optin_without_token_passes(token):
+    assert run(open_env('1', token)) == []
+
+
+@pytest.mark.parametrize('token', ['short', 'a' * 40, 'ab' * 20])
+def test_open_access_optin_with_weak_token_still_fails(token):
+    failures = run(open_env('1', token))
+    assert {'access_token_missing', 'access_token_weak'} & set(codes(failures))
+    assert all(token not in f.message for f in failures)
+
+
+def test_open_access_optin_with_strong_token_passes():
+    assert run(open_env('1', TOKEN)) == []
+
+
+@pytest.mark.parametrize('optin', ['0', 'true', 'yes', 'True', ' 1', '1 ', '', '11'])
+def test_open_access_other_values_do_not_count(optin):
+    assert 'access_token_missing' in codes(run(open_env(optin)))
+
+
+def test_no_optin_and_no_token_still_fails():
+    assert 'access_token_missing' in codes(run(open_env(None)))
+
+
+def test_open_access_does_not_relax_other_guards():
+    info = GOOD_MOUNTINFO.replace('/ / ro,relatime', '/ / rw,relatime')
+    assert codes(run(open_env('1'), mountinfo=info)) == ['root_writable']
+    assert 'running_as_root' in codes(run(open_env('1'), euid=0, egid=0, stat=fake_stat(uid=0, gid=0)))
+
+
+def test_enforce_logs_open_access_line_once(monkeypatch, caplog):
+    monkeypatch.setattr(startup_checks, '_read_mountinfo', lambda: GOOD_MOUNTINFO)
+    monkeypatch.setattr(startup_checks, 'evaluate', lambda *a, **k: [])
+    with caplog.at_level(logging.WARNING):
+        enforce(open_env('1'))
+    assert caplog.text.count('MIRUM_STARTUP_OPEN_ACCESS') == 1
+    assert 'MIRUM_STARTUP_REFUSED' not in caplog.text
+
+
+def test_enforce_no_open_access_line_without_optin(monkeypatch, caplog):
+    monkeypatch.setattr(startup_checks, 'evaluate', lambda *a, **k: [])
+    with caplog.at_level(logging.WARNING):
+        enforce(good_env())
+        enforce(open_env('1', TOKEN))
+        enforce(open_env('true'))
+    assert 'MIRUM_STARTUP_OPEN_ACCESS' not in caplog.text
+
+
 def test_root_writable():
     info = GOOD_MOUNTINFO.replace('/ / ro,relatime', '/ / rw,relatime')
     assert 'root_writable' in codes(run(mountinfo=info))

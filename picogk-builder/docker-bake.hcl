@@ -30,6 +30,16 @@ target "backend-release" {
   no-cache-filter = ["deps", "release"]
 }
 
+# The Fly variant of the release image: stage "fly" in backend/Dockerfile (FROM release + a root-owned
+# init script). Only the thin "fly" stage skips the cache, so in the same builder as backend-release the
+# deps/release layers are reused as built and the image carries the exact release payload.
+target "backend-fly" {
+  inherits        = ["backend-release"]
+  target          = "fly"
+  tags            = ["mirum-backend-fly:release"]
+  no-cache-filter = ["fly"]
+}
+
 target "backend-b13-eval" {
   inherits = ["backend-release"]
   target   = "b13-eval"

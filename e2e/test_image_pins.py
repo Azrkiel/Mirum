@@ -3,7 +3,8 @@
 Shipped Dockerfiles: backend/Dockerfile and frontend/Dockerfile.
 Not shipped (not checked): Dockerfile.verify (test image, owned by CI),
 backend/Dockerfile.conda-baseline (kept for reference, never built),
-deploy/fly/*.Dockerfile (separate deploy recipes).
+deploy/fly/ has no Dockerfiles any more: the Fly backend is stage `fly` of backend/Dockerfile
+(checked in e2e/test_fly_release.py).
 """
 from __future__ import annotations
 

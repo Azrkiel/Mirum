@@ -48,6 +48,18 @@ ENV PYTHONPATH=/app:/app/backend     MIRUM_DEPLOYMENT=release MIRUM_ENGINEERING_
 USER 10001:10001
 CMD ["python", "-m", "uvicorn", "main:app", "--app-dir", "/app/backend", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
 
+# Fly Machines variant of the release image (deploy/fly/README.md). Fly has no read-only root, tmpfs or
+# uid-owned volume options, so a root-owned init script builds the layout the release guards require
+# (tmpfs scratch, bind-mounted volume, read-only root) and then drops to uid/gid 10001 with no
+# capabilities. The release stage above is untouched. This stage sits before b13-eval so the Dockerfile's
+# last USER stays 10001 (e2e/test_image_pins.py).
+FROM release AS fly
+USER root
+COPY --chown=0:0 --chmod=0555 deploy/fly/release-init.sh /usr/local/bin/mirum-fly-init
+RUN command -v setpriv && command -v mount && test -x /usr/local/bin/mirum-fly-init
+ENTRYPOINT ["/usr/local/bin/mirum-fly-init"]
+CMD ["python", "-m", "uvicorn", "main:app", "--app-dir", "/app/backend", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+
 FROM release AS b13-eval
 USER root
 COPY scripts/checked_engineering_live_eval.py scripts/checked_engineering_live_diagnostic.py /app/scripts/

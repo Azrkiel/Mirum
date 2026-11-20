@@ -20,9 +20,13 @@ on:
       - "scripts/make_release_lock.py"
       - "scripts/ai_fingerprint.py"
       - "e2e/test_image_pins.py"
+      - "e2e/test_fly_release.py"
+      - "deploy/fly/**"
+      - ".github/workflows/release-publish.yml"
       - "e2e/test_ai_parity.py"
       - "e2e/fixtures/**"
       - ".github/actions/build-release-images/**"
+      - ".github/actions/build-fly-image/**"
       - ".github/workflows/release-images.yml"
   workflow_dispatch:
 
@@ -45,11 +49,17 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/ci-venv"
           "$RUNNER_TEMP/ci-venv/bin/python" -m pip install --require-hashes --only-binary=:all: --no-deps -r .github/ci-requirements/pytest.lock
           echo "CI_PY=$RUNNER_TEMP/ci-venv/bin/python" >> "$GITHUB_ENV"
-          "$RUNNER_TEMP/ci-venv/bin/python" -m pytest -q -p no:cacheprovider e2e/test_image_pins.py
+          "$RUNNER_TEMP/ci-venv/bin/python" -m pytest -q -p no:cacheprovider e2e/test_image_pins.py e2e/test_fly_release.py
 
       - uses: ./.github/actions/build-release-images
+        id: release
         with:
           evidence-path: release-evidence/release-images.json
+
+      # Builds and smokes the Fly variant (stage fly) in a privileged container; never pushed here.
+      - uses: ./.github/actions/build-fly-image
+        with:
+          builder: ${{ steps.release.outputs.builder }}
 
       - name: Build the verification image (B13 qualified image recipe)
         run: docker build -f Dockerfile.verify -t mirum-verify:ci .

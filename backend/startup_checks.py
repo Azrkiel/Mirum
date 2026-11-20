@@ -8,6 +8,13 @@ evaluates every guard, logs ``MIRUM_STARTUP_REFUSED code=<c>: <msg>`` per failur
 (mounted volume, scratch/data separation); those stay in place and the store's flock stays
 authoritative (the probe here is only an early, coded hint). Messages never include the
 access token or any other secret.
+
+Open-access opt-in: a public deployment may run without an access token. That is allowed only
+when ``MIRUM_OPEN_ACCESS`` is exactly ``1`` and ``MIRUM_ACCESS_TOKEN`` is empty or unset; the
+token guard is then skipped and ``enforce()`` logs one ``MIRUM_STARTUP_OPEN_ACCESS`` line
+(WARNING level, so it shows without logging configuration). A set but weak token still fails
+(``access_token_weak``), any other opt-in value (``0``, ``true``, ``yes``, ...) or no opt-in
+behaves as before, and every other guard is unchanged.
 """
 from __future__ import annotations
 
@@ -24,6 +31,7 @@ logger = logging.getLogger('mirum.startup')
 _TOKEN_MIN_LEN = 32
 _TOKEN_MIN_DISTINCT = 10
 _VOLUME_PARENT = '/tmp/mirum'
+_OPEN_ACCESS_ENV = 'MIRUM_OPEN_ACCESS'
 _WORKER_ENV = ('WEB_CONCURRENCY', 'UVICORN_WORKERS', 'MIRUM_API_REPLICAS')
 
 
@@ -78,6 +86,11 @@ def _worker_count_bad(argv) -> bool:
             except ValueError:
                 return True
     return False
+
+
+def open_access(env) -> bool:
+    """True only for the exact opt-in value '1' together with an empty or unset token."""
+    return env.get(_OPEN_ACCESS_ENV) == '1' and env.get('MIRUM_ACCESS_TOKEN', '') == ''
 
 
 def evaluate(env, *, mountinfo, stat, euid, egid, argv, try_lock):
@@ -138,7 +151,9 @@ def evaluate(env, *, mountinfo, stat, euid, egid, argv, try_lock):
 
     # access token (value never echoed)
     token = env.get('MIRUM_ACCESS_TOKEN', '')
-    if len(token) < _TOKEN_MIN_LEN:
+    if open_access(env):
+        pass  # explicit opt-in, no token: skipped here, announced once by enforce()
+    elif len(token) < _TOKEN_MIN_LEN:
         fail('access_token_missing',
              f'MIRUM_ACCESS_TOKEN must be set and at least {_TOKEN_MIN_LEN} characters')
     elif len(set(token)) < _TOKEN_MIN_DISTINCT or any(c.isspace() for c in token):
@@ -203,6 +218,9 @@ def enforce(env=os.environ) -> None:
     getegid = getattr(os, 'getegid', lambda: -1)
     failures = evaluate(resolved, mountinfo=_read_mountinfo(), stat=os.stat, euid=geteuid(),
                         egid=getegid(), argv=sys.argv, try_lock=_default_try_lock)
+    if open_access(resolved):
+        logger.warning('MIRUM_STARTUP_OPEN_ACCESS: %s=1 and no access token set; the access-token '
+                       'guard is skipped (open access)', _OPEN_ACCESS_ENV)
     if failures:
         for failure in failures:
             logger.error('MIRUM_STARTUP_REFUSED code=%s: %s', failure.code, failure.message)
