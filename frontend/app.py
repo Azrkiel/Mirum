@@ -258,11 +258,14 @@ def apply_route(ev: dict, prompt: str) -> bool:
     return True
 
 
-def fetch_route(prompt: str) -> dict | None:
-    """Ask the backend's provider-free router; the `route` event for a checked capability, else None.
+def fetch_route(prompt: str) -> dict | str | None:
+    """Ask the backend's provider-free router before any provider call.
 
-    Runs before /clarify and /plan so a checked-capability prompt never reaches a provider.
-    Any failure means no route: the labelled LLM fallback proceeds as before.
+    Returns the `route` event for a checked capability, None when the router answers that the prompt
+    matches no checked capability (the labelled LLM fallback may proceed), or the string "unavailable"
+    when the router could not answer (error, rate limit, timeout, malformed reply). Unavailable fails
+    closed: the caller must not fall through to /clarify or /plan, which would spend provider calls on
+    a prompt that may belong to a checked capability.
     """
     try:
         resp = requests.post(
@@ -271,10 +274,17 @@ def fetch_route(prompt: str) -> dict | None:
             json={"prompt": prompt},
             timeout=15,
         )
-        ev = resp.json().get("route") if resp.status_code == 200 else None
-        return ev if isinstance(ev, dict) else None
+        if resp.status_code != 200:
+            return "unavailable"
+        body = resp.json()
+        if not isinstance(body, dict) or "route" not in body:
+            return "unavailable"
+        ev = body["route"]
+        if ev is None:
+            return None
+        return ev if isinstance(ev, dict) else "unavailable"
     except Exception:
-        return None
+        return "unavailable"
 
 
 def stream_pipeline(prompt: str, progress_ph) -> None:
@@ -1069,7 +1079,11 @@ with inputs_col:
             p = prompt.strip()
             # Step 0: deterministic route, no provider: checked capabilities never reach /clarify or /plan
             routed = fetch_route(p)
-            if routed is not None and apply_route(routed, p):
+            if routed == "unavailable":
+                # Fail closed: never spend provider calls when the router could not decide.
+                st.error("Routing is temporarily unavailable. Please try again in a moment.")
+                ambs = None
+            elif routed is not None and apply_route(routed, p):
                 ambs = None
             else:
                 # Step 1: Clarification (optional, fast)

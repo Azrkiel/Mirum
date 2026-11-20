@@ -160,11 +160,23 @@ def test_fetch_route_calls_only_the_provider_free_route_endpoint():
     assert post.call_count == 1 and post.call_args.args[0] == 'http://fixture/route'
 
 
-@pytest.mark.parametrize('post', [reply({'route': None}), reply({}, 500), reply({'route': 'x'}),
-                                  Mock(side_effect=RuntimeError('down'))])
-def test_fetch_route_is_none_for_no_route_or_any_failure(post):
-    ns, _, _ = load_route_helpers(post)
+def test_fetch_route_is_none_only_when_the_router_answers_no_route():
+    ns, _, _ = load_route_helpers(reply({'route': None}))
     assert ns['fetch_route']('a prompt') is None
+
+
+@pytest.mark.parametrize('post', [reply({}, 500), reply({'route': None}, 429), reply({'route': 'x'}), reply({}),
+                                  reply(['not', 'a', 'dict']), Mock(side_effect=RuntimeError('down'))])
+def test_fetch_route_fails_closed_as_unavailable_on_any_failure(post):
+    ns, _, _ = load_route_helpers(post)
+    assert ns['fetch_route']('a prompt') == 'unavailable'
+
+
+def test_unavailable_route_never_reaches_clarify_or_plan():
+    src = APP.read_text(encoding='utf-8')
+    block = src[src.index('if generate and prompt.strip():'):]
+    unavailable = block[block.index('if routed == "unavailable":'):block.index('elif routed is not None')]
+    assert 'ambs = None' in unavailable and 'fetch_clarifications' not in unavailable
 
 
 def test_apply_route_queues_the_checked_design_view_with_notice():
