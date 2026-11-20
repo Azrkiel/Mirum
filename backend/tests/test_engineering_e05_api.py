@@ -152,6 +152,12 @@ def test_proposals_pass_through_the_brief_service(name):
 
 # --- CI only: HTTP --------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _engineering_key_only(monkeypatch):
+    """The approved key configuration (no separate Pro key), so glider AI is not refused (M3)."""
+    monkeypatch.delenv('GEMINI_API_KEY_PRO', raising=False)
+
+
 def _client(request, monkeypatch, tmp_path, flag):
     pytest.importorskip('fastapi.testclient')
     from fastapi.testclient import TestClient

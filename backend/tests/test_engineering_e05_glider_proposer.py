@@ -14,13 +14,23 @@ from cem.glider import calibration
 from cem.glider.requirements import GliderMissionRequirements
 from engineering import proposal_contract as pc
 from engineering.capabilities import GLIDER
-from engineering.glider_proposer import (AiProposer, CALIBRATION_QUESTION, FAMILIES_QUESTION,
+from engineering.glider_proposer import (AiProposer, CALIBRATION_QUESTION, FAMILIES_QUESTION, KEY_MISMATCH,
                                          NOT_A_GLIDER, PROMPT_VERSION, UNAVAILABLE)
 from engineering.limits import AiCallBudget
 
 PROMPT = 'Design a glider launched by drop that maximizes distance, using conventional and t_tail families.'
 BACKEND = Path(__file__).resolve().parents[1]
 SECRET = 'SECRET-EXC-TEXT-9137'
+
+
+PLANTED_PRO = 'planted-fake-pro-key-0001'
+PLANTED_HEAVY = 'planted-fake-heavy-key-0002'
+
+
+@pytest.fixture(autouse=True)
+def _engineering_key_only(monkeypatch):
+    """Default: the approved configuration (no separate Pro key)."""
+    monkeypatch.delenv('GEMINI_API_KEY_PRO', raising=False)
 
 
 def requirements(**over):
@@ -200,7 +210,60 @@ def test_invalid_requirements_give_partial_spec_without_input_values():
     assert proposal.provenance.input_mode == 'ai'
 
 
-def test_factory_builds_proposer_when_enabled_and_none_when_off():
+@pytest.mark.parametrize('pro', [None, PLANTED_HEAVY])
+def test_engineering_key_configuration_proceeds(monkeypatch, pro):
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', PLANTED_HEAVY)
+    if pro is not None:
+        monkeypatch.setenv('GEMINI_API_KEY_PRO', pro)
+    extract = FakeExtract(review())
+    proposal, budget = run(extract)
+    assert proposal.state == 'proposed' and extract.calls == 1 and budget.used() == 1
+
+
+@pytest.mark.parametrize('heavy', [PLANTED_HEAVY, None])
+def test_separate_pro_key_is_unavailable_before_budget_or_extract(monkeypatch, heavy):
+    """M3: cem.extraction's legacy global client would use GEMINI_API_KEY_PRO, not the approved key."""
+    monkeypatch.setenv('GEMINI_API_KEY_PRO', PLANTED_PRO)
+    if heavy is None:
+        monkeypatch.delenv('GEMINI_API_KEY_HEAVY', raising=False)
+    else:
+        monkeypatch.setenv('GEMINI_API_KEY_HEAVY', heavy)
+    extract = FakeExtract(review())
+    proposal, budget = run(extract)
+    assert proposal.state == 'unavailable' and proposal.reasons == KEY_MISMATCH
+    assert KEY_MISMATCH == ('Glider AI preparation needs the engineering key configuration; typed form remains available',)
+    assert extract.calls == 0 and budget.used() == 0 and budget._inflight == 0
+    blob = json.dumps([proposal.payload, proposal.reasons, [i.reason for i in proposal.issues],
+                       proposal.provenance.model_dump(mode='json')], default=str)
+    assert PLANTED_PRO not in blob and PLANTED_HEAVY not in blob
+
+
+class EnvSpy(dict):
+    def __init__(self, base):
+        super().__init__(base)
+        self.read = []
+
+    def get(self, key, default=None):
+        self.read.append(key)
+        return super().get(key, default)
+
+    def __getitem__(self, key):
+        self.read.append(key)
+        return super().__getitem__(key)
+
+    def __contains__(self, key):
+        self.read.append(key)
+        return super().__contains__(key)
+
+
+def test_factory_builds_proposer_when_enabled_and_none_when_off(monkeypatch):
+    import os
+    original = os.environ
+    spy = EnvSpy(original)
+    monkeypatch.setattr(os, 'environ', spy)
+    assert pc.ai_proposer('glider_cem', enabled=False, budget=AiCallBudget(daily_calls=1, concurrency=1)) is None
+    assert spy.read == []  # flag off: the environment is not read at all
+    monkeypatch.setattr(os, 'environ', original)
     budget = AiCallBudget(daily_calls=1, concurrency=1)
     built = pc.ai_proposer('glider_cem', enabled=True, budget=budget)
     # By name: another test may drop the module from sys.modules, so a re-import makes a new class object.

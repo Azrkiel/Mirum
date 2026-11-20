@@ -45,7 +45,8 @@ def test_glider_corpus_shape():
 
 
 @pytest.mark.parametrize('case', CASES, ids=[case['id'] for case in CASES])
-def test_glider_corpus_case(case: dict):
+def test_glider_corpus_case(case: dict, monkeypatch):
+    monkeypatch.delenv('GEMINI_API_KEY_PRO', raising=False)  # approved key configuration
     prompt = case['prompt']
     expected_route = case['expected_route']
     assert route(prompt).capability_id == expected_route

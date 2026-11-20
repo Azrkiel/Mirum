@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import os
 import re
 from uuid import uuid4
 
@@ -27,6 +28,7 @@ from .contracts import FieldOrigin, Provenance
 
 PROMPT_VERSION = 'glider_cem_extract_v1'
 UNAVAILABLE = ('AI preparation unavailable; typed form remains available',)
+KEY_MISMATCH = ('Glider AI preparation needs the engineering key configuration; typed form remains available',)
 NOT_A_GLIDER = 'This request is not a glider; no glider draft was made'
 FAMILIES_QUESTION = ('Which glider families should discovery search? '
                      'List one or more of: conventional, t_tail, v_tail.')
@@ -91,6 +93,15 @@ def _calibration_version():
         return None
 
 
+def _engineering_key_mismatch() -> bool:
+    """True when ``cem.extraction``'s legacy global client would be configured with a key other
+    than the approved engineering key (main.py configures it from ``GEMINI_API_KEY_PRO``, falling
+    back to ``GEMINI_API_KEY_HEAVY``). Compared in memory only; neither value is logged, returned
+    or stored."""
+    pro = os.environ.get('GEMINI_API_KEY_PRO') or ''
+    return bool(pro) and pro != (os.environ.get('GEMINI_API_KEY_HEAVY') or '')
+
+
 class AiProposer:
     """``base_spec`` is accepted for contract compatibility and ignored for now."""
 
@@ -121,6 +132,9 @@ class AiProposer:
         _check_prompt(prompt)
         if router.route(prompt).capability_id not in (None, GLIDER.id):
             return self._unsupported((_issue('unsupported', NOT_A_GLIDER),))
+        if _engineering_key_mismatch():
+            # Fail closed before any budget unit or extraction call (security finding M3).
+            return self._done('unavailable', self._payload(), reasons=KEY_MISMATCH)
         if not self.budget.reserve():
             return self._unavailable()
         try:
