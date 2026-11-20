@@ -43,6 +43,12 @@ jobs:
         with:
           persist-credentials: false
 
+      # Freeze run: the checkout itself must be exactly the dispatched SHA (no tracked or untracked
+      # changes). Checked before the image build, which writes release-evidence/ into the workspace.
+      - name: Clean tree at checkout (freeze run)
+        if: inputs.clean
+        run: git diff --quiet && test -z "$(git status --porcelain)"
+
       - uses: ./.github/actions/build-release-images
         with:
           evidence-path: release-evidence/release-images.json
@@ -59,7 +65,10 @@ jobs:
       - name: Clean stack volumes (freeze run)
         if: inputs.clean
         run: |
-          git diff --quiet && test -z "$(git status --porcelain)"
+          # The build only adds untracked evidence files; no tracked file may have changed.
+          git diff --quiet HEAD
+          untracked=$(git status --porcelain --untracked-files=all | grep -v '^?? release-evidence/' || true)
+          test -z "$untracked" || { printf 'Unexpected workspace changes:\n%s\n' "$untracked"; exit 1; }
           docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml down -v --remove-orphans
 
       - name: Override changes only the volume name
