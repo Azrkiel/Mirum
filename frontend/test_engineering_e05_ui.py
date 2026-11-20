@@ -175,3 +175,194 @@ def test_glider_wording_has_no_accepted_or_checked():
         texts += [ev.outcome_message(g, job)[1], ev.state_line(g, job)]
     for t in texts:
         assert 'Accepted' not in t and 'Checked design' not in t
+
+
+# ---------------------------------------------------------------- AppTest: AI entry mode in the generator view
+
+import copy
+import os
+
+
+class _Response:
+    def __init__(self, payload, status=200):
+        self.payload, self.status_code = payload, status
+        self.ok = status < 400
+        self.headers = {}
+        self.content = b''
+
+    def json(self):
+        return self.payload
+
+
+class Backend:
+    """Scripted /engineering/v1. drafts: queue of payloads or (status, body) tuples answered to POST /drafts."""
+    def __init__(self, meta, drafts=()):
+        self.meta, self.calls, self.drafts, self.current = meta, [], list(drafts), None
+
+    def __call__(self, method, url, headers=None, json=None, timeout=None, **_):
+        path = url.split('/engineering/v1', 1)[1]
+        self.calls.append((method, path, copy.deepcopy(json)))
+        if (method, path) == ('GET', '/capabilities'):
+            return _Response(self.meta)
+        if (method, path) == ('POST', '/drafts'):
+            item = self.drafts.pop(0)
+            if isinstance(item, tuple):
+                return _Response(item[1], item[0])
+            self.current = item
+            return _Response(item, 201)
+        if method == 'GET' and path.startswith('/drafts/') and self.current:
+            return _Response(self.current)
+        return _Response({}, 404)
+
+
+_SCRIPT = '''
+import sys
+sys.path.insert(0, {frontend!r})
+from engineering_ui import render_checked
+render_checked("http://backend.invalid", lambda: {{}})
+'''
+_SPEC = {'schema_version': 2, 'units': 'mm', 'length_mm': 200.0, 'style': 'wedge'}
+
+
+def _meta(cid, ai):
+    e = dict(id=cid, version='1.0.0', label=cid, available=True, numerical=dict(version='n2'),
+             resources=dict(version='r2'), review_fields=[], review_fields_prefix='specification.',
+             selection_rule='x', limitations=[], claim='screening_only' if cid == 'glider_cem' else None)
+    beam = dict(id=ev.BEAM_ID, version='1.0.0', label='Checked beam', available=True, review_fields=['length_mm'],
+                numerical=dict(version='n1'), resources=dict(version='r1'), required_checks=['c1'])
+    return dict(capabilities=[beam, e], review_fields=['length_mm'], ai_enabled=ai, ai_available=ai)
+
+
+def _page(monkeypatch, backend, cid, session=None):
+    import requests
+    from streamlit.testing.v1 import AppTest
+    monkeypatch.setattr(requests, 'request', backend)
+    app = AppTest.from_string(_SCRIPT.format(frontend=os.path.dirname(os.path.abspath(__file__))), default_timeout=20)
+    app.session_state['checked_capability'] = cid
+    for k, v in (session or {}).items():
+        app.session_state[k] = v
+    return app.run()
+
+
+def _ai_draft(cid, *, content=True, issues=(), clarifications=(), origins=()):
+    cap = dict(id=cid, version='1.0.0', numerical_policy_version='n2', resource_policy_version='r2')
+    body = dict(schema_version='engineering_generator_brief_v1', capability=cap, specification=copy.deepcopy(_SPEC),
+                required_checks=['a']) if content else None
+    return dict(draft=dict(draft_id='d1', revision=1, content=body, clarifications=list(clarifications),
+                           provenance=dict(input_mode='ai',
+                                           field_origins=[dict(field=f, origin=o, reference=None) for f, o in origins])),
+                input=dict(capability=cap, specification=copy.deepcopy(_SPEC) if content else None),
+                issues=list(issues), brief_sha256='a' * 64 if content else None)
+
+
+def _propose(app, cid, text='a fast car'):
+    app.radio(key='v1gen_entry_' + cid).set_value('AI-assisted draft').run()
+    app.text_area(key='v1gen_ai_prompt_' + cid).set_value(text).run()
+    next(b for b in app.button if b.key == 'v1gen_ai_' + cid).click().run()
+    return app
+
+
+def _texts(app):
+    return [e.value for e in list(app.warning) + list(app.error) + list(app.caption) + list(app.text) + list(app.info)]
+
+
+def _spec_fields(app):
+    return [w for w in list(app.text_input) + list(app.checkbox) if w.key and w.key.startswith('v1gen_') and '_d1_' in w.key]
+
+
+def test_flag_off_shows_no_entry_radio_and_no_ai_button(monkeypatch):
+    app = _page(monkeypatch, Backend(_meta('co2_dragster', False)), 'co2_dragster')
+    assert not app.exception
+    assert not any(r.label == 'Entry method' for r in app.radio)
+    assert not any('AI' in b.label for b in app.button)
+    assert any(b.label == 'Start an empty draft' for b in app.button)
+
+
+@pytest.mark.parametrize('cid', GENERATORS)
+def test_flag_on_shows_entry_radio(monkeypatch, cid):
+    app = _page(monkeypatch, Backend(_meta(cid, True)), cid)
+    assert not app.exception
+    radio = next(r for r in app.radio if r.label == 'Entry method')
+    assert radio.options == ['Typed form', 'AI-assisted draft'] and radio.value == 'Typed form'
+    assert any(b.label == 'Start an empty draft' for b in app.button)
+
+
+def test_unavailable_ai_caption(monkeypatch):
+    meta = _meta('co2_dragster', True)
+    meta['ai_available'] = False
+    app = _page(monkeypatch, Backend(meta), 'co2_dragster')
+    assert any('AI is unavailable. The typed form works without provider credentials.' in c.value for c in app.caption)
+
+
+def test_ai_503_unavailable_keeps_typed_form_and_adopts_nothing(monkeypatch):
+    backend = Backend(_meta('co2_dragster', True),
+                      drafts=[(503, dict(state='unavailable', reasons=['SECRET'], prepared=None))])
+    app = _page(monkeypatch, backend, 'co2_dragster')
+    _propose(app, 'co2_dragster')
+    assert not app.exception
+    assert any('typed form remains available' in e.value for e in app.error)
+    assert not any('SECRET' in t for t in _texts(app))
+    assert not _spec_fields(app)
+    assert not any(b.label == 'Finalize reviewed brief' for b in app.button)
+    assert backend.calls[-1] == ('POST', '/drafts', dict(mode='ai', capability='co2_dragster', input={}, prompt='a fast car'))
+
+
+def test_proposed_draft_needs_both_acknowledgements(monkeypatch):
+    cid = 'co2_dragster'
+    backend = Backend(_meta(cid, True), drafts=[_ai_draft(cid, origins=[('specification.length_mm', 'ai_proposed'),
+                                                                        ('specification.style', 'policy')])])
+    app = _page(monkeypatch, backend, cid)
+    _propose(app, cid)
+    assert not app.exception
+    assert any('AI-proposed values are unverified. Review and edit every marked field before finalizing.' in w.value
+               for w in app.warning)
+    assert any('AI proposed a draft.' in c.value for c in app.caption)
+    labels = [w.label.replace(chr(92), '') for w in app.text_input]
+    assert 'length_mm (AI-proposed, unverified)' in labels and 'style (policy default)' in labels
+    assert any('specification.length_mm' in t.replace(chr(92), '') for t in _texts(app))
+
+    def final():
+        return next(b for b in app.button if b.key == 'v1gen_final_' + cid)
+    assert final().disabled
+    next(c for c in app.checkbox if c.key.startswith('gen_ack_')).set_value(True).run()
+    assert final().disabled
+    next(c for c in app.checkbox if c.key.startswith('gen_aiack_')).set_value(True).run()
+    assert not final().disabled
+
+
+def test_ai_draft_without_ai_fields_has_no_extra_ack(monkeypatch):
+    cid = 'co2_dragster'
+    app = _page(monkeypatch, Backend(_meta(cid, True), drafts=[_ai_draft(cid, origins=[('specification.style', 'policy')])]), cid)
+    _propose(app, cid)
+    assert not any(c.key.startswith('gen_aiack_') for c in app.checkbox)
+
+
+@pytest.mark.parametrize('cid', GENERATORS)
+def test_clarification_required_renders_message_and_no_fields(monkeypatch, cid):
+    draft = _ai_draft(cid, content=False, clarifications=['Which wheel size?'])
+    app = _page(monkeypatch, Backend(_meta(cid, True), drafts=[draft]), cid)
+    _propose(app, cid)
+    assert not app.exception
+    assert any('AI needs clarification; no values were proposed.' in c.value for c in app.caption)
+    assert any('Which wheel size?' in t for t in _texts(app))
+    assert not _spec_fields(app)
+    assert not any('Accepted' in t or 'Checked design' in t for t in _texts(app))
+
+
+@pytest.mark.parametrize('cid', GENERATORS)
+def test_unsupported_renders_message_and_no_fields(monkeypatch, cid):
+    draft = _ai_draft(cid, content=False, issues=[dict(field='specification', state='unsupported', reason='nope')])
+    app = _page(monkeypatch, Backend(_meta(cid, True), drafts=[draft]), cid)
+    _propose(app, cid)
+    assert not app.exception
+    assert any('This request is not supported; no values were proposed.' in c.value for c in app.caption)
+    assert not _spec_fields(app)
+    assert not any('Accepted' in t or 'Checked design' in t for t in _texts(app))
+
+
+def test_glider_ai_screens_never_say_accepted(monkeypatch):
+    cid = 'glider_cem'
+    app = _page(monkeypatch, Backend(_meta(cid, True), drafts=[_ai_draft(cid, origins=[('specification.style', 'ai_proposed')])]), cid)
+    _propose(app, cid)
+    assert not app.exception
+    assert not any('Accepted' in t or 'Checked design' in t for t in _texts(app))
