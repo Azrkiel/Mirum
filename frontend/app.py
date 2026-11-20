@@ -1083,7 +1083,10 @@ with inputs_col:
                 # Fail closed: never spend provider calls when the router could not decide.
                 st.error("Routing is temporarily unavailable. Please try again in a moment.")
                 ambs = None
-            elif routed is not None and apply_route(routed, p):
+            elif routed is not None:
+                # A checked route: open it. If this page cannot map it, still fail closed (no provider call).
+                if not apply_route(routed, p):
+                    st.error("This request matched a checked capability this page cannot open. Please reload.")
                 ambs = None
             else:
                 # Step 1: Clarification (optional, fast)

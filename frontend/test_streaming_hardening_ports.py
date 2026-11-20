@@ -172,6 +172,13 @@ def test_fetch_route_fails_closed_as_unavailable_on_any_failure(post):
     assert ns['fetch_route']('a prompt') == 'unavailable'
 
 
+def test_an_unmappable_checked_route_never_reaches_clarify_or_plan():
+    src = APP.read_text(encoding='utf-8')
+    block = src[src.index('if generate and prompt.strip():'):]
+    routed = block[block.index('elif routed is not None:'):block.index('else:', block.index('elif routed is not None:'))]
+    assert 'apply_route(routed, p)' in routed and 'ambs = None' in routed and 'fetch_clarifications' not in routed
+
+
 def test_unavailable_route_never_reaches_clarify_or_plan():
     src = APP.read_text(encoding='utf-8')
     block = src[src.index('if generate and prompt.strip():'):]
