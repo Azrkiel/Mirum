@@ -103,8 +103,7 @@ def test_zz_temp_probe_patch_later_contexts():
     def dump():
         out.mkdir(parents=True, exist_ok=True)
         (out / "later_contexts.json").write_text(json.dumps(events[-6000:], indent=0),
-                                                  encoding="utf-8", newline="
-")
+                                                  encoding="utf-8", newline=chr(10))
 
     guard.guarded_context = patched
     atexit.register(dump)
