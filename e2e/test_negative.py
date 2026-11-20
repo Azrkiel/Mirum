@@ -59,6 +59,7 @@ def test_draft_changed_in_another_tab_is_stale_and_not_finalized(stack, token, a
     beam = _open_beam(page, stack, token)
     draft_id, revision, sha = beam.save_draft()
     beam.acknowledge()
+    expect(beam.button("Finalize reviewed brief")).to_be_enabled(timeout=30_000)  # the ack rerun has settled
     prepared = api.get_draft(draft_id).json()
     edited = copy.deepcopy(prepared["input"])
     edited["requirements"]["length_mm"] = 201.0
