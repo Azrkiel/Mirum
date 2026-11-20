@@ -620,6 +620,28 @@ def test_v1_frees_the_runner_tmpfs_copy_after_a_rejection(stack, monkeypatch):
 
 
 @posix_only
+def test_v1_submit_evicts_a_finished_browser_route_job_when_tmp_is_short(stack, monkeypatch):
+    # Staging: one accepted browser-route run left 104 MiB on the /tmp tmpfs and the next checked
+    # run (v1) failed. The adapter submits through JobRunner.submit, so it evicts first.
+    client, app, web, tmp_path = stack
+    runner = app.state.regen_runner
+    accepted_worker(web, monkeypatch, tmp_path)
+    job, _, _ = old_path(client, app, regen_spec())
+    assert job['id'] in runner.jobs
+    usage = type('Usage', (), {})()
+    usage.total, usage.used = 256 << 20, 104 << 20
+
+    def disk_usage(path):
+        usage.free = (256 << 20) - (104 << 20) * sum(1 for p in runner.root.iterdir() if p.is_dir())
+        return usage
+    monkeypatch.setattr(web.shutil, 'disk_usage', disk_usage)
+    result = v1_wait(client, v1_submit(client, regen_spec(), 'evict-1'))
+    assert result['outcome'] == 'accepted', result
+    assert job['id'] not in runner.jobs and not (runner.root / job['id']).exists()
+    assert client.get(f"/engineering/regen/jobs/{job['id']}").status_code == 404
+
+
+@posix_only
 def test_the_old_endpoint_still_keeps_its_result_for_download(stack, monkeypatch):
     client, app, web, tmp_path = stack
     accepted_worker(web, monkeypatch, tmp_path)
