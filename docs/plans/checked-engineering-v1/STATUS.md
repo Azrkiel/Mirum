@@ -2,7 +2,17 @@
 
 **Landing on main (U4).** The typed/form path is available. AI draft mode (`POST /engineering/v1/drafts` with `mode: ai`) is OFF by default. Enable it with `MIRUM_ENGINEERING_AI_DRAFTS=1` (or `true`); `GET /engineering/v1/capabilities` then reports `ai_enabled: true` and the Streamlit "Checked beam" page offers the AI entry mode. With the flag off the AI route returns 503 "AI draft preparation is not enabled" and no provider is built or key read. When a model reply fails local validation, the error locations/types and the raw reply (capped at 16 KiB) are kept in the proposer audit ledger only, never logged or returned.
 
-**B13 step 12 passed on 2026-11-19.** Run `step12-20261119-c01` took one live C01 proposal through the release review UI using 1 of 3 authorized provider calls. Step 13 remains open and will fold V01-V15 requalification on the release images into RC1 R6/R8 evidence. See [qualification](QUALIFICATION.md#step-12-live-review-ui-run-passed-2026-11-19).
+**2026-11-20: B13 complete; RC1 frozen at `a7f1953`.**
+- **Step 13:** V01-V15 were requalified on the release images, with no live calls; see [step 13](QUALIFICATION.md#step-13-v01-v15-on-the-rc1-freeze-2026-11-20).
+- **Freeze runs** (Actions):
+  - CI 44726464166: 4325 passed, 18 known skips.
+  - release-e2e `clean=true` 44726477204: 167/167.
+  - release-storage 44726481438: 23 cases plus S16 with 311 tests.
+  - release-docs 44726485338: 13/13 RELEASE.md steps.
+  - release-images 44726489503 and release-guards 44726494181.
+- **B14 is in progress** (starting SHA `a7f1953`). RC1 built and exercised B14 steps 15-22 in CI. Marking B14 complete still needs its acceptance review against that evidence. It is not deployed (owner decision).
+
+**B13 step 12 passed on 2026-11-19.** Run `step12-20261119-c01` took one live C01 proposal through the release review UI, using 1 of 3 authorized provider calls. See [qualification](QUALIFICATION.md#step-12-live-review-ui-run-passed-2026-11-19).
 
 **2026-11-18: B13 live corpus qualification PASSED** (run `qual-20261118-k6`, `f11cf90`: 10/10 complete accurate, 0 silent drops, 0 unreviewed executions, 30 calls; see [qualification](QUALIFICATION.md)). Earlier history: B01 through B12 are complete within task scope. The [supplied-key diagnostic](handoffs/B13-provided-key-diagnostic.md) passed metadata access and reached generation/local parsing in 7.36 seconds on the 4096-token candidate, but the reply failed strict JSON/schema validation; no repair was authorized in that one-call test. That diagnostic candidate passed 85 offline checks. Antivirus cleanup is verified complete. B13/B14 remain blocked; earlier ledgers are preserved.
 
@@ -20,8 +30,8 @@
 | [x] | B06 | [Propose structured briefs with AI](tasks/B06-ai-preparation.md) | complete | B05 | [B06 handoff](handoffs/B06.md), [evidence](evidence/B06.json) |
 | [x] | B11 | [Expose the common workflow through APIs](tasks/B11-versioned-api.md) | complete | B05, B06, B09, B10 | [B11 handoff](handoffs/B11.md), [evidence](evidence/B11.json) |
 | [x] | B12 | [Build the checked beam interface](tasks/B12-user-workflow.md) | complete | B11 | [B12 handoff](handoffs/B12.md), [evidence](evidence/B12.json) |
-| [ ] | B13 | [Qualify the end-to-end behavior](tasks/B13-release-verification.md) | blocked | B06, B07, B08, B09, B10, B11, B12 | 443 regressions passed. Live review UI passed. Step 13 pending. [B13 handoff](handoffs/B13.md), [qualification](QUALIFICATION.md), [evidence](evidence/B13.json) |
-| [ ] | B14 | [Prepare the reproducible first release](tasks/B14-release-handoff.md) | blocked | B13 | [B14 gate record](handoffs/B14.md); not started, prerequisite blocked |
+| [x] | B13 | [Qualify the end-to-end behavior](tasks/B13-release-verification.md) | complete | B06, B07, B08, B09, B10, B11, B12 | Live corpus (run 5), live review UI (step 12) and V01-V15 on the RC1 freeze `a7f1953` (step 13). [B13 handoff](handoffs/B13.md), [qualification](QUALIFICATION.md), [evidence](evidence/B13.json) |
+| [ ] | B14 | [Prepare the reproducible first release](tasks/B14-release-handoff.md) | in_progress | B13 | Starting SHA `a7f1953`. RC1 freeze evidence is in [qualification](QUALIFICATION.md#step-13-v01-v15-on-the-rc1-freeze-2026-11-20). Acceptance review pending; not deployed. [B14 gate record](handoffs/B14.md) |
 | [ ] | E01 | [Integrate PicoGK with honest geometry scope](tasks/E01-picogk-adapter.md) | not_started | B14 | Not produced |
 | [ ] | E02 | [Integrate the glider CEM without upgrading its claims](tasks/E02-glider-adapter.md) | not_started | B14 | Not produced |
 | [ ] | E03 | [Define and qualify a second structural family](tasks/E03-second-structural-family.md) | not_started | B14 | Not produced |

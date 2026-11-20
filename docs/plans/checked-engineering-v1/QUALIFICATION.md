@@ -1,6 +1,10 @@
 # B13 release qualification
 
-**Live corpus qualification passed on 2026-11-18 (`qual-20261118-k6`). The live review-UI run passed on 2026-11-19 (`step12-20261119-c01`). B13 step 13 (V01-V15 requalification on the release images) remains and is a prerequisite for B14.**
+**B13 is complete (2026-11-20).**
+- Live corpus qualification passed on 2026-11-18 (`qual-20261118-k6`).
+- The live review-UI run passed on 2026-11-19 (`step12-20261119-c01`).
+- Step 13 requalified V01-V15 on the RC1 release images at freeze SHA `a7f1953`; see [Step 13](#step-13-v01-v15-on-the-rc1-freeze-2026-11-20).
+- B14 is in progress.
 
 **2026-11-17/18, GitHub Actions runner (`.github/workflows/b13-live.yml`), key k3, `gemini-4-hydrogen`, google-genai 2.8.0, thinking low.**
 Five qualification runs; run 5 qualified. Raw replies are kept out of evidence; safe JSON is under
@@ -130,7 +134,65 @@ Chromium 158.0.8127.18 with Playwright 1.61.0.
   Zero tagged owned native workers remained active before/after replacement.
   This verifies replacement of the pinned runtime, not B14's fresh production build.
 
-## V01-V15 release matrix
+## Step 13: V01-V15 on the RC1 freeze (2026-11-20)
+
+**Freeze SHA:** `a7f1953652b9bde252cb9e3742a472c0aa1b50d0` (main). All runs below are on that SHA.
+- **Workflow dispatches:** release-e2e (`clean=true`), release-storage (`jobs=all`), release-docs, release-images and release-guards are `workflow_dispatch` runs on main, so their artifacts carry release names.
+- **CI:** the native gate is the push run on the same SHA.
+
+| Run | Actions | Result |
+| --- | --- | --- |
+| CI, native gate (3 shards) | 44726464166 | 4325 passed, 18 skipped. The skips are the 14 native XFOIL/AVL tests, 3 "adapter installed by a later PR", the runner-dependent `test_cem_window_coverage` foil-digest receipt, and `test_real_release_md`, which by design runs in schema-tests instead. |
+| release-e2e, freeze (`clean=true`) | 44726477204 | 167/167 passed on the release images, with Chromium. All four capabilities produce accepted checked runs, with screenshots, and the LLM-unavailable route is covered. |
+| release-storage, all jobs | 44726481438 | Lifecycle, capacity and retention: 23 cases, 22 passed as R/F/A and S08c recorded as `not_injected`. S16: 311 existing storage and process tests pass on the release image. |
+| release-docs | 44726485338 | All 13 `RELEASE.md` steps passed from a clean checkout. |
+| release-images | 44726489503 | Pinned images build. Pip check, smoke, regen release smoke and AI parity pass. |
+| release-guards | 44726494181 | Startup guards pass. |
+
+**Image IDs at the freeze:**
+- `mirum-backend:release`: `sha256:0894fed5371a5e3db9f27d6deb519eb71d36eb98372b2e3d15d05433748dcefe`
+- `mirum-frontend:release`: `sha256:6fedd6016fadc2d5fbfeedc4a575dde972c6d81b79802019dd4ebd591969c7b1`
+- `mirum-backend:b13-eval`: `sha256:17d928dd6748a56b90ff14f4b25892b70433faa120add5670d0c9bb9d3b0f105`
+
+**Lock SHA-256:**
+- `requirements-release.lock`: `9ffe8a24…7eed`
+- `frontend/requirements.lock`: `d15d3875…21e5d`
+- `e2e/requirements.lock`: `a3063bfa…6fd5e`
+
+Full values and the `pip freeze` are in the release-e2e evidence JSON.
+
+**Regen release smoke:** accepted on both the browser and checked routes. The STL and spec bytes are identical across routes. The stored bundle is 130,773,574 bytes, and peak container memory is 2.38 GB.
+
+**Live calls:** none were made for step 13. The live rows cite run 5 (`qual-20261118-k6`, `f11cf90`, Actions 44358308796) and step 12 (`step12-20261119-c01`, `86e6326`, Actions 44638943618). R2's AI parity tests at the freeze SHA bridge both runs to the release image. The lifetime total is 91 generation calls: 90 in B13 qualification and 1 in step 12.
+
+Labels: **R** means a real observation on the release stack. **F** means a fault was injected and verified. **A** means accelerated time. **L** means live provider.
+
+| Row | State | Evidence at `a7f1953` (unless marked live) | Kind |
+|---|---|---|---|
+| V01 | Verified | Run 5: 10/10 complete cases accurate (L). Step 12: AI proposal identical to the typed request, 10/10 downloads match (L). AI parity in release-images. Native service tests in CI. | L + fixtures |
+| V02 | Verified | release-e2e `test_beam_reference`: 5 and 10 mm rejected, 15 mm accepted, STEP preview, every download hash equals the API's. S13 replay. | R |
+| V03 | Verified | release-e2e `test_negative_api::test_v03_too_tight_deflection…`: every candidate is rejected on the deflection check only (stress passes), and no geometry is offered. | R |
+| V04 | Verified | Run 5 ambiguous cases ended in clarification, with 0 silent drops (L). release-e2e `test_v04_typed_request_missing_the_load…`: `clarification_required`, finalize returns 422, no job is created. | L + R |
+| V05 | Verified | Run 5 unsupported cases (L). release-e2e `test_v05_holes_and_second_load…`: both fields `unsupported`, finalize returns 422. 422 on an unsupported capability. | L + R |
+| V06 | Verified native | Native gate: real OCP wrong-size, offset, hole, extra-solid and rotation cases fail the design checks. S16 on the release image. | fixtures |
+| V07 | Verified | Native gate fail-closed fixtures. S03: the builder is stopped with SIGSTOP and the real 420 s deadline is observed (F). S16. | F + R |
+| V08 | Verified | Native tamper tests. S14: one STEP byte flipped, then the same file truncated, on the release stack (F). S16. | F |
+| V09 | Verified | release-e2e `test_negative` and `test_negative_api`: stale review returns 409, idempotency, two tabs, refresh. Step 12 (L). | R |
+| V10 | Verified | S01, S02, S04a, S04b, S05 and S06 (R): cancel, graceful stop, kill during run and at rename, process inventory, replay. S07a and S07b. S12: replace, and down/up keeping the volume. release-e2e idempotency. | R + F |
+| V11 | Verified (labelled) | S08a and S08b (F). S08c `not_injected`: the kernel refused the read-only remount with EBUSY, so it is recorded as observation only (lead decision). S09a (R): real regen bundles retained until the reservation would exceed 512 MiB. S09b and S09c (F). S10 (A). S11 (R). S14 (F). | mixed |
+| V12 | Verified | S13: the delivered C01 ZIP replayed with networking disabled (R). Step-12 brief identity (L). | R + L |
+| V13 | Verified | The native gate's legacy and engineering suites (4325). release-e2e route and generator labels (`test_llm_route`, `test_generators`). S11. | R + fixtures |
+| V14 | Verified | release-e2e beam UI, dragster browser and generator screenshots. S15 failure views (real, plus accelerated expiry). Step-12 screenshots (L). | R + L |
+| V15 | Verified | Run 5: 10/10 accurate, 0 drops, 0 unreviewed executions, 30 calls (L). Parity holds at the freeze SHA. | L |
+
+**Mutation proofs (R6):**
+- Removing `publisher.recover()` turns S04b red (run 44708636516).
+- Skipping the lease checks in cleanup turns S10 red (44708644698).
+- Dropping the commit-time cancel check turns `test_engineering_jobs.py::test_atomic_cancel_wins_and_repeated_terminal_transitions_are_immutable` red (44711693867). Black-box S01 and S02 cannot reach that window.
+
+**Evidence copies (local):** `C:/Users/jiang/mirum-evidence/RC1/a7f1953/`.
+
+## V01-V15 release matrix (historical, before RC1)
 
 | Gate | State | Actual evidence / limitation |
 |---|---|---|
