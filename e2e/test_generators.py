@@ -29,6 +29,22 @@ def _glider_spec(api) -> dict:
     return dict(requirements=requirements, calibration_version=metadata["calibration_version"])
 
 
+def _failed_checks(node):
+    """(check_id, reason) of every failed check in the attempts document."""
+    found = []
+    def walk(value):
+        if isinstance(value, dict):
+            if value.get("state") == "failed":
+                found.append((value.get("check_id"), str(value.get("reason"))[:300]))
+            for v in value.values():
+                walk(v)
+        elif isinstance(value, list):
+            for v in value:
+                walk(v)
+    walk(node)
+    return found
+
+
 def _reasons(node, path="", out=None):
     """Failure-relevant leaves of a report, for the assertion message."""
     out = [] if out is None else out
@@ -78,8 +94,8 @@ def test_generator_checked_run(capability_id, make_spec, timeout_ms, stack, toke
     job = api.get_job(job_id).json()
     detail = ""
     if outcome != "accepted":
-        report = api.artifact(job_id, "report")
-        detail = _reasons(report.json()) if report.is_success else str(report.status_code)
+        attempts = api.artifact(job_id, "attempts")
+        detail = _failed_checks(attempts.json()) if attempts.is_success else str(attempts.status_code)
     assert (lifecycle, outcome) == ("completed", "accepted"), (job["lifecycle"], job["outcome"], job.get("failures"), detail)
     expect(view.checked_label).to_be_visible(timeout=30_000)
 
