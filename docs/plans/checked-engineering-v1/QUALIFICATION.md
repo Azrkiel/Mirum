@@ -1,6 +1,6 @@
 # B13 release qualification
 
-**Live corpus qualification: PASSED (2026-11-18, run `qual-20261118-k6`). B13 steps 12-13 (live proposal reviewed in the real UI, V01-V15 requalification) remain; B14 prerequisite not yet satisfied.**
+**Live corpus qualification passed on 2026-11-18 (`qual-20261118-k6`). The live review-UI run passed on 2026-11-19 (`step12-20261119-c01`). B13 step 13 (V01-V15 requalification on the release images) remains and is a prerequisite for B14.**
 
 **2026-11-17/18, GitHub Actions runner (`.github/workflows/b13-live.yml`), key k3, `gemini-4-hydrogen`, google-genai 2.8.0, thinking low.**
 Five qualification runs; run 5 qualified. Raw replies are kept out of evidence; safe JSON is under
@@ -213,12 +213,11 @@ Required prerequisite: a working existing Gemini GenerateContent path within
 the pinned limits, followed by properly authorized live qualification. Failed
 cases/budgets must not be reset or silently retried.
 
-## STEP-12 live review-UI run (prepared, not yet dispatched)
+## STEP-12 live review-UI run (passed 2026-11-19)
 
-Finish-B13 step 12: one live proposal for a fixed-corpus complete request (default C01, input-selectable
-among C01-C10 only) through the real review UI of the release stack. Owner approval 2026-11-19: "Yes, max 3
-calls". Status: the job exists and is tested statically; it has not been dispatched and no live call has been
-made for it.
+Finish-B13 step 12 evaluates one live proposal for a fixed-corpus complete request (default C01, input-selectable
+among C01-C10 only) through the real review UI of the release stack. On 2026-11-19 the owner approved up to
+three provider calls.
 
 - **Job:** `.github/workflows/b13-step12.yml`, `workflow_dispatch` only (inputs `run_id`, `authorization`,
   `case_id`), main only, environment `b13-live` (same secret and concurrency group as `b13-live.yml`).
@@ -272,6 +271,29 @@ made for it.
   verdict) and a PNG per step. Never raw replies, the SQLite ledger, packages or compose logs; failure logs are
   printed to the job log with the token and key shapes redacted.
 - **Residual risk (as accepted for `b13-live`):** container egress is not restricted to the provider host.
+
+### Results
+
+The `b13-step12.yml` workflow was dispatched on `main` at
+`86e632694fc62422f9f96fda56fe95055ef8aa80` (PR #85 merge). GitHub Actions run `44638943618`
+(`step12-20261119-c01`) passed (exit 0) for C01 under authorization `owner-q2-2026-11-19-max3`.
+The reservation tag `b13-s12-step12-20261119-c01` used the `b13-s12-` prefix and consumed the
+one-run cap (1/1).
+
+| Check | Observed result |
+| --- | --- |
+| Provider budget | 1 of 3 authorized calls, for the initial proposal. No schema repair. Ledger counts were `before` 0, `after_proposal` 1, `after_run` 1, `at_exit` 1, `after_stop` 1 (after a graceful backend stop), and `final` 1. |
+| Displayed fields | All fields matched the fixed expected values before acknowledgement. The displayed brief SHA-256 matched the API's. |
+| AI and typed runs | Both rejected 5 mm and 10 mm and accepted 15 mm, with the same selected candidate and brief SHA-256 `34aee33577a2ce2da90ed9c0e3727c53843cbcca26a4442632cd8d3bdcb5280e`. |
+| Downloads | 10/10 UI SHA-256 values matched the API byte hashes and response headers. |
+| Access log and evidence | The backend log contained only `/auth/check` and `/engineering/v1/...` paths. The evidence contains neither the raw provider reply nor the key. |
+
+The release images were built by the pipeline from PRs #77 and #80. The run's image IDs are in
+the [B13 evidence manifest](evidence/B13.json).
+
+The evidence is retained as JSON and PNG only in Actions artifact `b13-step12-step12-20261119-c01`
+and locally at `C:/Users/jiang/mirum-evidence/B13/step12-20261119-c01/`. This was the last planned
+use of key k6. The owner will rotate it after the run.
 
 ## Release decision
 
