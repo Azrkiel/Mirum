@@ -218,27 +218,38 @@ def test_driver_tooling_comes_from_hashed_locks():
 def test_ai_flag_is_only_in_the_step12_override():
     assert AI_FLAG in text(OVERRIDE)
     assert re.search(r'^      ' + AI_FLAG + r': "1"$', text(OVERRIDE), re.M)
-    # Every config file of any extension (yml, env, toml, json, sh...) under the compose, e2e, CI and
-    # deploy trees: moving the flag into another file type must not slip past this guard. Python tests
-    # and Markdown docs only name the flag; they cannot set it.
-    files = [p for p in ROOT.glob('compose*') if p.is_file()] + [
-        p for tree in ('e2e', '.github', 'deploy') for p in (ROOT / tree).rglob('*')
-        if p.is_file() and p.suffix not in ('.py', '.md') and '__pycache__' not in p.parts]
-    holders, env_refs = [], []
+    # Every file of any type at the repo root (docker-compose*.yml, compose*.yml, .env*, fly.toml...),
+    # every */fly.toml, and the e2e, CI, deploy and scripts trees. Matched on raw bytes (UTF-8 and
+    # UTF-16), so a re-encoded or renamed file cannot slip past; a commented-out line does not set it.
+    # Markdown only documents the flag, and e2e Python tests only assert on it against e2e stacks.
+    def sets_flag(data):
+        if any(AI_FLAG.encode(enc) in data for enc in ('utf-16-le', 'utf-16-be')):
+            return True
+        if AI_FLAG.encode() not in data:
+            return False
+        return any(AI_FLAG in line and not line.lstrip().startswith('#')
+                   for line in data.decode('utf-8', 'replace').splitlines())
+
+    files = [p for p in ROOT.iterdir() if p.is_file()] + list(ROOT.glob('*/fly.toml'))
+    for tree in ('e2e', '.github', 'deploy', 'scripts'):
+        files += [p for p in (ROOT / tree).rglob('*')
+                  if p.is_file() and '__pycache__' not in p.parts and not (tree == 'e2e' and p.suffix == '.py')]
+    holders, env_refs = set(), set()
     for path in files:
-        try:
-            body = path.read_text(encoding='utf-8')
-        except (UnicodeDecodeError, OSError):
+        if path.suffix == '.md':
             continue
+        data = path.read_bytes()
         rel = path.relative_to(ROOT).as_posix()
-        if AI_FLAG in body:
-            holders.append(rel)
-        if 'e05-ai-offline.env' in body and rel != 'e2e/compose/e05-ai-offline.env':
-            env_refs.append(rel)
-    # The B13 step-12 override and the E05 offline e2e env file (no egress, placeholder key) only.
-    assert sorted(holders) == ['e2e/compose/b13-step12.override.yml', 'e2e/compose/e05-ai-offline.env'], holders
+        if sets_flag(data):
+            holders.add(rel)
+        if b'e05-ai-offline.env' in data and rel != 'e2e/compose/e05-ai-offline.env':
+            env_refs.add(rel)
+    # The B13 step-12 override and the E05 offline e2e env file (no egress, placeholder key); the E05 live
+    # qualification script may set it in-process inside its owner-gated container (Wave E P5).
+    required = {'e2e/compose/b13-step12.override.yml', 'e2e/compose/e05-ai-offline.env'}
+    assert required <= holders <= required | {'scripts/e05_live_eval.py'}, sorted(holders)
     # That env file is loaded only by its own e2e override, never by a release/prod compose or Fly config.
-    assert env_refs == ['e2e/compose/e05-ai-offline.override.yml'], env_refs
+    assert env_refs == {'e2e/compose/e05-ai-offline.override.yml'}, sorted(env_refs)
     assert AI_FLAG not in text(ROOT / 'compose.release.yml')
 
 
