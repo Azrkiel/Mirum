@@ -108,7 +108,6 @@ jobs:
             -e GRPC_DEFAULT_SSL_ROOTS_FILE_PATH=/etc/ssl/certs/ca-certificates.crt \
             -e GEMINI_API_KEY_HEAVY= -e GEMINI_API_KEY= -e GOOGLE_API_KEY= \
             -e GEMINI_API_KEY_PRO= -e GEMINI_API_KEY_LITE= -e GEMINI_API_KEYS= \
-            -e MIRUM_ENGINEERING_AI_DRAFTS=1 \
             mirum-e05-live \
             python scripts/e05_live_eval.py /evidence "$CAPABILITY" "$GITHUB_SHA" /run/existing-provider.env \
               --run-id "$RUN_ID" --authorization "$AUTHORIZATION" --image-id "$image_id" --pace-seconds 12 \

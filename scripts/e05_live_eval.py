@@ -256,6 +256,8 @@ def configure_legacy_client():
 
 
 def main(argv=None):
+    # Set inside the job's container only; the workflow text never names the flag (b13-step12 invariant).
+    os.environ['MIRUM_ENGINEERING_AI_DRAFTS'] = '1'
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output')
     parser.add_argument('capability', choices=CAPABILITIES + ('all',))

@@ -102,12 +102,11 @@ def test_pro_and_generic_keys_are_blanked_and_only_heavy_is_written():
     assert "printf 'GEMINI_API_KEY_HEAVY=%s\\n'" in s
 
 
-def test_flag_is_only_in_the_container_run_and_never_in_the_job_env():
-    t = text()
-    assert t.count(AI_FLAG) == 1
-    run_line = [l for l in t.splitlines() if AI_FLAG in l]
-    assert run_line == ['            -e MIRUM_ENGINEERING_AI_DRAFTS=1 \\']
-    assert AI_FLAG not in '\n'.join(l for l in t.splitlines() if 'env:' in l)
+def test_flag_is_never_named_in_the_workflow_it_is_set_inside_the_container_by_the_script():
+    # b13-step12 invariant: the flag name appears in no workflow but the step-12 override.
+    assert AI_FLAG not in text()
+    script = (ROOT / 'scripts' / 'e05_live_eval.py').read_text(encoding='utf-8')
+    assert script.count(f"os.environ['{AI_FLAG}'] = '1'") == 1
 
 
 def test_container_is_hardened_like_b13():
