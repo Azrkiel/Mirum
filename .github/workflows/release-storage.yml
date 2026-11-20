@@ -440,6 +440,7 @@ jobs:
             -o asyncio_default_fixture_loop_scope=function -m "not live" $args > "$out" 2>&1
           rc=$?
           tail -25 "$out"
+          grep -E "^E  " "$out" | sort | uniq -c | sort -rn | head -15
           python3 - "$rc" "$out" $files <<'PY'
           import json, os, re, subprocess, sys
           rc, out, files = int(sys.argv[1]), sys.argv[2], sys.argv[3:]
@@ -448,7 +449,7 @@ jobs:
           counts = {k: int(v) for v, k in re.findall(r"(\d+) (passed|failed|skipped|deselected|error|errors|xfailed|xpassed)", summary)}
           image = subprocess.check_output(["docker", "image", "inspect", "mirum-backend:release", "--format", "{{.Id}}"], text=True).strip()
           record = {"job": "native-on-release", "pytest_exit_code": rc, "summary_line": summary, "counts": counts,
-                    "files": files, "image_id": image, "source_sha": os.environ.get("GITHUB_SHA"),
+                    "files": files, "top_errors": [l for l in subprocess.run("grep -E '^E  ' " + out + " | sort | uniq -c | sort -rn | head -15", shell=True, capture_output=True, text=True).stdout.splitlines()], "image_id": image, "source_sha": os.environ.get("GITHUB_SHA"),
                     "native_gate_comparison": "not obtained: native gate counts are per shard, not per file"}
           json.dump(record, open("e2e/artifacts/storage/native-on-release/s16-counts.json", "w"), indent=2, sort_keys=True)
           print(json.dumps(record, indent=2, sort_keys=True))
