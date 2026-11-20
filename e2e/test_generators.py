@@ -72,6 +72,12 @@ CASES = [  # regen first: its ~125 MiB bundle needs 256 MiB of free store (512 M
 ]
 
 
+CLAIM_LABELS = {  # capability claim -> (state-line outcome, bold result label)
+    "geometry_checks_only": ("geometry checks passed", "Geometry checks passed"),
+    "screening_only": ("screened", "Screened"),
+}
+
+
 @pytest.mark.parametrize("capability_id,make_spec,timeout_ms", CASES)
 def test_generator_checked_run(capability_id, make_spec, timeout_ms, stack, token, api, page, shot,
                                external_requests, work_dir):
@@ -98,11 +104,16 @@ def test_generator_checked_run(capability_id, make_spec, timeout_ms, stack, toke
     shot(page, f"{capability_id}_result")
     job = api.get_job(job_id).json()
     detail = ""
-    if outcome != "accepted":
+    # Wave E P2: the UI labels a passing run by the capability claim, never "Checked design"/"accepted".
+    shown, label = CLAIM_LABELS[entry["claim"]]
+    if job["outcome"] != "accepted":
         attempts = api.artifact(job_id, "attempts")
         detail = _failed_checks(attempts.json()) if attempts.is_success else str(attempts.status_code)
-    assert (lifecycle, outcome) == ("completed", "accepted"), (job["lifecycle"], job["outcome"], job.get("failures"), detail)
-    expect(view.checked_label).to_be_visible(timeout=30_000)
+    assert (job["lifecycle"], job["outcome"]) == ("completed", "accepted"), (job["lifecycle"], job["outcome"], job.get("failures"), detail)
+    assert job["claim"] == entry["claim"], (job.get("claim"), entry["claim"])
+    assert (lifecycle, outcome) == ("completed", shown), (lifecycle, outcome)
+    expect(view.assurance_label(label)).to_be_visible(timeout=30_000)
+    expect(view.checked_label).to_have_count(0)
 
     offered = [fmt for fmt, ok in job["artifacts"].items() if ok]
     assert offered, job["artifacts"]

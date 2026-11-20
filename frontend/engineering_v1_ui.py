@@ -1,6 +1,7 @@
 """Review and run the dragster, regen and glider generators through /engineering/v1.
 
-Form and rules drafts only: no AI draft is ever requested for a generator. Every server
+Form and rules drafts; an AI draft is requested only when the server reports ai_enabled and the
+user picks the AI entry method. AI values are unverified until the reviewer acknowledges them. Every server
 string is rendered through ``engineering_ui._plain`` or as JSON/plain text.
 """
 from datetime import datetime, timezone
@@ -9,7 +10,8 @@ import streamlit as st
 
 from engineering_state import CheckedState
 from engineering_ui import APIError, _plain, _refs
-from engineering_v1 import (create_generator_draft, draft_specification, edited_specification, finalize,
+from engineering_v1 import (attempt_outcome, ai_enabled, ai_available, ai_origins, field_label, is_ai_draft, propose_ai_draft,
+                            review_ack_required, unverified_fields, create_generator_draft, draft_specification, edited_specification, finalize,
                             leaf_fields, parse_specification_json, outcome_message, patch_body, result_heading, result_view, state_line, submit, text_for,
                             verified_download)
 
@@ -46,12 +48,45 @@ def adopt_routed_draft(client, entry, state, prompt):
     else: st.info('No rules draft was available for that request. Enter the specification yourself.')
 
 
+def _ai_entry(client, entry, state, metadata):
+    """AI-assisted entry: propose a draft from a request. Returns True when the typed form should be shown."""
+    cid = entry['id']
+    mode = st.radio('Entry method', ['Typed form', 'AI-assisted draft'], horizontal=True, key='v1gen_entry_' + cid)
+    if not ai_available(metadata): st.caption('AI is unavailable. The typed form works without provider credentials.')
+    if mode != 'AI-assisted draft': return True
+    text = st.text_area('Engineering request', max_chars=2000, key='v1gen_ai_prompt_' + cid)
+    st.caption('AI only proposes data. It cannot finalize a brief or execute geometry.')
+    if st.button('Propose draft', key='v1gen_ai_' + cid, disabled=not text.strip()):
+        try:
+            out = propose_ai_draft(client, entry, text)
+        except (APIError, ValueError) as error:
+            st.error(str(error)); return False
+        if out['status'] == 'unavailable': st.error(_plain(out['message']))
+        else:
+            state.adopt_draft(out['prepared']); _remember(cid, state); st.rerun()
+    return False
+
+
+def _ai_banner(prepared):
+    draft = prepared['draft']
+    st.warning('AI-proposed values are unverified. Review and edit every marked field before finalizing.')
+    from engineering_v1 import ai_status
+    st.caption({'proposed': 'AI proposed a draft.',
+                'clarification_required': 'AI needs clarification; no values were proposed. Answer in the typed fields below or start a new request.',
+                'unsupported': 'This request is not supported; no values were proposed.'}[ai_status(prepared)])
+    for item in draft.get('clarifications') or []: st.caption(_plain(str(item)))
+    fields = unverified_fields(prepared)
+    if fields:
+        st.caption('Unverified AI-proposed fields:')
+        for name in fields: st.text(_plain(name))
+
+
 def _result(client, state, entry):
     cid = entry['id']
     try: job = client.request('GET', '/jobs/' + state.job_id)
     except APIError as error:
         st.error(str(error)); return
-    st.subheader(result_heading(entry))
+    st.subheader(result_heading(entry, job))
     st.caption(_plain('Job ' + str(job.get('job_id')) + ' | brief SHA-256 ' + str(job.get('brief_sha256'))))
     if job.get('expired') or job.get('delivery') == 'expired':
         st.warning('Expired. The download window ended. Review a new request to generate again.'); return
@@ -70,7 +105,7 @@ def _result(client, state, entry):
     for reason in job.get('failures', []) or []: st.text(str(reason))
     attempts = job.get('attempts') or []
     if attempts:
-        st.dataframe([dict(outcome=str(a.get('outcome')), reasons='; '.join(map(str, a.get('failures') or [])) or 'All mandatory digital checks passed')
+        st.dataframe([dict(outcome=attempt_outcome(entry, job, a), reasons='; '.join(map(str, a.get('failures') or [])) or 'All mandatory digital checks passed')
                       for a in attempts], hide_index=True, use_container_width=True)
     if job.get('delivery') != 'available':
         if job.get('outcome') == 'accepted': st.error('Required package integrity or storage is unavailable. Downloads are withheld.')
@@ -127,7 +162,8 @@ def render_generator(client, entry, metadata):
             state.adopt_draft(client.request('GET', '/drafts/' + state.prepared['draft']['draft_id'])); _remember(cid, state); st.rerun()
     prepared = state.prepared
     st.subheader('1. Prepare the specification')
-    if prepared is None:
+    typed = prepared is None and (_ai_entry(client, entry, state, metadata) if ai_enabled(metadata) else True)
+    if typed:
         prompt = st.text_input('Describe the request (rules proposer, no AI)', max_chars=2000, key='gen_prompt_' + cid)
         left, right = st.columns(2)
         if left.button('Draft from description', key='v1gen_rules_' + cid, disabled=not prompt.strip()):
@@ -137,12 +173,15 @@ def render_generator(client, entry, metadata):
                 prepared, _ = create_generator_draft(client, entry)
                 state.adopt_draft(prepared); _remember(cid, state); st.rerun()
             except APIError as error: st.error(str(error))
-    else:
+    elif prepared is not None:
         if st.button('Start a new request', key='v1gen_new_' + cid,
                      help='Creates a separate draft. The earlier draft stays in its own revision.'):
             _forget_draft(cid, state); st.rerun()
     prepared = state.prepared
     if prepared is None: return
+    ai_draft = is_ai_draft(prepared)
+    if ai_draft: _ai_banner(prepared)
+    origins = ai_origins(prepared) if ai_draft else {}
     issues = prepared.get('issues', [])
     for issue in issues:
         (st.error if issue['state'] == 'unsupported' else st.warning)(_plain(str(issue['field']) + ': ' + str(issue['reason'])))
@@ -154,7 +193,7 @@ def render_generator(client, entry, metadata):
             st.caption('Every field below is a review field. Edit values, then save a new revision.')
             raw = {}
             for field in leaf_fields(specification):
-                key, label = 'v1gen_' + epoch + '_' + field['path'], _plain(field['path'])
+                key, label = 'v1gen_' + epoch + '_' + field['path'], _plain(field_label(field['path'], origins))
                 if field['kind'] == 'bool': raw[field['path']] = st.checkbox(label, value=field['value'], key=key)
                 else: raw[field['path']] = st.text_input(label, value=text_for(field), key=key)
             save = st.form_submit_button('Save draft', disabled=state.stale)
@@ -187,7 +226,12 @@ def render_generator(client, entry, metadata):
     complete = bool(draft.get('content') and not prepared['issues'] and not state.stale)
     ack = st.checkbox('I reviewed every value of the normalized specification and the required checks.',
                       key='gen_ack_' + epoch, disabled=not complete)
-    if st.button('Finalize reviewed brief', key='v1gen_final_' + cid, disabled=not complete or not ack or state.can_start):
+    ai_ack = True
+    if review_ack_required(prepared):
+        ai_ack = st.checkbox('I reviewed every AI-proposed (unverified) field listed above.',
+                             key='gen_aiack_' + epoch, disabled=not complete)
+    if st.button('Finalize reviewed brief', key='v1gen_final_' + cid,
+                 disabled=not complete or not ack or not ai_ack or state.can_start):
         try:
             brief = finalize(client, prepared, reviewed_at=datetime.now(timezone.utc).isoformat())
             state.reviewed(brief); _remember(cid, state); st.rerun()

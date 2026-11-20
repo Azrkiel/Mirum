@@ -134,7 +134,7 @@ def generator_entry(c):
         base_checks=list(c.base_checks),conditional_checks=[x.model_dump(mode='json') for x in c.conditional_checks],
         unsupported_features=list(c.unsupported_features),selection_rule=c.selection_rule,
         limitations=list(c.limitations),primary_artifact=c.primary_artifact,payloads=list(c.payloads),
-        engineering_certified=c.engineering_certified,standards=c.standards,
+        engineering_certified=c.engineering_certified,standards=c.standards,claim=c.claim,
         limits=[dict(name=r.name,value=r.value) for r in c.numerical+c.runtime_limits],
         numerical=dict(version=c.numerical_version),resources=c.resources.model_dump(mode='json'),
         available=adapter_installed(c),

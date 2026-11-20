@@ -1,0 +1,22 @@
+# E05 P4 only: the AI draft flag on (set in e05-ai-offline.env), a placeholder provider key, and a backend with NO route out.
+# Used with compose.release.yml by .github/workflows/release-e2e.yml (E05 offline step), never by any other file.
+#   docker compose -p mirum-e2e-ai -f compose.release.yml -f e2e/compose/e05-ai-offline.override.yml up -d --wait
+# The backend sits on an internal network (no egress, no published port); only the frontend joins it. The
+# browser reaches the backend through the Streamlit frontend alone. GEMINI_API_KEY_HEAVY is a literal
+# placeholder, not a credential, and no PRO key exists: a provider call can only fail offline.
+services:
+  backend:
+    networks: [inner]
+    ports: !reset []
+    env_file:
+      - ./e2e/compose/e05-ai-offline.env
+    environment:
+      MIRUM_ENGINEERING_AI_DAILY_CALLS: "20"
+      MIRUM_ENGINEERING_AI_CONCURRENCY: "1"
+      MIRUM_DRAGSTER_INTERPRET_DAILY_CAP: "0"
+      GEMINI_API_KEY_HEAVY: offline-fixture-never-sent
+  frontend:
+    networks: [default, inner]
+networks:
+  inner:
+    internal: true
