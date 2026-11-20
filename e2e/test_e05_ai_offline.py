@@ -103,9 +103,20 @@ def test_ai_prompt_ends_unavailable_with_typed_form_left(token, page):
         _capability_group(page).get_by_text(label, exact=True).click()
         entry = page.get_by_role("radiogroup", name="Entry method")
         expect(entry).to_be_visible(timeout=60_000)
-        entry.get_by_text("AI-assisted draft", exact=True).click()
         box = page.get_by_role("textbox", name="Engineering request", exact=True)
-        expect(box).to_be_visible(timeout=60_000)
+        # Switching capability reruns the Streamlit page; a click on the previous render's radio is lost
+        # and the fresh render comes back on "Typed form". Wait on the radio's checked state, re-clicking
+        # (bounded) when a rerun swallowed the click.
+        ai_radio = entry.get_by_role("radio", name="AI-assisted draft")
+        for attempt in range(3):
+            entry.get_by_text("AI-assisted draft", exact=True).click()
+            try:
+                expect(ai_radio).to_be_checked(timeout=15_000)
+                expect(box).to_be_visible(timeout=30_000)
+                break
+            except AssertionError:
+                if attempt == 2:
+                    raise
         box.fill(prompt)
         box.press("Control+Enter")
         propose = view.button("Propose draft")
