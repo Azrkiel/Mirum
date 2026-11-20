@@ -178,3 +178,85 @@ def test_inconsistent_artifact_hashes_fail_closed(browser, monkeypatch, filename
     job = wait_done(client, client.post('/api/jobs', json=spec_data()).json()['id'])
     assert job['status'] == 'unavailable'
     assert not job['artifacts']
+
+
+def _fake_fs(monkeypatch, runner, total, per_job):
+    """Simulate a small filesystem: free = total - per_job * folders currently under the runner root."""
+    usage = type('Usage', (), {})
+
+    def disk_usage(path):
+        u = usage()
+        u.total = total
+        u.free = total - per_job * sum(1 for p in runner.root.iterdir() if p.is_dir())
+        u.used = total - u.free
+        return u
+    monkeypatch.setattr(web.shutil, 'disk_usage', disk_usage)
+
+
+def _finished(runner, job_id, status, updated):
+    (runner.root / job_id).mkdir()
+    runner.jobs[job_id] = dict(id=job_id, status=status, message='', updated=updated, report=None, artifacts={})
+
+
+def test_default_reserve_matches_regen_run_budget():
+    from engineering.capabilities import REGEN
+    assert web.RUN_RESERVE_BYTES == REGEN.resources.run_bytes
+    assert web.JobRunner(web.Path(__import__('tempfile').mkdtemp())).run_reserve == web.RUN_RESERVE_BYTES
+
+
+def test_submit_evicts_oldest_finished_until_reserve_is_free(browser, monkeypatch, caplog):
+    client, runner = browser
+    fixture_worker(monkeypatch)
+    runner.run_reserve = 150
+    now = time.time()
+    for i, name in enumerate(['old', 'mid', 'new']):
+        _finished(runner, name, 'accepted', now - 30 + i)
+    _fake_fs(monkeypatch, runner, total=300, per_job=100)    # 3 folders -> 0 free
+    with caplog.at_level('INFO', logger=web.log.name):
+        response = client.post('/api/jobs', json=spec_data())
+    assert response.status_code == 202
+    assert 'old' not in runner.jobs and not (runner.root / 'old').exists()
+    assert 'mid' not in runner.jobs
+    assert 'new' in runner.jobs and (runner.root / 'new').exists()
+    messages = [r.getMessage() for r in caplog.records if 'Evicting' in r.getMessage()]
+    assert len(messages) == 2 and 'old' in messages[0] and 'mid' in messages[1]
+
+
+def test_submit_keeps_finished_jobs_when_space_is_enough(browser, monkeypatch):
+    client, runner = browser
+    fixture_worker(monkeypatch)
+    runner.run_reserve = 150
+    now = time.time()
+    _finished(runner, 'a', 'accepted', now - 5)
+    _finished(runner, 'b', 'rejected', now - 4)
+    _fake_fs(monkeypatch, runner, total=1000, per_job=10)
+    assert client.post('/api/jobs', json=spec_data()).status_code == 202
+    assert {'a', 'b'} <= set(runner.jobs)
+
+
+def test_eviction_never_touches_queued_running_or_cancelled(browser, monkeypatch):
+    _, runner = browser
+    fixture_worker(monkeypatch)
+    runner.run_reserve = 10**9
+    now = time.time()
+    for name, status in [('q', 'queued'), ('r', 'running'), ('c', 'cancelled')]:
+        _finished(runner, name, status, now - 100)
+    _fake_fs(monkeypatch, runner, total=10, per_job=1)
+    with runner.lock:
+        runner._evict_for_space()
+    assert set(runner.jobs) == {'q', 'r', 'c'}
+    assert all((runner.root / n).exists() for n in 'qrc')
+
+
+def test_submit_succeeds_when_space_stays_short_after_evicting_everything(browser, monkeypatch):
+    client, runner = browser
+    fixture_worker(monkeypatch)
+    runner.run_reserve = 10**9
+    now = time.time()
+    _finished(runner, 'a', 'accepted', now - 5)
+    _finished(runner, 'b', 'unavailable', now - 4)
+    _fake_fs(monkeypatch, runner, total=500, per_job=100)
+    response = client.post('/api/jobs', json=spec_data())
+    assert response.status_code == 202
+    assert 'a' not in runner.jobs and 'b' not in runner.jobs
+    assert wait_done(client, response.json()['id'])['status'] == 'accepted'

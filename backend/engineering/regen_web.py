@@ -31,6 +31,9 @@ from .regen_presets import EXAMPLES
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[2]
 BACKEND = Path(__file__).resolve().parents[1]
+# Free space one run needs while working: the regen run_bytes budget (capabilities.REGEN.resources,
+# 256 MiB; a test pins the two together). Kept literal so this worker-side module stays import-light.
+RUN_RESERVE_BYTES = 256 * 1024**2
 FILES = {'stl': 'cleaned.stl', 'report': 'report.json', 'spec': 'spec.canonical.json'}
 
 
@@ -61,11 +64,13 @@ def _cross_origin(request: Request) -> bool:
 class JobRunner:
     """One disposable generation process at a time; bounded, temporary local results."""
 
-    def __init__(self, root: Path | None = None, *, timeout=900, retention=3600, max_jobs=4, output_limit=1 << 30):
+    def __init__(self, root: Path | None = None, *, timeout=900, retention=3600, max_jobs=4, output_limit=1 << 30,
+                 run_reserve=RUN_RESERVE_BYTES):
         self.root = root or Path(tempfile.mkdtemp(prefix='regen-web-'))
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.timeout, self.retention, self.max_jobs = timeout, retention, max_jobs
         self.output_limit = output_limit
+        self.run_reserve = run_reserve
         self.jobs = {}
         self.lock = threading.Lock()
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='regen')
@@ -80,6 +85,27 @@ class JobRunner:
                 shutil.rmtree(self.root / job['id'], ignore_errors=True)
                 del self.jobs[job['id']]
 
+    def _free(self) -> int | None:
+        try:
+            return shutil.disk_usage(self.root).free
+        except OSError:
+            return None
+
+    def _evict_for_space(self):
+        """Caller holds self.lock. Finished results kept for the retention window can leave too little
+        room for the next run (ENOSPC on a small /tmp tmpfs), so drop them oldest-first until a run's
+        reserve is free. Never touches queued/running/cancelled jobs, never blocks or raises: if space is
+        still short once every finished job is gone, the run proceeds as before."""
+        finished = sorted((j for j in self.jobs.values() if j['status'] not in ('queued', 'running', 'cancelled')),
+                          key=lambda j: j['updated'])
+        for job in finished:
+            free = self._free()
+            if free is None or free >= self.run_reserve:
+                return
+            log.info('Evicting finished regen job %s: %d bytes free, %d needed', job['id'], free, self.run_reserve)
+            shutil.rmtree(self.root / job['id'], ignore_errors=True)
+            del self.jobs[job['id']]
+
     def submit(self, spec: BrowserSpec) -> dict:
         with self.lock:
             if self.closed:
@@ -87,6 +113,7 @@ class JobRunner:
             if any(j['status'] in ('queued', 'running') for j in self.jobs.values()):
                 raise HTTPException(409, 'A generation is already running. Wait for it to finish.')
             self._prune()
+            self._evict_for_space()
             job_id = uuid.uuid4().hex
             folder = self.root / job_id
             folder.mkdir(mode=0o700)
