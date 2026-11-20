@@ -481,3 +481,26 @@ def test_release_action_builds_through_bake_with_the_picogk_cache_and_smokes_reg
     nl = chr(10)
     assert nl + "inputs:" + nl + "  evidence-path:" in nl + action
     assert nl + "outputs:" + nl + "  evidence-path:" in nl + action
+
+
+def test_regen_release_smoke_uses_release_scratch_sizes_and_runs_twice():
+    """K1: the CI regen smoke runs with the release compose's 256 MiB /tmp and /tmp/mirum, twice in one container."""
+    action = (ROOT / ".github" / "actions" / "build-release-images" / "action.yml").read_text(encoding="utf-8")
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "/tmp:size=256M" in compose and "/tmp/mirum:size=256M" in compose
+    assert "--tmpfs /tmp:rw,size=256m," in action and "--tmpfs /tmp/mirum:rw,size=256m," in action
+    assert "size=1g" not in action and "size=2g" not in action
+    assert "for run in 1 2; do" in action and 'SMOKE_RUN="$run"' in action
+    # The smoke container's own hardening, checked on its docker run line (not anywhere in the file).
+    start = action.index('cid=$(docker run -d', action.index('Regen smoke in the release container'))
+    run_line = action[start:action.index('mirum-backend:release)', start)]
+    for flag in ('--network none', '--read-only', '--cap-drop ALL', '--security-opt no-new-privileges',
+                 '--memory 4g', '--memory-swap 4g', '--pids-limit 512', 'uid=10001,gid=10001,mode=0700'):
+        assert flag in run_line, flag
+    # The throwaway token goes by name only, never as a value in a docker argv.
+    smoke = action[action.index('Regen smoke in the release container'):]
+    smoke = smoke[:smoke.index('    - name:', 10)]
+    assert 'export MIRUM_ACCESS_TOKEN="$token" SMOKE_TOKEN="$token"' in smoke
+    assert smoke.count('="$token"') == 2
+    smoke = (ROOT / "scripts" / "regen_release_smoke.py").read_text(encoding="utf-8")
+    assert "f'release-smoke-{RUN}'" in smoke
