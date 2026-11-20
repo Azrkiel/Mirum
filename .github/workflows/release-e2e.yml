@@ -47,7 +47,10 @@ jobs:
       # changes). Checked before the image build, which writes release-evidence/ into the workspace.
       - name: Clean tree at checkout (freeze run)
         if: inputs.clean
-        run: git diff --quiet && test -z "$(git status --porcelain)"
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --quiet HEAD
+          test -z "$(git status --porcelain --ignored --untracked-files=all)"
 
       - uses: ./.github/actions/build-release-images
         with:
@@ -62,15 +65,6 @@ jobs:
             echo "MIRUM_E2E_TOKEN=$token"
           } >> "$GITHUB_ENV"
 
-      - name: Clean stack volumes (freeze run)
-        if: inputs.clean
-        run: |
-          # The build only adds untracked evidence files; no tracked file may have changed.
-          git diff --quiet HEAD
-          untracked=$(git status --porcelain --untracked-files=all | grep -v '^?? release-evidence/' || true)
-          test -z "$untracked" || { printf 'Unexpected workspace changes:\n%s\n' "$untracked"; exit 1; }
-          docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml down -v --remove-orphans
-
       - name: Override changes only the volume name
         run: |
           set -euo pipefail
@@ -83,6 +77,15 @@ jobs:
             diff <(echo "$base") <(echo "$merged") | sed "s/$MIRUM_E2E_TOKEN/***/g" || true
             echo "e2e override changes more than volume names"; exit 1
           fi
+
+      # After the override is validated: the build only adds untracked evidence files.
+      - name: Clean stack volumes (freeze run)
+        if: inputs.clean
+        run: |
+          git diff --quiet HEAD
+          extra=$(git status --porcelain --ignored --untracked-files=all | grep -v '^?? release-evidence/' || true)
+          test -z "$extra" || { printf 'Unexpected workspace changes:\n%s\n' "$extra"; exit 1; }
+          docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml down -v --remove-orphans
 
       - name: Start the release stack
         run: docker compose -p "$MIRUM_E2E_PROJECT" -f compose.release.yml -f e2e/compose/e2e.override.yml up -d --wait --wait-timeout 300
@@ -101,6 +104,11 @@ jobs:
         run: '"$E2E_PY" -m pytest -c e2e/pytest.ini --tb=short e2e'
         env:
           CI: "true"
+
+      # The freeze claim covers the whole run: no step may have changed a tracked file.
+      - name: Tracked files unchanged at the end (freeze run)
+        if: always() && inputs.clean
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA" && git diff --quiet HEAD
 
       - name: Compose logs on failure (token redacted)
         if: failure()
