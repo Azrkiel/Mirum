@@ -99,7 +99,7 @@ jobs:
             --entrypoint python mirum-backend:release \
             -m pytest -c /dev/null -p no:cacheprovider -rA --basetemp=/work/pt --junit-xml=/res/junit.xml \
             /repo/backend/tests/test_regen_native.py /repo/backend/tests/test_regen_native_defects.py | tee evidence/pytest/pytest.txt
-      - name: Require all 9 native tests to pass (skips do not count)
+      - name: Require all 4 native tests to pass (skips do not count)
         run: |
           python - <<'PY'
           import sys
@@ -110,8 +110,22 @@ jobs:
           errors = int(suite.get("errors", 0))
           passed = tests - bad - errors - skipped
           print(f"tests={tests} passed={passed} failures={bad} errors={errors} skipped={skipped}")
-          if passed < 9 or bad or errors:
-              sys.exit("native regen tests: need at least 9 passed and no failures")
+          if passed < 4 or bad or errors:
+              sys.exit("native regen tests: need at least 4 passed and no failures")
+          PY
+      - name: Require the 5 native defect cases as well (9 passed in total, skips do not count)
+        run: |
+          python - <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          root = ET.parse("evidence/pytest/junit.xml").getroot()
+          cases = list(root.iter("testcase"))
+          defects = [c for c in cases if "test_regen_native_defects" in c.get("classname", "")]
+          ok = [c for c in cases if c.find("failure") is None and c.find("error") is None and c.find("skipped") is None]
+          ok_defects = [c for c in defects if c in ok]
+          print(f"passed={len(ok)} defect_cases={len(defects)} defect_passed={len(ok_defects)}")
+          if len(ok) < 9 or len(ok_defects) < 5:
+              sys.exit("native regen tests: need 9 passed including 5 defect cases")
           PY
       - name: Reference and small spec evidence (exit code, wall-clock, peak RSS, hashes)
         run: |
