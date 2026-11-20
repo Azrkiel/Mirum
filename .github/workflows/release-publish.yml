@@ -1,0 +1,116 @@
+name: Release publish
+
+# Builds the RC1 release images (same action and checks as release-images.yml), builds the Fly variant of
+# the backend (backend/Dockerfile target "fly"), proves it in a privileged container, then pushes both
+# images to GHCR with GITHUB_TOKEN only (no other secrets) and records the pushed digests. Fly pulls them
+# by digest (deploy/fly/README.md). Manual dispatch on main only; any other ref is refused and nothing is
+# pushed. Dispatching it on a branch only proves that refusal.
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  refuse-off-main:
+    name: Refuse any ref except main
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Refuse
+        run: |
+          echo "release-publish only runs on refs/heads/main (this run: $GITHUB_REF). Nothing was built or pushed."
+          exit 1
+
+  publish:
+    name: Build, smoke and push the release images
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Main only (belt and braces)
+        run: test "$GITHUB_REF" = "refs/heads/main"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Build the release images with every release check
+        id: release
+        uses: ./.github/actions/build-release-images
+        with:
+          evidence-path: release-evidence/release-images.json
+
+      - name: Build and smoke the Fly backend image (backend-fly)
+        uses: ./.github/actions/build-fly-image
+        with:
+          builder: ${{ steps.release.outputs.builder }}
+
+      - name: Log in to ghcr.io (GITHUB_TOKEN only)
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the images and record digests
+        if: github.ref == 'refs/heads/main'
+        env:
+          OWNER: ${{ github.repository_owner }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          owner=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          back="ghcr.io/$owner/mirum-backend-fly"
+          front="ghcr.io/$owner/mirum-frontend"
+          docker tag mirum-backend-fly:release "$back:$SHA"
+          docker tag mirum-frontend:release "$front:$SHA"
+          docker push "$back:$SHA"
+          docker push "$front:$SHA"
+          digest_of() { docker image inspect "$1:$SHA" --format '{{range .RepoDigests}}{{println .}}{{end}}' | grep "^$1@sha256:" | head -1; }
+          back_ref=$(digest_of "$back")
+          front_ref=$(digest_of "$front")
+          test -n "$back_ref" && test -n "$front_ref"
+          mkdir -p release-publish
+          BACK_REF="$back_ref" FRONT_REF="$front_ref" python3 - <<'PY'
+          import json, os
+          out = {
+            "source_sha": os.environ["SHA"],
+            "ref": os.environ["GITHUB_REF"],
+            "run_id": os.environ["GITHUB_RUN_ID"],
+            "images": {
+              "mirum-backend-fly": os.environ["BACK_REF"],
+              "mirum-frontend": os.environ["FRONT_REF"],
+            },
+          }
+          json.dump(out, open("release-publish/release-publish.json", "w"), indent=2, sort_keys=True)
+          print(json.dumps(out, indent=2, sort_keys=True))
+          PY
+          {
+            echo "## Release images pushed"
+            echo
+            echo "Source: \`$SHA\`"
+            echo
+            echo "| Image | Pinned reference |"
+            echo "|---|---|"
+            echo "| backend (fly) | \`$back_ref\` |"
+            echo "| frontend | \`$front_ref\` |"
+            echo
+            echo "Deploy: \`fly deploy -c deploy/fly/backend.fly.toml --image $back_ref\` and \`fly deploy -c deploy/fly/frontend.fly.toml --image $front_ref\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: release-publish
+          path: |
+            release-publish/release-publish.json
+            release-evidence/
+          if-no-files-found: ignore

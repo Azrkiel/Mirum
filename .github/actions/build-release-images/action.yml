@@ -13,6 +13,9 @@ outputs:
   evidence-path:
     description: Path of the JSON record.
     value: ${{ inputs.evidence-path }}
+  builder:
+    description: Name of the Buildx builder (cache for a later bake of backend-fly in the same job).
+    value: ${{ steps.buildx.outputs.name }}
 runs:
   using: composite
   steps:

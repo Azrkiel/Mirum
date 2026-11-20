@@ -1,9 +1,10 @@
-# Public Streamlit UI. Open access: no token gate (set MIRUM_ACCESS_GATE = "1" to re-enable).
+# Public Streamlit UI (the unchanged RC1 mirum-frontend:release image, from
+# .github/workflows/release-publish.yml), deployed by digest:
+#   fly deploy -c deploy/fly/frontend.fly.toml --image ghcr.io/azrkiel/mirum-frontend@sha256:<digest>
+# Open access: no token gate (set MIRUM_ACCESS_GATE = "1" to re-enable).
+# There is deliberately no [build] section.
 app = "mirum"
 primary_region = "iad"
-
-[build]
-  dockerfile = "frontend.Dockerfile"
 
 [env]
   BACKEND_URL = "http://mirum-api.flycast"

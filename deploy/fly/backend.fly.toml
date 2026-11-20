@@ -1,16 +1,25 @@
 # Private backend: reachable only over Fly's private network (Flycast), never
-# a public IP. Deploy from the repo root, see deploy/fly/README.md.
+# a public IP. Runs the RC1 release image (backend/Dockerfile target "fly"),
+# published by .github/workflows/release-publish.yml and deployed by digest:
+#   fly deploy -c deploy/fly/backend.fly.toml --image ghcr.io/azrkiel/mirum-backend-fly@sha256:<digest> --no-public-ips
+# See deploy/fly/README.md. There is deliberately no [build] section.
 app = "mirum-api"
 primary_region = "iad"
 
-[build]
-  dockerfile = "backend.Dockerfile"
+[mounts]
+  # 1 GB volume created once with: fly volumes create mirum_engineering --size 1 -r iad -a mirum-api
+  source = "mirum_engineering"
+  destination = "/data"
 
 [env]
+  # Open access: no MIRUM_ACCESS_TOKEN. The release token guard is skipped only
+  # because of this exact opt-in; every other release guard stays on.
+  MIRUM_OPEN_ACCESS = "1"
   # Rate limits key on the visitor address the frontend forwards in
   # X-Mirum-Client-IP. Safe ONLY because this backend is private (Flycast, no
-  # public IP): nobody but the frontend can reach it, so the header cannot be
-  # forged. Remove this line if the backend ever gets a public address.
+  # public IP): only apps in the same Fly organisation (all the owner's own) can
+  # reach it, so no outside visitor can forge the header. Remove this line if the
+  # backend ever gets a public address, or if untrusted apps join the org.
   MIRUM_TRUSTED_CLIENT_HEADER = "1"
 
 [http_service]
@@ -20,6 +29,8 @@ primary_region = "iad"
   auto_start_machines = true
   min_machines_running = 0
 
+# Exactly one machine: engineering storage supports a single API process
+# (volume lock). Keep it at one with `fly scale count 1 -a mirum-api`.
 [[vm]]
-  size = "shared-cpu-2x"
-  memory = "4gb"
+  size = "shared-cpu-4x"
+  memory = "8gb"
