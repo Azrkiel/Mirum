@@ -243,6 +243,40 @@ def _progress_md(steps: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
+def apply_route(ev: dict, prompt: str) -> bool:
+    """Queue the checked-design target for a `route` event and rerun. False when it names none."""
+    from route_labels import route_target
+    target = route_target(ev, prompt)
+    if not target:
+        return False
+    st.session_state.pending_workflow = target["workflow"]
+    if target["capability_id"]:
+        st.session_state.pending_v1 = {"capability_id": target["capability_id"],
+                                       "prompt": target["prompt"]}
+    st.session_state.route_notice = target["notice"]
+    st.rerun()
+    return True
+
+
+def fetch_route(prompt: str) -> dict | None:
+    """Ask the backend's provider-free router; the `route` event for a checked capability, else None.
+
+    Runs before /clarify and /plan so a checked-capability prompt never reaches a provider.
+    Any failure means no route: the labelled LLM fallback proceeds as before.
+    """
+    try:
+        resp = requests.post(
+            f"{BACKEND_URL}/route",
+            headers=_auth_headers(),
+            json={"prompt": prompt},
+            timeout=15,
+        )
+        ev = resp.json().get("route") if resp.status_code == 200 else None
+        return ev if isinstance(ev, dict) else None
+    except Exception:
+        return None
+
+
 def stream_pipeline(prompt: str, progress_ph) -> None:
     """Stream SSE events from /generate, updating session state."""
     steps, idx = [], {}
@@ -294,15 +328,7 @@ def stream_pipeline(prompt: str, progress_ph) -> None:
                 step, status = ev["step"], ev["status"]
 
                 if step == "route":
-                    from route_labels import route_target
-                    target = route_target(ev, prompt)
-                    if target:
-                        st.session_state.pending_workflow = target["workflow"]
-                        if target["capability_id"]:
-                            st.session_state.pending_v1 = {"capability_id": target["capability_id"],
-                                                           "prompt": target["prompt"]}
-                        st.session_state.route_notice = target["notice"]
-                        st.rerun()
+                    if apply_route(ev, prompt):
                         return
                     continue
 
@@ -1041,9 +1067,16 @@ with inputs_col:
 
         if generate and prompt.strip():
             p = prompt.strip()
-            # Step 1: Clarification (optional, fast)
-            ambs = fetch_clarifications(p)
-            if ambs:
+            # Step 0: deterministic route, no provider: checked capabilities never reach /clarify or /plan
+            routed = fetch_route(p)
+            if routed is not None and apply_route(routed, p):
+                ambs = None
+            else:
+                # Step 1: Clarification (optional, fast)
+                ambs = fetch_clarifications(p)
+            if ambs is None:
+                pass
+            elif ambs:
                 st.session_state.pending_clarifications = ambs
                 st.session_state.clarification_prompt = p
                 st.session_state.show_clarification = True

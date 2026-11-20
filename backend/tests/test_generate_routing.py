@@ -121,3 +121,31 @@ def test_eval_prompts_route_as_before():
         decision = route(prompt)
         assert (decision.capability_id == 'co2_dragster') == detect(prompt).is_dragster
         assert decision.capability_id is None, prompt
+
+
+# ---- /route: provider-free route decision the UI calls before /clarify and /plan
+
+@pytest.mark.parametrize('capability,prompt', CASES)
+def test_route_endpoint_returns_the_same_event_as_generate_without_any_llm_stage(client, monkeypatch, capability, prompt):
+    forbid(monkeypatch)
+    for name in ('clarify_prompt', 'plan_assembly'):
+        monkeypatch.setattr(main, name, lambda *a, **k: (_ for _ in ()).throw(AssertionError('provider endpoint hit')))
+    response = client.post('/route', json={'prompt': prompt})
+    assert response.status_code == 200
+    event = response.json()['route']
+    assert event == events(client, prompt)[0]
+    assert event['capability_id'] == capability and event['assurance'] == 'checked_design'
+
+
+def test_route_endpoint_returns_null_for_a_non_capability_prompt(client, monkeypatch):
+    forbid(monkeypatch)
+    response = client.post('/route', json={'prompt': PLAIN})
+    assert response.status_code == 200 and response.json() == {'route': None}
+
+
+def test_route_endpoint_never_calls_a_provider(client, monkeypatch):
+    for target in ('run_rea', 'run_planner', 'run_clarifier'):
+        if hasattr(main, target):
+            monkeypatch.setattr(main, target, lambda *a, **k: (_ for _ in ()).throw(AssertionError('LLM stage reached')))
+    for _, prompt in CASES:
+        assert client.post('/route', json={'prompt': prompt}).status_code == 200
