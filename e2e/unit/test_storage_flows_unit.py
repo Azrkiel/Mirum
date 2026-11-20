@@ -346,14 +346,15 @@ def test_conftest_hook_stores_phase_reports() -> None:
     spec = importlib.util.spec_from_file_location("e2e_conftest", Path(__file__).resolve().parents[1] / "conftest.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    item, report = _item(None), type("R", (), {"when": "call", "outcome": "failed"})()
-    generator = module.pytest_runtest_makereport.__wrapped__(item, None) if hasattr(
-        module.pytest_runtest_makereport, "__wrapped__") else module.pytest_runtest_makereport(item, None)
-    next(generator)
-    with pytest.raises(StopIteration):
-        generator.send(type("O", (), {"get_result": lambda self: report})())
-    assert item.rep_call is report
-    assert aggregate_status([_item("passed", "failed")]) == "failed"
+    item = _item(None)
+    for when, outcome in (("setup", "passed"), ("call", "failed"), ("teardown", "passed")):
+        report = type("R", (), {"when": when, "outcome": outcome, "duration": 0.0})()
+        generator = module.pytest_runtest_makereport(item, None)
+        next(generator)
+        with pytest.raises(StopIteration):
+            generator.send(type("O", (), {"get_result": lambda self, r=report: r})())
+        assert getattr(item, f"rep_{when}") is report
+    assert aggregate_status([item]) == "failed"
 
 
 _SENTINEL_KEY = "AIza" + "S" * 35
