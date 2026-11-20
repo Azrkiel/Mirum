@@ -28,6 +28,21 @@ def _glider_spec(api) -> dict:
     return dict(requirements=requirements, calibration_version=metadata["calibration_version"])
 
 
+def _reasons(node, path="", out=None):
+    """Failure-relevant leaves of a report, for the assertion message."""
+    out = [] if out is None else out
+    keys = {"reason", "failures", "status", "verdict", "state", "failed", "measured", "limit", "name"}
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in keys and not isinstance(value, (dict, list)) or key in ("failures", "failed"):
+                out.append(f"{path}.{key}={str(value)[:160]}")
+            _reasons(value, f"{path}.{key}", out)
+    elif isinstance(node, list):
+        for n, value in enumerate(node[:12]):
+            _reasons(value, f"{path}[{n}]", out)
+    return out[:60]
+
+
 CASES = [  # regen first: its ~125 MiB bundle needs 256 MiB of free store (512 MiB volume, never cleared)
     pytest.param("regen_chamber", lambda api: _load("regen_spec.json"), 900_000, id="regen"),
     pytest.param("co2_dragster", lambda api: _load("dragster_spec.json"), 600_000, id="dragster"),
@@ -63,7 +78,7 @@ def test_generator_checked_run(capability_id, make_spec, timeout_ms, stack, toke
     detail = ""
     if outcome != "accepted":
         report = api.artifact(job_id, "report")
-        detail = report.text[:3000] if report.is_success else str(report.status_code)
+        detail = _reasons(report.json()) if report.is_success else str(report.status_code)
     assert (lifecycle, outcome) == ("completed", "accepted"), (job["lifecycle"], job["outcome"], job.get("failures"), detail)
     expect(view.checked_label).to_be_visible(timeout=30_000)
 
@@ -75,6 +90,7 @@ def test_generator_checked_run(capability_id, make_spec, timeout_ms, stack, toke
         assert response.status_code == 200, (fmt, response.status_code)
         name = response.headers["content-disposition"].split('filename="')[1].rstrip('"')
         expected[name] = hashlib.sha256(response.content).hexdigest()
+    expect(view.download_buttons).to_have_count(len(expected), timeout=300_000)  # large bundles load slowly
     assert view.download_names() == sorted(expected)
     for name, digest in expected.items():
         assert hashlib.sha256(view.download(name, work_dir)).hexdigest() == digest, name

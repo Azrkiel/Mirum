@@ -88,6 +88,7 @@ def test_reference_beam_accepted_through_the_ui(stack, token, api, page, shot, e
         assert sha256(response.content) == response.headers["x-content-sha256"]
         name = response.headers["content-disposition"].split('filename="')[1].rstrip('"')
         expected[name] = response.content
+    expect(beam.download_buttons).to_have_count(len(expected), timeout=120_000)
     assert beam.download_names() == sorted(expected)
     got = {name: beam.download(name, work_dir) for name in expected}
     for name, value in expected.items():
