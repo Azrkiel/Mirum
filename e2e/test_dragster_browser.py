@@ -36,8 +36,9 @@ def test_three_styles_generate_and_download(stack, token, api, page, shot, exter
             ui.wait_style_loaded()
             expect(ui.style_group.get_by_role("radio", name=label)).to_be_checked()
         expect(ui.generate).to_be_enabled(timeout=30_000)
+        previous = ui.current_revision()
         ui.generate.click()
-        ui.wait_accepted()
+        ui.wait_accepted(previous)
         for name in DOWNLOADS:
             expect(ui.button(name)).to_be_visible()
         report = json.loads(Path(ui.download("Report").path()).read_text())

@@ -53,9 +53,21 @@ class Dragster(Workspace):
         positive signal that the second one finished and the draft holds the new preset."""
         expect(self.differ_notice).to_be_visible(timeout=30_000)
 
-    def wait_accepted(self) -> None:
-        """The draft equals the accepted result only after a successful generation."""
+    @property
+    def revision(self) -> Locator:
+        return self.page.get_by_text("Accepted revision:", exact=False)
+
+    def current_revision(self) -> str:
+        return self.revision.text_content() if self.revision.count() else ""
+
+    def wait_accepted(self, previous: str = "") -> None:
+        """A new accepted revision, not just the match notice: the notice renders before the
+        download buttons in the same run, so only the trailing revision caption proves the
+        buttons already carry the new files."""
         expect(self.match_notice).to_be_visible(timeout=120_000)
+        expect(self.revision).to_be_visible(timeout=120_000)
+        if previous:
+            expect(self.revision).not_to_have_text(previous, timeout=120_000)
 
     def download(self, label: str):
         with self.page.expect_download(timeout=DEFAULT_TIMEOUT_MS) as info:
