@@ -241,10 +241,12 @@ def test_generator_draft_refuses_unsupported_and_rules_mode_needs_a_declared_pro
     assert len(ok.json()['brief_sha256'])==64
     for body in ({'capability':'nope','input':{}},
                  {'capability':'regen_chamber','input':{}},
-                 {'capability':'regen_chamber','mode':'ai','prompt':'x','input':{}},
                  {'capability':'regen_chamber','mode':'rules','prompt':'x','input':{}},
                  {'capability':'rectangular_cantilever','mode':'rules','prompt':'x','input':{}}):
         assert client.post('/engineering/v1/drafts',json=body).status_code==422,body
+    # E05 (Wave E P3): generator AI drafts exist now; with the flag off they are 503, like the beam's.
+    off=client.post('/engineering/v1/drafts',json={'capability':'regen_chamber','mode':'ai','prompt':'x','input':{}})
+    assert off.status_code==503 and off.json()['detail']=='AI draft preparation is not enabled'
 
 
 def test_capabilities_do_not_leak_internal_import_strings_or_paths(client):

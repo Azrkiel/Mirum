@@ -232,7 +232,58 @@ def attach_v1_routes(app,limiter):
             raise ValueError('Input must name the requested capability')
         if body.capability!=CAPABILITY.id:
             if get_generator(body.capability) is None: raise ValueError('Unknown capability')
-            if body.mode=='ai': raise ValueError('AI drafts are not offered for this capability')
+            if body.mode=='ai':
+                # E05 generator AI drafts (Wave E P3). The beam's B13 path below is untouched; this branch
+                # shares its flag, its AiCallBudget (value.proposer.budget) and its unavailable report.
+                from . import proposal_contract
+                def unavailable(reasons=('AI preparation unavailable; typed form remains available',)):
+                    return JSONResponse(status_code=503,content=dict(state='unavailable',reasons=list(reasons),prepared=None),
+                        headers={'Cache-Control':'no-store'})
+                if not value.ai_enabled or value.proposer is None:
+                    # Flag off: no proposer is resolved, no module imported, no key read.
+                    raise HTTPException(503,'AI draft preparation is not enabled')
+                if body.input or body.prompt is None: raise ValueError('AI entry requires a prompt and empty initial input')
+                if len(body.prompt)>proposal_contract.MAX_PROMPT: raise ValueError('AI entry prompt is too long')
+                client=client_key(request)
+                size=len(body.prompt.encode())
+                # Deterministic family gate for every generator (contract rule 1; dragster_proposer is
+                # pinned, so it lives here): another family -> unsupported, several -> clarification.
+                # Decided without a provider call or a budget unit; the draft records the refusal.
+                from .briefs import InputIssue
+                from .router import route
+                routed=route(body.prompt)
+                gate=(('unsupported','This request matches another capability; no draft of the requested capability was made')
+                      if routed.capability_id not in (None,body.capability) else
+                      ('clarification_required','This request matches several capabilities; describe one object')
+                      if routed.capability_id is None and routed.reason.startswith('Ambiguous') else None)
+                if gate is not None:
+                    await asyncio.to_thread(value.quota.admit_draft,client,ai=False,size=size)
+                    def create_refusal():
+                        created=value.briefs.create(dict(capability=proposal_contract.reference(get_generator(body.capability))),
+                            extra_issues=(InputIssue(field='request',state=gate[0],reason=gate[1]),))
+                        value.quota.record_draft(created.draft.draft_id,client,len(created.model_dump_json()))
+                        return created
+                    return prepared_view(await asyncio.to_thread(create_refusal))
+                budget=value.proposer.budget
+                if not budget.has_capacity(): return unavailable()
+                await asyncio.to_thread(value.quota.admit_draft,client,ai=True,size=size)
+                # Each reserved unit is written to the ledger before its provider call, so a restart
+                # re-seeds generator spend too (capability id and request sha only; never the prompt).
+                import hashlib
+                from .store import GeneratorSpendBudget
+                spend=GeneratorSpendBudget(budget,SQLiteProposalLedger(value.store),body.capability,
+                                           hashlib.sha256(body.prompt.encode()).hexdigest())
+                proposer=proposal_contract.ai_proposer(body.capability,enabled=value.ai_enabled,budget=spend)
+                try:
+                    proposal=proposal_contract.conform(body.capability,await proposer.propose(body.prompt))
+                except proposal_contract.NonConformingProposal:
+                    return unavailable()
+                if proposal.state=='unavailable': return unavailable(proposal.reasons)
+                def create_ai():
+                    created=value.briefs.create(proposal.payload,provenance=proposal.provenance,extra_issues=tuple(proposal.issues))
+                    value.quota.record_draft(created.draft.draft_id,client,len(created.model_dump_json()))
+                    return created
+                return prepared_view(await asyncio.to_thread(create_ai))
             if body.mode=='form':
                 if not isinstance(given,dict): raise ValueError('Input must name the requested capability')
                 # Resolve the exact versions before admission: an unknown version is a 422, not a draft.
@@ -320,6 +371,10 @@ def attach_v1_routes(app,limiter):
 
     def job_view(value,job):
         record=job.model_dump(mode='json')
+        # What a passing run means, next to every outcome: clients never read 'accepted' alone.
+        capability_id=record['capability']['id']
+        descriptor=get_generator(capability_id)
+        record['claim']='checked_design' if capability_id==CAPABILITY.id else (descriptor.claim if descriptor else None)
         if record.get('expired'): return dict(record,delivery='expired',artifacts={})
         with value.store._lock:
             row=value.store.db.execute('SELECT expires FROM jobs WHERE id=?',(job.job_id,)).fetchone()
@@ -329,7 +384,7 @@ def attach_v1_routes(app,limiter):
             expires=min(expires,publication_expiry) if expires is not None else publication_expiry
         except KeyError: pass
         if expires is not None and time.time()>=expires:
-            return dict(compact_run(record),delivery='expired',artifacts={},artifact_expires_at=expires)
+            return dict(compact_run(record),claim=record['claim'],delivery='expired',artifacts={},artifact_expires_at=expires)
         delivery='pending'
         formats={}
         if record['lifecycle'] in ('completed','unavailable','cancelled'):

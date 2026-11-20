@@ -9,6 +9,7 @@ from pathlib import Path
 import sqlite3
 import time
 from threading import RLock
+from uuid import uuid4
 
 from .admission import AdmissionBusy
 from .briefs import MemoryBriefRepository, PreparedDraft, RevisionConflict, _check_revision
@@ -65,6 +66,8 @@ class SQLiteStore:
                 bytes INTEGER NOT NULL, updated REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS retention(kind TEXT, id TEXT, created REAL NOT NULL, PRIMARY KEY(kind,id));
+            CREATE TABLE IF NOT EXISTS generator_spend(id TEXT PRIMARY KEY, capability TEXT NOT NULL,
+                request_sha256 TEXT NOT NULL, created REAL NOT NULL);
             PRAGMA user_version=1;
         ''')
 
@@ -315,10 +318,21 @@ class SQLiteProposalLedger:
         with self.store.transaction() as db:
             rows = db.execute("SELECT r.created,a.record FROM retention r JOIN audits a "
                               "ON r.kind='audit' AND r.id=a.draft||':'||a.revision WHERE r.created>?", (now - window,)).fetchall()
+            # E05 generator AI calls: one row per reserved provider call, written before the call.
+            spent = db.execute('SELECT created FROM generator_spend WHERE created>?', (now - window,)).fetchall()
         ages = []
         for created, record in rows:
             ages += [max(0.0, now - created)] * int(json.loads(record).get('calls', 0))
+        ages += [max(0.0, now - created) for (created,) in spent]
         return ages
+
+    def record_generator_call(self, capability, request_sha256):
+        """Durably count one reserved generator provider call (capability id and request sha only)."""
+        now = time.time()
+        with self.store.transaction() as db:
+            db.execute('INSERT INTO generator_spend VALUES (?,?,?,?)', (uuid4().hex, str(capability)[:64],
+                                                                        str(request_sha256)[:64], now))
+            db.execute('DELETE FROM generator_spend WHERE created<=?', (now - GENERATOR_SPEND_RETENTION_SECONDS,))
 
     def read(self, draft_id, revision):
         with self.store.transaction() as db:
@@ -326,3 +340,35 @@ class SQLiteProposalLedger:
             if row is None:
                 raise KeyError(draft_id)
             return ProposalAudit.model_validate_json(row[0])
+
+
+GENERATOR_SPEND_RETENTION_SECONDS = 7 * 86400  # longer than any budget window
+
+
+class GeneratorSpendBudget:
+    """The shared ``AiCallBudget`` seen by one E05 generator request: each reserved unit is written
+    to the ledger before the provider call, so restarts re-seed it (reserve-then-crash is not free).
+    If the record cannot be written the unit stays spent and the call does not happen."""
+
+    def __init__(self, budget, ledger, capability, request_sha256):
+        self.inner, self.ledger = budget, ledger
+        self.capability, self.request_sha256 = capability, request_sha256
+
+    def has_capacity(self):
+        return self.inner.has_capacity()
+
+    def reserve(self):
+        if not self.inner.reserve():
+            return False
+        try:
+            self.ledger.record_generator_call(self.capability, self.request_sha256)
+        except Exception:
+            self.inner.release()
+            return False
+        return True
+
+    def release(self):
+        self.inner.release()
+
+    def used(self):
+        return self.inner.used()

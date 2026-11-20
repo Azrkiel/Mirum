@@ -171,13 +171,21 @@ def test_every_generator_declares_an_ai_proposer():
 
 
 @pytest.mark.parametrize('cap', ['regen_chamber', 'glider_cem'])
-def test_declared_but_uninstalled_proposer_is_unsupported_until_p3(cap):
-    import importlib.util
-    module = get_generator(cap).proposers['ai'].partition(':')[0]
-    if importlib.util.find_spec(module) is not None:
-        pytest.skip(f'{module} is installed (Wave E P3 merged)')
+def test_declared_proposer_is_installed_and_built_with_the_given_budget(cap, monkeypatch):
+    # Wave E P3 installed these modules; building one must not construct a real provider here.
+    from engineering import proposer as beam
+    monkeypatch.setattr(beam.GeminiProposalProvider, '__init__', lambda self: None)
+    budget = Budget()
+    built = pc.ai_proposer(cap, enabled=True, budget=budget)
+    assert isinstance(built, pc.CapabilityAiProposer)
+    assert built.budget is budget
+
+
+def test_a_declared_but_missing_module_is_unsupported(monkeypatch):
+    from engineering.capabilities import REGEN
+    monkeypatch.setitem(REGEN.proposers, 'ai', 'engineering.no_such_proposer:AiProposer')
     with pytest.raises(UnsupportedCapability, match='not installed'):
-        pc.ai_proposer(cap, enabled=True, budget=Budget())
+        pc.ai_proposer('regen_chamber', enabled=True, budget=Budget())
 
 
 def test_beam_and_unknown_capabilities_have_no_e05_proposer():
