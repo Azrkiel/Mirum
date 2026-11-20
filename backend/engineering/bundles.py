@@ -129,6 +129,19 @@ class Download:
             if self._release: self._release()
 
 
+# E01 A1: native identities and the resource policy a generator evaluation recorded (regen today).
+# Hashes and policy only: server paths and anything else in the evaluation's provenance stay out.
+PACKAGE_PROVENANCE_KEYS=('runtime_so_sha256','builder_sha256','image_id','run_bytes','resource_policy_version')
+
+
+def _generator_evaluation(e):
+    entry=dict(candidate_sha256=e['candidate'].candidate_sha256,report_sha256=e['report_sha256'],generator_report=e['report'])
+    provenance=e.get('provenance')
+    if isinstance(provenance,dict):
+        entry['native_provenance']={k:provenance.get(k) for k in PACKAGE_PROVENANCE_KEYS}
+    return entry
+
+
 class BundlePublisher:
     def __init__(self, store):
         self.store = store
@@ -217,8 +230,7 @@ class BundlePublisher:
             capability=brief.content.capability.model_dump(mode='json'),outcome=outcome,
             scope=descriptor.id,standards='not_evaluated',engineering_certified=False,
             reasons=list(result.reasons),
-            evaluations=[dict(candidate_sha256=e['candidate'].candidate_sha256,
-                              report_sha256=e['report_sha256'],generator_report=e['report']) for e in result.evaluations])
+            evaluations=[_generator_evaluation(e) for e in result.evaluations])
         # Heading and outcome line come from the capability claim, not the job outcome alone.
         screening=descriptor.claim=='screening_only'
         heading=f'# {"Screened" if screening else "Geometry Checked"} {descriptor.label} result'

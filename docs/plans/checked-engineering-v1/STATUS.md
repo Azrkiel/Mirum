@@ -16,6 +16,8 @@
 
 **2026-11-18: B13 live corpus qualification PASSED** (run `qual-20261118-k6`, `f11cf90`: 10/10 complete accurate, 0 silent drops, 0 unreviewed executions, 30 calls; see [qualification](QUALIFICATION.md)). Earlier history: B01 through B12 are complete within task scope. The [supplied-key diagnostic](handoffs/B13-provided-key-diagnostic.md) passed metadata access and reached generation/local parsing in 7.36 seconds on the 4096-token candidate, but the reply failed strict JSON/schema validation; no repair was authorized in that one-call test. That diagnostic candidate passed 85 offline checks. Antivirus cleanup is verified complete. B13/B14 remain blocked; earlier ledgers are preserved.
 
+**2026-11-20: Wave E.** E01 and E02 complete (P1 #105, P2 #106, plus a lead follow-up exporting regen package provenance). E03 and E04 have written preparation and blocked handoffs (#104). E05 is in progress under the Wave E plan, [docs/plans/2026-11-20-wave-e.md](../2026-11-20-wave-e.md); its contract merged in #103.
+
 | Complete | ID | Task | State | Prerequisites | Evidence / handoff |
 |---|---|---|---|---|---|
 | [x] | B01 | [Establish a reproducible baseline](tasks/B01-baseline.md) | complete | none | [B01 handoff](handoffs/B01.md), [native evidence](evidence/B01.json) |
@@ -32,11 +34,11 @@
 | [x] | B12 | [Build the checked beam interface](tasks/B12-user-workflow.md) | complete | B11 | [B12 handoff](handoffs/B12.md), [evidence](evidence/B12.json) |
 | [x] | B13 | [Qualify the end-to-end behavior](tasks/B13-release-verification.md) | complete | B06, B07, B08, B09, B10, B11, B12 | Live corpus (run 5), live review UI (step 12) and V01-V15 on the RC1 freeze `a7f1953` (step 13). [B13 handoff](handoffs/B13.md), [qualification](QUALIFICATION.md), [evidence](evidence/B13.json) |
 | [x] | B14 | [Prepare the reproducible first release](tasks/B14-release-handoff.md) | complete | B13 | Tested at RC1 freeze `a7f1953`; acceptance review done 2026-11-20. Not deployed; deploy is a separate owner-approved stream. [B14 handoff](handoffs/B14.md), [evidence](evidence/B14.json), [qualification](QUALIFICATION.md#step-13-v01-v15-on-the-rc1-freeze-2026-11-20) |
-| [ ] | E01 | [Integrate PicoGK with honest geometry scope](tasks/E01-picogk-adapter.md) | not_started | B14 | Not produced |
-| [ ] | E02 | [Integrate the glider CEM without upgrading its claims](tasks/E02-glider-adapter.md) | not_started | B14 | Not produced |
-| [ ] | E03 | [Define and qualify a second structural family](tasks/E03-second-structural-family.md) | not_started | B14 | Not produced |
-| [ ] | E04 | [Establish physical and manufacturing evidence](tasks/E04-physical-validation.md) | not_started | B14 | Not produced |
-| [ ] | E05 | [Expand AI across registered capabilities](tasks/E05-broader-design-generation.md) | not_started | E01, E02 | Not produced |
+| [x] | E01 | [Integrate PicoGK with honest geometry scope](tasks/E01-picogk-adapter.md) | complete | B14 | Wave E P1 (#105) + lead follow-up (package provenance). Limitation: the shared 420 s v1 deadline. [E01 handoff](handoffs/E01.md), [evidence](evidence/E01.json) |
+| [x] | E02 | [Integrate the glider CEM without upgrading its claims](tasks/E02-glider-adapter.md) | complete | B14 | Wave E P2 (#106): screening labels from the capability claim, design-revision recompute, /cem compat pins. Limitations: internal job outcome value stays `accepted` (labels change; P3 adds an API `claim` field); mission-text extraction comes with E05. [E02 handoff](handoffs/E02.md), [evidence](evidence/E02.json) |
+| [ ] | E03 | [Define and qualify a second structural family](tasks/E03-second-structural-family.md) | blocked | B14 | Plate-bending capability proposal written (#104); needs owner or domain-engineer sign-off of the contract before any solver. [E03 handoff](handoffs/E03.md), [proposal](proposals/E03-plate-bending.md) |
+| [ ] | E04 | [Establish physical and manufacturing evidence](tasks/E04-physical-validation.md) | blocked | B14 | Protocol and templates only (#104); blocked on specimens, fixture, instruments and an operator. [E04 handoff](handoffs/E04.md), [protocol](protocols/E04-physical-validation-protocol.md) |
+| [ ] | E05 | [Expand AI across registered capabilities](tasks/E05-broader-design-generation.md) | in_progress | E01, E02 | Wave E P3 (proposers + API), P4 (UI), P5 (live qualification, 90 calls on k6 approved 2026-11-20). Contract: `backend/engineering/proposal_contract.py` (#103). |
 
 The expansion tasks E01–E05 are separate releases. E03 and E04 have explicit domain/hardware prerequisites in their cards. Scoped baseline/library evidence is tracked in ACCEPTANCE.md; full V01–V15 release checks remain open until their owning tasks.
 
