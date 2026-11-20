@@ -52,13 +52,26 @@ def load_spec(path: Path) -> RegenChamberSpec:
     return RegenChamberSpec.model_validate(json.loads(raw))
 
 
+def minimal_env(builder: Path) -> dict[str, str]:
+    gcc_lib = os.environ.get('REGEN_GCC_LIB') or DEFAULT_GCC_LIB
+    env = {
+        'PATH': os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin'),
+        'LD_LIBRARY_PATH': f'{gcc_lib}:{builder.parent}',
+        'OPENBLAS_NUM_THREADS': '2',
+        'OMP_NUM_THREADS': '2',
+    }
+    secret_markers = ('KEY', 'TOKEN', 'SECRET', 'PASS', 'AUTH', 'CREDENTIAL')
+    env.update({name: value for name, value in os.environ.items()
+                if (name in ('HOME', 'TMPDIR') or name.startswith('DOTNET_'))
+                and not any(marker in name.upper() for marker in secret_markers)})
+    return env
+
+
 def run_builder(builder: Path, spec_path: Path, stl_path: Path):
     """Returns (stats dict, None) or (None, error string)."""
-    env = dict(os.environ)
-    env['LD_LIBRARY_PATH'] = f'{os.environ.get("REGEN_GCC_LIB", DEFAULT_GCC_LIB)}:{builder.parent}'  # builder only
     try:
-        p = subprocess.run([str(builder), str(spec_path), str(stl_path)], env=env, capture_output=True,
-                           timeout=BUILDER_TIMEOUT_S, cwd=str(stl_path.parent))
+        p = subprocess.run([str(builder), str(spec_path), str(stl_path)], env=minimal_env(builder),
+                           capture_output=True, timeout=BUILDER_TIMEOUT_S, cwd=str(stl_path.parent))
     except subprocess.TimeoutExpired:
         return None, f'builder timed out after {BUILDER_TIMEOUT_S} s'
     except OSError as e:

@@ -6,19 +6,31 @@ children, KiB on Linux) and sha256 of every output file.
 """
 import hashlib
 import json
-import resource
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 
+def child_env() -> dict[str, str]:
+    allowed = ('PATH', 'PYTHONPATH', 'REGEN_BUILDER', 'REGEN_GCC_LIB', 'HOME', 'TMPDIR')
+    secret_markers = ('KEY', 'TOKEN', 'SECRET', 'PASS', 'AUTH', 'CREDENTIAL')
+    env = {name: value for name, value in os.environ.items()
+           if (name in allowed or name.startswith('DOTNET_'))
+           and not any(marker in name.upper() for marker in secret_markers)}
+    env.update(OPENBLAS_NUM_THREADS='2', OMP_NUM_THREADS='2')
+    return env
+
+
 def main(argv):
+    import resource
+
     spec, outdir, evidence = (Path(a) for a in argv[1:4])
     outdir.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic()
     proc = subprocess.run([sys.executable, '-m', 'engineering.regen_cli', str(spec), str(outdir)],
-                          capture_output=True, text=True)
+                          env=child_env(), capture_output=True, text=True)
     wall = time.monotonic() - t0
     peak_kib = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
     files = {p.name: {'sha256': hashlib.sha256(p.read_bytes()).hexdigest(), 'bytes': p.stat().st_size}

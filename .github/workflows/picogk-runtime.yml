@@ -9,7 +9,7 @@ on:
       - "picogk-builder/**"
       - "backend/Dockerfile"
       - "backend/engineering/regen_*.py"
-      - "backend/tests/test_regen_native.py"
+      - "backend/tests/test_regen_native*.py"
       - "scripts/regen_native_evidence.py"
       - "scripts/picogk_manifest.py"
       - ".github/workflows/picogk-runtime.yml"
@@ -19,7 +19,7 @@ on:
       - "picogk-builder/**"
       - "backend/Dockerfile"
       - "backend/engineering/regen_*.py"
-      - "backend/tests/test_regen_native.py"
+      - "backend/tests/test_regen_native*.py"
       - "scripts/regen_native_evidence.py"
       - "scripts/picogk_manifest.py"
       - ".github/workflows/picogk-runtime.yml"
@@ -98,7 +98,7 @@ jobs:
             -e REGEN_NATIVE=1 -e REGEN_BUILDER=/opt/regen/app/builder -e REGEN_GCC_LIB=/opt/regen/lib -e PYTHONPATH=/app:/app/backend:/pt \
             --entrypoint python mirum-backend:release \
             -m pytest -c /dev/null -p no:cacheprovider -rA --basetemp=/work/pt --junit-xml=/res/junit.xml \
-            /repo/backend/tests/test_regen_native.py | tee evidence/pytest/pytest.txt
+            /repo/backend/tests/test_regen_native.py /repo/backend/tests/test_regen_native_defects.py | tee evidence/pytest/pytest.txt
       - name: Require all 4 native tests to pass (skips do not count)
         run: |
           python - <<'PY'
@@ -112,6 +112,18 @@ jobs:
           print(f"tests={tests} passed={passed} failures={bad} errors={errors} skipped={skipped}")
           if passed < 4 or bad or errors:
               sys.exit("native regen tests: need at least 4 passed and no failures")
+          PY
+      - name: Require the 5 native defect cases as well (9 of 9 passed, none skipped)
+        run: |
+          python - <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          root = ET.parse("evidence/pytest/junit.xml").getroot()
+          cases = list(root.iter("testcase"))
+          ok = [c for c in cases if c.find("failure") is None and c.find("error") is None and c.find("skipped") is None]
+          print(f"testcases={len(cases)} passed={len(ok)}")
+          if len(ok) < 9 or len(ok) != len(cases):
+              sys.exit("native regen tests: need all 9 (4 existing + 5 defect cases) passed, none skipped")
           PY
       - name: Reference and small spec evidence (exit code, wall-clock, peak RSS, hashes)
         run: |
