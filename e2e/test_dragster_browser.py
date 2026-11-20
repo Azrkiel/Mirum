@@ -71,51 +71,40 @@ def test_v1_json_loads_with_upgrade_banner(stack, token, page, shot):
     shot(page, "d7_v1_upgrade")
 
 
-def test_zz_temp_probe_networkidle_after_dragster(stack, token, page):
-    """TEMP diagnostic: replay the offline-assets loop and log every request (never fails)."""
+
+def test_zz_temp_probe_patch_later_contexts():
+    """TEMP diagnostic: passively log every request of every later browser context (dump at exit)."""
+    import atexit
     import os
     import time
 
-    from harness.ui import WORKFLOWS, Workspace, sign_in
+    import harness.guard as guard
 
+    original = guard.guarded_context
     t0 = time.monotonic()
-    log: list[dict] = []
-    live: dict = {}
+    events: list = []
+    out = Path(os.environ.get("MIRUM_E2E_ARTIFACTS", REPO_ROOT / "e2e" / "artifacts")) / "probe"
 
     def stamp():
         return round(time.monotonic() - t0, 3)
 
-    def on_request(req):
-        live[id(req)] = {"t": stamp(), "m": req.method, "u": req.url[:160], "type": req.resource_type,
-                         "frame": (req.frame.url[:80] if req.frame else None)}
+    def patched(browser, external, **kwargs):
+        context = original(browser, external, **kwargs)
+        test = os.environ.get("PYTEST_CURRENT_TEST", "?").split(" ")[0]
+        cid = len(events)
+        events.append({"t": stamp(), "ctx": cid, "open": test})
+        for kind in ("request", "requestfinished", "requestfailed"):
+            context.on(kind, lambda req, kind=kind: events.append(
+                {"t": stamp(), "ctx": cid, "k": kind[7:] or "start", "m": req.method,
+                 "u": req.url.split("?")[0][:140], "type": req.resource_type}))
+        context.on("close", lambda _c: events.append({"t": stamp(), "ctx": cid, "close": True}))
+        return context
 
-    def on_done(kind):
-        def handler(req):
-            entry = live.pop(id(req), {"u": req.url[:160]})
-            entry.update(end=stamp(), kind=kind)
-            log.append(entry)
-        return handler
+    def dump():
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "later_contexts.json").write_text(json.dumps(events[-6000:], indent=0),
+                                                  encoding="utf-8", newline="
+")
 
-    page.on("request", on_request)
-    page.on("requestfinished", on_done("finished"))
-    page.on("requestfailed", on_done("failed"))
-    page.on("websocket", lambda ws: log.append({"t": stamp(), "ws": ws.url[:120]}))
-    page.on("console", lambda msg: log.append({"t": stamp(), "console": msg.text[:200]}))
-    steps = []
-    sign_in(page, stack.config.ui_url, token)
-    steps.append({"signed_in": stamp()})
-    workspace = Workspace(page)
-    for name in WORKFLOWS:
-        workspace.select_workflow(name)
-        start = stamp()
-        try:
-            page.wait_for_load_state("networkidle", timeout=20_000)
-            steps.append({"workflow": name, "start": start, "idle": stamp()})
-        except Exception as exc:
-            steps.append({"workflow": name, "start": start, "timeout": stamp(), "error": type(exc).__name__,
-                          "inflight": list(live.values())})
-    out = Path(os.environ.get("MIRUM_E2E_ARTIFACTS", REPO_ROOT / "e2e" / "artifacts")) / "probe"
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "networkidle_after_dragster.json").write_text(
-        json.dumps({"steps": steps, "log": log[-400:], "inflight": list(live.values())}, indent=1),
-        encoding="utf-8", newline="\n")
+    guard.guarded_context = patched
+    atexit.register(dump)
