@@ -9,7 +9,7 @@ on:
       - "picogk-builder/**"
       - "backend/Dockerfile"
       - "backend/engineering/regen_*.py"
-      - "backend/tests/test_regen_native.py"
+      - "backend/tests/test_regen_native*.py"
       - "scripts/regen_native_evidence.py"
       - "scripts/picogk_manifest.py"
       - ".github/workflows/picogk-runtime.yml"
@@ -19,7 +19,7 @@ on:
       - "picogk-builder/**"
       - "backend/Dockerfile"
       - "backend/engineering/regen_*.py"
-      - "backend/tests/test_regen_native.py"
+      - "backend/tests/test_regen_native*.py"
       - "scripts/regen_native_evidence.py"
       - "scripts/picogk_manifest.py"
       - ".github/workflows/picogk-runtime.yml"
@@ -98,8 +98,8 @@ jobs:
             -e REGEN_NATIVE=1 -e REGEN_BUILDER=/opt/regen/app/builder -e REGEN_GCC_LIB=/opt/regen/lib -e PYTHONPATH=/app:/app/backend:/pt \
             --entrypoint python mirum-backend:release \
             -m pytest -c /dev/null -p no:cacheprovider -rA --basetemp=/work/pt --junit-xml=/res/junit.xml \
-            /repo/backend/tests/test_regen_native.py | tee evidence/pytest/pytest.txt
-      - name: Require all 4 native tests to pass (skips do not count)
+            /repo/backend/tests/test_regen_native.py /repo/backend/tests/test_regen_native_defects.py | tee evidence/pytest/pytest.txt
+      - name: Require all 9 native tests to pass (skips do not count)
         run: |
           python - <<'PY'
           import sys
@@ -110,8 +110,8 @@ jobs:
           errors = int(suite.get("errors", 0))
           passed = tests - bad - errors - skipped
           print(f"tests={tests} passed={passed} failures={bad} errors={errors} skipped={skipped}")
-          if passed < 4 or bad or errors:
-              sys.exit("native regen tests: need at least 4 passed and no failures")
+          if passed < 9 or bad or errors:
+              sys.exit("native regen tests: need at least 9 passed and no failures")
           PY
       - name: Reference and small spec evidence (exit code, wall-clock, peak RSS, hashes)
         run: |
