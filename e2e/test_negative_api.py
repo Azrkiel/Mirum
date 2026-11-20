@@ -169,6 +169,9 @@ def test_job_idempotency_is_bound_to_one_brief(api: Api, beam_contract: dict[str
     assert job.status_code == 200, job.text
     assert job.json()["job_id"] == job_id
     assert job.json()["brief_sha256"] == brief["brief_sha256"]
+    # The release stack runs one job at a time (a second start is 429 "capacity busy"): let this
+    # job finish so later tests in this module can start theirs.
+    api.wait_job(job_id, timeout_s=600)
 
 
 def test_unknown_job_has_a_sanitized_not_found_response(api: Api) -> None:
