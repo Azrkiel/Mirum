@@ -328,7 +328,9 @@ def test_invalid_ai_input_is_422_and_spends_nothing(ai_client, monkeypatch, over
     budget = runtime().proposer.budget
     calls = forbid_factory(monkeypatch)
     before = budget.used()
-    response = post_ai(ai_client, 'regen_chamber', REGEN_PROMPT, **over)
+    body = dict(capability='regen_chamber', mode='ai', prompt=REGEN_PROMPT, input={})
+    body.update(over)
+    response = ai_client.post('/engineering/v1/drafts', json=body)
     assert response.status_code == 422, response.text
     assert budget.used() == before and calls == []
 
@@ -344,13 +346,14 @@ def test_beam_ai_mode_keeps_its_own_path_and_flag_message(client, monkeypatch):
 
 
 def _submit(client, payload, capability=None):
-    from engineering.contracts import BriefDraft
+    from engineering.contracts import REVIEW_FIELDS, BriefDraft  # beam content has no review_fields
     body = dict(input=payload) if capability is None else dict(capability=capability, input=payload)
     made = client.post('/engineering/v1/drafts', json=body)
     assert made.status_code == 201, made.text
     draft = BriefDraft.model_validate_json(json.dumps(made.json()['draft']))
     review = dict(draft_id=draft.draft_id, draft_revision=draft.revision, brief_sha256=draft.content.brief_sha256,
-                  acknowledged_fields=list(draft.content.review_fields), reviewed_at='2026-11-17T12:05:00Z',
+                  acknowledged_fields=list(getattr(draft.content, 'review_fields', None) or REVIEW_FIELDS),
+                  reviewed_at='2026-11-17T12:05:00Z',
                   reviewed_by='local-user')
     brief = client.post('/engineering/v1/briefs', json=review)
     assert brief.status_code == 201, brief.text
