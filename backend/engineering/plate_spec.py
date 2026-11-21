@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from types import MappingProxyType
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
@@ -122,7 +122,7 @@ class PlateRequirements(BaseModel):
     assumptions: Literal['kirchhoff_uniform_pressure_uniform_edges_linear_elastic']
 
     @model_validator(mode='after')
-    def validate_shared_limits(self) -> Self:
+    def validate_shared_limits(self):
         if self.length_a_mm < self.width_b_mm:
             raise ValueError('Plate requires length_a_mm >= width_b_mm')
         if self.aspect_ratio > PLATE_NUMERICAL_V1['aspect_ratio_max']:
@@ -140,7 +140,7 @@ class PlateSpec(PlateRequirements):
     thickness_mm: _ThicknessMm
 
     @model_validator(mode='after')
-    def validate_thickness_limit(self) -> Self:
+    def validate_thickness_limit(self):
         if self.dimensional_tolerance_mm > PLATE_NUMERICAL_V1['tolerance_thickness_ratio'] * self.thickness_mm:
             raise ValueError('dimensional_tolerance_mm exceeds the limit relative to thickness_mm')
         return self
@@ -169,7 +169,7 @@ class PlateBrief(BaseModel):
         return candidates
 
     @model_validator(mode='after')
-    def validate_candidates(self) -> Self:
+    def validate_candidates(self):
         if self.mode == 'fixed_design' and len(self.candidate_thicknesses_mm) != 1:
             raise ValueError('Fixed design requires exactly one candidate thickness')
         self.candidates()
