@@ -26,6 +26,8 @@ Frozen in F01 (see [F01-DECISIONS.md](F01-DECISIONS.md) D1): F02 reserves, witho
 
 Frozen in F01 (see [F01-DECISIONS.md](F01-DECISIONS.md) D7): a span-tagged operation stream and an ArtifactGraph (operation to faces, edges and solids with source span) are F02 records and F03 adapter outputs.
 
+Frozen in F02 (see [F02 handoff](handoffs/F02.md)): record names and versions are ProgramIR `mirum_program_ir_v0_1`, semantic payload `mirum_semantics_v0_1`, OperationDescriptor registry `mirum_operation_registry_v0_1`, ExecutionLock `mirum_execution_lock_v0_1`, ConstructionGraph `mirum_construction_graph_v0_1` (empty in v0.1), OpStream `mirum_op_stream_v0_1` and ArtifactGraph `mirum_artifact_graph_v0_1`, in backend/engineering/program/. The v0.1 ExecutionLock pins IR, semantics and registry versions, capability id/version, numerical and resource policies, backend and exports; native library, solver, representation and tolerance fields are added under a new lock version by F03/F05.
+
 ExecutionLock pins language/compiler/IR versions, capability/numerical/resource policies, backend/native library/build versions, required solver versions, representations, tolerances and selected exports. Resolve it before review. Native deployment changes are detected by a fresh availability probe; incompatible locks require re-review or an explicitly documented reproducible old environment.
 
 CheckPlan contains requirement IDs, measurement predicates, thresholds/units, supported semantic bindings, analysis method, coverage and required/unavailable policy. Requirements originate in reviewed meaning. Building a different shape never changes these thresholds.

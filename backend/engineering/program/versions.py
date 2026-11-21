@@ -1,0 +1,11 @@
+"""Version identifiers for the Mirum program IR (F02)."""
+from __future__ import annotations
+
+PROGRAM_IR_VERSION = 'mirum_program_ir_v0_1'
+SEMANTICS_VERSION = 'mirum_semantics_v0_1'
+REGISTRY_VERSION = 'mirum_operation_registry_v0_1'
+EXECUTION_LOCK_VERSION = 'mirum_execution_lock_v0_1'
+# Reserved: construction graphs must be empty in v0.1 programs.
+CONSTRUCTION_GRAPH_VERSION = 'mirum_construction_graph_v0_1'
+OP_STREAM_VERSION = 'mirum_op_stream_v0_1'
+ARTIFACT_GRAPH_VERSION = 'mirum_artifact_graph_v0_1'

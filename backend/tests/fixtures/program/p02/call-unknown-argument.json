@@ -1,0 +1,14 @@
+{
+  "operation": "capability.export",
+  "version": "0.1.0",
+  "args": {
+    "format": {
+      "kind": "text",
+      "text": "step"
+    },
+    "destination": {
+      "kind": "text",
+      "text": "beam.step"
+    }
+  }
+}

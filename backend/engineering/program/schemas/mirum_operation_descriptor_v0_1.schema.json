@@ -1,0 +1,190 @@
+{
+  "$defs": {
+    "ArgSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "default": [],
+          "items": {
+            "maxLength": 240,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Allowed",
+          "type": "array"
+        },
+        "dimension": {
+          "anyOf": [
+            {
+              "enum": [
+                "length",
+                "force",
+                "pressure",
+                "mass",
+                "time",
+                "angle",
+                "dimensionless"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dimension"
+        },
+        "kind": {
+          "enum": [
+            "quantity",
+            "text",
+            "reference"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "kind"
+      ],
+      "title": "ArgSpec",
+      "type": "object"
+    },
+    "OutputSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "solid",
+            "sketch",
+            "artifact",
+            "measurement",
+            "report",
+            "file"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "OutputSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "args": {
+      "items": {
+        "$ref": "#/$defs/ArgSpec"
+      },
+      "maxItems": 256,
+      "title": "Args",
+      "type": "array"
+    },
+    "backend_requirements": {
+      "items": {
+        "maxLength": 240,
+        "type": "string"
+      },
+      "maxItems": 256,
+      "title": "Backend Requirements",
+      "type": "array"
+    },
+    "capability_versions": {
+      "items": {
+        "maxLength": 240,
+        "type": "string"
+      },
+      "maxItems": 256,
+      "title": "Capability Versions",
+      "type": "array"
+    },
+    "executable": {
+      "title": "Executable",
+      "type": "boolean"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "outputs": {
+      "items": {
+        "$ref": "#/$defs/OutputSpec"
+      },
+      "maxItems": 256,
+      "title": "Outputs",
+      "type": "array"
+    },
+    "preconditions": {
+      "items": {
+        "maxLength": 240,
+        "type": "string"
+      },
+      "maxItems": 256,
+      "title": "Preconditions",
+      "type": "array"
+    },
+    "representations": {
+      "items": {
+        "enum": [
+          "brep",
+          "mesh",
+          "voxel",
+          "report",
+          "file"
+        ],
+        "type": "string"
+      },
+      "title": "Representations",
+      "type": "array"
+    },
+    "summary": {
+      "maxLength": 240,
+      "title": "Summary",
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "summary",
+    "args",
+    "preconditions",
+    "outputs",
+    "representations",
+    "backend_requirements",
+    "capability_versions",
+    "executable"
+  ],
+  "title": "OperationDescriptor",
+  "type": "object"
+}

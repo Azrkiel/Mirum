@@ -1,0 +1,677 @@
+{
+  "schema_version": "mirum_program_ir_v0_1",
+  "design": "reference_beam",
+  "capability": {
+    "id": "rectangular_cantilever",
+    "version": "1.0.0",
+    "numerical_policy_version": "beam_numerical_v1",
+    "resource_policy_version": "engineering_resources_v1"
+  },
+  "requirements": {
+    "requirements": [
+      {
+        "id": "model.assumptions",
+        "value": {
+          "kind": "text",
+          "text": "ideal_clamp_end_force_linear_elastic"
+        },
+        "span": {
+          "line": 19,
+          "column": 3,
+          "end_line": 19,
+          "end_column": 55,
+          "source_id": "examples/beam.mir"
+        }
+      },
+      {
+        "id": "material.source_kind",
+        "value": {
+          "kind": "text",
+          "text": "illustrative"
+        },
+        "span": {
+          "line": 18,
+          "column": 3,
+          "end_line": 18,
+          "end_column": 40,
+          "source_id": "examples/beam.mir"
+        }
+      },
+      {
+        "id": "material.reference",
+        "value": {
+          "kind": "text",
+          "text": "Illustrative user-provided properties; not certified stock values"
+        },
+        "span": {
+          "line": 17,
+          "column": 3,
+          "end_line": 17,
+          "end_column": 91,
+          "source_id": "examples/beam.mir"
+        }
+      },
+      {
+        "id": "material.allowable_stress",
+        "value": {
+          "kind": "quantity",
+          "dimension": "pressure",
+          "value": 120.0,
+          "unit": "MPa"
+        },
+        "span": {
+          "line": 16,
+          "column": 3,
+          "end_line": 16,
+          "end_column": 29,
+          "source_id": "examples/beam.mir"
+        }
+      },
+      {
+        "id": "material.youngs_modulus",
+        "value": {
+          "kind": "quantity",
+          "dimension": "pressure",
+          "value": 70000.0,
+          "unit": "MPa"
+        },
+        "span": {
+          "line": 15,
+          "column": 3,
+          "end_line": 15,
+          "end_column": 29,
+          "source_id": "examples/beam.mir"
+        }
+      },
+      {
+        "id": "limit.max_tip_deflection",
+        "value": {
+          "kind": "quantity",
+          "dimension": "length",
+          "value": 1.0,
+          "unit": "mm"
+        },
+        "span": {
+          "line": 14,
+          "column": 3,
+          "end_line": 14,
+          "end_column": 28,
+          "source_id": "examples/beam.mir"
+        }
+      },
+      {
+        "id": "load.tip_force",
+        "value": {
+          "kind": "quantity",
+          "dimension": "force",
+          "value": 50.0,
+          "unit": "N"
+        },
+        "span": {
+          "line": 13,
+          "column": 3,
+          "end_line": 13,
+          "end_column": 19,
+          "source_id": "examples/beam.mir"
+        }
+      },
+      {
+        "id": "beam.dimensional_tolerance",
+        "value": {
+          "kind": "quantity",
+          "dimension": "length",
+          "value": 0.01,
+          "unit": "mm"
+        },
+        "span": {
+          "line": 12,
+          "column": 3,
+          "end_line": 12,
+          "end_column": 34,
+          "source_id": "examples/beam.mir"
+        }
+      },
+      {
+        "id": "beam.width",
+        "value": {
+          "kind": "quantity",
+          "dimension": "length",
+          "value": 10.0,
+          "unit": "mm"
+        },
+        "span": {
+          "line": 11,
+          "column": 3,
+          "end_line": 11,
+          "end_column": 16,
+          "source_id": "examples/beam.mir"
+        }
+      },
+      {
+        "id": "beam.length",
+        "value": {
+          "kind": "quantity",
+          "dimension": "length",
+          "value": 200.0,
+          "unit": "mm"
+        },
+        "span": {
+          "line": 10,
+          "column": 3,
+          "end_line": 10,
+          "end_column": 18,
+          "source_id": "examples/beam.mir"
+        }
+      }
+    ]
+  },
+  "candidates": {
+    "mode": "bounded_thickness",
+    "span": {
+      "line": 20,
+      "column": 3,
+      "end_line": 21,
+      "end_column": 43,
+      "source_id": "examples/beam.mir"
+    },
+    "parameters": [
+      {
+        "id": "beam.height",
+        "values": [
+          {
+            "kind": "quantity",
+            "dimension": "length",
+            "value": 5.0,
+            "unit": "mm"
+          },
+          {
+            "kind": "quantity",
+            "dimension": "length",
+            "value": 10.0,
+            "unit": "mm"
+          },
+          {
+            "kind": "quantity",
+            "dimension": "length",
+            "value": 15.0,
+            "unit": "mm"
+          }
+        ],
+        "span": {
+          "line": 21,
+          "column": 3,
+          "end_line": 21,
+          "end_column": 43,
+          "source_id": "examples/beam.mir"
+        }
+      }
+    ]
+  },
+  "analysis": [
+    {
+      "id": "check.native_geometry",
+      "check": "native_geometry",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.dimensional_evidence_budget",
+      "check": "dimensional_evidence_budget",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.independent_step_read",
+      "check": "independent_step_read",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.independent_step_transfer",
+      "check": "independent_step_transfer",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.single_rectangular_solid",
+      "check": "single_rectangular_solid",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.planar_faces",
+      "check": "planar_faces",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.finite_measurements",
+      "check": "finite_measurements",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.size_requirements",
+      "check": "size_requirements",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.datum_frame",
+      "check": "datum_frame",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.axis_aligned_faces",
+      "check": "axis_aligned_faces",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.rectangular_face_pairs",
+      "check": "rectangular_face_pairs",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.complete_prism_metrics",
+      "check": "complete_prism_metrics",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.measured_root_section",
+      "check": "measured_root_section",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.mesh_convergence",
+      "check": "mesh_convergence",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.analytic_benchmark",
+      "check": "analytic_benchmark",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.equilibrium",
+      "check": "equilibrium",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.small_deflection",
+      "check": "small_deflection",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.small_strain",
+      "check": "small_strain",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.stress_allowable",
+      "check": "stress_allowable",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    },
+    {
+      "id": "check.displacement_requirement",
+      "check": "displacement_requirement",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.dimensional_tolerance",
+        "load.tip_force",
+        "limit.max_tip_deflection",
+        "material.youngs_modulus",
+        "material.allowable_stress",
+        "material.reference",
+        "material.source_kind",
+        "model.assumptions",
+        "beam.height"
+      ]
+    }
+  ],
+  "construction": {
+    "schema_version": "mirum_construction_graph_v0_1",
+    "steps": []
+  },
+  "evidence": [
+    {
+      "id": "evidence.native_geometry",
+      "analysis_ref": "check.native_geometry",
+      "required": true
+    },
+    {
+      "id": "evidence.dimensional_evidence_budget",
+      "analysis_ref": "check.dimensional_evidence_budget",
+      "required": true
+    },
+    {
+      "id": "evidence.independent_step_read",
+      "analysis_ref": "check.independent_step_read",
+      "required": true
+    },
+    {
+      "id": "evidence.independent_step_transfer",
+      "analysis_ref": "check.independent_step_transfer",
+      "required": true
+    },
+    {
+      "id": "evidence.single_rectangular_solid",
+      "analysis_ref": "check.single_rectangular_solid",
+      "required": true
+    },
+    {
+      "id": "evidence.planar_faces",
+      "analysis_ref": "check.planar_faces",
+      "required": true
+    },
+    {
+      "id": "evidence.finite_measurements",
+      "analysis_ref": "check.finite_measurements",
+      "required": true
+    },
+    {
+      "id": "evidence.size_requirements",
+      "analysis_ref": "check.size_requirements",
+      "required": true
+    },
+    {
+      "id": "evidence.datum_frame",
+      "analysis_ref": "check.datum_frame",
+      "required": true
+    },
+    {
+      "id": "evidence.axis_aligned_faces",
+      "analysis_ref": "check.axis_aligned_faces",
+      "required": true
+    },
+    {
+      "id": "evidence.rectangular_face_pairs",
+      "analysis_ref": "check.rectangular_face_pairs",
+      "required": true
+    },
+    {
+      "id": "evidence.complete_prism_metrics",
+      "analysis_ref": "check.complete_prism_metrics",
+      "required": true
+    },
+    {
+      "id": "evidence.measured_root_section",
+      "analysis_ref": "check.measured_root_section",
+      "required": true
+    },
+    {
+      "id": "evidence.mesh_convergence",
+      "analysis_ref": "check.mesh_convergence",
+      "required": true
+    },
+    {
+      "id": "evidence.analytic_benchmark",
+      "analysis_ref": "check.analytic_benchmark",
+      "required": true
+    },
+    {
+      "id": "evidence.equilibrium",
+      "analysis_ref": "check.equilibrium",
+      "required": true
+    },
+    {
+      "id": "evidence.small_deflection",
+      "analysis_ref": "check.small_deflection",
+      "required": true
+    },
+    {
+      "id": "evidence.small_strain",
+      "analysis_ref": "check.small_strain",
+      "required": true
+    },
+    {
+      "id": "evidence.stress_allowable",
+      "analysis_ref": "check.stress_allowable",
+      "required": true
+    },
+    {
+      "id": "evidence.displacement_requirement",
+      "analysis_ref": "check.displacement_requirement",
+      "required": true
+    }
+  ],
+  "execution": {
+    "backend": "occt",
+    "exports": [
+      "step",
+      "glb"
+    ]
+  },
+  "provenance": {
+    "kind": "language",
+    "source_sha256": "b79bff31b61c50864c32d498ea99bebfbf58d3fd2af7206cc85900db4c3ce69f",
+    "source_id": "examples/beam.mir"
+  },
+  "span": {
+    "line": 4,
+    "column": 1,
+    "end_line": 23,
+    "end_column": 1,
+    "source_id": "examples/beam.mir"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "operation": "construct.boolean",
+  "version": "0.1.0",
+  "args": {
+    "operation": {
+      "kind": "text",
+      "text": "union"
+    }
+  }
+}

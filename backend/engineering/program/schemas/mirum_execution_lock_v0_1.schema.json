@@ -1,0 +1,83 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "backend": {
+      "enum": [
+        "occt",
+        "picogk"
+      ],
+      "title": "Backend",
+      "type": "string"
+    },
+    "capability_id": {
+      "title": "Capability Id",
+      "type": "string"
+    },
+    "capability_version": {
+      "title": "Capability Version",
+      "type": "string"
+    },
+    "exports": {
+      "items": {
+        "enum": [
+          "step",
+          "glb",
+          "source",
+          "brief",
+          "specification",
+          "attempts",
+          "report_json",
+          "report_markdown",
+          "manifest",
+          "zip"
+        ],
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Exports",
+      "type": "array"
+    },
+    "numerical_policy_version": {
+      "title": "Numerical Policy Version",
+      "type": "string"
+    },
+    "program_ir_version": {
+      "title": "Program Ir Version",
+      "type": "string"
+    },
+    "registry_version": {
+      "title": "Registry Version",
+      "type": "string"
+    },
+    "resource_policy_version": {
+      "title": "Resource Policy Version",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "mirum_execution_lock_v0_1",
+      "enum": [
+        "mirum_execution_lock_v0_1"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantics_version": {
+      "title": "Semantics Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "program_ir_version",
+    "semantics_version",
+    "registry_version",
+    "capability_id",
+    "capability_version",
+    "numerical_policy_version",
+    "resource_policy_version",
+    "backend",
+    "exports"
+  ],
+  "title": "ExecutionLock",
+  "type": "object"
+}

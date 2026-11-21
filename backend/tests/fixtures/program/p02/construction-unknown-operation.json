@@ -1,0 +1,33 @@
+{
+  "schema_version": "mirum_construction_graph_v0_1",
+  "steps": [
+    {
+      "id": "step.profile",
+      "operation": "construct.sketch",
+      "operation_version": "0.1.0",
+      "args": {
+        "plane": {
+          "kind": "text",
+          "text": "xy"
+        }
+      },
+      "inputs": []
+    },
+    {
+      "id": "step.solid",
+      "operation": "construct.unknown",
+      "operation_version": "0.1.0",
+      "args": {
+        "distance": {
+          "kind": "quantity",
+          "dimension": "length",
+          "value": 5,
+          "unit": "mm"
+        }
+      },
+      "inputs": [
+        "step.profile"
+      ]
+    }
+  ]
+}

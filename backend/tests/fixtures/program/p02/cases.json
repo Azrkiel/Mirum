@@ -1,0 +1,410 @@
+[
+  {
+    "id": "beam",
+    "file": "beam.json",
+    "kind": "program",
+    "expect": "accept",
+    "note": "Reference cantilever with normalized requirements, three heights and language spans."
+  },
+  {
+    "id": "beam-without-spans",
+    "file": "beam-without-spans.json",
+    "kind": "program",
+    "expect": "accept",
+    "note": "Reference cantilever with all optional source spans omitted."
+  },
+  {
+    "id": "sketch-extrude",
+    "file": "sketch-extrude.json",
+    "kind": "construction",
+    "expect": "accept",
+    "note": "Extrude references the earlier sketch as its input."
+  },
+  {
+    "id": "sketch-sweep",
+    "file": "sketch-sweep.json",
+    "kind": "construction",
+    "expect": "accept",
+    "note": "Sweep arguments reference earlier profile and path steps."
+  },
+  {
+    "id": "artifact-graph",
+    "file": "artifact-graph.json",
+    "kind": "artifact_graph",
+    "expect": "accept",
+    "note": "Two operation entries and three artifact nodes."
+  },
+  {
+    "id": "call-boolean",
+    "file": "call-boolean.json",
+    "kind": "call",
+    "expect": "accept",
+    "note": "Union is an allowed Boolean operation."
+  },
+  {
+    "id": "call-export",
+    "file": "call-export.json",
+    "kind": "call",
+    "expect": "accept",
+    "note": "STEP is an allowed export format."
+  },
+  {
+    "id": "call-extrude",
+    "file": "call-extrude.json",
+    "kind": "call",
+    "expect": "accept",
+    "note": "Extrude takes a canonical length."
+  },
+  {
+    "id": "quantity-centimeters",
+    "file": "quantity-centimeters.json",
+    "kind": "quantity",
+    "expect": "accept",
+    "note": "Normalize 20 cm to 200 mm."
+  },
+  {
+    "id": "quantity-gigapascals",
+    "file": "quantity-gigapascals.json",
+    "kind": "quantity",
+    "expect": "accept",
+    "note": "Normalize 70 GPa to 70000 MPa."
+  },
+  {
+    "id": "quantity-newtons",
+    "file": "quantity-newtons.json",
+    "kind": "quantity",
+    "expect": "accept",
+    "note": "Normalize 50 N to the canonical force unit."
+  },
+  {
+    "id": "quantity-degrees",
+    "file": "quantity-degrees.json",
+    "kind": "quantity",
+    "expect": "accept",
+    "note": "Normalize 90 degrees to pi/2 radians."
+  },
+  {
+    "id": "quantity-millimeters",
+    "file": "quantity-millimeters.json",
+    "kind": "quantity",
+    "expect": "accept",
+    "note": "Normalize 5 mm to the canonical length unit."
+  },
+  {
+    "id": "executable-build",
+    "file": "executable-build.json",
+    "kind": "executable",
+    "expect": "accept",
+    "note": "Build is executable in the default registry."
+  },
+  {
+    "id": "construction-unknown-operation",
+    "file": "construction-unknown-operation.json",
+    "kind": "construction",
+    "expect": {
+      "code": "IR008",
+      "field": "steps.1.operation"
+    },
+    "note": "From sketch-extrude: replace the extrude operation with construct.unknown."
+  },
+  {
+    "id": "call-unknown-operation",
+    "file": "call-unknown-operation.json",
+    "kind": "call",
+    "expect": {
+      "code": "IR008",
+      "field": null
+    },
+    "note": "From call-boolean: replace the Boolean operation with construct.unknown."
+  },
+  {
+    "id": "artifact-unknown-operation",
+    "file": "artifact-unknown-operation.json",
+    "kind": "artifact_graph",
+    "expect": {
+      "code": "IR008",
+      "field": "op_stream.entries.1.operation"
+    },
+    "note": "From artifact-graph: replace the second op-stream operation with construct.unknown."
+  },
+  {
+    "id": "call-unknown-version",
+    "file": "call-unknown-version.json",
+    "kind": "call",
+    "expect": {
+      "code": "IR001",
+      "field": null
+    },
+    "note": "From call-extrude: replace the operation version with 9.9.9."
+  },
+  {
+    "id": "program-unknown-version",
+    "file": "program-unknown-version.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR001",
+      "field": "schema_version"
+    },
+    "note": "From beam: replace the program schema version with mirum_program_ir_v9_9."
+  },
+  {
+    "id": "program-missing-version",
+    "file": "program-missing-version.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR001",
+      "field": "schema_version"
+    },
+    "note": "From beam: remove the program schema version."
+  },
+  {
+    "id": "construction-unknown-version",
+    "file": "construction-unknown-version.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR001",
+      "field": "construction.schema_version"
+    },
+    "note": "From beam: replace the nested construction schema version with mirum_construction_graph_v9_9."
+  },
+  {
+    "id": "artifact-unknown-version",
+    "file": "artifact-unknown-version.json",
+    "kind": "artifact_graph",
+    "expect": {
+      "code": "IR001",
+      "field": "schema_version"
+    },
+    "note": "From artifact-graph: replace the artifact schema version with mirum_artifact_graph_v9_9."
+  },
+  {
+    "id": "program-unknown-field",
+    "file": "program-unknown-field.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR002",
+      "field": "unexpected"
+    },
+    "note": "From beam: add the top-level unexpected field."
+  },
+  {
+    "id": "program-unknown-nested-field",
+    "file": "program-unknown-nested-field.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR002",
+      "field": "requirements.requirements.0.value.unexpected"
+    },
+    "note": "From beam: add the unexpected field to the first requirement quantity."
+  },
+  {
+    "id": "call-unknown-argument",
+    "file": "call-unknown-argument.json",
+    "kind": "call",
+    "expect": {
+      "code": "IR002",
+      "field": "args.destination"
+    },
+    "note": "From call-export: add the destination argument."
+  },
+  {
+    "id": "program-duplicate-field",
+    "file": "program-duplicate-field.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR003",
+      "field": "design"
+    },
+    "note": "From beam: insert a second design key."
+  },
+  {
+    "id": "program-duplicate-nested-field",
+    "file": "program-duplicate-nested-field.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR003",
+      "field": "requirements.requirements.0.id"
+    },
+    "note": "From beam: insert a second id key in the first requirement."
+  },
+  {
+    "id": "program-unresolved-requirement",
+    "file": "program-unresolved-requirement.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR004",
+      "field": "analysis.0.requirement_refs.0"
+    },
+    "note": "From beam: replace the first analysis requirement reference with beam.unknown."
+  },
+  {
+    "id": "program-unresolved-analysis",
+    "file": "program-unresolved-analysis.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR004",
+      "field": "evidence.0.analysis_ref"
+    },
+    "note": "From beam: replace the first evidence analysis reference with check.unknown."
+  },
+  {
+    "id": "construction-forward-input",
+    "file": "construction-forward-input.json",
+    "kind": "construction",
+    "expect": {
+      "code": "IR004",
+      "field": "steps.0.inputs.0"
+    },
+    "note": "From sketch-extrude: add the later solid step as the first step input."
+  },
+  {
+    "id": "construction-unresolved-reference-argument",
+    "file": "construction-unresolved-reference-argument.json",
+    "kind": "construction",
+    "expect": {
+      "code": "IR004",
+      "field": "steps.2.args.path"
+    },
+    "note": "From sketch-sweep: replace the sweep path reference with step.unknown."
+  },
+  {
+    "id": "artifact-unresolved-op-seq",
+    "file": "artifact-unresolved-op-seq.json",
+    "kind": "artifact_graph",
+    "expect": {
+      "code": "IR004",
+      "field": "nodes.0.op_seq"
+    },
+    "note": "From artifact-graph: set the first node op_seq to 2, beyond the stream."
+  },
+  {
+    "id": "quantity-unknown-unit",
+    "file": "quantity-unknown-unit.json",
+    "kind": "quantity",
+    "expect": {
+      "code": "IR005",
+      "field": null
+    },
+    "note": "From quantity-centimeters: replace cm with furlong."
+  },
+  {
+    "id": "quantity-wrong-dimension",
+    "file": "quantity-wrong-dimension.json",
+    "kind": "quantity",
+    "expect": {
+      "code": "IR006",
+      "field": null
+    },
+    "note": "From quantity-millimeters: replace mm with N while keeping the expected length dimension."
+  },
+  {
+    "id": "program-unit-mismatch",
+    "file": "program-unit-mismatch.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR006",
+      "field": "requirements.requirements.0.value.unit"
+    },
+    "note": "From beam: replace the length requirement unit mm with N."
+  },
+  {
+    "id": "call-wrong-dimension",
+    "file": "call-wrong-dimension.json",
+    "kind": "call",
+    "expect": {
+      "code": "IR006",
+      "field": "args.distance"
+    },
+    "note": "From call-extrude: replace the distance argument with a force quantity."
+  },
+  {
+    "id": "program-nan",
+    "file": "program-nan.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR007",
+      "field": "requirements.requirements.0.value.value"
+    },
+    "note": "From beam: replace the length number with the raw NaN literal."
+  },
+  {
+    "id": "program-infinity",
+    "file": "program-infinity.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR007",
+      "field": "requirements.requirements.0.value.value"
+    },
+    "note": "From beam: replace the length number with the raw Infinity literal."
+  },
+  {
+    "id": "program-negative-infinity",
+    "file": "program-negative-infinity.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR007",
+      "field": "requirements.requirements.0.value.value"
+    },
+    "note": "From beam: replace the length number with the raw -Infinity literal."
+  },
+  {
+    "id": "executable-reserved-operation",
+    "file": "executable-reserved-operation.json",
+    "kind": "executable",
+    "expect": {
+      "code": "IR009",
+      "field": null
+    },
+    "note": "From executable-build: replace capability.build with the reserved construct.extrude."
+  },
+  {
+    "id": "program-nonempty-construction",
+    "file": "program-nonempty-construction.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR009",
+      "field": "construction.steps"
+    },
+    "note": "From beam: insert one sketch step into the empty construction graph."
+  },
+  {
+    "id": "program-wrong-type",
+    "file": "program-wrong-type.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR010",
+      "field": "design"
+    },
+    "note": "From beam: replace the design name with the integer 5."
+  },
+  {
+    "id": "program-duplicate-requirement-id",
+    "file": "program-duplicate-requirement-id.json",
+    "kind": "program",
+    "expect": {
+      "code": "IR011",
+      "field": "requirements.requirements.1.id"
+    },
+    "note": "From beam: replace the width requirement ID with the length requirement ID."
+  },
+  {
+    "id": "artifact-duplicate-node-id",
+    "file": "artifact-duplicate-node-id.json",
+    "kind": "artifact_graph",
+    "expect": {
+      "code": "IR011",
+      "field": "nodes.1.id"
+    },
+    "note": "From artifact-graph: replace the second node ID with the first node ID."
+  },
+  {
+    "id": "call-noncanonical-quantity",
+    "file": "call-noncanonical-quantity.json",
+    "kind": "call",
+    "expect": {
+      "code": "IR006",
+      "field": "unit"
+    },
+    "note": "From call-extrude: replace the distance quantity unit mm with N while keeping its length dimension."
+  }
+]

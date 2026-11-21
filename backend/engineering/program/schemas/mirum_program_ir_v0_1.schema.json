@@ -1,0 +1,655 @@
+{
+  "$defs": {
+    "AnalysisPlanRef": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Check",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "requirement_refs": {
+          "items": {
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Requirement Refs",
+          "type": "array"
+        },
+        "span": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceSpan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "check",
+        "requirement_refs"
+      ],
+      "title": "AnalysisPlanRef",
+      "type": "object"
+    },
+    "CandidateParameter": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "span": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceSpan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "values": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "quantity": "#/$defs/QuantityValue",
+                "text": "#/$defs/TextValue"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/QuantityValue"
+              },
+              {
+                "$ref": "#/$defs/TextValue"
+              }
+            ]
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "values"
+      ],
+      "title": "CandidateParameter",
+      "type": "object"
+    },
+    "CandidateSpace": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Mode",
+          "type": "string"
+        },
+        "parameters": {
+          "items": {
+            "$ref": "#/$defs/CandidateParameter"
+          },
+          "maxItems": 64,
+          "title": "Parameters",
+          "type": "array"
+        },
+        "span": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceSpan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "mode",
+        "parameters"
+      ],
+      "title": "CandidateSpace",
+      "type": "object"
+    },
+    "CapabilityRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "numerical_policy_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Numerical Policy Version",
+          "type": "string"
+        },
+        "resource_policy_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Resource Policy Version",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "numerical_policy_version",
+        "resource_policy_version"
+      ],
+      "title": "CapabilityRef",
+      "type": "object"
+    },
+    "ConstructionGraph": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "mirum_construction_graph_v0_1",
+          "enum": [
+            "mirum_construction_graph_v0_1"
+          ],
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "steps": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ConstructionStep"
+          },
+          "maxItems": 256,
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version"
+      ],
+      "title": "ConstructionGraph",
+      "type": "object"
+    },
+    "ConstructionStep": {
+      "additionalProperties": false,
+      "description": "Record shape only; no execution in v0.1.",
+      "properties": {
+        "args": {
+          "additionalProperties": {
+            "discriminator": {
+              "mapping": {
+                "quantity": "#/$defs/QuantityValue",
+                "text": "#/$defs/TextValue"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/QuantityValue"
+              },
+              {
+                "$ref": "#/$defs/TextValue"
+              }
+            ]
+          },
+          "maxProperties": 64,
+          "title": "Args",
+          "type": "object"
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "inputs": {
+          "default": [],
+          "items": {
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Inputs",
+          "type": "array"
+        },
+        "operation": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Operation Version",
+          "type": "string"
+        },
+        "span": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceSpan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "operation",
+        "operation_version",
+        "args"
+      ],
+      "title": "ConstructionStep",
+      "type": "object"
+    },
+    "EvidenceExpectation": {
+      "additionalProperties": false,
+      "properties": {
+        "analysis_ref": {
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
+          "title": "Analysis Ref",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "span": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceSpan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "analysis_ref",
+        "required"
+      ],
+      "title": "EvidenceExpectation",
+      "type": "object"
+    },
+    "ExecutionSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "enum": [
+            "occt",
+            "picogk"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "exports": {
+          "items": {
+            "enum": [
+              "step",
+              "glb",
+              "source",
+              "brief",
+              "specification",
+              "attempts",
+              "report_json",
+              "report_markdown",
+              "manifest",
+              "zip"
+            ],
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Exports",
+          "type": "array"
+        }
+      },
+      "required": [
+        "backend",
+        "exports"
+      ],
+      "title": "ExecutionSelection",
+      "type": "object"
+    },
+    "ProgramProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "form",
+            "ai",
+            "language"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "maxLength": 240,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "translated_from": {
+          "anyOf": [
+            {
+              "maxLength": 240,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Translated From"
+        }
+      },
+      "required": [
+        "kind",
+        "source_sha256"
+      ],
+      "title": "ProgramProvenance",
+      "type": "object"
+    },
+    "QuantityValue": {
+      "additionalProperties": false,
+      "description": "A physical number in its canonical unit. Build through units.normalize.",
+      "properties": {
+        "dimension": {
+          "enum": [
+            "length",
+            "force",
+            "pressure",
+            "mass",
+            "time",
+            "angle",
+            "dimensionless"
+          ],
+          "title": "Dimension",
+          "type": "string"
+        },
+        "kind": {
+          "const": "quantity",
+          "enum": [
+            "quantity"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "dimension",
+        "value",
+        "unit"
+      ],
+      "title": "QuantityValue",
+      "type": "object"
+    },
+    "Requirement": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "span": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceSpan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "discriminator": {
+            "mapping": {
+              "quantity": "#/$defs/QuantityValue",
+              "text": "#/$defs/TextValue"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/QuantityValue"
+            },
+            {
+              "$ref": "#/$defs/TextValue"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "id",
+        "value"
+      ],
+      "title": "Requirement",
+      "type": "object"
+    },
+    "RequirementPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "requirements": {
+          "items": {
+            "$ref": "#/$defs/Requirement"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "title": "Requirements",
+          "type": "array"
+        }
+      },
+      "required": [
+        "requirements"
+      ],
+      "title": "RequirementPlan",
+      "type": "object"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "description": "1-based, end inclusive.",
+      "properties": {
+        "column": {
+          "title": "Column",
+          "type": "integer"
+        },
+        "end_column": {
+          "title": "End Column",
+          "type": "integer"
+        },
+        "end_line": {
+          "title": "End Line",
+          "type": "integer"
+        },
+        "line": {
+          "title": "Line",
+          "type": "integer"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "maxLength": 240,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        }
+      },
+      "required": [
+        "line",
+        "column",
+        "end_line",
+        "end_column"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    },
+    "TextValue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "text",
+          "enum": [
+            "text"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ],
+      "title": "TextValue",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "analysis": {
+      "items": {
+        "$ref": "#/$defs/AnalysisPlanRef"
+      },
+      "maxItems": 256,
+      "title": "Analysis",
+      "type": "array"
+    },
+    "candidates": {
+      "$ref": "#/$defs/CandidateSpace"
+    },
+    "capability": {
+      "$ref": "#/$defs/CapabilityRef"
+    },
+    "construction": {
+      "$ref": "#/$defs/ConstructionGraph"
+    },
+    "design": {
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "title": "Design",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/EvidenceExpectation"
+      },
+      "maxItems": 256,
+      "title": "Evidence",
+      "type": "array"
+    },
+    "execution": {
+      "$ref": "#/$defs/ExecutionSelection"
+    },
+    "provenance": {
+      "$ref": "#/$defs/ProgramProvenance"
+    },
+    "requirements": {
+      "$ref": "#/$defs/RequirementPlan"
+    },
+    "schema_version": {
+      "const": "mirum_program_ir_v0_1",
+      "enum": [
+        "mirum_program_ir_v0_1"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "span": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceSpan"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "schema_version",
+    "design",
+    "capability",
+    "requirements",
+    "candidates",
+    "analysis",
+    "construction",
+    "evidence",
+    "execution",
+    "provenance"
+  ],
+  "title": "ProgramIR",
+  "type": "object"
+}

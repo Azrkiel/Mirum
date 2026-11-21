@@ -1,0 +1,87 @@
+{
+  "$defs": {
+    "SourceSpan": {
+      "additionalProperties": false,
+      "description": "1-based, end inclusive.",
+      "properties": {
+        "column": {
+          "title": "Column",
+          "type": "integer"
+        },
+        "end_column": {
+          "title": "End Column",
+          "type": "integer"
+        },
+        "end_line": {
+          "title": "End Line",
+          "type": "integer"
+        },
+        "line": {
+          "title": "Line",
+          "type": "integer"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "maxLength": 240,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        }
+      },
+      "required": [
+        "line",
+        "column",
+        "end_line",
+        "end_column"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "title": "Code",
+      "type": "string"
+    },
+    "field": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Field"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    },
+    "span": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceSpan"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "code",
+    "message"
+  ],
+  "title": "Diagnostic",
+  "type": "object"
+}

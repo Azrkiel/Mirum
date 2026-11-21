@@ -1,0 +1,12 @@
+{
+  "operation": "construct.extrude",
+  "version": "0.1.0",
+  "args": {
+    "distance": {
+      "kind": "quantity",
+      "dimension": "length",
+      "value": 5,
+      "unit": "N"
+    }
+  }
+}

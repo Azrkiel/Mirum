@@ -1,0 +1,179 @@
+{
+  "schema_version": "mirum_program_ir_v0_1",
+  "design": "reference_beam",
+  "capability": {
+    "id": "rectangular_cantilever",
+    "version": "1.0.0",
+    "numerical_policy_version": "beam_numerical_v1",
+    "resource_policy_version": "engineering_resources_v1"
+  },
+  "requirements": {
+    "requirements": [
+      {
+        "id": "beam.length",
+        "value": {
+          "kind": "quantity",
+          "dimension": "length",
+          "value": 200,
+          "unit": "mm"
+        }
+      },
+      {
+        "id": "beam.width",
+        "value": {
+          "kind": "quantity",
+          "dimension": "length",
+          "value": 10,
+          "unit": "mm"
+        }
+      },
+      {
+        "id": "beam.dimensional_tolerance",
+        "value": {
+          "kind": "quantity",
+          "dimension": "length",
+          "value": 0.01,
+          "unit": "mm"
+        }
+      },
+      {
+        "id": "load.tip_force",
+        "value": {
+          "kind": "quantity",
+          "dimension": "force",
+          "value": 50,
+          "unit": "N"
+        }
+      },
+      {
+        "id": "limit.max_tip_deflection",
+        "value": {
+          "kind": "quantity",
+          "dimension": "length",
+          "value": 1,
+          "unit": "mm"
+        }
+      },
+      {
+        "id": "material.youngs_modulus",
+        "value": {
+          "kind": "quantity",
+          "dimension": "pressure",
+          "value": 70000,
+          "unit": "MPa"
+        }
+      },
+      {
+        "id": "material.allowable_stress",
+        "value": {
+          "kind": "quantity",
+          "dimension": "pressure",
+          "value": 120,
+          "unit": "MPa"
+        }
+      },
+      {
+        "id": "material.reference",
+        "value": {
+          "kind": "text",
+          "text": "Illustrative user-provided properties; not certified stock values"
+        }
+      },
+      {
+        "id": "material.source_kind",
+        "value": {
+          "kind": "text",
+          "text": "illustrative"
+        }
+      },
+      {
+        "id": "model.assumptions",
+        "value": {
+          "kind": "text",
+          "text": "ideal_clamp_end_force_linear_elastic"
+        }
+      }
+    ]
+  },
+  "candidates": {
+    "mode": "bounded_thickness",
+    "parameters": [
+      {
+        "id": "beam.height",
+        "values": [
+          {
+            "kind": "quantity",
+            "dimension": "length",
+            "value": 5,
+            "unit": "mm"
+          },
+          {
+            "kind": "quantity",
+            "dimension": "length",
+            "value": 10,
+            "unit": "mm"
+          },
+          {
+            "kind": "quantity",
+            "dimension": "length",
+            "value": 15,
+            "unit": "mm"
+          }
+        ]
+      }
+    ]
+  },
+  "analysis": [
+    {
+      "id": "check.stress_allowable",
+      "check": "stress_allowable",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.height",
+        "load.tip_force",
+        "material.allowable_stress"
+      ]
+    },
+    {
+      "id": "check.displacement_requirement",
+      "check": "displacement_requirement",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.height",
+        "load.tip_force",
+        "material.youngs_modulus",
+        "limit.max_tip_deflection"
+      ]
+    }
+  ],
+  "construction": {
+    "schema_version": "mirum_construction_graph_v0_1",
+    "steps": []
+  },
+  "evidence": [
+    {
+      "id": "evidence.stress_allowable",
+      "analysis_ref": "check.stress_allowable",
+      "required": true
+    },
+    {
+      "id": "evidence.displacement_requirement",
+      "analysis_ref": "check.displacement_requirement",
+      "required": true
+    }
+  ],
+  "execution": {
+    "backend": "occt",
+    "exports": [
+      "step",
+      "glb"
+    ]
+  },
+  "provenance": {
+    "kind": "language",
+    "source_sha256": "b79bff31b61c50864c32d498ea99bebfbf58d3fd2af7206cc85900db4c3ce69f",
+    "source_id": "beam.mir"
+  }
+}
