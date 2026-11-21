@@ -2,8 +2,11 @@ name: E05 live qualification (manual)
 
 # Manual only. Spends the owner's Gemini key on the E05 generator proposers. Never runs on push or
 # pull_request, so forks and PRs never see the secret. The secret lives in environment b13-live,
-# which only main can deploy from. Each capability gets 30 provider calls, once: the reservation tag
-# is taken before any call and is never reused. Uploads safe JSON only; no prompts, replies or ledger.
+# which only main can deploy from. Round 2 (D8 of the E05 fix loop): exactly one second run, with
+# per-capability caps co2_dragster 18, regen_chamber 19, glider_cem 18 (the unused part of the approved
+# 90 calls). The owner authorization id (owner-20261120-e05r2) is given at dispatch, never hard-coded.
+# The e05r2 reservation tag is taken before any call and is never reused; the old e05- tags are
+# never touched. Uploads safe JSON only; no prompts, replies or ledger.
 #
 # Residual risk (accepted 2026-11-17, same as b13-live): container egress is not restricted to
 # generativelanguage.googleapis.com. The image is built from main only.
@@ -11,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       capability:
-        description: "co2_dragster, regen_chamber, glider_cem, or all (30 calls each)"
+        description: "co2_dragster, regen_chamber, glider_cem, or all (round 2 caps 18/19/18 calls)"
         required: true
         type: choice
         options: [co2_dragster, regen_chamber, glider_cem, all]
@@ -20,7 +23,7 @@ on:
         required: true
         type: string
       authorization:
-        description: "Owner authorization id"
+        description: "Owner authorization id for round 2 (owner-20261120-e05r2)"
         required: true
         type: string
 
@@ -55,15 +58,16 @@ jobs:
             all) caps="co2_dragster regen_chamber glider_cem";;
             *) echo "bad capability"; exit 1;;
           esac
-          # Owner Q1 (2026-11-20): 30 calls per capability, total 90. One reservation per capability,
-          # ever: a spent budget is never refunded, so a second run needs new owner authorization.
+          # Round 2 (D8): caps 18/19/18 per capability, enforced by the harness. One e05r2 reservation
+          # per capability, ever: a spent budget is never refunded, so another run needs new owner
+          # authorization and a new tag namespace.
           for cap in $caps; do
-            used=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/e05-${cap}-" --jq 'length')
-            [ "$used" -lt 1 ] || { echo "${cap} budget already spent; needs new owner authorization"; exit 1; }
+            used=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/e05r2-${cap}-" --jq 'length')
+            [ "$used" -lt 1 ] || { echo "${cap} round 2 budget already spent; needs new owner authorization"; exit 1; }
           done
           for cap in $caps; do
             gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-              -f "ref=refs/tags/e05-${cap}-${RUN_ID}" -f "sha=${GITHUB_SHA}" >/dev/null \
+              -f "ref=refs/tags/e05r2-${cap}-${RUN_ID}" -f "sha=${GITHUB_SHA}" >/dev/null \
               || { echo "run_id ${RUN_ID} already reserved; never repeated"; exit 1; }
           done
 
@@ -95,7 +99,7 @@ jobs:
           image_id=$(docker image inspect mirum-e05-live --format '{{.Id}}')
           echo "image_id=$image_id sha=$GITHUB_SHA"
           # Runs as the runner uid so the 0600 credential stays private. Only GEMINI_API_KEY_HEAVY
-          # carries the key; the PRO and generic names are blank so the glider key-mismatch guard passes.
+          # carries the key; the PRO and generic names are blank (load_credential refuses a set PRO key).
           status=0
           timeout --signal=TERM --kill-after=10s 6000s docker run --rm --init --name "$name" --read-only \
             --user "$(id -u):$(id -g)" \
@@ -110,7 +114,7 @@ jobs:
             -e GEMINI_API_KEY_PRO= -e GEMINI_API_KEY_LITE= -e GEMINI_API_KEYS= \
             mirum-e05-live \
             python scripts/e05_live_eval.py /evidence "$CAPABILITY" "$GITHUB_SHA" /run/existing-provider.env \
-              --run-id "$RUN_ID" --authorization "$AUTHORIZATION" --image-id "$image_id" --pace-seconds 12 \
+              --run-id "$RUN_ID" --authorization "$AUTHORIZATION" --image-id "$image_id" --round 2 --pace-seconds 12 \
             || status=$?
           rm -f "$cred"
           printf '{"capability":"%s","run_id":"%s","sha":"%s","image_id":"%s","exit":%d}\n' \

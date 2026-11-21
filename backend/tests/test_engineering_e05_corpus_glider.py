@@ -1,18 +1,13 @@
-"""E05 glider corpus replay with an offline fake extractor."""
+"""E05 glider corpus v1: shape, pin and route checks (the proposer replay moves to the v2 corpus)."""
 from __future__ import annotations
 
-import asyncio
-from copy import deepcopy
 import json
 from pathlib import Path
 
 import pytest
 
-from cem.glider import calibration
 from engineering import proposal_contract as pc
 from engineering.capabilities import GLIDER
-from engineering.glider_proposer import AiProposer
-from engineering.limits import AiCallBudget
 from engineering.router import route
 
 
@@ -45,44 +40,10 @@ def test_glider_corpus_shape():
 
 
 @pytest.mark.parametrize('case', CASES, ids=[case['id'] for case in CASES])
-def test_glider_corpus_case(case: dict, monkeypatch):
-    monkeypatch.delenv('GEMINI_API_KEY_PRO', raising=False)  # approved key configuration
-    prompt = case['prompt']
-    expected_route = case['expected_route']
-    assert route(prompt).capability_id == expected_route
-
-    budget = AiCallBudget(daily_calls=10, concurrency=1)
-    calls: list[str] = []
-
-    async def extract(user_prompt: str) -> dict:
-        calls.append(user_prompt)
-        assert budget.used() == 1
-        return deepcopy(case['fixture_response'])
-
-    proposal = asyncio.run(AiProposer(budget, extract=extract).propose(prompt))
-    assert calls == ([prompt] if expected_route in (None, GLIDER.id) else [])
-    assert budget.used() == len(calls)
-    assert proposal.state == case['expected_state']
-    assert proposal.payload['capability'] == pc.reference(GLIDER)
-    assert pc.conform(GLIDER.id, proposal) is proposal
-
-    if proposal.state == 'proposed':
-        specification = proposal.payload['specification']
-        origins = {origin.field: origin for origin in proposal.provenance.field_origins}
-        expected_content = case['expected_content']
-        assert expected_content
-        assert set(origins) == set(GLIDER.review_fields(specification))
-        # LOW-5: every requirement leaf came from the extraction output -> ai_proposed; only the
-        # proposer-filled calibration_version is policy.
-        assert {path for path, origin in origins.items() if origin.origin == 'ai_proposed'} ==             set(origins) - {'specification.calibration_version'}
-        assert set(expected_content) <= set(origins)
-        for path, expected in expected_content.items():
-            root, *parts = path.split('.')
-            assert root == 'specification' and parts, path
-            value = specification
-            for part in parts:
-                value = value[part]
-            assert value == expected, path
-            assert pc.UNVERIFIED in origins[path].reference, path
-        assert specification['calibration_version'] == calibration.version(calibration.initial())
-        assert origins['specification.calibration_version'].origin == 'policy'
+def test_glider_corpus_case(case: dict):
+    # D5: the v1 fixture_response (full cem.extraction reply) no longer matches the sparse provider
+    # proposer, so the proposer-driving replay is dropped here; a v2 corpus test replaces it.
+    assert route(case['prompt']).capability_id == case['expected_route']
+    assert case['expected_state'] in {'proposed', 'clarification_required', 'unsupported'}
+    if case['expected_state'] == 'proposed':
+        assert case['expected_content']

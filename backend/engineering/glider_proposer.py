@@ -1,46 +1,50 @@
-"""E05 AI proposer for the ``glider_cem`` capability (Wave E, P3).
+"""E05 AI proposer for the ``glider_cem`` capability (Wave E, P3; sparse extraction, fix loop D5).
 
-Wraps ``cem.extraction.extract`` (unchanged) and maps its reply onto a ``proposal_contract``
-envelope. It never runs physics, never finalizes a brief and never returns or logs raw model
-text, exception text or the prompt. ``calibration_version`` is explicit reviewed policy (the
-shipped initial snapshot) and is never supplied by the model. Importing this module imports no
-SDK and reads no key; ``cem.extraction`` is imported lazily, only inside ``propose`` and only
-when no ``extract`` callable was injected.
+Asks the beam's provider (``GeminiProposalProvider``, the engineering key; no legacy client) for a
+sparse set of explicitly stated glider requirements (``glider_extraction``), drops every value the
+prompt does not state (``grounding``), fills the rest from the ``GliderMissionRequirements``
+defaults labelled ``policy`` and returns a ``proposal_contract`` envelope. It never runs physics,
+never finalizes a brief and never returns or logs raw provider text, exception text or the prompt.
+``calibration_version`` is explicit reviewed policy (the shipped initial snapshot) and is never
+supplied by the model. Importing this module imports no SDK and reads no key.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
-import os
 import re
 from uuid import uuid4
 
 from pydantic import ValidationError
 
 from cem.glider import calibration
+from cem.glider.requirements import GliderMissionRequirements
 
-from . import proposal_contract, router
+from . import glider_extraction, grounding, proposal_contract, router
 from .briefs import InputIssue
 from .capabilities import GENERATOR_SPEC_PREFIX, GLIDER
 from .contracts import FieldOrigin, Provenance
+from .proposer import GeminiProposalProvider
 
-PROMPT_VERSION = 'glider_cem_extract_v1'
+PROMPT_VERSION = glider_extraction.PROMPT_VERSION
 UNAVAILABLE = ('AI preparation unavailable; typed form remains available',)
-KEY_MISMATCH = ('Glider AI preparation needs the engineering key configuration; typed form remains available',)
 NOT_A_GLIDER = 'This request is not a glider; no glider draft was made'
 FAMILIES_QUESTION = ('Which glider families should discovery search? '
                      'List one or more of: conventional, t_tail, v_tail.')
 CALIBRATION_QUESTION = ('Only the shipped initial calibration is chosen automatically; '
                         'enter the calibration_version you want in the form.')
-GENERIC_QUESTION = 'More information is needed to complete the glider draft'
+UNGROUNDED_QUESTION = 'The request does not state this value; enter it in the form or restate it in the request.'
+MISSING_METHOD_QUESTION = ('The request does not state a launch method; '
+                           'choose one in the form or restate it in the request.')
+PAYLOAD_QUESTION = 'A payload needs mass, diameter and length all stated; enter the payload in the form.'
 CALIBRATION_REFERENCE = 'cem.glider.calibration initial snapshot (shipped default)'
 DEFAULT_REFERENCE = 'GliderMissionRequirements default'
 _CALIBRATION_MENTION = re.compile(r'calibrat|flight[- ]?test', re.IGNORECASE)
 _FAMILIES_FIELD = 'specification.requirements.discovery.families'
 _CALIBRATION_FIELD = 'specification.calibration_version'
 _REQUIREMENTS_PREFIX = GENERATOR_SPEC_PREFIX + 'requirements.'
-_MISSING = object()
+_PAYLOAD_KEYS = ('payload_mass_kg', 'payload_diameter_m', 'payload_length_m')
 
 
 @dataclass(frozen=True)
@@ -50,6 +54,7 @@ class GliderProposal:
     issues: tuple
     provenance: Provenance
     reasons: tuple
+    reason_id: str = ''
 
 
 def _provenance(mode='form', origins=()) -> Provenance:
@@ -66,14 +71,6 @@ def _check_prompt(prompt):
         raise ValueError('prompt must contain 1-2000 characters')
 
 
-def _walk(tree, path):
-    for part in path.split('.'):
-        if not isinstance(tree, dict) or part not in tree:
-            return _MISSING
-        tree = tree[part]
-    return tree
-
-
 def _calibration_version():
     """The shipped snapshot ``/cem`` advertises as current, or ``None`` if it cannot be read."""
     try:
@@ -83,123 +80,152 @@ def _calibration_version():
         return None
 
 
-def _engineering_key_mismatch() -> bool:
-    """True when ``cem.extraction``'s legacy global client would be configured with a key other
-    than the approved engineering key (main.py configures it from ``GEMINI_API_KEY_PRO``, falling
-    back to ``GEMINI_API_KEY_HEAVY``). Compared in memory only; neither value is logged, returned
-    or stored."""
-    pro = os.environ.get('GEMINI_API_KEY_PRO') or ''
-    return bool(pro) and pro != (os.environ.get('GEMINI_API_KEY_HEAVY') or '')
+def _set(tree, path, value):
+    parts = path.split('.')
+    for part in parts[:-1]:
+        tree = tree[part]
+    tree[parts[-1]] = value
 
 
 class AiProposer:
     """``base_spec`` is accepted for contract compatibility and ignored for now."""
 
-    def __init__(self, budget, extract=None):
+    def __init__(self, budget, provider=None):
         self.budget = budget
-        self.extract = extract
+        self.provider = provider or GeminiProposalProvider()
 
     def _payload(self) -> dict:
         return dict(capability=proposal_contract.reference(GLIDER))
 
-    def _done(self, state, payload, issues=(), provenance=None, reasons=()):
-        proposal = GliderProposal(state, payload, tuple(issues), provenance or _provenance(), tuple(reasons))
+    def _done(self, state, payload, issues=(), provenance=None, reasons=(), reason_id=''):
+        proposal = GliderProposal(state, payload, tuple(issues), provenance or _provenance(), tuple(reasons),
+                                  reason_id)
         return proposal_contract.conform(GLIDER.id, proposal)
 
-    def _unavailable(self):
-        return self._done('unavailable', self._payload(), reasons=UNAVAILABLE)
+    def _unavailable(self, reason_id):
+        return self._done('unavailable', self._payload(), reasons=UNAVAILABLE, reason_id=reason_id)
 
-    def _unsupported(self, issues):
+    def _unsupported(self, issues, reason_id):
         issues = tuple(issues)
-        return self._done('unsupported', self._payload(), issues, reasons=tuple(i.reason for i in issues))
-
-    def _clarify(self, issues, payload=None, provenance=None):
-        issues = tuple(issues)
-        return self._done('clarification_required', payload or self._payload(), issues, provenance,
-                          tuple(i.reason for i in issues))
+        return self._done('unsupported', self._payload(), issues, reasons=tuple(i.reason for i in issues),
+                          reason_id=reason_id)
 
     async def propose(self, prompt: str, base_spec=None) -> GliderProposal:
         _check_prompt(prompt)
         if router.route(prompt).capability_id not in (None, GLIDER.id):
-            return self._unsupported((_issue('unsupported', NOT_A_GLIDER),))
-        if _engineering_key_mismatch():
-            # Fail closed before any budget unit or extraction call (security finding M3).
-            return self._done('unavailable', self._payload(), reasons=KEY_MISMATCH)
-        if not self.budget.reserve():
-            return self._unavailable()
-        try:
-            extract = self.extract
-            if extract is None:
-                from cem import extraction
-                extract = extraction.extract
-            result = await extract(prompt)
-        except Exception:
-            return self._unavailable()
-        finally:
-            self.budget.release()
-        return self._map(result, prompt)
+            return self._unsupported((_issue('unsupported', NOT_A_GLIDER),), 'unsupported.family')
+        parsed, failure, settings = await glider_extraction.extract_sparse(
+            self.provider, self.budget, prompt, GLIDER.resources.structured_response_bytes)
+        if parsed is None:
+            return self._unavailable(failure)
+        return self._map(parsed, prompt, settings)
 
-    def _map(self, result, prompt) -> GliderProposal:
-        if not isinstance(result, dict):
-            return self._unavailable()
-        status = result.get('status')
-        if status == 'needs_clarification':
-            questions = result.get('questions')
-            questions = [q for q in questions if isinstance(q, str) and q.strip()][:8] \
-                if isinstance(questions, list) else []
-            return self._clarify([_issue('clarification_required', q) for q in questions]
-                                 or [_issue('clarification_required', GENERIC_QUESTION)])
-        requirements = result.get('requirements')
-        if status != 'review_requirements' or not isinstance(requirements, dict):
-            return self._unavailable()
+    def _map(self, reply, prompt, settings) -> GliderProposal:
+        if reply.out_of_family:
+            return self._unsupported((_issue('unsupported', NOT_A_GLIDER),), 'unsupported.family')
+        if reply.unsupported_features:
+            return self._unsupported((_issue('unsupported', f, 'features') for f in reply.unsupported_features),
+                                     'unsupported.feature')
+
+        provided = {k: v for k, v in reply.fields.model_dump().items() if v is not None}
+        if reply.questions and not provided:
+            # The model only asked questions: no requirements to review, so no specification.
+            issues = tuple(_issue('clarification_required', q) for q in reply.questions)
+            return self._done('clarification_required', self._payload(), issues, None,
+                              tuple(i.reason for i in issues), 'clarification.model_question')
+        objective = provided.get('objective')
+        if objective is not None and not grounding.is_grounded_choice(
+                objective, prompt, glider_extraction.SYNONYMS['objective']):
+            objective = None
+        ungrounded = grounding.ungrounded_fields(provided, prompt,
+                                                 glider_extraction.field_kinds(objective or 'distance_m'))
+        grounded = {k: v for k, v in provided.items() if k not in ungrounded}
+        payload_all = all(k in grounded for k in _PAYLOAD_KEYS)
+        partial_payload = any(k in grounded for k in _PAYLOAD_KEYS) and not payload_all
+        if partial_payload:
+            for key in _PAYLOAD_KEYS:
+                grounded.pop(key, None)
+
+        requirements = GliderMissionRequirements(launch=dict(method='drop')).model_dump(mode='json')
+        del requirements['launch']['method']
+        if payload_all:
+            requirements['constraints']['payload'] = {}
+        for key, value in grounded.items():
+            _set(requirements, glider_extraction.LEAVES[key], value)
+        ai_paths = {glider_extraction.LEAVES[k] for k in grounded}
+        if payload_all:
+            ai_paths.add('constraints.payload')
+        method_missing = 'launch_method' not in grounded
 
         version = _calibration_version()
         calibration_asked = version is None or bool(_CALIBRATION_MENTION.search(prompt))
         spec = dict(requirements=requirements)
         if not calibration_asked:
             spec['calibration_version'] = version
-        discovery = requirements.get('discovery')
-        families = discovery.get('families', 'all') if isinstance(discovery, dict) else 'all'
+        families = requirements['discovery']['families']
 
         # Refusal first, except the families-'all' case, which is a question for the user.
         refused = [(f, r) for f, r in GLIDER.refuse(spec) if not (f == _FAMILIES_FIELD and families == 'all')]
         if refused:
-            return self._unsupported(_issue('unsupported', reason, field) for field, reason in refused)
+            return self._unsupported((_issue('unsupported', reason, field) for field, reason in refused),
+                                     'unsupported.value')
 
-        issues = []
+        issues, reason_ids = [], []
+
+        def add(new, reason_id):
+            if new:
+                issues.extend(new)
+                reason_ids.append(reason_id)
+
+        field_prefix = 'specification.requirements.'
+        add([_issue('clarification_required', q) for q in reply.questions], 'clarification.model_question')
+        missing = []
+        if method_missing:
+            missing.append(_issue('clarification_required', MISSING_METHOD_QUESTION, field_prefix + 'launch.method'))
+        if partial_payload:
+            missing.append(_issue('clarification_required', PAYLOAD_QUESTION, field_prefix + 'constraints.payload'))
+        add(missing, 'clarification.missing_field')
+        add([_issue('clarification_required', UNGROUNDED_QUESTION,
+                    field_prefix + glider_extraction.LEAVES[key]) for key in ungrounded],
+            'clarification.ungrounded_value')
         if families == 'all':
-            issues.append(_issue('clarification_required', FAMILIES_QUESTION, _FAMILIES_FIELD))
+            add([_issue('clarification_required', FAMILIES_QUESTION, _FAMILIES_FIELD)], 'clarification.families')
         if calibration_asked:
-            issues.append(_issue('clarification_required', CALIBRATION_QUESTION, _CALIBRATION_FIELD))
+            add([_issue('clarification_required', CALIBRATION_QUESTION, _CALIBRATION_FIELD)],
+                'clarification.calibration')
+        invalid = []
         try:
             GLIDER.parse_spec(spec)
-        except ValidationError as invalid:
-            for error in invalid.errors():
-                loc = tuple(error['loc'])
+        except ValidationError as error:
+            for item in error.errors():
+                loc = tuple(item['loc'])
                 if calibration_asked and loc == ('calibration_version',):
                     continue
-                issues.append(_issue('clarification_required', str(error['msg']),
-                                     'specification' + ''.join(f'.{p}' for p in loc)))
+                if method_missing and loc == ('requirements', 'launch', 'method'):
+                    continue
+                invalid.append(_issue('clarification_required', str(item['msg']),
+                                      'specification' + ''.join(f'.{p}' for p in loc)))
         except (ValueError, TypeError):
-            return self._unavailable()
+            return self._unavailable('unavailable.nonconforming')
+        add(invalid, 'clarification.invalid_value')
 
-        provenance = self._provenance(spec, requirements, prompt)
+        provenance = self._provenance(spec, ai_paths, prompt, settings)
         payload = dict(self._payload(), specification=spec)
         if issues:
-            return self._clarify(issues, payload, provenance)
+            return self._done('clarification_required', payload, issues, provenance,
+                              tuple(i.reason for i in issues), reason_ids[0])
         return self._done('proposed', payload, (), provenance, ())
 
-    def _provenance(self, spec, requirements, prompt) -> Provenance:
-        """Label by origin, not by value: every value present in the extraction output is an
-        unverified AI proposal, even when it equals a documented default; only what this proposer
-        fills (``calibration_version``, or any requirement absent from that output) is policy."""
+    def _provenance(self, spec, ai_paths, prompt, settings) -> Provenance:
+        """Label by origin: only a grounded value the model stated is ``ai_proposed``; everything the
+        proposer fills (``calibration_version`` or a ``GliderMissionRequirements`` default) is policy."""
         sha = hashlib.sha256(prompt.encode()).hexdigest()
-        ai_reference = f'{sha}; {PROMPT_VERSION}; extraction; unverified proposal'[:240]
+        ai_reference = f'{sha}; {PROMPT_VERSION}; {settings.model}; unverified proposal'[:240]
         origins = []
         for field in GLIDER.review_fields(spec):
             if field == _CALIBRATION_FIELD:
                 origins.append(FieldOrigin(field=field, origin='policy', reference=CALIBRATION_REFERENCE))
-            elif _walk(requirements, field[len(_REQUIREMENTS_PREFIX):]) is not _MISSING:
+            elif field[len(_REQUIREMENTS_PREFIX):] in ai_paths:
                 origins.append(FieldOrigin(field=field, origin='ai_proposed', reference=ai_reference))
             else:
                 origins.append(FieldOrigin(field=field, origin='policy', reference=DEFAULT_REFERENCE))

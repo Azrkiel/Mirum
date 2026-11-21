@@ -250,17 +250,13 @@ def attach_v1_routes(app,limiter):
                 # pinned, so it lives here): another family -> unsupported, several -> clarification.
                 # Decided without a provider call or a budget unit; the draft records the refusal.
                 from .briefs import InputIssue
-                from .router import route
-                routed=route(body.prompt)
-                gate=(('unsupported','This request matches another capability; no draft of the requested capability was made')
-                      if routed.capability_id not in (None,body.capability) else
-                      ('clarification_required','This request matches several capabilities; describe one object')
-                      if routed.capability_id is None and routed.reason.startswith('Ambiguous') else None)
-                if gate is not None:
+                from .family_gate import family_gate
+                refusal=family_gate(body.prompt,body.capability)
+                if refusal is not None:
                     await asyncio.to_thread(value.quota.admit_draft,client,ai=False,size=size)
                     def create_refusal():
                         created=value.briefs.create(dict(capability=proposal_contract.reference(get_generator(body.capability))),
-                            extra_issues=(InputIssue(field='request',state=gate[0],reason=gate[1]),))
+                            extra_issues=(InputIssue(field='request',state=refusal.state,reason=refusal.reason),))
                         value.quota.record_draft(created.draft.draft_id,client,len(created.model_dump_json()))
                         return created
                     return prepared_view(await asyncio.to_thread(create_refusal))
