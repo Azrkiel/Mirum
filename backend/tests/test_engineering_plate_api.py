@@ -113,6 +113,23 @@ def test_plate_ai_request_spends_nothing(request, monkeypatch, enabled):
     assert spend_rows(value) == []
 
 
+def test_plate_ai_refusal_precedes_budget_and_quota(request, monkeypatch):
+    provider = FakeProvider()
+    monkeypatch.setattr(proposer, 'GeminiProposalProvider', lambda: provider)
+    monkeypatch.setattr(config, 'ENGINEERING_AI_DRAFTS', True)
+    http = request.getfixturevalue('ai_client')
+    value = runtime()
+    monkeypatch.setattr(value.proposer.budget, 'has_capacity', lambda: False)
+    admit = Mock(wraps=value.quota.admit_draft)
+    monkeypatch.setattr(value.quota, 'admit_draft', admit)
+    response = post_ai(http, PLATE_ID, 'Design a clamped rectangular plate under uniform pressure.')
+    assert response.status_code == 422, response.text      # unsupported, not 503 unavailable
+    assert response.json()['detail'] == 'Invalid or unsupported engineering input'
+    assert not any(call.kwargs.get('ai') for call in admit.call_args_list)
+    assert provider.calls == 0
+    assert spend_rows(value) == []
+
+
 @pytest.mark.skipif(os.name != 'posix', reason='the engineering store and publisher need POSIX')
 @pytest.mark.parametrize(('thickness', 'outcome'), [(10.0, 'accepted'), (25.0, 'rejected')])
 def test_simply_supported_plate_job(client, monkeypatch, fake_stage, thickness, outcome):

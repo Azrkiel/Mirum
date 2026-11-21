@@ -263,6 +263,10 @@ def attach_v1_routes(app,limiter):
                         value.quota.record_draft(created.draft.draft_id,client,len(created.model_dump_json()))
                         return created
                     return prepared_view(await asyncio.to_thread(create_refusal))
+                if 'ai' not in get_generator(body.capability).proposers:
+                    # No AI proposer for this family (e.g. rectangular_plate): refuse before any budget or
+                    # quota check, so the answer is always "unsupported", never "unavailable" or "busy".
+                    raise proposal_contract.UnsupportedCapability('AI drafts are not offered for this capability')
                 budget=value.proposer.budget
                 if not budget.has_capacity(): return unavailable()
                 await asyncio.to_thread(value.quota.admit_draft,client,ai=True,size=size)
