@@ -30,8 +30,11 @@ CAPABILITIES = ('co2_dragster', 'regen_chamber', 'glider_cem')
 CORPUS_SHA256 = {
     'co2_dragster': 'fdc429faa9225a677877ae68d0990669a3010a56438560f3541ef3a3a941aa68',
     'regen_chamber': '95b161ecc66b9a8a2475d967e4dc7259bbf4db8df00597d1233d3c3bc3ecc397',
-    'glider_cem': 'c4113bb1334fd0951082efe0141120b6615dc05bbed4433afce1310c9a8db3a3',
+    'glider_cem': '720656584ee76af737a20d90c3ac9571c0fc9c8581839312e9779579843b4215',
 }
+# Corpus file per capability. glider_cem uses v2 (D6: sparse extraction); v1 stays cited by run 1.
+CORPUS_FILES = {'co2_dragster': 'co2_dragster-v1.json', 'regen_chamber': 'regen_chamber-v1.json',
+                'glider_cem': 'glider_cem-v2.json'}
 SPEC_PREFIX = 'specification.'
 MISSING = object()
 # D1 (E05 fix loop): every non-proposed case records ``reason``: one of these fixed ids, or
@@ -74,7 +77,7 @@ def load_corpora(corpus_dir=CORPUS_DIR):
     """Return {capability: cases}. Refuses unless every file matches its pin."""
     loaded = {}
     for capability in CAPABILITIES:
-        raw = (Path(corpus_dir) / f'{capability}-v1.json').read_bytes()
+        raw = (Path(corpus_dir) / CORPUS_FILES[capability]).read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
         if digest != CORPUS_SHA256[capability]:
             raise CorpusPinMismatch(f'{capability} corpus does not match its pinned SHA-256')

@@ -80,7 +80,7 @@ def test_cap_stops_at_30_with_always_repair_provider():
 
 
 def test_corpus_tamper_is_refused(tmp_path):
-    for name in ('co2_dragster-v1.json', 'regen_chamber-v1.json', 'glider_cem-v1.json'):
+    for name in e05.CORPUS_FILES.values():
         shutil.copy(CORPUS_DIR / name, tmp_path / name)
     with open(tmp_path / 'regen_chamber-v1.json', 'a', encoding='utf-8') as handle:
         handle.write(' ')
@@ -167,7 +167,7 @@ def test_evidence_contains_ids_states_and_counts_only(tmp_path):
 
     corpus_dir = tmp_path / 'corpus'
     corpus_dir.mkdir()
-    for name in ('co2_dragster-v1.json', 'regen_chamber-v1.json', 'glider_cem-v1.json'):
+    for name in e05.CORPUS_FILES.values():
         shutil.copy(CORPUS_DIR / name, corpus_dir / name)
     cases_in = json.loads((corpus_dir / 'regen_chamber-v1.json').read_text(encoding='utf-8'))
     for c in cases_in['cases']:
