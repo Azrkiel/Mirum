@@ -43,7 +43,7 @@ CALIBRATION_REFERENCE = 'cem.glider.calibration initial snapshot (shipped defaul
 DEFAULT_REFERENCE = 'GliderMissionRequirements default'
 _CALIBRATION_MENTION = re.compile(r'calibrat|flight[- ]?test', re.IGNORECASE)
 _OTHER_UNSUPPORTED = re.compile(
-    r'thermal|ridge|slope|soar|power|motor|engine|propell|electric|battery|radio|rc|servo|remote'
+    r'thermal|ridge|slope|soar|power|motor|engine|propell|electric|battery|radio|\brc\b|servo|remote'
     r'|autopilot|gps|camera|script|code', re.IGNORECASE)
 _FAMILIES_FIELD = 'specification.requirements.discovery.families'
 _CALIBRATION_FIELD = 'specification.calibration_version'

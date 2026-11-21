@@ -59,6 +59,7 @@ def assert_calibration_clarification(proposal):
     'Use the calibration from the latest flight test',
     'Updated flight-test calibration',
     'calibration data from flight testing',
+    'Use the calibration source from our latest flight-test record',
 ])
 def test_calibration_feature_becomes_clarification(feature):
     assert_calibration_clarification(run(reply(FIELDS, unsupported_features=[feature])))
@@ -72,6 +73,11 @@ def test_calibration_plus_thermal_stays_unsupported():
 
 def test_calibration_feature_with_motor_stays_unsupported():
     p = run(reply(FIELDS, unsupported_features=['Calibrate the motor speed controller']))
+    assert p.state == 'unsupported' and p.reason_id == 'unsupported.feature'
+
+
+def test_calibration_feature_with_rc_flight_stays_unsupported():
+    p = run(reply(FIELDS, unsupported_features=['Calibrate for RC flight from the flight test']))
     assert p.state == 'unsupported' and p.reason_id == 'unsupported.feature'
 
 
