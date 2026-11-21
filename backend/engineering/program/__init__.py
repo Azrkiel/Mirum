@@ -5,3 +5,8 @@ from .versions import (  # noqa: F401
     ARTIFACT_GRAPH_VERSION, CONSTRUCTION_GRAPH_VERSION, EXECUTION_LOCK_VERSION,
     OP_STREAM_VERSION, PROGRAM_IR_VERSION, REGISTRY_VERSION, SEMANTICS_VERSION,
 )
+from .registry import (  # noqa: F401
+    DEFAULT_REGISTRY, ArgSpec, ArtifactGraph, ArtifactNode, OpStream, OpStreamEntry,
+    OperationDescriptor, OperationRegistry, OutputSpec, load_artifact_graph_json,
+    validate_op_stream,
+)
