@@ -162,3 +162,23 @@ def test_underflow_does_not_ground_zero():
     assert number_tokens('1e-400 and 1e999 and 3') == (3.0,)
     assert is_grounded_number(0.0, '0 mm', 'length', 'mm')
     assert is_grounded_number(0.0, '0.0e5', 'dimensionless', '1')
+
+
+@pytest.mark.parametrize('prompt', ['ambient 20 °C', 'ambient 20 C at sea level'.replace(' C', ' degC'),
+                                    'about 20 degrees Celsius', 'at 20 celsius', 'air at 20'])
+def test_celsius_temperature_grounds_a_celsius_field(prompt):
+    assert is_grounded_number(20.0, prompt, 'temperature', 'C')
+
+
+@pytest.mark.parametrize('prompt', ['ambient 68 °F', 'at 68 degrees Fahrenheit', 'turn it 20 degrees',
+                                    'heading 20°'])
+def test_fahrenheit_or_angle_never_grounds_celsius(prompt):
+    assert not is_grounded_number(20.0, prompt, 'temperature', 'C')
+    assert not is_grounded_number(68.0, prompt, 'temperature', 'C')
+
+
+def test_glider_temperature_field_is_celsius():
+    from engineering import glider_extraction
+    kinds = {k: v for k, v in vars(glider_extraction).items() if isinstance(v, dict) and 'temperature_c' in v
+             and isinstance(v['temperature_c'], NumberField)}
+    assert kinds and all(v['temperature_c'] == NumberField('temperature', 'C') for v in kinds.values())

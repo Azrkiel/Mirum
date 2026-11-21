@@ -149,7 +149,7 @@ SYNONYMS = {
 
 FIELD_KINDS = {
     'launch_height_m': _LENGTH, 'launch_speed_m_s': _SPEED, 'wind_m_s': _SPEED, 'uplift_m_s': _SPEED,
-    'altitude_m': _LENGTH, 'temperature_c': NumberField('dimensionless', '1'),
+    'altitude_m': _LENGTH, 'temperature_c': NumberField('temperature', 'C'),
     'max_span_m': _LENGTH, 'max_length_m': _LENGTH, 'max_mass_kg': _MASS, 'max_speed_m_s': _SPEED,
     'payload_mass_kg': _MASS, 'payload_diameter_m': _LENGTH, 'payload_length_m': _LENGTH,
 }

@@ -47,6 +47,10 @@ UNIT_TO_SI: dict[str, dict[str, float]] = {
     'time': {'s': 1.0, 'ms': 1e-3, 'min': 60.0, 'h': 3600.0},
     'angle': {'rad': 1.0, 'deg': 0.017453292519943295},
     'velocity': {'m/s': 1.0, 'km/h': 1.0 / 3.6, 'mph': 0.44704, 'ft/s': 0.3048, 'kn': 0.514444444444},
+    # Temperatures: Celsius only (no offset conversions). Fahrenheit is its own dimension so a
+    # Fahrenheit number never grounds a Celsius field and is never read as a bare number.
+    'temperature': {'C': 1.0},
+    'temperature_f': {'F': 1.0},
     'dimensionless': {'1': 1.0},
 }
 
@@ -102,11 +106,16 @@ for _dim, _unit, _names in (
     ('velocity', 'mph', ('mph',)),
     ('velocity', 'ft/s', ('ft/s',)),
     ('velocity', 'kn', ('kn', 'knot', 'knots')),
+    ('temperature', 'C', ('celsius', 'degc', 'deg c', 'degree c', 'degrees c', 'degree celsius',
+                          'degrees celsius')),
+    ('temperature_f', 'F', ('fahrenheit', 'degf', 'deg f', 'degree f', 'degrees f', 'degree fahrenheit',
+                            'degrees fahrenheit')),
 ):
     for _name in _names:
         _WORDS[_name] = (_dim, _unit)
 # Mark symbols (not word characters): matched without a trailing word boundary.
-_PUNCT: dict[str, tuple[str, str]] = {'"': ('length', 'in'), "'": ('length', 'ft'), '°': ('angle', 'deg')}
+_PUNCT: dict[str, tuple[str, str]] = {'"': ('length', 'in'), "'": ('length', 'ft'), '°': ('angle', 'deg'),
+                                      '°C': ('temperature', 'C'), '°F': ('temperature_f', 'F')}
 UNIT_ALIASES: dict[str, tuple[str, str]] = {**_SYMBOLS, **_WORDS, **_PUNCT}
 assert all(unit in UNIT_TO_SI[dim] for dim, unit in UNIT_ALIASES.values())
 _ALIASES = tuple(sorted(
