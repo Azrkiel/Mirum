@@ -166,6 +166,9 @@ def create_runtime(generators=None):
             descriptor=get_generator(capability_id)
             if descriptor is None: raise ValueError('Unknown generator capability')
             adapters[capability_id]=resolve(descriptor.adapter)(getter)
+        # The plate adapter owns its bounded subprocess runner, so the app hands it nothing.
+        plate=get_generator('rectangular_plate')
+        if plate is not None and plate.id not in adapters: adapters[plate.id]=resolve(plate.adapter)()
         jobs=JobController(store,publisher=publisher,fairness=fairness,generators=adapters)
         ledger=SQLiteProposalLedger(store)
         budget=None

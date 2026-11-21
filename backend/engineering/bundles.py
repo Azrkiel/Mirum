@@ -233,10 +233,12 @@ class BundlePublisher:
             evaluations=[_generator_evaluation(e) for e in result.evaluations])
         # Heading and outcome line come from the capability claim, not the job outcome alone.
         screening=descriptor.claim=='screening_only'
-        heading=f'# {"Screened" if screening else "Geometry Checked"} {descriptor.label} result'
+        checked=descriptor.claim=='checked_design'
+        heading=f'# {"Screened" if screening else "Checked Design" if checked else "Geometry Checked"} {descriptor.label} result'
         outcome_line=outcome
         if outcome=='accepted':
             outcome_line=('screened; not accepted for manufacture; not engineering certified' if screening
+                          else 'checked design: all checks passed; not engineering certified' if checked
                           else 'geometry checks passed')
         rows=[heading,'',f'Job: {job_id}',f'Brief: {brief.brief_sha256}',
             f'Outcome: {outcome_line}','',
