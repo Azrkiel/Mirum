@@ -379,3 +379,37 @@ Planned only. No live call has been made and no result is claimed here.
 - **Gate, per capability (B13 run-5 rule, adapted):** B13 run 5 (`qual-20261118-k6`) passed when all 30 cases ran, complete-accurate was at least 8 of 10 complete cases, silent drops were 0 and unreviewed executions were 0 (`scripts/checked_engineering_live_eval.py`, `qualification` rule). These corpora have only 3 complete cases each, so this plan uses the same rule with the threshold set to every complete case: all cases run, all complete cases accurate, 0 silent drops, 0 unstated AI values, 0 unreviewed executions. Any stop, budget exhaustion or provider error blocks.
 - **Evidence:** `e05-live.json` with run id, authorization, tested SHA, image id, corpus SHA-256s, calls per capability, and per-case case id, kind, expected state, state and counts. No prompts, raw replies or reasons. Only `*.json` is uploaded.
 - **Workflow:** `.github/workflows/e05-live.yml`, manual dispatch only, `main` only, pace 12 s between calls, 120-minute job limit.
+
+## E05 live qualification run 1 (2026-11-20): BLOCKED
+
+Run `qual-20261120-k6-e05` (Actions run 44850479807) on main `bd722d3`, image
+`sha256:89797cfbe91509e11d881eede8b8b19e28b42ee4235bfa0f61c96ff72947d939`, key k6 through `b13-live`
+(owner approved the deployment). Owner authorization: `owner-20261120-goahead`. Evidence: [evidence/E05.json](evidence/E05.json).
+
+| Capability | Calls (cap 30) | Complete cases accurate | Silent drops | Unstated AI values | Unreviewed executions | Gate |
+|---|---|---|---|---|---|---|
+| co2_dragster | 12 | 2 of 3 (D03 ended `clarification_required`) | 0 | 0 | 0 | blocked |
+| regen_chamber | 11 | 3 of 3 | 0 | 2 (R05, R13: clarification drafts) | 0 | blocked |
+| glider_cem | 12 | 0 of 3 (G01 proposed with 22 unstated AI values; G02, G03 `unavailable`) | 1 (G01) | 22 | 0 | blocked |
+
+35 of the 90 approved calls were used. No budget was exhausted, nothing was finalized or run, and no request produced a
+substituted capability. The gate rule was not changed after the run.
+
+Diagnosis (from the safe evidence; the harness records no failure reasons, see the fixes below):
+- **dragster:** D03, a complete prompt, ended in a clarification (conservative, not a silent drop). D07-D09
+  (`out_of_family`) ended `clarification_required` instead of `unsupported`. In production the API's deterministic
+  router gate refuses another family before any call; the harness calls the proposer directly, so it does not reproduce
+  that gate. This does not fail the gate but is a harness fidelity gap.
+- **regen:** every state as expected and every complete case accurate, but two clarification drafts carried one value
+  the prompt did not state, marked `ai_proposed`. A partial draft must not carry invented values.
+- **glider:** 9 of 10 model calls ended `unavailable` (cause not recorded; the path uses the legacy
+  `google.generativeai` client on `GEMINI_MODEL_PRO` with a 30 s timeout, so Pro-model rate limits or timeouts are the
+  likely cause). The one proposal returned the whole requirements object, so 22 documented defaults count as AI values
+  the prompt did not state: the shared extraction cannot meet the "no unstated values" rule as designed.
+
+Required before a second run (each needs its own review; the second run needs new owner authorization because each
+capability's reservation tag is spent): (1) the harness records a safe reason code for every `unavailable` case and
+applies the same router family gate as `api_v1`; (2) regen clarification drafts drop or flag values the prompt did
+not state; (3) glider gets a sparse, engineering-specific extraction on the engineering key and model (stated fields
+only; defaults filled by policy), leaving `/cem` behavior unchanged; (4) dragster D03 is investigated (field
+mismatches 2).
