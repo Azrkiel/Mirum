@@ -345,3 +345,76 @@ def test_default_budget_is_the_round2_cap_and_stops_exactly_there(capability, mo
     assert evidence['authorization'] == 'owner-20261120-e05r2'
     assert 'call_cap_per_capability' not in evidence
     assert json.loads((tmp_path / 'e05-live.json').read_text(encoding='utf-8')) == evidence
+
+
+# T9 (E05 fix loop) corpus self-check: a fake provider that answers each case with its own fixture_response
+# (the corpus's expected model reply) drives the REAL proposers through the harness. Every complete case in the
+# pinned corpora (v2 where present) must stay proposed and accurate after grounding (D3/D4/D5), so the fixes
+# cannot break the run-1 passes. Offline: no key, no network.
+class _PromptKeyedProvider:
+    """GeminiProposalProvider stand-in: replies with the fixture of the case whose prompt is in the request."""
+    available = True
+
+    def __init__(self, cases):
+        self._replies = {}
+        for item in cases:
+            fixture = item['fixture_response']
+            replies = fixture if isinstance(fixture, list) else [fixture]
+            self._replies[json.dumps(item['prompt'], ensure_ascii=False)] = [
+                r if isinstance(r, str) else json.dumps(r) for r in replies]
+
+    def settings(self):
+        from engineering.proposer import ProviderSettings
+        return ProviderSettings(provider='fixture', sdk_version='fixture', model='fixture-model',
+                                temperature=0, max_tokens=1024)
+
+    async def generate(self, prompt, schema, settings):
+        from engineering.proposer import ProviderReply
+        key = max((k for k in self._replies if k in prompt), key=len)   # the request embeds the JSON prompt
+        return ProviderReply(text=self._replies[key].pop(0))
+
+
+def _self_check_proposer(capability, cases, budget):
+    import copy
+    if capability == 'co2_dragster':
+        from engineering import dragster_proposer
+        by_prompt = {item['prompt']: item['fixture_response'] for item in cases}
+
+        async def interpret(prompt, base_spec=None):
+            return copy.deepcopy(by_prompt[prompt])
+        return dragster_proposer.AiProposer(budget, interpret)
+    if capability == 'regen_chamber':
+        from engineering import regen_proposer
+        return regen_proposer.AiProposer(budget, _PromptKeyedProvider(cases))
+    from engineering import glider_proposer
+    return glider_proposer.AiProposer(budget, _PromptKeyedProvider(cases))
+
+
+@pytest.mark.parametrize('capability', e05.CAPABILITIES)
+def test_t9_corpus_self_check_complete_cases_stay_accurate(capability):
+    cases = e05.load_corpora(CORPUS_DIR)[capability]   # the pinned files the live run will use
+    budget = e05.CountingBudget(e05.ROUND2_CAPS[capability])
+    result = e05.run_capability(capability, cases, _self_check_proposer(capability, cases, budget), budget,
+                                budget_cap=e05.ROUND2_CAPS[capability])
+    assert result['stop'] == 'completed'
+    assert result['calls'] <= e05.ROUND2_CAPS[capability]
+    complete = [r for r in result['cases'] if r['kind'] == 'complete']
+    assert len(complete) >= 3
+    for record in complete:
+        assert record['state'] == 'proposed', record['case_id']
+        assert record['accurate_reviewable_draft'], record['case_id']
+        assert record['unstated_ai_values'] == 0, record['case_id']
+    assert sum(r['silent_requirement_drop'] for r in result['cases']) == 0
+    for record in result['cases']:
+        assert record['reason'] is None if record['state'] == 'proposed' else record['reason'] in e05.REASON_IDS
+
+
+def test_t9_harness_loads_glider_v2_and_keeps_v1_pins():
+    assert e05.CORPUS_FILES == {'co2_dragster': 'co2_dragster-v1.json', 'regen_chamber': 'regen_chamber-v1.json',
+                                'glider_cem': 'glider_cem-v2.json'}
+    import hashlib
+    for capability, name in e05.CORPUS_FILES.items():
+        assert hashlib.sha256((CORPUS_DIR / name).read_bytes()).hexdigest() == e05.CORPUS_SHA256[capability]
+    # Run 1 cited these v1 files by SHA; they must never change.
+    assert hashlib.sha256((CORPUS_DIR / 'glider_cem-v1.json').read_bytes()).hexdigest() == \
+        'c4113bb1334fd0951082efe0141120b6615dc05bbed4433afce1310c9a8db3a3'
