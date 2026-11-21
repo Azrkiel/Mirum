@@ -1,0 +1,1081 @@
+{
+  "schema": "plate_benchmarks_v1",
+  "nu": 0.3,
+  "normalisation": "b is the short side. Deflection coefficient = w D / (q b^4), moment coefficient = M / (q b^2), D = E h^3 / (12 (1 - nu^2)). Timoshenko's x is our y. Divide Roark alpha by 12 (1 - nu^2) for w, and beta by 6 for moment magnitude. Case 1a beta maps to Table 8 beta. Case 8a beta1 and beta2 map to Table 35 long-edge and major centre moments.",
+  "sources": [
+    {
+      "id": "S1",
+      "citation": "Orumu, International Journal of Scientific Advances 3(2), 2022, pp. 266–267. Classical columns reproducing Timoshenko and Woinowsky-Krieger, Theory of Plates and Shells.",
+      "url": "https://www.ijscia.com/wp-content/uploads/2022/04/Volume3-Issue2-Mar-Apr-No.250-263-269.pdf",
+      "table": "Tables 2–3, after Table 8",
+      "edition": "Timoshenko 2nd ed., 1959",
+      "confidence": "medium",
+      "notes": "PDF text extraction scrambles some row alignments. The 1.2 minor moment differs in the last digit and the 2.0 deflection has fewer printed digits."
+    },
+    {
+      "id": "S2",
+      "citation": "Lim, CityU MPhil thesis, Table 3.1, column [1] citing Timoshenko and Woinowsky-Krieger, Theory of Plates and Shells.",
+      "url": "http://lbms03.cityu.edu.hk/theses/c_ftt/mphil-bc-b22687270f.pdf",
+      "table": "Table 3.1, after Table 8",
+      "edition": "Timoshenko 2nd ed., 1959",
+      "confidence": "high",
+      "notes": "Covers the five signed SS ratios. Lim swaps Mx/My labels relative to Timoshenko. Values here follow Timoshenko’s axis convention."
+    },
+    {
+      "id": "T35",
+      "citation": "S. Timoshenko and S. Woinowsky-Krieger, Theory of Plates and Shells. Table computed by T. H. Evans, J. Appl. Mech. 6, A-7, 1939.",
+      "url": "https://files.engineering.com/files/e40f123f-053e-4747-8ce2-c7f6b302bfa1/Tab_35_from_Timoshenko_Plates.pdf",
+      "table": "Table 35",
+      "edition": "2nd ed., 1959",
+      "confidence": "high for endpoint moments, medium-high for intermediate moments",
+      "notes": "Book page excerpt hosted by engineering.com. The signed rows use the transcription recorded in the source notes."
+    },
+    {
+      "id": "Imrak",
+      "citation": "Imrak, An Exact Solution for the Deflection of a Clamped Rectangular Plate under Uniform Load, Applied Mathematical Sciences 1(42), 2007.",
+      "url": "https://m-hikari.com/ams/ams-password-2007/ams-password41-44-2007/imrakAMS41-44-2007.pdf",
+      "table": "Clamped deflection comparison, Evans column",
+      "edition": "2007",
+      "confidence": "high for corroborated deflections",
+      "notes": "Corroborates the deflection coefficients at 1.0, 1.2, 1.6, 1.8, 2.0 and infinity."
+    },
+    {
+      "id": "Roark-1a",
+      "citation": "Roark’s Formulas for Stress and Strain, pp. 508–509.",
+      "url": "https://www.scribd.com/document/334686201/Tab-11-4-0",
+      "table": "Table 11.4, case 1a",
+      "edition": "7th ed.",
+      "confidence": "medium for digit-exactness",
+      "notes": "Scribd OCR of the book. Used only for consistency."
+    },
+    {
+      "id": "Roark-8a",
+      "citation": "Roark’s Formulas for Stress and Strain, pp. 508–509.",
+      "url": "https://www.scribd.com/document/340593062/248898958-Roark-s-Formulas-for-Stress-and-Strain-507-525-11-pdf",
+      "table": "Table 11.4, case 8a",
+      "edition": "7th ed.",
+      "confidence": "medium for digit-exactness",
+      "notes": "Scribd OCR of the book. Used only for consistency."
+    }
+  ],
+  "rows": [
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "1.0",
+      "ratio_value": 1,
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "confidence": "high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00406",
+          "value": 0.00406,
+          "timoshenko_label": "alpha (w)",
+          "our_label": "w_max"
+        },
+        "beta": {
+          "printed": "0.0479",
+          "value": 0.0479,
+          "timoshenko_label": "beta (Mx)",
+          "our_label": "my_centre"
+        },
+        "beta1": {
+          "printed": "0.0479",
+          "value": 0.0479,
+          "timoshenko_label": "beta1 (My)",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "1.2",
+      "ratio_value": 1.2,
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "confidence": "high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00564",
+          "value": 0.00564,
+          "timoshenko_label": "alpha (w)",
+          "our_label": "w_max"
+        },
+        "beta": {
+          "printed": "0.0627",
+          "value": 0.0627,
+          "timoshenko_label": "beta (Mx)",
+          "our_label": "my_centre"
+        },
+        "beta1": {
+          "printed": "0.0501",
+          "value": 0.0501,
+          "timoshenko_label": "beta1 (My)",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "1.5",
+      "ratio_value": 1.5,
+      "source_ids": [
+        "S2"
+      ],
+      "confidence": "high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00772",
+          "value": 0.00772,
+          "timoshenko_label": "alpha (w)",
+          "our_label": "w_max"
+        },
+        "beta": {
+          "printed": "0.0812",
+          "value": 0.0812,
+          "timoshenko_label": "beta (Mx)",
+          "our_label": "my_centre"
+        },
+        "beta1": {
+          "printed": "0.0498",
+          "value": 0.0498,
+          "timoshenko_label": "beta1 (My)",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "1.7",
+      "ratio_value": 1.7,
+      "source_ids": [
+        "S2"
+      ],
+      "confidence": "high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00883",
+          "value": 0.00883,
+          "timoshenko_label": "alpha (w)",
+          "our_label": "w_max"
+        },
+        "beta": {
+          "printed": "0.0908",
+          "value": 0.0908,
+          "timoshenko_label": "beta (Mx)",
+          "our_label": "my_centre"
+        },
+        "beta1": {
+          "printed": "0.0486",
+          "value": 0.0486,
+          "timoshenko_label": "beta1 (My)",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "2.0",
+      "ratio_value": 2,
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "confidence": "high",
+      "coefficients": {
+        "w": {
+          "printed": "0.01013",
+          "value": 0.01013,
+          "timoshenko_label": "alpha (w)",
+          "our_label": "w_max"
+        },
+        "beta": {
+          "printed": "0.1017",
+          "value": 0.1017,
+          "timoshenko_label": "beta (Mx)",
+          "our_label": "my_centre"
+        },
+        "beta1": {
+          "printed": "0.0464",
+          "value": 0.0464,
+          "timoshenko_label": "beta1 (My)",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.0",
+      "ratio_value": 1,
+      "source_ids": [
+        "T35",
+        "Imrak"
+      ],
+      "confidence": "high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00126",
+          "value": 0.00126,
+          "timoshenko_label": "(w)x=0,y=0",
+          "our_label": "w_max"
+        },
+        "edge_mx": {
+          "printed": "-0.0513",
+          "value": -0.0513,
+          "timoshenko_label": "(Mx)x=a/2,y=0",
+          "our_label": "edge_moment_long_edge"
+        },
+        "edge_my": {
+          "printed": "-0.0513",
+          "value": -0.0513,
+          "timoshenko_label": "(My)x=0,y=b/2",
+          "our_label": "edge_moment_short_edge"
+        },
+        "centre_mx": {
+          "printed": "0.0231",
+          "value": 0.0231,
+          "timoshenko_label": "(Mx)x=0,y=0",
+          "our_label": "my_centre"
+        },
+        "centre_my": {
+          "printed": "0.0231",
+          "value": 0.0231,
+          "timoshenko_label": "(My)x=0,y=0",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.1",
+      "ratio_value": 1.1,
+      "source_ids": [
+        "T35"
+      ],
+      "confidence": "medium-high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00150",
+          "value": 0.0015,
+          "timoshenko_label": "(w)x=0,y=0",
+          "our_label": "w_max"
+        },
+        "edge_mx": {
+          "printed": "-0.0581",
+          "value": -0.0581,
+          "timoshenko_label": "(Mx)x=a/2,y=0",
+          "our_label": "edge_moment_long_edge"
+        },
+        "edge_my": {
+          "printed": "-0.0538",
+          "value": -0.0538,
+          "timoshenko_label": "(My)x=0,y=b/2",
+          "our_label": "edge_moment_short_edge"
+        },
+        "centre_mx": {
+          "printed": "0.0264",
+          "value": 0.0264,
+          "timoshenko_label": "(Mx)x=0,y=0",
+          "our_label": "my_centre"
+        },
+        "centre_my": {
+          "printed": "0.0231",
+          "value": 0.0231,
+          "timoshenko_label": "(My)x=0,y=0",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.2",
+      "ratio_value": 1.2,
+      "source_ids": [
+        "T35",
+        "Imrak"
+      ],
+      "confidence": "medium-high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00172",
+          "value": 0.00172,
+          "timoshenko_label": "(w)x=0,y=0",
+          "our_label": "w_max"
+        },
+        "edge_mx": {
+          "printed": "-0.0639",
+          "value": -0.0639,
+          "timoshenko_label": "(Mx)x=a/2,y=0",
+          "our_label": "edge_moment_long_edge"
+        },
+        "edge_my": {
+          "printed": "-0.0554",
+          "value": -0.0554,
+          "timoshenko_label": "(My)x=0,y=b/2",
+          "our_label": "edge_moment_short_edge"
+        },
+        "centre_mx": {
+          "printed": "0.0299",
+          "value": 0.0299,
+          "timoshenko_label": "(Mx)x=0,y=0",
+          "our_label": "my_centre"
+        },
+        "centre_my": {
+          "printed": "0.0228",
+          "value": 0.0228,
+          "timoshenko_label": "(My)x=0,y=0",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.3",
+      "ratio_value": 1.3,
+      "source_ids": [
+        "T35"
+      ],
+      "confidence": "medium-high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00191",
+          "value": 0.00191,
+          "timoshenko_label": "(w)x=0,y=0",
+          "our_label": "w_max"
+        },
+        "edge_mx": {
+          "printed": "-0.0687",
+          "value": -0.0687,
+          "timoshenko_label": "(Mx)x=a/2,y=0",
+          "our_label": "edge_moment_long_edge"
+        },
+        "edge_my": {
+          "printed": "-0.0563",
+          "value": -0.0563,
+          "timoshenko_label": "(My)x=0,y=b/2",
+          "our_label": "edge_moment_short_edge"
+        },
+        "centre_mx": {
+          "printed": "0.0327",
+          "value": 0.0327,
+          "timoshenko_label": "(Mx)x=0,y=0",
+          "our_label": "my_centre"
+        },
+        "centre_my": {
+          "printed": "0.0222",
+          "value": 0.0222,
+          "timoshenko_label": "(My)x=0,y=0",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.4",
+      "ratio_value": 1.4,
+      "source_ids": [
+        "T35"
+      ],
+      "confidence": "medium-high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00207",
+          "value": 0.00207,
+          "timoshenko_label": "(w)x=0,y=0",
+          "our_label": "w_max"
+        },
+        "edge_mx": {
+          "printed": "-0.0726",
+          "value": -0.0726,
+          "timoshenko_label": "(Mx)x=a/2,y=0",
+          "our_label": "edge_moment_long_edge"
+        },
+        "edge_my": {
+          "printed": "-0.0568",
+          "value": -0.0568,
+          "timoshenko_label": "(My)x=0,y=b/2",
+          "our_label": "edge_moment_short_edge"
+        },
+        "centre_mx": {
+          "printed": "0.0349",
+          "value": 0.0349,
+          "timoshenko_label": "(Mx)x=0,y=0",
+          "our_label": "my_centre"
+        },
+        "centre_my": {
+          "printed": "0.0212",
+          "value": 0.0212,
+          "timoshenko_label": "(My)x=0,y=0",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.5",
+      "ratio_value": 1.5,
+      "source_ids": [
+        "T35"
+      ],
+      "confidence": "medium-high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00220",
+          "value": 0.0022,
+          "timoshenko_label": "(w)x=0,y=0",
+          "our_label": "w_max"
+        },
+        "edge_mx": {
+          "printed": "-0.0757",
+          "value": -0.0757,
+          "timoshenko_label": "(Mx)x=a/2,y=0",
+          "our_label": "edge_moment_long_edge"
+        },
+        "edge_my": {
+          "printed": "-0.0570",
+          "value": -0.057,
+          "timoshenko_label": "(My)x=0,y=b/2",
+          "our_label": "edge_moment_short_edge"
+        },
+        "centre_mx": {
+          "printed": "0.0368",
+          "value": 0.0368,
+          "timoshenko_label": "(Mx)x=0,y=0",
+          "our_label": "my_centre"
+        },
+        "centre_my": {
+          "printed": "0.0203",
+          "value": 0.0203,
+          "timoshenko_label": "(My)x=0,y=0",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.6",
+      "ratio_value": 1.6,
+      "source_ids": [
+        "T35",
+        "Imrak"
+      ],
+      "confidence": "medium-high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00230",
+          "value": 0.0023,
+          "timoshenko_label": "(w)x=0,y=0",
+          "our_label": "w_max"
+        },
+        "edge_mx": {
+          "printed": "-0.0780",
+          "value": -0.078,
+          "timoshenko_label": "(Mx)x=a/2,y=0",
+          "our_label": "edge_moment_long_edge"
+        },
+        "edge_my": {
+          "printed": "-0.0571",
+          "value": -0.0571,
+          "timoshenko_label": "(My)x=0,y=b/2",
+          "our_label": "edge_moment_short_edge"
+        },
+        "centre_mx": {
+          "printed": "0.0381",
+          "value": 0.0381,
+          "timoshenko_label": "(Mx)x=0,y=0",
+          "our_label": "my_centre"
+        },
+        "centre_my": {
+          "printed": "0.0193",
+          "value": 0.0193,
+          "timoshenko_label": "(My)x=0,y=0",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.7",
+      "ratio_value": 1.7,
+      "source_ids": [
+        "T35"
+      ],
+      "confidence": "medium-high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00238",
+          "value": 0.00238,
+          "timoshenko_label": "(w)x=0,y=0",
+          "our_label": "w_max"
+        },
+        "edge_mx": {
+          "printed": "-0.0799",
+          "value": -0.0799,
+          "timoshenko_label": "(Mx)x=a/2,y=0",
+          "our_label": "edge_moment_long_edge"
+        },
+        "edge_my": {
+          "printed": "-0.0571",
+          "value": -0.0571,
+          "timoshenko_label": "(My)x=0,y=b/2",
+          "our_label": "edge_moment_short_edge"
+        },
+        "centre_mx": {
+          "printed": "0.0392",
+          "value": 0.0392,
+          "timoshenko_label": "(Mx)x=0,y=0",
+          "our_label": "my_centre"
+        },
+        "centre_my": {
+          "printed": "0.0182",
+          "value": 0.0182,
+          "timoshenko_label": "(My)x=0,y=0",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.8",
+      "ratio_value": 1.8,
+      "source_ids": [
+        "T35",
+        "Imrak"
+      ],
+      "confidence": "medium-high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00245",
+          "value": 0.00245,
+          "timoshenko_label": "(w)x=0,y=0",
+          "our_label": "w_max"
+        },
+        "edge_mx": {
+          "printed": "-0.0812",
+          "value": -0.0812,
+          "timoshenko_label": "(Mx)x=a/2,y=0",
+          "our_label": "edge_moment_long_edge"
+        },
+        "edge_my": {
+          "printed": "-0.0571",
+          "value": -0.0571,
+          "timoshenko_label": "(My)x=0,y=b/2",
+          "our_label": "edge_moment_short_edge"
+        },
+        "centre_mx": {
+          "printed": "0.0401",
+          "value": 0.0401,
+          "timoshenko_label": "(Mx)x=0,y=0",
+          "our_label": "my_centre"
+        },
+        "centre_my": {
+          "printed": "0.0174",
+          "value": 0.0174,
+          "timoshenko_label": "(My)x=0,y=0",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.9",
+      "ratio_value": 1.9,
+      "source_ids": [
+        "T35"
+      ],
+      "confidence": "medium-high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00249",
+          "value": 0.00249,
+          "timoshenko_label": "(w)x=0,y=0",
+          "our_label": "w_max"
+        },
+        "edge_mx": {
+          "printed": "-0.0822",
+          "value": -0.0822,
+          "timoshenko_label": "(Mx)x=a/2,y=0",
+          "our_label": "edge_moment_long_edge"
+        },
+        "edge_my": {
+          "printed": "-0.0571",
+          "value": -0.0571,
+          "timoshenko_label": "(My)x=0,y=b/2",
+          "our_label": "edge_moment_short_edge"
+        },
+        "centre_mx": {
+          "printed": "0.0407",
+          "value": 0.0407,
+          "timoshenko_label": "(Mx)x=0,y=0",
+          "our_label": "my_centre"
+        },
+        "centre_my": {
+          "printed": "0.0165",
+          "value": 0.0165,
+          "timoshenko_label": "(My)x=0,y=0",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "2.0",
+      "ratio_value": 2,
+      "source_ids": [
+        "T35",
+        "Imrak"
+      ],
+      "confidence": "high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00254",
+          "value": 0.00254,
+          "timoshenko_label": "(w)x=0,y=0",
+          "our_label": "w_max"
+        },
+        "edge_mx": {
+          "printed": "-0.0829",
+          "value": -0.0829,
+          "timoshenko_label": "(Mx)x=a/2,y=0",
+          "our_label": "edge_moment_long_edge"
+        },
+        "edge_my": {
+          "printed": "-0.0571",
+          "value": -0.0571,
+          "timoshenko_label": "(My)x=0,y=b/2",
+          "our_label": "edge_moment_short_edge"
+        },
+        "centre_mx": {
+          "printed": "0.0412",
+          "value": 0.0412,
+          "timoshenko_label": "(Mx)x=0,y=0",
+          "our_label": "my_centre"
+        },
+        "centre_my": {
+          "printed": "0.0158",
+          "value": 0.0158,
+          "timoshenko_label": "(My)x=0,y=0",
+          "our_label": "mx_centre"
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "inf",
+      "ratio_value": null,
+      "source_ids": [
+        "T35",
+        "Imrak"
+      ],
+      "confidence": "high",
+      "coefficients": {
+        "w": {
+          "printed": "0.00260",
+          "value": 0.0026,
+          "timoshenko_label": "(w)x=0,y=0",
+          "our_label": "w_max"
+        },
+        "edge_mx": {
+          "printed": "-0.0833",
+          "value": -0.0833,
+          "timoshenko_label": "(Mx)x=a/2,y=0",
+          "our_label": "edge_moment_long_edge"
+        },
+        "edge_my": {
+          "printed": "-0.0571",
+          "value": -0.0571,
+          "timoshenko_label": "(My)x=0,y=b/2",
+          "our_label": "edge_moment_short_edge"
+        },
+        "centre_mx": {
+          "printed": "0.0417",
+          "value": 0.0417,
+          "timoshenko_label": "(Mx)x=0,y=0",
+          "our_label": "my_centre"
+        },
+        "centre_my": {
+          "printed": "0.0125",
+          "value": 0.0125,
+          "timoshenko_label": "(My)x=0,y=0",
+          "our_label": "mx_centre"
+        }
+      }
+    }
+  ],
+  "cross_checks": [
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "1.0",
+      "ratio_value": 1,
+      "source_ids": [
+        "Roark-1a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta": {
+          "printed": "0.2874",
+          "value": 0.2874
+        },
+        "alpha": {
+          "printed": "0.0444",
+          "value": 0.0444
+        }
+      }
+    },
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "1.2",
+      "ratio_value": 1.2,
+      "source_ids": [
+        "Roark-1a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta": {
+          "printed": "0.3762",
+          "value": 0.3762
+        },
+        "alpha": {
+          "printed": "0.0616",
+          "value": 0.0616
+        }
+      }
+    },
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "1.4",
+      "ratio_value": 1.4,
+      "source_ids": [
+        "Roark-1a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta": {
+          "printed": "0.4530",
+          "value": 0.453
+        },
+        "alpha": {
+          "printed": "0.0770",
+          "value": 0.077
+        }
+      }
+    },
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "1.6",
+      "ratio_value": 1.6,
+      "source_ids": [
+        "Roark-1a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta": {
+          "printed": "0.5172",
+          "value": 0.5172
+        },
+        "alpha": {
+          "printed": "0.0906",
+          "value": 0.0906
+        }
+      }
+    },
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "1.8",
+      "ratio_value": 1.8,
+      "source_ids": [
+        "Roark-1a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta": {
+          "printed": "0.5688",
+          "value": 0.5688
+        },
+        "alpha": {
+          "printed": "0.1017",
+          "value": 0.1017
+        }
+      }
+    },
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "2.0",
+      "ratio_value": 2,
+      "source_ids": [
+        "Roark-1a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta": {
+          "printed": "0.6102",
+          "value": 0.6102
+        },
+        "alpha": {
+          "printed": "0.1110",
+          "value": 0.111
+        }
+      }
+    },
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "3.0",
+      "ratio_value": 3,
+      "source_ids": [
+        "Roark-1a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta": {
+          "printed": "0.7134",
+          "value": 0.7134
+        },
+        "alpha": {
+          "printed": "0.1335",
+          "value": 0.1335
+        }
+      }
+    },
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "4.0",
+      "ratio_value": 4,
+      "source_ids": [
+        "Roark-1a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta": {
+          "printed": "0.7410",
+          "value": 0.741
+        },
+        "alpha": {
+          "printed": "0.1400",
+          "value": 0.14
+        }
+      }
+    },
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "5.0",
+      "ratio_value": 5,
+      "source_ids": [
+        "Roark-1a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta": {
+          "printed": "0.7476",
+          "value": 0.7476
+        },
+        "alpha": {
+          "printed": "0.1417",
+          "value": 0.1417
+        }
+      }
+    },
+    {
+      "edge_condition": "simply_supported",
+      "ratio": "inf",
+      "ratio_value": null,
+      "source_ids": [
+        "Roark-1a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta": {
+          "printed": "0.7500",
+          "value": 0.75
+        },
+        "alpha": {
+          "printed": "0.1421",
+          "value": 0.1421
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.0",
+      "ratio_value": 1,
+      "source_ids": [
+        "Roark-8a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta1": {
+          "printed": "0.3078",
+          "value": 0.3078
+        },
+        "beta2": {
+          "printed": "0.1386",
+          "value": 0.1386
+        },
+        "alpha": {
+          "printed": "0.0138",
+          "value": 0.0138
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.2",
+      "ratio_value": 1.2,
+      "source_ids": [
+        "Roark-8a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta1": {
+          "printed": "0.3834",
+          "value": 0.3834
+        },
+        "beta2": {
+          "printed": "0.1794",
+          "value": 0.1794
+        },
+        "alpha": {
+          "printed": "0.0188",
+          "value": 0.0188
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.4",
+      "ratio_value": 1.4,
+      "source_ids": [
+        "Roark-8a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta1": {
+          "printed": "0.4356",
+          "value": 0.4356
+        },
+        "beta2": {
+          "printed": "0.2094",
+          "value": 0.2094
+        },
+        "alpha": {
+          "printed": "0.0226",
+          "value": 0.0226
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.6",
+      "ratio_value": 1.6,
+      "source_ids": [
+        "Roark-8a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta1": {
+          "printed": "0.4680",
+          "value": 0.468
+        },
+        "beta2": {
+          "printed": "0.2286",
+          "value": 0.2286
+        },
+        "alpha": {
+          "printed": "0.0251",
+          "value": 0.0251
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.8",
+      "ratio_value": 1.8,
+      "source_ids": [
+        "Roark-8a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta1": {
+          "printed": "0.4872",
+          "value": 0.4872
+        },
+        "beta2": {
+          "printed": "0.2406",
+          "value": 0.2406
+        },
+        "alpha": {
+          "printed": "0.0267",
+          "value": 0.0267
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "2.0",
+      "ratio_value": 2,
+      "source_ids": [
+        "Roark-8a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta1": {
+          "printed": "0.4974",
+          "value": 0.4974
+        },
+        "beta2": {
+          "printed": "0.2472",
+          "value": 0.2472
+        },
+        "alpha": {
+          "printed": "0.0277",
+          "value": 0.0277
+        }
+      }
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "inf",
+      "ratio_value": null,
+      "source_ids": [
+        "Roark-8a"
+      ],
+      "confidence": "medium for digit-exactness",
+      "coefficients": {
+        "beta1": {
+          "printed": "0.5000",
+          "value": 0.5
+        },
+        "beta2": {
+          "printed": "0.2500",
+          "value": 0.25
+        },
+        "alpha": {
+          "printed": "0.0284",
+          "value": 0.0284
+        }
+      }
+    }
+  ],
+  "known_discrepancies": [
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.0",
+      "fields": [
+        "centre_mx",
+        "centre_my"
+      ],
+      "notes": "converged FD (R2) and the FE give 0.0229 (0.9 % lower), beyond 0.5 % + half a printed digit; Evans 1939 value; reported to the lead as a contract question"
+    },
+    {
+      "edge_condition": "clamped",
+      "ratio": "1.1",
+      "fields": [
+        "centre_mx"
+      ],
+      "notes": "Timoshenko (Mx) centre printed 0.0264; converged FD (R2) gives 0.02669 and the FE 0.02672 (1.1 % higher), beyond 0.5 % + half a printed digit; Evans 1939 value; reported to the lead as a contract question"
+    }
+  ]
+}
