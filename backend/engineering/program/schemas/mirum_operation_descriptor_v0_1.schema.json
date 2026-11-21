@@ -1,0 +1,171 @@
+{
+  "$defs": {
+    "ArgSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed",
+          "type": "array"
+        },
+        "dimension": {
+          "anyOf": [
+            {
+              "enum": [
+                "length",
+                "force",
+                "pressure",
+                "mass",
+                "time",
+                "angle",
+                "dimensionless"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dimension"
+        },
+        "kind": {
+          "enum": [
+            "quantity",
+            "text",
+            "reference"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "kind"
+      ],
+      "title": "ArgSpec",
+      "type": "object"
+    },
+    "OutputSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "solid",
+            "sketch",
+            "artifact",
+            "measurement",
+            "report",
+            "file"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "OutputSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "args": {
+      "items": {
+        "$ref": "#/$defs/ArgSpec"
+      },
+      "title": "Args",
+      "type": "array"
+    },
+    "backend_requirements": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Backend Requirements",
+      "type": "array"
+    },
+    "capability_versions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Capability Versions",
+      "type": "array"
+    },
+    "executable": {
+      "title": "Executable",
+      "type": "boolean"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "outputs": {
+      "items": {
+        "$ref": "#/$defs/OutputSpec"
+      },
+      "title": "Outputs",
+      "type": "array"
+    },
+    "preconditions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Preconditions",
+      "type": "array"
+    },
+    "representations": {
+      "items": {
+        "enum": [
+          "brep",
+          "mesh",
+          "voxel",
+          "report",
+          "file"
+        ],
+        "type": "string"
+      },
+      "title": "Representations",
+      "type": "array"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "summary",
+    "args",
+    "preconditions",
+    "outputs",
+    "representations",
+    "backend_requirements",
+    "capability_versions",
+    "executable"
+  ],
+  "title": "OperationDescriptor",
+  "type": "object"
+}
