@@ -306,15 +306,6 @@ def load_credential(path):
     return 'GEMINI_API_KEY_HEAVY'
 
 
-def configure_legacy_client():
-    """glider_cem calls cem.extraction.extract, which uses the legacy google.generativeai global client.
-    backend/main.py configures it at import (PRO key, falling back to HEAVY); this script never imports
-    main.py, so configure it here with the approved HEAVY key, exactly as main.py does when PRO is blank."""
-    import importlib
-    genai = importlib.import_module('google.generativeai')   # resolves through sys.modules (testable)
-    genai.configure(api_key=os.environ['GEMINI_API_KEY_HEAVY'])
-
-
 def main(argv=None):
     # Set inside the job's container only; the workflow text never names the flag (b13-step12 invariant).
     os.environ['MIRUM_ENGINEERING_AI_DRAFTS'] = '1'
@@ -331,8 +322,6 @@ def main(argv=None):
     capabilities = CAPABILITIES if args.capability == 'all' else (args.capability,)
     if args.credentials:
         load_credential(args.credentials)
-        if 'glider_cem' in capabilities:
-            configure_legacy_client()
     evidence = run(args.output, capabilities, sha=args.sha, image_id=args.image_id, run_id=args.run_id,
                    authorization=args.authorization, pace_seconds=args.pace_seconds)
     print(json.dumps({k: evidence[k] for k in ('qualification',)}))

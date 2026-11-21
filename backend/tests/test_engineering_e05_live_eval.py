@@ -210,20 +210,27 @@ def test_budget_is_per_capability_and_cannot_be_refunded():
     assert budget.used() == 2
 
 
-def test_glider_runs_configure_the_legacy_client_with_the_approved_key(tmp_path, monkeypatch):
-    """cem.extraction uses the legacy google.generativeai global client, which only main.py configures;
-    the live script must configure it with GEMINI_API_KEY_HEAVY or every glider case is unavailable."""
+def test_harness_has_no_legacy_client_and_main_never_imports_google_generativeai(tmp_path, monkeypatch):
+    """The glider uses the engineering provider (D5); the harness must not configure the legacy
+    google.generativeai global client any more."""
     import sys
-    import types
-    live = e05
-    configured = []
-    fake = types.ModuleType('google.generativeai')
-    fake.configure = lambda **kw: configured.append(kw)
-    monkeypatch.setitem(sys.modules, 'google.generativeai', fake)
-    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', 'planted-heavy')
-    monkeypatch.delenv('GEMINI_API_KEY_PRO', raising=False)
-    live.configure_legacy_client()
-    assert configured == [{'api_key': 'planted-heavy'}]
+    assert not hasattr(e05, 'configure_legacy_client')
+    imported = []
+    real_import = __import__
+
+    def spy(name, *args, **kwargs):
+        if name.startswith('google.generativeai'):
+            imported.append(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr('builtins.__import__', spy)
+    monkeypatch.delitem(sys.modules, 'google.generativeai', raising=False)
+    monkeypatch.setenv('MIRUM_ENGINEERING_AI_DRAFTS', '0')  # main() sets it; restored on teardown
+    monkeypatch.setattr(e05, 'load_credential', lambda path: 'GEMINI_API_KEY_HEAVY')
+    monkeypatch.setattr(e05, 'run', lambda *a, **k: dict(qualification='passed'))
+    code = e05.main([str(tmp_path / 'out'), 'glider_cem', 'a' * 40, str(tmp_path / 'cred'),
+                     '--run-id', 'r1', '--authorization', 'owner-test', '--image-id', 'img'])
+    assert code == 0 and imported == []
 
 
 def test_evidence_is_on_disk_for_finished_capabilities_when_a_later_one_crashes(tmp_path):

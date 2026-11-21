@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from cem.glider.requirements import GliderMissionRequirements
 from engineering import glider_proposer, proposal_contract, proposer, regen_proposer
 from engineering.capabilities import GENERATORS, GLIDER, REGEN, UnsupportedCapability
 from engineering.limits import AiCallBudget
@@ -28,6 +27,9 @@ FAMILY_PROMPTS = {
     'rectangular_cantilever': ('Size a rectangular cantilever beam.',
                                'Check the tip load on a rectangular cantilever beam.'),
 }
+# D5: a draft is 'proposed' only when every AI value is stated in the prompt, so the glider prompt
+# must state the launch method and family its fake reply returns.
+PROPOSABLE_PROMPTS = {'glider_cem': 'Design a hand-launched glider for distance using the conventional family.'}
 NO_MATCH = ('Design a coffee mug.', 'Make a bookshelf.')
 AMBIGUOUS = ('Design a CO2 dragster and a hand-launched glider for distance.',
              'Size a rectangular cantilever beam and model a thrust chamber with cooling channels.')
@@ -64,13 +66,16 @@ def fake_regen(budget, *, out_of_family=False):
 
 def fake_glider(budget, *, needs_clarification=False):
     if needs_clarification:
-        reply = dict(status='needs_clarification', questions=['Which object should be designed?'])
+        reply = dict(out_of_family=False, fields={}, questions=['Which object should be designed?'],
+                     unsupported_features=[])
     else:
-        requirements = GliderMissionRequirements(launch=dict(method='drop')).model_dump(mode='json')
-        requirements['discovery']['families'] = ['conventional']
-        reply = dict(status='review_requirements', requirements=requirements)
-    extract = AsyncMock(return_value=reply)
-    return glider_proposer.AiProposer(budget, extract), extract
+        reply = dict(out_of_family=False, fields=dict(launch_method='hand_toss', families=['conventional']),
+                     questions=[], unsupported_features=[])
+    provider = Mock(available=True)
+    provider.settings.return_value = proposer.ProviderSettings(
+        provider='fixture', sdk_version='fixture', model='fixture', temperature=0, max_tokens=1024)
+    provider.generate = AsyncMock(return_value=proposer.ProviderReply(text=json.dumps(reply)))
+    return glider_proposer.AiProposer(budget, provider), provider.generate
 
 
 PROPOSERS = ((REGEN, fake_regen), (GLIDER, fake_glider))
@@ -80,7 +85,7 @@ PROPOSERS = ((REGEN, fake_regen), (GLIDER, fake_glider))
 def test_substituting_fake_can_propose_in_its_own_family(descriptor, fake):
     budget = AiCallBudget(daily_calls=1, concurrency=1)
     ai, call = fake(budget)
-    proposal = asyncio.run(ai.propose(FAMILY_PROMPTS[descriptor.id][0]))
+    proposal = asyncio.run(ai.propose(PROPOSABLE_PROMPTS.get(descriptor.id, FAMILY_PROMPTS[descriptor.id][0])))
     assert proposal_contract.conform(descriptor.id, proposal).state == 'proposed'
     call.assert_awaited_once()
 

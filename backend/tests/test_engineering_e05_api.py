@@ -2,7 +2,7 @@
 
 Host-runnable: each generator AI proposer, with a fake provider, feeds BriefService.create.
 CI only (fastapi + native TestClient): the HTTP tests; their fixtures skip without fastapi.
-Nothing here calls a live model: every proposer gets a fake provider / extract / interpret.
+Nothing here calls a live model: every proposer gets a fake provider / interpret.
 """
 from __future__ import annotations
 
@@ -64,22 +64,16 @@ def regen_reply(fields=None, **over):
 REGEN_GOOD = regen_reply(dict(chamber_radius_mm=36.0, throat_radius_mm=20.0, channel_count=30))
 
 
-def glider_requirements(families=('conventional', 't_tail')):
-    from cem.glider.requirements import GliderMissionRequirements
-    body = GliderMissionRequirements(launch=dict(method='drop')).model_dump(mode='json')
-    body['discovery']['families'] = families if isinstance(families, str) else list(families)
-    return body
+def glider_reply(fields=None, **over):
+    body = dict(out_of_family=False, fields=fields or {}, questions=[], unsupported_features=[])
+    body.update(over)
+    return json.dumps(body)
 
 
-class FakeExtract:
-    def __init__(self, result=None, error=None):
-        self.result, self.error, self.calls = result, error, 0
-
-    async def __call__(self, prompt):
-        self.calls += 1
-        if self.error:
-            raise self.error
-        return copy.deepcopy(self.result)
+GLIDER_FIELDS = dict(objective='distance_m', launch_method='drop', families=['conventional', 't_tail'])
+GLIDER_GOOD = glider_reply(GLIDER_FIELDS)
+GLIDER_NO_FAMILIES = glider_reply(dict(objective='distance_m', launch_method='drop'))
+GLIDER_QUESTION = glider_reply(questions=['Which launch?'])
 
 
 def dragster_resolution():
@@ -125,10 +119,9 @@ CASES = {
     'regen_clarify': ('regen_chamber', lambda: FakeProvider([regen_reply(
         dict(chamber_radius_mm=36.0), state='clarification_required', questions=['Which throat radius?'])]),
         REGEN_PROMPT, 'clarification_required', 'ai'),
-    'glider_proposed': ('glider_cem', lambda: FakeExtract(dict(status='review_requirements',
-        requirements=glider_requirements())), GLIDER_PROMPT, 'proposed', 'ai'),
-    'glider_clarify': ('glider_cem', lambda: FakeExtract(dict(status='review_requirements',
-        requirements=glider_requirements('all'))), GLIDER_PROMPT, 'clarification_required', 'ai'),
+    'glider_proposed': ('glider_cem', lambda: FakeProvider([GLIDER_GOOD]), GLIDER_PROMPT, 'proposed', 'ai'),
+    'glider_clarify': ('glider_cem', lambda: FakeProvider([GLIDER_NO_FAMILIES]), GLIDER_PROMPT,
+                       'clarification_required', 'ai'),
     'dragster_proposed': ('co2_dragster', lambda: fake_interpret(), DRAGSTER_PROMPT, 'proposed', 'ai'),
     # A bare dragster clarification carries no specification: its provenance is the proposer's form-mode empty one.
     'dragster_clarify': ('co2_dragster', lambda: fake_interpret(dict(status='needs_clarification',
@@ -270,7 +263,7 @@ def test_repair_call_uses_two_units_and_the_raw_reply_never_reaches_the_response
 
 
 def test_glider_complete_prompt_records_the_calibration_policy(ai_client, monkeypatch):
-    install_factory(monkeypatch, FakeExtract(dict(status='review_requirements', requirements=glider_requirements())))
+    install_factory(monkeypatch, FakeProvider([GLIDER_GOOD]))
     response = post_ai(ai_client, 'glider_cem', GLIDER_PROMPT)
     assert response.status_code == 201, response.text
     body = response.json()
@@ -281,7 +274,7 @@ def test_glider_complete_prompt_records_the_calibration_policy(ai_client, monkey
 
 
 def test_glider_needing_clarification_is_a_201_with_the_issue(ai_client, monkeypatch):
-    install_factory(monkeypatch, FakeExtract(dict(status='needs_clarification', questions=['Which launch?'])))
+    install_factory(monkeypatch, FakeProvider([GLIDER_QUESTION]))
     response = post_ai(ai_client, 'glider_cem', GLIDER_PROMPT)
     assert response.status_code == 201, response.text
     body = response.json()
@@ -360,7 +353,7 @@ def test_generator_spend_reseeds_the_budget_after_a_restart(ai_client, monkeypat
         status='proposed', calls=2, request_characters=10, request_sha256='0' * 64))  # two beam calls
     install_factory(monkeypatch, FakeProvider([MARKER + ' not json', REGEN_GOOD]))
     assert post_ai(ai_client, 'regen_chamber', REGEN_PROMPT).status_code == 201  # 2 calls (repair)
-    install_factory(monkeypatch, FakeExtract(dict(status='needs_clarification', questions=['Which launch?'])))
+    install_factory(monkeypatch, FakeProvider([GLIDER_QUESTION]))
     assert post_ai(ai_client, 'glider_cem', GLIDER_PROMPT).status_code == 201  # 1 call, clarification
     install_factory(monkeypatch, FakeProvider(error=RuntimeError(SECRET)))
     assert_unavailable(post_ai(ai_client, 'regen_chamber', REGEN_PROMPT))  # 1 call, then unavailable
