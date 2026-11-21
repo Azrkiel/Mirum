@@ -6,7 +6,8 @@ prompt does not state (``grounding``), fills the rest from the ``GliderMissionRe
 defaults labelled ``policy`` and returns a ``proposal_contract`` envelope. It never runs physics,
 never finalizes a brief and never returns or logs raw provider text, exception text or the prompt.
 ``calibration_version`` is explicit reviewed policy (the shipped initial snapshot) and is never
-supplied by the model. Importing this module imports no SDK and reads no key.
+supplied by the model. A calibration-update ask the model lists as an unsupported feature is dropped
+and answered by the calibration clarification instead (fail closed). Importing this module imports no SDK and reads no key.
 """
 from __future__ import annotations
 
@@ -41,6 +42,9 @@ PAYLOAD_QUESTION = 'A payload needs mass, diameter and length all stated; enter 
 CALIBRATION_REFERENCE = 'cem.glider.calibration initial snapshot (shipped default)'
 DEFAULT_REFERENCE = 'GliderMissionRequirements default'
 _CALIBRATION_MENTION = re.compile(r'calibrat|flight[- ]?test', re.IGNORECASE)
+_OTHER_UNSUPPORTED = re.compile(
+    r'thermal|ridge|slope|soar|power|motor|engine|propell|electric|battery|radio|rc|servo|remote'
+    r'|autopilot|gps|camera|script|code', re.IGNORECASE)
 _FAMILIES_FIELD = 'specification.requirements.discovery.families'
 _CALIBRATION_FIELD = 'specification.calibration_version'
 _REQUIREMENTS_PREFIX = GENERATOR_SPEC_PREFIX + 'requirements.'
@@ -123,8 +127,14 @@ class AiProposer:
     def _map(self, reply, prompt, settings) -> GliderProposal:
         if reply.out_of_family:
             return self._unsupported((_issue('unsupported', NOT_A_GLIDER),), 'unsupported.family')
-        if reply.unsupported_features:
-            return self._unsupported((_issue('unsupported', f, 'features') for f in reply.unsupported_features),
+        features = list(reply.unsupported_features)
+        if features and _CALIBRATION_MENTION.search(prompt):
+            # A calibration ask is a clarification (calibration_version is never taken from the model).
+            features = [f for f in features
+                        if not (_CALIBRATION_MENTION.search(f) and not _OTHER_UNSUPPORTED.search(f))]
+        dropped = len(features) < len(reply.unsupported_features)
+        if features:
+            return self._unsupported((_issue('unsupported', f, 'features') for f in features),
                                      'unsupported.feature')
 
         provided = {k: v for k, v in reply.fields.model_dump().items() if v is not None}
@@ -159,6 +169,9 @@ class AiProposer:
 
         version = _calibration_version()
         calibration_asked = version is None or bool(_CALIBRATION_MENTION.search(prompt))
+        if dropped and not calibration_asked:
+            return self._unsupported((_issue('unsupported', f, 'features') for f in reply.unsupported_features),
+                                     'unsupported.feature')
         spec = dict(requirements=requirements)
         if not calibration_asked:
             spec['calibration_version'] = version
