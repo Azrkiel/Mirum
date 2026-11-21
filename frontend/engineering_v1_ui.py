@@ -6,11 +6,14 @@ string is rendered through ``engineering_ui._plain`` or as JSON/plain text.
 """
 from datetime import datetime, timezone
 
+import json
+
 import streamlit as st
 
 from engineering_state import CheckedState
 from engineering_ui import APIError, _plain, _refs
-from engineering_v1 import (attempt_outcome, ai_enabled, ai_available, ai_origins, field_label, is_ai_draft, propose_ai_draft,
+from engineering_v1 import (PLATE_ID, PLATE_EDGES, PLATE_LABELS, PLATE_MODES, PLATE_NUMBERS, PLATE_SOURCES, initial_draft_body,
+                            plate_brief, plate_form_values, plate_result_view, attempt_outcome, ai_enabled, ai_available, ai_origins, field_label, is_ai_draft, propose_ai_draft,
                             review_ack_required, unverified_fields, create_generator_draft, draft_specification, edited_specification, finalize,
                             leaf_fields, parse_specification_json, outcome_message, patch_body, result_heading, result_view, state_line, submit, text_for,
                             verified_download)
@@ -81,6 +84,69 @@ def _ai_banner(prepared):
         for name in fields: st.text(_plain(name))
 
 
+def _plate_form(client, entry, state):
+    """Typed plate form. Creates the draft on first save, patches it afterwards; server refusals are shown as is."""
+    prepared = state.prepared
+    draft = prepared['draft'] if prepared else None
+    epoch = 'new' if draft is None else f"{draft['draft_id']}_{draft['revision']}"
+    spec = draft_specification(prepared) if prepared else None
+    values = plate_form_values(spec)
+    cid = entry['id']
+    key = lambda name: 'v1plate_' + epoch + '_' + name
+    with st.form('v1plate_form_' + epoch):
+        st.caption('Typed plate form. Values are sent exactly as typed; the server validates them and refusals are shown below.')
+        raw = {}
+        for field, label in PLATE_NUMBERS[:2]:
+            raw[field] = st.text_input(label, value=values[field], key=key(field))
+        raw['edge_condition'] = st.selectbox('Edge condition', list(PLATE_EDGES), format_func=PLATE_EDGES.get,
+                                             index=list(PLATE_EDGES).index(values['edge_condition']), key=key('edge_condition'))
+        for field, label in PLATE_NUMBERS[2:]:
+            raw[field] = st.text_input(label, value=values[field], key=key(field))
+        raw['material_reference'] = st.text_input('Material reference', value=values['material_reference'], key=key('material_reference'))
+        raw['source_kind'] = st.selectbox('Material source kind', list(PLATE_SOURCES), format_func=PLATE_SOURCES.get,
+                                          index=list(PLATE_SOURCES).index(values['source_kind']), key=key('source_kind'))
+        raw['mode'] = st.selectbox('Mode', list(PLATE_MODES), format_func=PLATE_MODES.get,
+                                   index=list(PLATE_MODES).index(values['mode']), key=key('mode'))
+        raw['candidate_thicknesses_mm'] = st.text_input('Candidate thicknesses (mm, comma separated)',
+                                                        value=values['candidate_thicknesses_mm'], key=key('candidate_thicknesses_mm'))
+        save = st.form_submit_button('Prepare brief' if draft is None else 'Save draft', disabled=state.stale)
+    if not save: return
+    try:
+        brief = plate_brief(raw)
+        if draft is None: new = client.request('POST', '/drafts', initial_draft_body(entry, specification=brief))
+        else: new = client.request('PATCH', '/drafts/' + draft['draft_id'], patch_body(prepared, brief))
+        state.adopt_draft(new); _remember(cid, state); st.rerun()
+    except (APIError, ValueError) as error:
+        if isinstance(error, APIError) and error.status == 409: state.stale = True; state.brief = None
+        st.error(str(error))
+
+
+def _plate_result(files):
+    raw = files.get('generator-report')
+    try: report = json.loads(raw) if raw else None
+    except ValueError: report = None
+    view = plate_result_view(report)
+    st.subheader('Plate result')
+    if view['selected_thickness_mm'] is not None: st.text(f"Selected thickness: {view['selected_thickness_mm']} mm")
+    st.text('Attempts: ' + (', '.join(f"{a['thickness_mm']} mm {'passed' if a['passed'] else 'rejected'}" for a in view['attempts']) or 'none'))
+    d, s = view['deflection'], view['stress']
+    st.text(f"Max deflection (checked): {d['checked_mm']} mm (limit {d['limit_mm']} mm); Kirchhoff plate deflection w_K: {d['kirchhoff_mm']} mm")
+    st.text(f"Max surface von Mises stress: {s['von_mises_mpa']} MPa (allowable {s['allowable_mpa']} MPa); location: {json.dumps(s['location'])}")
+    if view['mesh_history']:
+        st.caption('Mesh history'); st.dataframe(view['mesh_history'], hide_index=True, use_container_width=True)
+    if view['references']:
+        st.text(f"Reference method: {view['references'].get('method')}; w_max {view['references'].get('w_max')} mm; von Mises {view['references'].get('vm_max')} MPa")
+    if view['guards']:
+        st.caption('Guards')
+        # Text cells: a two-sided guard's limit is a [min, max] pair, which Arrow cannot mix with scalars.
+        st.dataframe([dict(guard=g, state=_plain(str(v.get('state'))), value=json.dumps(v.get('quantity')), limit=json.dumps(v.get('limit')))
+                      for g, v in view['guards'].items() if isinstance(v, dict)], hide_index=True, use_container_width=True)
+    if view['corner_forces']:
+        st.text('Corner hold-down forces (N): ' + json.dumps(view['corner_forces']))
+    for note in view['notes']: st.caption(note)
+    for line in view['lines']: st.caption(line)
+
+
 def _result(client, state, entry):
     cid = entry['id']
     try: job = client.request('GET', '/jobs/' + state.job_id)
@@ -126,6 +192,7 @@ def _result(client, state, entry):
         st.error(str(error)); return
     if job.get('artifact_expires_at'):
         st.caption('Available until ' + datetime.fromtimestamp(job['artifact_expires_at'], timezone.utc).isoformat() + ' (UTC).')
+    if cid == PLATE_ID: _plate_result(files)
     if 'markdown' in files:
         with st.expander('Read report', expanded=False): st.text(files['markdown'].decode('utf-8', 'replace'))
     st.subheader('Revision-bound downloads')
@@ -162,7 +229,7 @@ def render_generator(client, entry, metadata):
             state.adopt_draft(client.request('GET', '/drafts/' + state.prepared['draft']['draft_id'])); _remember(cid, state); st.rerun()
     prepared = state.prepared
     st.subheader('1. Prepare the specification')
-    typed = prepared is None and (_ai_entry(client, entry, state, metadata) if ai_enabled(metadata) else True)
+    typed = cid != PLATE_ID and prepared is None and (_ai_entry(client, entry, state, metadata) if ai_enabled(metadata) else True)
     if typed:
         prompt = st.text_input('Describe the request (rules proposer, no AI)', max_chars=2000, key='gen_prompt_' + cid)
         left, right = st.columns(2)
@@ -177,6 +244,7 @@ def render_generator(client, entry, metadata):
         if st.button('Start a new request', key='v1gen_new_' + cid,
                      help='Creates a separate draft. The earlier draft stays in its own revision.'):
             _forget_draft(cid, state); st.rerun()
+    if cid == PLATE_ID and state.prepared is None: _plate_form(client, entry, state)
     prepared = state.prepared
     if prepared is None: return
     ai_draft = is_ai_draft(prepared)
@@ -188,7 +256,8 @@ def render_generator(client, entry, metadata):
     draft = prepared['draft']
     epoch = f"{cid}_{draft['draft_id']}_{draft['revision']}"
     specification = draft_specification(prepared)
-    if specification:
+    if cid == PLATE_ID: _plate_form(client, entry, state)
+    elif specification:
         with st.form('v1gen_form_' + epoch):
             st.caption('Every field below is a review field. Edit values, then save a new revision.')
             raw = {}
@@ -205,16 +274,17 @@ def render_generator(client, entry, metadata):
             except (APIError, ValueError) as error:
                 if isinstance(error, APIError) and error.status == 409: state.stale = True; state.brief = None
                 st.error(str(error))
-    with st.expander('Replace the whole specification (JSON object)', expanded=not specification):
-        text = st.text_area('Specification JSON', max_chars=16384, key='gen_json_' + epoch)
-        if st.button('Save specification', key='v1gen_json_save_' + epoch, disabled=state.stale or not text.strip()):
-            try:
-                state.adopt_draft(client.request('PATCH', '/drafts/' + draft['draft_id'],
-                                                 patch_body(prepared, parse_specification_json(text))))
-                _remember(cid, state); st.rerun()
-            except (APIError, ValueError) as error:
-                if isinstance(error, APIError) and error.status == 409: state.stale = True; state.brief = None
-                st.error(str(error))
+    if cid != PLATE_ID:
+        with st.expander('Replace the whole specification (JSON object)', expanded=not specification):
+            text = st.text_area('Specification JSON', max_chars=16384, key='gen_json_' + epoch)
+            if st.button('Save specification', key='v1gen_json_save_' + epoch, disabled=state.stale or not text.strip()):
+                try:
+                    state.adopt_draft(client.request('PATCH', '/drafts/' + draft['draft_id'],
+                                                     patch_body(prepared, parse_specification_json(text))))
+                    _remember(cid, state); st.rerun()
+                except (APIError, ValueError) as error:
+                    if isinstance(error, APIError) and error.status == 409: state.stale = True; state.brief = None
+                    st.error(str(error))
     prepared = state.prepared
     draft = prepared['draft']
     st.subheader('2. Review the exact draft')

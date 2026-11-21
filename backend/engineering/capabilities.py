@@ -17,6 +17,7 @@ from pydantic import StringConstraints, ValidationError
 
 from cem.core import StrictModel
 from cem.glider.requirements import GliderMissionRequirements
+from .plate_spec import PLATE_NUMERICAL_V1
 from .spec import CantileverSpec
 
 if TYPE_CHECKING:
@@ -210,7 +211,7 @@ class GeneratorDescriptor(StrictModel):
     proposers: dict[str, str] = {}
     # What a passing run means (Wave E contract). Labels in the API, UI and package come from
     # this, never from the job outcome alone: "accepted" never reads as more than this claim.
-    claim: Literal['geometry_checks_only', 'screening_only']
+    claim: Literal['geometry_checks_only', 'screening_only', 'checked_design']
     engineering_certified: Literal[False] = False
     standards: Literal['not_evaluated'] = 'not_evaluated'
     limitations: tuple[str, ...]
@@ -379,7 +380,45 @@ def _glider_limits(spec: dict) -> dict:
     return table
 
 
-_LIMIT_TABLE = {'co2_dragster': _dragster_limits, 'regen_chamber': _regen_limits, 'glider_cem': _glider_limits}
+def _plate_limits(spec: dict) -> dict:
+    """The 13 required plate checks, from ``plate_spec.PLATE_NUMERICAL_V1`` (never retyped) and the reviewed brief.
+
+    Every check carries an ``evaluated`` count: a check not reached because an earlier guard or check
+    rejected the decisive candidate is not evaluated, hence failed. The 6 is the six faces of the box
+    ``plate_verify`` demands. Two-sided guards are split into a lower and an upper row.
+    """
+    p = PLATE_NUMERICAL_V1
+    requirements = spec.get('requirements') or {}
+    tol = float(requirements.get('dimensional_tolerance_mm', 0))
+    evaluated = ('evaluated', 'count', 'eq', 1)
+    return {
+        'thin_ratio': (evaluated, ('width_to_thickness', 'ratio', 'ge', p['thin_ratio_min'])),
+        'aspect_ratio': (evaluated, ('aspect_ratio_lower', 'ratio', 'ge', p['aspect_ratio_min']),
+                         ('aspect_ratio_upper', 'ratio', 'le', p['aspect_ratio_max'])),
+        'material': (evaluated, ('poissons_ratio_lower', 'ratio', 'ge', p['poissons_ratio_min']),
+                     ('poissons_ratio_upper', 'ratio', 'le', p['poissons_ratio_max']),
+                     ('youngs_modulus_positive', 'count', 'eq', 1)),
+        'geometry': (evaluated, ('solid_count', 'count', 'eq', 1), ('face_count', 'count', 'eq', 6),
+                     ('planar_face_count', 'count', 'eq', 6), ('axis_aligned_face_count', 'count', 'eq', 6),
+                     ('dimension_error_mm', 'mm', 'le', tol), ('origin_offset_mm', 'mm', 'le', tol),
+                     ('volume_relative_error', 'ratio', 'le', p['geometry_volume_relative'])),
+        'small_deflection': (evaluated, ('deflection_to_thickness', 'ratio', 'le', p['small_deflection_max_ratio'])),
+        'equilibrium': (evaluated, ('equilibrium_relative_error', 'ratio', 'le', p['equilibrium'])),
+        'mesh_convergence_deflection': (evaluated, ('deflection_relative_change', 'ratio', 'le',
+                                                    p['mesh_convergence_deflection'])),
+        'mesh_convergence_stress': (evaluated, ('stress_relative_change', 'ratio', 'le', p['mesh_convergence_stress'])),
+        'symmetry': (evaluated, ('quarter_model_by_construction', 'count', 'eq', 1)),
+        'benchmark_deflection': (evaluated, ('deflection_reference_error', 'ratio', 'le', p['benchmark_deflection'])),
+        'benchmark_stress': (evaluated, ('stress_reference_error', 'ratio', 'le', p['benchmark_stress'])),
+        'deflection_limit': (evaluated, ('deflection_with_shear_allowance_mm', 'mm', 'le',
+                                         float(requirements.get('max_deflection_mm', 0)))),
+        'stress_limit': (evaluated, ('von_mises_max_mpa', 'MPa', 'le',
+                                     float(requirements.get('allowable_stress_mpa', 0)))),
+    }
+
+
+_LIMIT_TABLE = {'co2_dragster': _dragster_limits, 'regen_chamber': _regen_limits, 'glider_cem': _glider_limits,
+                'rectangular_plate': _plate_limits}
 
 
 def refuse_dragster(spec: dict):
@@ -551,7 +590,46 @@ GLIDER = GeneratorDescriptor(
                  'Floors are inline literals in cem/evidence.py; implementation_sha256 in each report binds them',
                  'Runs past 420 s or 32 MiB are unavailable here; the original endpoint still serves them'))
 
-GENERATORS: tuple[GeneratorDescriptor, ...] = (DRAGSTER, REGEN, GLIDER)
+# Rectangular plate bending (E03). Own block: every number is a scalar item of
+# ``plate_spec.PLATE_NUMERICAL_V1``, read programmatically and never retyped here.
+_PLATE_NUMERICAL_SOURCE = 'backend/engineering/plate_spec.py:PLATE_NUMERICAL_V1'
+# Execution order of ``plate_verify``: the first failed check in this list is the real rejection.
+PLATE_CHECK_ORDER = ('thin_ratio', 'aspect_ratio', 'material', 'geometry', 'small_deflection', 'equilibrium',
+                     'mesh_convergence_deflection', 'mesh_convergence_stress', 'symmetry',
+                     'benchmark_deflection', 'benchmark_stress', 'deflection_limit', 'stress_limit')
+
+PLATE = GeneratorDescriptor(
+    id='rectangular_plate', version='1.0.0', label='Rectangular plate under uniform pressure',
+    numerical_version=PLATE_NUMERICAL_V1['version'],
+    spec_schema='engineering.plate_spec:PlateBrief',
+    base_checks=PLATE_CHECK_ORDER,
+    unsupported_features=('holes_or_cutouts', 'stiffeners_or_ribs', 'thickness_variation',
+                          'mixed_or_partial_edge_conditions', 'free_edges', 'point_supports',
+                          'corner_lift_off', 'large_deflection', 'buckling_or_in_plane_loads', 'laminates',
+                          'composites', 'anisotropy', 'sandwich_panels', 'dynamic_or_impact_loads', 'fatigue',
+                          'contact', 'thermal_loads', 'non_uniform_or_point_loads',
+                          'thick_plate_shear_deformation', 'plasticity', 'manufacturing_variation',
+                          'physical_material_qualification', 'standards_certification'),
+    selection_rule='smallest passing thickness in the reviewed set',
+    numerical=tuple(_inline(name, value, _PLATE_NUMERICAL_SOURCE) for name, value in PLATE_NUMERICAL_V1.items()
+                    if isinstance(value, (int, float, str)) and not isinstance(value, bool)),
+    runtime_limits=(
+        _inline('ProcessRunner.timeout_s', 30, 'backend/engineering/service.py:34'),
+        _inline('ProcessRunner.memory_mb', 1536, 'backend/engineering/service.py:34'),
+        _inline('ProcessRunner.output_limit_bytes', 1048576, 'backend/engineering/service.py:34')),
+    primary_artifact='generator-body.step',
+    payloads=('generator-body.step', 'generator-report.json', 'generator-spec.canonical.json'),
+    adapter='engineering.plate_adapter:PlateAdapter',
+    claim='checked_design',
+    proposers={},
+    limitations=('Kirchhoff thin-plate theory; transverse shear is covered only by the stated deflection allowance',
+                 'Simply supported: edges and corners are held against lift; the corner hold-down forces are reported, not designed away',
+                 'Clamped: ideal rigid clamp on all four edges',
+                 'Small deflection, linear elastic, uniform pressure and one uniform edge condition only',
+                 'No safety factor is applied: the allowable stress and deflection are the user design limits',
+                 'Digital checks only; no physical validation, material certification, manufacturing variation or standards conformity'))
+
+GENERATORS: tuple[GeneratorDescriptor, ...] = (DRAGSTER, REGEN, GLIDER, PLATE)
 
 
 def list_capabilities() -> tuple[CapabilityDescriptor | GeneratorDescriptor, ...]:

@@ -1,0 +1,216 @@
+{
+  "task": "E03",
+  "phase": "E03b integration + qualification",
+  "state": "complete_pending_review",
+  "deployed": false,
+  "date": "2026-11-21",
+  "pr": 116,
+  "starting_sha": "e939110",
+  "tested_implementation_sha": "620136dce445c5ddfab4bb5c32eda7af93c5fd51",
+  "capability": {
+    "id": "rectangular_plate",
+    "version": "1.0.0",
+    "claim": "checked_design",
+    "engineering_certified": false,
+    "standards": "not_evaluated",
+    "ai_path": "none (proposers {})"
+  },
+  "runs": {
+    "ci": {
+      "actions_run": 44885004466,
+      "head": "1ed291f",
+      "result": "success",
+      "native_shards": [
+        {
+          "shard": "0/3",
+          "passed": 1781,
+          "skipped": 2
+        },
+        {
+          "shard": "1/3",
+          "passed": 1775,
+          "skipped": 7
+        },
+        {
+          "shard": "2/3",
+          "passed": 1772,
+          "skipped": 10
+        }
+      ],
+      "collected": 5347,
+      "skipped_total": 19,
+      "skip_note": "19 = baseline 18 + test_missing_adapter_is_unsupported_capability[rectangular_plate]; that parametrize entry is removed after this run (expected 18)"
+    },
+    "ci_final": {
+      "actions_run": 44887644542,
+      "head": "620136d",
+      "result": "success",
+      "native_shards": [
+        {
+          "shard": "0/3",
+          "passed": 1779,
+          "skipped": 3
+        },
+        {
+          "shard": "1/3",
+          "passed": 1769,
+          "skipped": 13
+        },
+        {
+          "shard": "2/3",
+          "passed": 1779,
+          "skipped": 3
+        }
+      ],
+      "collected": 5346,
+      "skipped_total": 19,
+      "skip_note": "baseline 18 + K8 test_cem_window_coverage::test_actual_installed_states_are_not_covered_by_historical_narrow_windows (tailless_swept receipt foil coordinates), allowed by lead decision L3; run 44886407933 on 8e5859a had skipped_total 18",
+      "q3_native_stage_wall_time_s": {
+        "clamped_5_to_1": 5.4022649510000065,
+        "ss_square": 2.043162336000023
+      }
+    },
+    "release_e2e": {
+      "job": 136796317807,
+      "head": "620136d",
+      "result": "success",
+      "suite": "169 passed (includes e2e/test_plate_typed_form_api.py)",
+      "e05_ai_offline_steps": "1 passed; 3 passed"
+    }
+  },
+  "qualification": {
+    "Q1_envelope_sweep": {
+      "all_passed": true,
+      "checks": {
+        "benchmark_deflection": {
+          "limit": 0.005,
+          "passed": 72,
+          "worst": 0.0026714918155372747,
+          "worst_margin": 0.46570163689254507,
+          "worst_point": [
+            5.0,
+            "clamped",
+            0.1
+          ]
+        },
+        "benchmark_stress": {
+          "limit": 0.015,
+          "passed": 72,
+          "worst": 0.0033903374850003942,
+          "worst_margin": 0.7739775009999736,
+          "worst_point": [
+            1.0,
+            "clamped",
+            0.45
+          ]
+        },
+        "equilibrium": {
+          "limit": 1e-09,
+          "passed": 72,
+          "worst": 4.812031693290919e-10,
+          "worst_margin": 0.5187968306709081,
+          "worst_point": [
+            5.0,
+            "simply_supported",
+            0.45
+          ]
+        },
+        "mesh_convergence_deflection": {
+          "limit": 0.002,
+          "passed": 72,
+          "worst": 1.8444607134516332e-05,
+          "worst_margin": 0.9907776964327418,
+          "worst_point": [
+            5.0,
+            "clamped",
+            0.1
+          ]
+        },
+        "mesh_convergence_stress": {
+          "limit": 0.01,
+          "passed": 72,
+          "worst": 0.009614112247380843,
+          "worst_margin": 0.03858877526191573,
+          "worst_point": [
+            1.0,
+            "clamped",
+            0.1
+          ]
+        }
+      },
+      "points": 72,
+      "source": "CI native shard 0/3, job 136788997091, line E03-Q1-JSON",
+      "grid": "a/b {1.0,1.05,1.1,1.2,1.3,1.5,1.75,2,2.5,3,4,5} x {SS, CL} x nu {0.1,0.3,0.45}; b=1000 h=10 q=0.01 E=200000"
+    },
+    "Q2_failure_cases": {
+      "source": "backend/tests/test_engineering_plate_qualification.py (CI native shards, all passed)",
+      "rejected_naming_guard_or_check": [
+        "thin_ratio",
+        "small_deflection",
+        "stress_limit (3 candidates)",
+        "mesh_convergence_deflection (forced)",
+        "mesh_convergence_stress (forced)",
+        "benchmark_deflection (forced)",
+        "benchmark_stress (forced)",
+        "geometry: hole",
+        "geometry: fillet",
+        "geometry: second solid"
+      ],
+      "unavailable": [
+        "stage raises EngineeringUnavailable",
+        "report spec digest mismatch"
+      ],
+      "refused_before_native_work": [
+        "a < b",
+        "a/b > 5",
+        "non-finite",
+        "edge 'free'",
+        "nu 0.05",
+        "nu 0.5",
+        "unknown field"
+      ],
+      "router": "out-of-family plate-like prompts never route to rectangular_plate (test_engineering_router.py, test_engineering_e05_refusal_matrix.py)",
+      "limitation": "job-level failure text is search's fixed 'No candidate in the reviewed set passed'; the guard/check is named in each attempt's failures"
+    },
+    "Q3_native_stage_wall_time_s": {
+      "clamped_5_to_1": 3.1310345559999178,
+      "ss_square": 1.357986313000083,
+      "limit_s": 30,
+      "source": "CI native shard 0/3, job 136788997091, line E03-Q3-JSON",
+      "cases": "clamped_5_to_1: a=2500 b=500 h=10 CL; ss_square: a=b=1000 h=12 SS; one subprocess per stage (STEP + OCP measurement + FE + reference)"
+    },
+    "Q4_package": {
+      "source": "test_q4_accepted_plate_package[SS, CL] (CI native, passed)",
+      "contents": [
+        "generator-body.step (primary)",
+        "generator-report.json",
+        "generator-spec.canonical.json"
+      ],
+      "report_includes": [
+        "attempts",
+        "mesh_history",
+        "references + method",
+        "guards",
+        "corner_forces (SS)",
+        "implementation_sha256"
+      ],
+      "no_paths": true
+    }
+  },
+  "criteria": {
+    "registered_after_beam": "met",
+    "claim_checked_design": "met",
+    "no_ai_path": "met",
+    "Q1": "met (72/72)",
+    "Q2": "met",
+    "Q3": "met",
+    "Q4": "met",
+    "release_e2e": "met"
+  },
+  "limitations": [
+    "CL square mesh_convergence_stress margin 3.9% of the 1.0% limit (0.961%)",
+    "non-finite JSON number in a request body is refused with HTTP 500 (FastAPI default validation handler cannot render inf), not 422; platform-wide, not plate-specific",
+    "R3 Table 35 a/b 1.0 centre moments and a/b 1.1 centre Mx stay known_discrepancies (lead decision L1)",
+    "no plate replay (V12) qualification"
+  ]
+}

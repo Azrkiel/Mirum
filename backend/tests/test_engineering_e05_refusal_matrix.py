@@ -169,3 +169,44 @@ def test_beam_b13_contract_is_pinned():
     assert proposer.SCHEMA_VERSION == 'engineering_proposal_v1'
     with pytest.raises(UnsupportedCapability):
         proposal_contract.ai_proposer('rectangular_cantilever', enabled=True)
+
+
+PLATE_LIKE_OUT_OF_FAMILY = (
+    'An H-beam column base plate',
+    'A rectangular mounting plate with 4 holes, simply supported, uniform pressure, find thickness',
+    'A ribbed rectangular plate, clamped edges, uniform pressure, size the thickness',
+    'A circular plate with clamped edges under uniform pressure, find the thickness',
+    'A rectangular plate simply supported under a point load at the center, check deflection',
+    'Check the buckling of a rectangular plate under in-plane compression, simply supported',
+    'A rectangular plate with a central cutout under uniform pressure, clamped edges, thickness',
+    'A rectangular composite laminate plate under uniform pressure, simply supported, size thickness',
+    'Rectangular plate under a dynamic impact load, simply supported, deflection',
+    'A rectangular license plate bracket for a car',
+)
+
+
+@pytest.mark.parametrize('prompt', PLATE_LIKE_OUT_OF_FAMILY)
+def test_plate_like_out_of_family_never_routes_to_plate(prompt):
+    decision = route(prompt)
+    assert decision.capability_id is None
+    assert decision.assurance == 'unverified_geometry'
+    assert decision.reason
+
+
+def test_plate_ai_proposer_is_not_installed():
+    with pytest.raises(UnsupportedCapability):
+        proposal_contract.ai_proposer('rectangular_plate', enabled=True)
+    assert proposal_contract.ai_proposer('rectangular_plate', enabled=False) is None
+
+
+def test_api_plate_ai_draft_spends_no_provider_budget(ai_client):
+    budget = ai_client.app.state.engineering.proposer.budget
+    used = budget.used()
+    try:
+        response = ai_client.post('/engineering/v1/drafts', json=dict(
+            capability='rectangular_plate', mode='ai', input={},
+            prompt='Size a simply supported rectangular plate under uniform pressure.'))
+        assert response.status_code != 201 or response.json()['draft']['content'] is None, response.text
+    except UnsupportedCapability:
+        pass  # the app surfaced the unsupported capability before any provider call
+    assert budget.used() == used

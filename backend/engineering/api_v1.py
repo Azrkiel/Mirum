@@ -166,6 +166,9 @@ def create_runtime(generators=None):
             descriptor=get_generator(capability_id)
             if descriptor is None: raise ValueError('Unknown generator capability')
             adapters[capability_id]=resolve(descriptor.adapter)(getter)
+        # The plate adapter owns its bounded subprocess runner, so the app hands it nothing.
+        plate=get_generator('rectangular_plate')
+        if plate is not None and plate.id not in adapters: adapters[plate.id]=resolve(plate.adapter)()
         jobs=JobController(store,publisher=publisher,fairness=fairness,generators=adapters)
         ledger=SQLiteProposalLedger(store)
         budget=None
@@ -260,6 +263,10 @@ def attach_v1_routes(app,limiter):
                         value.quota.record_draft(created.draft.draft_id,client,len(created.model_dump_json()))
                         return created
                     return prepared_view(await asyncio.to_thread(create_refusal))
+                if 'ai' not in get_generator(body.capability).proposers:
+                    # No AI proposer for this family (e.g. rectangular_plate): refuse before any budget or
+                    # quota check, so the answer is always "unsupported", never "unavailable" or "busy".
+                    raise proposal_contract.UnsupportedCapability('AI drafts are not offered for this capability')
                 budget=value.proposer.budget
                 if not budget.has_capacity(): return unavailable()
                 await asyncio.to_thread(value.quota.admit_draft,client,ai=True,size=size)

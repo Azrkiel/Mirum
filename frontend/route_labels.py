@@ -5,9 +5,10 @@ WORKFLOW_BY_CAPABILITY = {
     'regen_chamber': 'Deterministic rocket nozzle',
     'glider_cem': 'Physics-based glider CEM',
     'rectangular_cantilever': 'Checked design',
+    'rectangular_plate': 'Checked design',
 }
 V1_WORKFLOW = 'Checked design'
-_V1_NAMES = {**WORKFLOW_BY_CAPABILITY, 'rectangular_cantilever': 'Checked beam'}
+_V1_NAMES = {**WORKFLOW_BY_CAPABILITY, 'rectangular_cantilever': 'Checked beam', 'rectangular_plate': 'Checked plate'}
 
 _ASSURANCE = {'checked_design': 'Checked design', 'unverified_geometry': 'Unverified geometry'}
 
