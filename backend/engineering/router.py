@@ -24,6 +24,16 @@ class RouteDecision:
     assurance: str
 
 
+def _claim(capability_id: str) -> str:
+    """Route assurance = the descriptor's own claim, never higher. The beam descriptor
+    has no ``claim`` field and is the checked design; an unknown id fails closed."""
+    from .capabilities import CAPABILITY, get_generator
+    generator = get_generator(capability_id)
+    if generator is not None:
+        return generator.claim
+    return CHECKED if capability_id == CAPABILITY.id else UNVERIFIED
+
+
 def _norm(prompt: str) -> str:
     return re.sub(r'\s+', ' ', prompt.lower().replace('-', ' ')).strip()
 
@@ -111,7 +121,7 @@ def route(prompt: str) -> RouteDecision:
         if ok:
             matches.append((cap, why))
     if len(matches) == 1:
-        return RouteDecision(matches[0][0], matches[0][1], CHECKED)
+        return RouteDecision(matches[0][0], matches[0][1], _claim(matches[0][0]))
     if matches:
         ids = ', '.join(sorted(m[0] for m in matches))
         return RouteDecision(None, f'Ambiguous: matches {ids}', UNVERIFIED)

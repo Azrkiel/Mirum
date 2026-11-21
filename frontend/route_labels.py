@@ -10,7 +10,8 @@ WORKFLOW_BY_CAPABILITY = {
 V1_WORKFLOW = 'Checked design'
 _V1_NAMES = {**WORKFLOW_BY_CAPABILITY, 'rectangular_cantilever': 'Checked beam', 'rectangular_plate': 'Checked plate'}
 
-_ASSURANCE = {'checked_design': 'Checked design', 'unverified_geometry': 'Unverified geometry'}
+_ASSURANCE = {'checked_design': 'Checked design', 'unverified_geometry': 'Unverified geometry',
+              'geometry_checks_only': 'Geometry checks only', 'screening_only': 'Screening only'}
 
 
 def workflow_for(event: dict):
