@@ -101,7 +101,7 @@ def test_plate_ai_request_spends_nothing(request, monkeypatch, enabled):
         assert 'ai' not in PLATE.proposers
     response = post_ai(http, PLATE_ID, 'Design a simply supported rectangular plate under uniform pressure.')
     if enabled:
-        resolve.assert_called_once()
+        resolve.assert_not_called()   # refused before any proposer resolution, budget or quota check
         assert response.status_code == 422, response.text
         assert response.json()['detail'] == 'Invalid or unsupported engineering input'
         assert budget.used() == 0
