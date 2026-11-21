@@ -31,7 +31,6 @@ def test_number_tokens_keep_order_and_duplicates():
     ('2 kN', 2000.0, 'force', 'N'),
     ('2 min', 120.0, 'time', 's'),
     ('Use 32', 32, 'dimensionless', '1'),
-    ('Make it 2 long', 50.8, 'length', 'mm'),
 ])
 def test_number_grounded_by_a_same_dimension_factor(prompt, value, dimension, unit):
     assert is_grounded_number(value, prompt, dimension, unit)
@@ -109,3 +108,57 @@ def test_ungrounded_fields_are_sorted_skip_none_and_include_unknown_names():
     assert ungrounded_fields(values, 'A 14 mm Hand-Toss glider', kinds) == (
         'a_wrong_length', 'b_wrong_mode', 'z_unknown',
     )
+
+
+def test_unit_binds_to_its_own_factor_only():
+    assert not is_grounded_number(2000.0, 'span 2 m', 'length', 'm')
+    assert is_grounded_number(2.0, 'span 2 m', 'length', 'm')
+    assert is_grounded_number(2000.0, 'span 2 m', 'length', 'mm')
+    assert is_grounded_number(304.8, '1 ft', 'length', 'mm')
+    assert not is_grounded_number(1.0, '1 ft', 'length', 'm')
+    assert is_grounded_number(40.0, '40 mm', 'length', 'mm')
+    assert is_grounded_number(4.0, '40 mm', 'length', 'cm')
+    assert not is_grounded_number(50.8, 'Make it 2 long', 'length', 'mm')
+
+
+def test_bare_number_grounds_only_in_canonical_unit():
+    assert is_grounded_number(300, 'use 300 channels', 'dimensionless', '1')
+    assert is_grounded_number(300.0, 'use 300', 'length', 'mm')
+    assert not is_grounded_number(0.3, 'use 300', 'length', 'm')
+
+
+def test_other_dimension_unit_does_not_ground():
+    assert not is_grounded_number(5.0, '5 kg', 'length', 'm')
+    assert not is_grounded_number(5.0, '5 kg', 'dimensionless', '1')
+    assert not is_grounded_number(5.0, '5 m', 'dimensionless', '1')
+
+
+def test_unit_must_end_at_a_word_boundary():
+    # mmHg / masts are not units: the number stays bare, so no unit conversion applies
+    for prompt, number in (('5 mmHg', 5.0), ('2 masts', 2.0)):
+        assert not is_grounded_number(number * 1000, prompt, 'length', 'mm')
+        assert not is_grounded_number(number * 10, prompt, 'length', 'mm')
+        assert not is_grounded_number(number / 1000, prompt, 'length', 'm')
+        assert not is_grounded_number(number * 25.4, prompt, 'length', 'mm')
+
+
+def test_unit_aliases_and_case_rules():
+    assert is_grounded_number(25.4, '1 inch', 'length', 'mm')
+    assert is_grounded_number(25.4, '1" wide', 'length', 'mm')
+    assert is_grounded_number(304.8, "1' tall", 'length', 'mm')
+    assert is_grounded_number(2000.0, '2 Meters', 'length', 'mm')
+    assert is_grounded_number(1000.0, '1 m', 'length', 'mm')
+    assert not is_grounded_number(1e9, '1 M', 'length', 'mm')
+    assert is_grounded_number(1e6, '1 MPa', 'pressure', 'Pa')
+    assert is_grounded_number(math.pi, '180 deg', 'angle', 'rad')
+    assert is_grounded_number(math.pi, '180°', 'angle', 'rad')
+    assert is_grounded_number(3.6, '1 m/s', 'velocity', 'km/h')
+    assert is_grounded_number(40.0, '40-mm bore', 'length', 'mm')
+
+
+def test_underflow_does_not_ground_zero():
+    assert not is_grounded_number(0.0, 'a 1e-400 gap', 'length', 'mm')
+    assert not is_grounded_number(0.0, 'a 1e-400 mm gap', 'length', 'mm')
+    assert number_tokens('1e-400 and 1e999 and 3') == (3.0,)
+    assert is_grounded_number(0.0, '0 mm', 'length', 'mm')
+    assert is_grounded_number(0.0, '0.0e5', 'dimensionless', '1')

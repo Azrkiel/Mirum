@@ -444,3 +444,21 @@ def test_regen_v2_differs_from_v1_only_in_r05_r13_expected_content():
             assert '300 coolant channels' in case['prompt']
             case = {k: v for k, v in case.items() if k != 'expected_content'}
         assert case == other, case_id
+
+
+@pytest.mark.parametrize('where', ['run', 'load_credential'])
+def test_main_prints_only_the_class_name_when_run_raises(where, monkeypatch, tmp_path, capsys):
+    def boom(*args, **kwargs):
+        raise RuntimeError(CANARY)
+
+    monkeypatch.setenv('MIRUM_ENGINEERING_AI_DRAFTS', '0')
+    monkeypatch.setattr(e05, 'load_credential', lambda path: None)
+    monkeypatch.setattr(e05, where, boom)
+    code = e05.main([str(tmp_path / 'out'), 'glider_cem', SHA, str(tmp_path / 'cred'),
+                     '--run-id', 'r1', '--authorization', 'owner-test', '--image-id', IMAGE,
+                     '--round', '2'])
+    captured = capsys.readouterr()
+    assert code == 2
+    assert captured.err.strip() == 'e05 harness failed: RuntimeError'
+    assert CANARY not in captured.err and CANARY not in captured.out
+    assert 'Traceback' not in captured.err

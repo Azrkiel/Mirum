@@ -335,11 +335,15 @@ def main(argv=None):
     parser.add_argument('--pace-seconds', type=float, default=0)
     args = parser.parse_args(argv)
     capabilities = CAPABILITIES if args.capability == 'all' else (args.capability,)
-    if args.credentials:
-        load_credential(args.credentials)
-    evidence = run(args.output, capabilities, sha=args.sha, image_id=args.image_id, run_id=args.run_id,
-                   authorization=args.authorization, pace_seconds=args.pace_seconds,
-                   round_number=args.round)
+    try:
+        if args.credentials:
+            load_credential(args.credentials)
+        evidence = run(args.output, capabilities, sha=args.sha, image_id=args.image_id, run_id=args.run_id,
+                       authorization=args.authorization, pace_seconds=args.pace_seconds,
+                       round_number=args.round)
+    except Exception as exc:  # the public log gets the class name only, never a traceback or message
+        print(f'e05 harness failed: {type(exc).__name__}', file=sys.stderr)
+        return 2
     print(json.dumps({k: evidence[k] for k in ('qualification',)}))
     return 0 if evidence['qualification'] == 'passed' else 2
 
