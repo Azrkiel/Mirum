@@ -79,7 +79,7 @@ def prompt_version(capability_id: str) -> str:
         raise NonConformingProposal('capability has no AI proposer prompt version')
     try:
         version = getattr(importlib.import_module(target.partition(':')[0]), 'PROMPT_VERSION', None)
-    except ImportError:
+    except Exception:  # any import failure fails closed (unavailable), never a 500
         version = None
     if not isinstance(version, str) or not version:
         raise NonConformingProposal('AI proposer declares no prompt version')
@@ -106,7 +106,11 @@ def conform(capability_id: str, proposal: Any) -> Any:
             descriptor.parse_spec(spec)
         except Exception:
             raise NonConformingProposal('specification does not match the capability schema') from None
-        if descriptor.refuse(spec):
+        try:
+            refused = descriptor.refuse(spec)
+        except Exception:
+            raise NonConformingProposal('specification could not be checked for unsupported features') from None
+        if refused:
             raise NonConformingProposal('specification requests an unsupported feature')
     else:
         if not proposal.reasons:

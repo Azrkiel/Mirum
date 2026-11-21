@@ -100,3 +100,24 @@ def test_prompt_version_is_resolved_from_the_ai_proposer_module(capability, modu
 def test_no_prompt_version_fails_closed():
     with pytest.raises(pc.NonConformingProposal):
         pc.prompt_version('rectangular_plate')
+
+
+def test_broken_proposer_module_is_nonconforming_not_a_crash(monkeypatch):
+    """Security review LOW: any import failure fails closed as NonConformingProposal (503), never a 500."""
+    def boom(name):
+        raise RuntimeError('broken module')
+    monkeypatch.setattr(pc.importlib, 'import_module', boom)
+    with pytest.raises(pc.NonConformingProposal):
+        pc.prompt_version(DRAGSTER.id)
+
+
+def test_refuse_error_is_nonconforming_not_a_crash(monkeypatch):
+    """Security review LOW: an exception inside descriptor.refuse fails closed."""
+    proposal = _proposed()
+    assert proposal.state == 'proposed'
+
+    def broken(spec):
+        raise KeyError('malformed')
+    monkeypatch.setattr(type(DRAGSTER), 'refuse', lambda self, spec: broken(spec))
+    with pytest.raises(pc.NonConformingProposal):
+        pc.conform(DRAGSTER.id, proposal)
