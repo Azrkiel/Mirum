@@ -214,7 +214,7 @@ def test_ai_flag_on_reports_enabled_and_availability_follows_key(ai_client,monke
 def test_capabilities_keep_the_beam_first_and_add_review_fields_and_availability(client):
     value=client.get('/engineering/v1/capabilities').json()
     entries=value['capabilities']
-    assert [e['id'] for e in entries]==['rectangular_cantilever','co2_dragster','regen_chamber','glider_cem']
+    assert [e['id'] for e in entries]==['rectangular_cantilever','co2_dragster','regen_chamber','glider_cem','rectangular_plate']
     from engineering.contracts import REVIEW_FIELDS
     assert value['review_fields']==list(REVIEW_FIELDS) and entries[0]['review_fields']==list(REVIEW_FIELDS)
     assert entries[0]['version']=='1.0.0' and entries[0]['required_checks']
