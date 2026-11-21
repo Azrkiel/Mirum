@@ -21,7 +21,7 @@ from pydantic import Field, StringConstraints, ValidationError
 
 from .briefs import BriefService, InputIssue, PreparedDraft, RevisionConflict
 from .capabilities import CAPABILITY
-from .limits import AiCallBudget
+from .limits import AiCallBudget, run_in_thread_owned
 from .contracts import (CapabilityReference, ContractModel, FieldOrigin, Provenance,
                         Sha256, Text)
 from .search import _controlled, _Stopped
@@ -425,13 +425,25 @@ class BriefProposer:
         audit = ProposalAudit(draft_id=draft_id, draft_revision=expected_revision, settings=settings,
                               status='running', calls=0, request_characters=len(text+REPAIR_PROMPT),
                               request_sha256=hashlib.sha256(prompt.encode()).hexdigest())
-        self.ledger.claim(audit)
+        # Ledger writes run in threads, one at a time and in order: a cancelled await never lets an
+        # older write land after a newer one, and a cancelled claim still ends 'cancelled'.
+        pending = asyncio.ensure_future(asyncio.to_thread(self.ledger.claim, audit))
+        try:
+            await asyncio.shield(pending)
+        except asyncio.CancelledError:
+            await asyncio.wait({pending})
+            if not pending.cancelled() and pending.exception() is None:
+                await asyncio.to_thread(self.ledger.save, ProposalAudit.model_validate(
+                    dict(audit.model_dump(), status='cancelled')))
+            raise
         status = 'unavailable'
         owner, reserved = uuid4().hex, False
-        def update(**changes):
-            nonlocal audit
+        async def update(**changes):
+            nonlocal audit, pending
             audit = ProposalAudit.model_validate(dict(audit.model_dump(), **changes))
-            self.ledger.save(audit)
+            await asyncio.wait({pending})
+            pending = asyncio.ensure_future(asyncio.to_thread(self.ledger.save, audit))
+            await asyncio.shield(pending)
         try:
             self.service.begin_proposal(draft_id, expected_revision, owner)
             reserved = True
@@ -442,24 +454,24 @@ class BriefProposer:
                 if (self.service.read(draft_id).draft.revision != expected_revision
                         or self.service.is_finalized(draft_id, expected_revision)):
                     raise RevisionConflict('Draft changed or finalized before provider call')
-                if not self.budget.reserve():
+                if not await run_in_thread_owned(self.budget.reserve, on_orphan=lambda ok: ok and self.budget.release()):
                     return ProposalResult(state='unavailable', prepared=current, reasons=('AI preparation unavailable; typed form remains available',))
                 try:
-                    update(calls=attempt+1)
+                    await update(calls=attempt+1)
                     reply = await _controlled(self.provider.generate(text + (REPAIR_PROMPT if attempt else ''), provider_schema(), settings),
                         cancelled=cancelled, deadline=time.monotonic()+self.call_seconds)
                 finally:
                     self.budget.release()
                 reply = ProviderReply.model_validate(reply.model_dump())
                 size = len(reply.text.encode())
-                update(response_bytes=audit.response_bytes+size, prompt_tokens=audit.prompt_tokens+reply.prompt_tokens,
+                await update(response_bytes=audit.response_bytes+size, prompt_tokens=audit.prompt_tokens+reply.prompt_tokens,
                        output_tokens=audit.output_tokens+reply.output_tokens)
                 if size > CAPABILITY.resources.structured_response_bytes:
                     return ProposalResult(state='unavailable', prepared=current, reasons=('AI structured response exceeded 16 KiB; use the form',))
                 try:
                     proposal = _parse(reply.text)
                 except (ValueError, TypeError) as invalid:
-                    update(validation_failures=audit.validation_failures + (validation_failure(attempt+1, invalid, reply.text),))
+                    await update(validation_failures=audit.validation_failures + (validation_failure(attempt+1, invalid, reply.text),))
                     if not attempt: continue
                     return ProposalResult(state='unavailable', prepared=current, reasons=('AI response did not match the extraction schema; use the form',))
                 payload = proposal.fields.model_dump(mode='json', exclude_none=True)
@@ -490,7 +502,7 @@ class BriefProposer:
             return ProposalResult(state='unavailable', prepared=current, reasons=('AI preparation service unavailable; use the form',))
         finally:
             try:
-                update(status=status)
+                await update(status=status)
             finally:
                 if reserved:
                     self.service.end_proposal(draft_id, expected_revision, owner)

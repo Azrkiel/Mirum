@@ -17,6 +17,7 @@ from cem.glider.requirements import Discovery, Environment, GliderMissionRequire
 
 from .contracts import ContractModel, Text
 from .grounding import ChoiceField, NumberField
+from .limits import run_in_thread_owned
 
 CALL_SECONDS = 45
 PROMPT_VERSION = 'glider_requirements_sparse_v1'
@@ -207,7 +208,7 @@ def _parse(text: str) -> GliderSparseResponse:
 
 async def _call(provider, budget, text, settings, cap_bytes):
     """One reserved provider call -> ``(reply_text, None)`` or ``(None, reason_id)``; never provider text."""
-    if not budget.reserve():
+    if not await run_in_thread_owned(budget.reserve, on_orphan=lambda ok: ok and budget.release()):
         return None, 'unavailable.budget'
     try:
         try:

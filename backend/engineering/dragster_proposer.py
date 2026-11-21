@@ -22,6 +22,7 @@ from uuid import uuid4
 from .briefs import InputIssue
 from .capabilities import DRAGSTER
 from .contracts import CapabilityReference, FieldOrigin, Provenance
+from .limits import run_in_thread_owned
 
 PROMPT_VERSION = 'dragster_interpret_v1'
 MAX_PROMPT = 2000
@@ -97,7 +98,7 @@ class AiProposer:
         _check_prompt(prompt)
         payload = dict(capability=_reference())
         empty = _provenance()
-        if not self.budget.reserve():
+        if not await run_in_thread_owned(self.budget.reserve, on_orphan=lambda ok: ok and self.budget.release()):
             return DragsterProposal('unavailable', payload, (), empty, UNAVAILABLE)
         from dragsters import extraction
         interpret = self._interpret or extraction.interpret

@@ -1,5 +1,6 @@
 {
   "_source": "Hand-written from B13 qualification run 44358308796 (key k6). Update deliberately, never from a build.",
+  "_reanchor": "2026-11-21 K13: engineering.proposer and engineering.dragster_proposer source_sha256 re-anchored after the owner-approved threading-only change (ledger/budget writes moved off the event loop; prompts, schema and settings unchanged). image_id, run_id and commit remain the historical B13 qualification.",
   "python_prefix": "3.10.22",
   "google_genai_version": "2.8.0",
   "provider_settings": {
@@ -20,8 +21,8 @@
     "commit": "f11cf90ff299ec8feb2775bf7096cfd2d4bd63cc",
     "image_id": "sha256:3527bfa6cb569d6f655054e080904a99f37427c9682c1706d53227d4e2a44f86",
     "source_sha256": {
-      "engineering.proposer": "2aaae640f0c5089be2b57efdc0e8933290a097c0e51bd01542e9f2683022c2db",
-      "engineering.dragster_proposer": "ab2df335afe5efd48fa2cb35ba2f4c92b4839e98225686833fa63fe0cd426aad",
+      "engineering.proposer": "a684e2cd761716b32da5fdea2ca5f4f8b675e2191a695445c7c7666c237cb453",
+      "engineering.dragster_proposer": "6dd8167c71b98a53791478fedafec0a9ff5e1d8e2d6f40510d90376c14e60364",
       "config": "f777d21de4749c2e4ddc8569c96b4da955de2acaa734bc89704e644b64d5d0b1",
       "subagents.model_registry": "e72505d7a1650f6dd8925700f8bd9e0ba9789ca71166169a8054d27b5c98c22e"
     }
