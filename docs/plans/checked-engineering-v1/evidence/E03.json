@@ -6,7 +6,7 @@
   "date": "2026-11-21",
   "pr": 116,
   "starting_sha": "e939110",
-  "tested_implementation_sha": "1ed291f74a12bebe3c963b061a222420e8bae07c",
+  "tested_implementation_sha": "620136dce445c5ddfab4bb5c32eda7af93c5fd51",
   "capability": {
     "id": "rectangular_plate",
     "version": "1.0.0",
@@ -40,6 +40,42 @@
       "collected": 5347,
       "skipped_total": 19,
       "skip_note": "19 = baseline 18 + test_missing_adapter_is_unsupported_capability[rectangular_plate]; that parametrize entry is removed after this run (expected 18)"
+    },
+    "ci_final": {
+      "actions_run": 44887644542,
+      "head": "620136d",
+      "result": "success",
+      "native_shards": [
+        {
+          "shard": "0/3",
+          "passed": 1779,
+          "skipped": 3
+        },
+        {
+          "shard": "1/3",
+          "passed": 1769,
+          "skipped": 13
+        },
+        {
+          "shard": "2/3",
+          "passed": 1779,
+          "skipped": 3
+        }
+      ],
+      "collected": 5346,
+      "skipped_total": 19,
+      "skip_note": "baseline 18 + K8 test_cem_window_coverage::test_actual_installed_states_are_not_covered_by_historical_narrow_windows (tailless_swept receipt foil coordinates), allowed by lead decision L3; run 44886407933 on 8e5859a had skipped_total 18",
+      "q3_native_stage_wall_time_s": {
+        "clamped_5_to_1": 5.4022649510000065,
+        "ss_square": 2.043162336000023
+      }
+    },
+    "release_e2e": {
+      "job": 136796317807,
+      "head": "620136d",
+      "result": "success",
+      "suite": "169 passed (includes e2e/test_plate_typed_form_api.py)",
+      "e05_ai_offline_steps": "1 passed; 3 passed"
     }
   },
   "qualification": {
@@ -169,7 +205,7 @@
     "Q2": "met",
     "Q3": "met",
     "Q4": "met",
-    "release_e2e": "pending"
+    "release_e2e": "met"
   },
   "limitations": [
     "CL square mesh_convergence_stress margin 3.9% of the 1.0% limit (0.961%)",
