@@ -138,7 +138,8 @@ def _plate_result(files):
         st.text(f"Reference method: {view['references'].get('method')}; w_max {view['references'].get('w_max')} mm; von Mises {view['references'].get('vm_max')} MPa")
     if view['guards']:
         st.caption('Guards')
-        st.dataframe([dict(guard=g, state=_plain(str(v.get('state'))), value=v.get('quantity'), limit=v.get('limit'))
+        # Text cells: a two-sided guard's limit is a [min, max] pair, which Arrow cannot mix with scalars.
+        st.dataframe([dict(guard=g, state=_plain(str(v.get('state'))), value=json.dumps(v.get('quantity')), limit=json.dumps(v.get('limit')))
                       for g, v in view['guards'].items() if isinstance(v, dict)], hide_index=True, use_container_width=True)
     if view['corner_forces']:
         st.text('Corner hold-down forces (N): ' + json.dumps(view['corner_forces']))
