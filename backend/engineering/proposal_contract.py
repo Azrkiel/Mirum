@@ -32,6 +32,7 @@ Corpus fixtures for offline tests: ``backend/tests/fixtures/engineering/proposal
 from __future__ import annotations
 
 import importlib
+import re
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from .capabilities import GeneratorDescriptor, UnsupportedCapability, get_generator
@@ -41,6 +42,7 @@ MAX_PROMPT = 2000
 STATES = ('proposed', 'clarification_required', 'unsupported', 'unavailable')
 ProposalState = Literal['proposed', 'clarification_required', 'unsupported', 'unavailable']
 UNVERIFIED = 'unverified proposal'
+_SHA256 = re.compile(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])')
 
 
 @runtime_checkable
@@ -69,6 +71,21 @@ def reference(descriptor: GeneratorDescriptor) -> dict:
                 resource_policy_version=descriptor.resources.version)
 
 
+def prompt_version(capability_id: str) -> str:
+    """The AI proposer module's ``PROMPT_VERSION``; fails closed when there is none."""
+    descriptor = get_generator(capability_id)
+    target = descriptor.proposers.get('ai') if descriptor else None
+    if target is None:
+        raise NonConformingProposal('capability has no AI proposer prompt version')
+    try:
+        version = getattr(importlib.import_module(target.partition(':')[0]), 'PROMPT_VERSION', None)
+    except Exception:  # any import failure fails closed (unavailable), never a 500
+        version = None
+    if not isinstance(version, str) or not version:
+        raise NonConformingProposal('AI proposer declares no prompt version')
+    return version
+
+
 def conform(capability_id: str, proposal: Any) -> Any:
     """Return ``proposal`` unchanged if it meets rules 1-4, else raise ``NonConformingProposal``."""
     descriptor = get_generator(capability_id)
@@ -89,7 +106,11 @@ def conform(capability_id: str, proposal: Any) -> Any:
             descriptor.parse_spec(spec)
         except Exception:
             raise NonConformingProposal('specification does not match the capability schema') from None
-        if descriptor.refuse(spec):
+        try:
+            refused = descriptor.refuse(spec)
+        except Exception:
+            raise NonConformingProposal('specification could not be checked for unsupported features') from None
+        if refused:
             raise NonConformingProposal('specification requests an unsupported feature')
     else:
         if not proposal.reasons:
@@ -103,9 +124,19 @@ def conform(capability_id: str, proposal: Any) -> Any:
         fields = [o.field for o in origins]
         if len(fields) != len(set(fields)):
             raise NonConformingProposal('each field needs one origin')
+        if not isinstance(spec, dict) or set(fields) != set(descriptor.review_fields(spec)):
+            raise NonConformingProposal('every reviewable field needs exactly one origin')
+        version = None
         for o in origins:
-            if o.origin == 'ai_proposed' and UNVERIFIED not in o.reference:
+            if o.origin != 'ai_proposed':
+                continue
+            if UNVERIFIED not in o.reference:
                 raise NonConformingProposal('AI-proposed fields must be marked unverified')
+            if _SHA256.search(o.reference) is None:
+                raise NonConformingProposal('AI-proposed fields must carry the prompt SHA-256')
+            version = version or prompt_version(capability_id)
+            if version not in o.reference:
+                raise NonConformingProposal('AI-proposed fields must carry the prompt version')
     return proposal
 
 

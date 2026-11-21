@@ -122,6 +122,11 @@ NEGATIVE = {
 }
 
 
+CLAIM = {'co2_dragster': 'geometry_checks_only', 'regen_chamber': 'geometry_checks_only',
+         'glider_cem': 'screening_only', 'rectangular_cantilever': 'checked_design',
+         'rectangular_plate': 'checked_design'}
+
+
 def test_version_present():
     assert isinstance(ROUTER_VERSION, str) and ROUTER_VERSION
 
@@ -131,7 +136,7 @@ def test_version_present():
 def test_positive(capability, prompt):
     d = route(prompt)
     assert d.capability_id == capability, d
-    assert d.assurance == 'checked_design' and d.reason
+    assert d.assurance == CLAIM[capability] and d.reason
 
 
 @pytest.mark.parametrize('capability,prompt',

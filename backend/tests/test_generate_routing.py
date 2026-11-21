@@ -23,6 +23,8 @@ CASES = [
     ('glider_cem', 'Design a hand-launched glider that maximizes distance'),
     ('rectangular_cantilever', 'Size a rectangular cantilever beam for a tip force with an allowable stress'),
 ]
+CLAIM = {'co2_dragster': 'geometry_checks_only', 'regen_chamber': 'geometry_checks_only',
+         'glider_cem': 'screening_only', 'rectangular_cantilever': 'checked_design'}
 PLAIN = 'A smooth ergonomic shell for a computer mouse, roughly 120mm long'
 
 
@@ -57,7 +59,7 @@ def test_routed_prompt_emits_one_route_event_and_stops(client, monkeypatch, capa
     assert event['step'] == 'route' and event['status'] == 'done'
     assert event['capability_id'] == capability
     assert event['workflow'] == capability  # co2_dragster is also the legacy value
-    assert event['assurance'] == 'checked_design'
+    assert event['assurance'] == CLAIM[capability]
     assert event['reason'] and event['detail']
     assert 'draft' not in event or isinstance(event['draft'], dict)
 
@@ -139,7 +141,7 @@ def test_route_endpoint_returns_the_same_event_as_generate_without_any_llm_stage
     assert ('draft' in event) == ('draft' in streamed)
     if 'draft' in event:
         assert set(event['draft']) == set(streamed['draft']) == {'payload', 'issues', 'provenance'}
-    assert event['capability_id'] == capability and event['assurance'] == 'checked_design'
+    assert event['capability_id'] == capability and event['assurance'] == CLAIM[capability]
 
 
 def test_route_endpoint_returns_null_for_a_non_capability_prompt(client, monkeypatch):
