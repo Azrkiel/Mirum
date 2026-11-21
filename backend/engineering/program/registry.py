@@ -7,15 +7,15 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import Field, ValidationError, model_validator
+from pydantic import Field, model_validator
 
 from .errors import IRModel, ProgramError, SourceSpan, Str240
 from .ir import (
     MAX_LIST, ConstructionGraph, Name64, Name128, QuantityValue, SemanticId, TextValue, Value,
-    _dumps_strict, _map_error, _parse_json_bounded,
+    _parse_json_bounded, _prepare_input, _validate_record,
 )
 from .units import Dimension
-from .versions import ARTIFACT_GRAPH_VERSION, REGISTRY_VERSION
+from .versions import ARTIFACT_GRAPH_VERSION, OP_STREAM_VERSION, REGISTRY_VERSION
 
 __all__ = [
     'ArgSpec', 'OutputSpec', 'OperationDescriptor', 'OperationRegistry', 'DEFAULT_REGISTRY',
@@ -134,7 +134,7 @@ class OperationRegistry:
                                        f'{list(spec.allowed)}', where, span)
         return d
 
-    def validate_construction(self, graph: ConstructionGraph, *, require_executable: bool = False) -> None:
+    def validate_construction(self, graph: ConstructionGraph, *, require_executable: bool = True) -> None:
         seen: set[str] = set()
         for i, s in enumerate(graph.steps):
             at = f'steps.{i}'
@@ -248,12 +248,31 @@ class OpStream(IRModel):
     schema_version: Literal['mirum_op_stream_v0_1']
     entries: Annotated[tuple[OpStreamEntry, ...], Field(max_length=MAX_LIST)]
 
+    @model_validator(mode='before')
+    @classmethod
+    def _budgets(cls, data):
+        return _prepare_input(data)
+
+    @classmethod
+    def model_validate_json(cls, json_data, **kwargs):  # type: ignore[override]
+        """Routed through the strict loader rules (byte cap, duplicate keys, non-finite, budgets)."""
+        if kwargs:
+            raise TypeError('OpStream.model_validate_json takes no options')
+        return _validate_record(cls, _parse_json_bounded(json_data), OP_STREAM_VERSION)
+
     @model_validator(mode='after')
     def _seq(self):
         for i, e in enumerate(self.entries):
             if e.seq != i:
                 raise ProgramError('IR010', f'op stream seq must equal its index (got {e.seq} at {i})',
                                    f'entries.{i}.seq', e.span)
+        return self
+
+    @model_validator(mode='after')
+    def _known_operations(self):
+        # Every construction path rejects unknown operations/versions; reserved construct.* operations
+        # remain legal records here (executability is the loaders' and validate_op_stream's gate).
+        validate_op_stream(self, DEFAULT_REGISTRY, require_executable=False)
         return self
 
 
@@ -268,6 +287,19 @@ class ArtifactGraph(IRModel):
     schema_version: Literal['mirum_artifact_graph_v0_1']
     op_stream: OpStream
     nodes: Annotated[tuple[ArtifactNode, ...], Field(max_length=MAX_LIST)]
+
+    @model_validator(mode='before')
+    @classmethod
+    def _budgets(cls, data):
+        return _prepare_input(data)
+
+    @classmethod
+    def model_validate_json(cls, json_data, **kwargs):  # type: ignore[override]
+        """Routed through the strict loader rules; records only (use load_artifact_graph_json for the
+        execution gate)."""
+        if kwargs:
+            raise TypeError('ArtifactGraph.model_validate_json takes no options')
+        return _validate_record(cls, _parse_json_bounded(json_data), ARTIFACT_GRAPH_VERSION)
 
     @model_validator(mode='after')
     def _cross(self):
@@ -284,7 +316,9 @@ class ArtifactGraph(IRModel):
 
 
 def validate_op_stream(stream: OpStream, registry: OperationRegistry = DEFAULT_REGISTRY, *,
-                       require_executable: bool = False, field_prefix: str | None = None) -> None:
+                       require_executable: bool = True, field_prefix: str | None = None) -> None:
+    """Fail closed: reserved (non-executable) operations are rejected unless the caller passes
+    `require_executable=False` to treat the stream as records."""
     for i, e in enumerate(stream.entries):
         where = _path(field_prefix, f'entries.{i}.operation')
         if require_executable:
@@ -293,19 +327,11 @@ def validate_op_stream(stream: OpStream, registry: OperationRegistry = DEFAULT_R
             registry.get(e.operation, e.operation_version, field=where, span=e.span)
 
 
-def load_artifact_graph_json(text: str | bytes, *, require_executable: bool = False,
-                             registry: OperationRegistry | None = None) -> ArtifactGraph:
-    """Strict, budgeted load. Operations are always validated against the registry (unknown operation
-    or version is rejected); reserved `construct.*` operations load as records unless
-    `require_executable` is set, which is what any execution-facing caller must pass."""
-    obj = _parse_json_bounded(text)
-    if not isinstance(obj, dict) or obj.get('schema_version') != ARTIFACT_GRAPH_VERSION:
-        raise ProgramError('IR001', f'unknown or missing schema_version (expected {ARTIFACT_GRAPH_VERSION!r})',
-                           'schema_version')
-    try:
-        graph = ArtifactGraph.model_validate_json(_dumps_strict(obj))
-    except ValidationError as exc:
-        raise _map_error(exc.errors(include_url=False), obj) from None
-    validate_op_stream(graph.op_stream, registry or DEFAULT_REGISTRY, require_executable=require_executable,
+def load_artifact_graph_json(text: str | bytes, *, require_executable: bool = True) -> ArtifactGraph:
+    """Strict, budgeted load that fails closed: reserved `construct.*` operations are rejected (IR009)
+    unless the caller passes `require_executable=False` to load them as records. Unknown operations
+    and versions are always rejected (by the model itself)."""
+    graph = _validate_record(ArtifactGraph, _parse_json_bounded(text), ARTIFACT_GRAPH_VERSION)
+    validate_op_stream(graph.op_stream, DEFAULT_REGISTRY, require_executable=require_executable,
                        field_prefix='op_stream')
     return graph

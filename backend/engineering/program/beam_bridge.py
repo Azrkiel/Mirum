@@ -25,6 +25,7 @@ from .versions import CONSTRUCTION_GRAPH_VERSION, PROGRAM_IR_VERSION
 __all__ = ['beam_capability_ref', 'program_from_brief_content', 'brief_content_from_program']
 
 HEIGHT_ID = 'beam.height'
+CANONICAL_DESIGN = 'reference_beam'
 BEAM_BACKEND = 'occt'
 BEAM_EXPORTS = ('step', 'glb')  # the geometry artifacts the beam path produces (model.step, preview.glb)
 # (requirement id, kind/dimension)
@@ -55,7 +56,7 @@ def _suffix(check: str) -> str:
 
 
 def program_from_brief_content(content: BriefContent, *, provenance: ProgramProvenance,
-                               design: str = 'reference_beam', backend: str = BEAM_BACKEND,
+                               design: str = CANONICAL_DESIGN, backend: str = BEAM_BACKEND,
                                exports: tuple[str, ...] = BEAM_EXPORTS) -> ProgramIR:
     req = content.requirements
     mat = req.material
@@ -117,7 +118,14 @@ def _text(req: Requirement) -> str:
     return req.value.text
 
 
-def brief_content_from_program(ir: ProgramIR) -> BriefContent:
+def brief_content_from_program(ir: ProgramIR, *, design: str | None = None) -> BriefContent:
+    """Rebuild the legacy brief. BriefContent has no design name, so a design other than the canonical
+    one would be dropped silently; it is rejected unless the caller passes the same name explicitly
+    (and then carries it back through `program_from_brief_content(design=...)`). Provenance is not
+    part of brief_sha256 on purpose (P03: equal meaning, any source); the IR record carries it."""
+    if ir.design != CANONICAL_DESIGN and design != ir.design:
+        raise ProgramError('IR010', f'design {ir.design!r} cannot be carried by the legacy brief; pass '
+                           f'design={ir.design!r} to acknowledge that it is dropped', 'design')
     cap = ir.capability
     if (cap.id, cap.version) != (CAPABILITY.id, CAPABILITY.version):
         raise ProgramError('IR010', f'capability {cap.id}@{cap.version} is not the beam capability',

@@ -18,11 +18,12 @@ from engineering.program.hashing import canonical_json, semantic_sha256, source_
 from engineering.program.ir import (
     ConstructionGraph, ConstructionStep, TextValue, load_program_json, program_from_dict,
 )
+from engineering.program.ir import ProgramIR
 from engineering.program.registry import (
-    DEFAULT_REGISTRY, load_artifact_graph_json, validate_op_stream,
+    DEFAULT_REGISTRY, ArtifactGraph, OpStream, load_artifact_graph_json, validate_op_stream,
 )
 from engineering.program.versions import (
-    ARTIFACT_GRAPH_VERSION, CONSTRUCTION_GRAPH_VERSION, PROGRAM_IR_VERSION,
+    ARTIFACT_GRAPH_VERSION, CONSTRUCTION_GRAPH_VERSION, OP_STREAM_VERSION, PROGRAM_IR_VERSION,
 )
 
 from .test_program_beam_bridge import ai_program, form_content, form_program, prov
@@ -183,35 +184,99 @@ def test_artifact_graph_loader_rejects_unknown_operation_version():
     assert err_of(load_artifact_graph_json, json.dumps(g)).code == 'IR001'
 
 
-def test_reserved_operations_load_as_records():
-    graph = load_artifact_graph_json((FIX02 / 'artifact-graph.json').read_bytes())
+def test_reserved_operations_load_as_records_only_when_asked():
+    graph = load_artifact_graph_json((FIX02 / 'artifact-graph.json').read_bytes(), require_executable=False)
     assert graph.op_stream.entries[1].operation == 'construct.extrude'
 
 
-def test_reserved_operations_are_never_executable_through_the_loader():
-    e = err_of(load_artifact_graph_json, (FIX02 / 'artifact-graph.json').read_bytes(), require_executable=True)
+# M-B: the execution gate is the default (fail closed).
+def test_loader_default_rejects_reserved_operations():
+    e = err_of(load_artifact_graph_json, (FIX02 / 'artifact-graph.json').read_bytes())
     assert (e.code, e.field) == ('IR009', 'op_stream.entries.0.operation')
 
 
-def test_executable_graph_passes_require_executable():
+def test_executable_graph_passes_the_default_gate():
     g = graph_dict()
     for e in g['op_stream']['entries']:
         e['operation'] = 'capability.build'
-    graph = load_artifact_graph_json(json.dumps(g), require_executable=True)
+    graph = load_artifact_graph_json(json.dumps(g))
     assert len(graph.op_stream.entries) == 2
 
 
-def test_validate_op_stream_require_executable():
-    graph = load_artifact_graph_json((FIX02 / 'artifact-graph.json').read_bytes())
-    validate_op_stream(graph.op_stream)
-    assert err_of(validate_op_stream, graph.op_stream, require_executable=True).code == 'IR009'
+def test_validate_op_stream_default_rejects_reserved_operations():
+    graph = load_artifact_graph_json((FIX02 / 'artifact-graph.json').read_bytes(), require_executable=False)
+    validate_op_stream(graph.op_stream, require_executable=False)
+    assert err_of(validate_op_stream, graph.op_stream).code == 'IR009'
 
 
-def test_validate_construction_require_executable():
+def test_validate_construction_default_rejects_reserved_operations():
     graph = ConstructionGraph(schema_version=CONSTRUCTION_GRAPH_VERSION, steps=(
         ConstructionStep(id='step.s', operation='construct.sketch', operation_version='0.1.0', args={}),))
-    DEFAULT_REGISTRY.validate_construction(graph)
-    assert err_of(DEFAULT_REGISTRY.validate_construction, graph, require_executable=True).code == 'IR009'
+    DEFAULT_REGISTRY.validate_construction(graph, require_executable=False)
+    assert err_of(DEFAULT_REGISTRY.validate_construction, graph).code == 'IR009'
+
+
+# M-A: direct constructors take the same budgets and gates as the loaders.
+def code_of_validation(fn, *args):
+    with pytest.raises((ProgramError, ValidationError)) as ei:
+        fn(*args)
+    exc = ei.value
+    if isinstance(exc, ValidationError):
+        exc = exc.errors(include_url=False)[0]['ctx']['error']
+    assert isinstance(exc, ProgramError), repr(exc)
+    return exc
+
+
+def over_budget_graph() -> dict:
+    return {'schema_version': ARTIFACT_GRAPH_VERSION, **{f'k{i}': 0 for i in range(2001)}}
+
+
+@pytest.mark.parametrize('cls,obj', [
+    (ProgramIR, {'schema_version': PROGRAM_IR_VERSION, **{f'k{i}': 0 for i in range(2001)}}),
+    (ArtifactGraph, over_budget_graph()),
+    (OpStream, {'schema_version': OP_STREAM_VERSION, **{f'k{i}': 0 for i in range(2001)}}),
+])
+def test_model_validate_applies_the_node_budget(cls, obj):
+    assert code_of_validation(cls.model_validate, obj).code == 'IR012'
+
+
+@pytest.mark.parametrize('cls,version', [(ProgramIR, PROGRAM_IR_VERSION), (ArtifactGraph, ARTIFACT_GRAPH_VERSION),
+                                         (OpStream, OP_STREAM_VERSION)])
+def test_model_validate_json_applies_the_budgets_and_strict_rules(cls, version):
+    over_nodes = json.dumps({'schema_version': version, **{f'k{i}': 0 for i in range(2001)}})
+    assert err_of(cls.model_validate_json, over_nodes).code == 'IR012'
+    assert err_of(cls.model_validate_json, ' ' * 65537).code == 'IR012'
+    dup = '{"schema_version": "%s", "schema_version": "%s"}' % (version, version)
+    assert err_of(cls.model_validate_json, dup).code == 'IR003'
+    nonfinite = '{"schema_version": "%s", "x": 1e400}' % version
+    assert err_of(cls.model_validate_json, nonfinite).code == 'IR007'
+
+
+def test_model_validate_json_still_validates_a_good_document():
+    g = graph_dict()
+    graph = ArtifactGraph.model_validate_json(json.dumps(g))
+    assert graph == load_artifact_graph_json(json.dumps(g), require_executable=False)
+    ir = ProgramIR.model_validate_json(json.dumps(beam_dict()))
+    assert ir == load_program_json(json.dumps(beam_dict()))
+
+
+def test_constructors_reject_unknown_operations_and_versions():
+    g = graph_dict()
+    g['op_stream']['entries'][1]['operation'] = 'construct.unknown'
+    assert code_of_validation(ArtifactGraph.model_validate, g).code == 'IR008'
+    e = err_of(ArtifactGraph.model_validate_json, json.dumps(g))
+    assert (e.code, e.field) == ('IR008', 'op_stream.entries.1.operation')
+    stream = {'schema_version': OP_STREAM_VERSION, 'entries': [
+        {'seq': 0, 'operation': 'construct.extrude', 'operation_version': '9.9.9'}]}
+    assert err_of(OpStream.model_validate_json, json.dumps(stream)).code == 'IR001'
+    assert code_of_validation(OpStream.model_validate, stream).code == 'IR001'
+
+
+def test_reserved_construct_operations_are_legal_records_through_constructors():
+    graph = ArtifactGraph.model_validate_json((FIX02 / 'artifact-graph.json').read_bytes())
+    assert graph.op_stream.entries[0].operation == 'construct.sketch'
+    # ...but the execution gate still refuses them.
+    assert err_of(validate_op_stream, graph.op_stream).code == 'IR009'
 
 
 # ------------------------------------------------------------------ M3 bridge losslessness
@@ -409,6 +474,56 @@ def test_importing_the_program_package_pulls_no_heavy_dependency():
     env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(backend), str(root)]))
     proc = subprocess.run([sys.executable, '-c', code], env=env, capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+# ------------------------------------------------------------------ L-1 design name is never dropped silently
+
+def test_bridge_rejects_a_non_canonical_design_name_unless_passed_explicitly():
+    ir = program_from_brief_content(form_content(), provenance=prov(), design='bracket_beam')
+    e = err_of(brief_content_from_program, ir)
+    assert e.code == 'IR010' and e.field == 'design'
+    assert err_of(brief_content_from_program, ir, design='other_beam').field == 'design'
+    brief = brief_content_from_program(ir, design='bracket_beam')
+    assert program_from_brief_content(brief, provenance=prov(), design='bracket_beam') == ir
+
+
+def test_canonical_design_name_needs_no_acknowledgement():
+    ir = form_program()
+    assert ir.design == 'reference_beam'
+    assert brief_content_from_program(ir) == form_content()
+
+
+# ------------------------------------------------------------------ L-2 error-code noise
+
+def test_semantic_id_format_errors_are_ir010_not_budget_errors():
+    d = beam_dict()
+    d['requirements']['requirements'][0]['id'] = 'a' * 129
+    assert err_of(program_from_dict, d).code == 'IR010'
+    d = beam_dict()
+    d['analysis'][0]['requirement_refs'] = ['a' * 129]
+    assert err_of(program_from_dict, d).code == 'IR010'
+    d = beam_dict()
+    d['requirements']['requirements'][0]['id'] = 'Bad Id'
+    assert err_of(program_from_dict, d).code == 'IR010'
+
+
+def test_budget_bounded_fields_stay_ir012():
+    d = beam_dict()
+    d['provenance']['source_id'] = 'x' * 241
+    assert err_of(program_from_dict, d).code == 'IR012'
+    d = beam_dict()
+    d['analysis'] = d['analysis'] * 300
+    assert err_of(program_from_dict, d).code == 'IR012'
+
+
+def test_dumps_strict_maps_only_nonfinite_to_ir007():
+    from engineering.program.ir import _dumps_strict
+    assert err_of(_dumps_strict, {'a': float('inf')}).code == 'IR007'
+    assert err_of(_dumps_strict, {'a': float('nan')}).code == 'IR007'
+    circular: dict = {}
+    circular['self'] = circular
+    assert err_of(_dumps_strict, circular).code == 'IR010'
+    assert err_of(_dumps_strict, {'a': object()}).code == 'IR010'
 
 
 def test_package_docstring_states_its_real_dependencies():

@@ -66,10 +66,12 @@ def _run_fixture(case: FixtureCase, fixture_dir: Path) -> None:
         case 'program':
             load_program_json(data)
         case 'artifact_graph':
-            graph = load_artifact_graph_json(data)
-            validate_op_stream(graph.op_stream)
+            # Reserved construct.* operations are legal records; the execution gate is exercised in
+            # test_program_security_fixes.py.
+            graph = load_artifact_graph_json(data, require_executable=False)
+            validate_op_stream(graph.op_stream, require_executable=False)
         case 'construction':
-            DEFAULT_REGISTRY.validate_construction(_load_construction(data))
+            DEFAULT_REGISTRY.validate_construction(_load_construction(data), require_executable=False)
         case 'call':
             call = json.loads(data)
             args = CALL_ARGS.validate_json(json.dumps(call['args']))

@@ -50,6 +50,16 @@ def graph(*steps):
     return ConstructionGraph(schema_version=CONSTRUCTION_GRAPH_VERSION, steps=tuple(steps))
 
 
+def validate_records(graph):
+    """Record-only construction validation: reserved construct.* operations are legal records."""
+    return DEFAULT_REGISTRY.validate_construction(graph, require_executable=False)
+
+
+def load_records(text):
+    """Record-only artifact graph load (the execution gate is the default; see test_program_security_fixes)."""
+    return load_artifact_graph_json(text, require_executable=False)
+
+
 def code_of(fn, *a, **k):
     """Return the ProgramError raised by fn; unwraps pydantic ValidationError from validators."""
     with pytest.raises(ValueError) as ei:
@@ -186,29 +196,29 @@ def test_validate_construction_valid_two_steps():
         step('s1', 'construct.sketch', {}),
         step('s2', 'construct.extrude', inputs=('s1',)),
     )
-    DEFAULT_REGISTRY.validate_construction(g)
-    DEFAULT_REGISTRY.validate_construction(graph())
+    validate_records(g)
+    validate_records(graph())
 
 
 def test_validate_construction_unknown_op():
-    e = code_of(DEFAULT_REGISTRY.validate_construction, graph(step('s1', 'construct.zzz', {})))
+    e = code_of(validate_records, graph(step('s1', 'construct.zzz', {})))
     assert e.code == 'IR008' and e.span == SPAN and e.field.startswith('steps.0')
 
 
 def test_validate_construction_forward_input():
     g = graph(step('s1', inputs=('s2',)), step('s2'))
-    e = code_of(DEFAULT_REGISTRY.validate_construction, g)
+    e = code_of(validate_records, g)
     assert e.code == 'IR004' and e.field == 'steps.0.inputs.0' and e.span == SPAN
 
 
 def test_validate_construction_second_step_field():
     g = graph(step('s1'), step('s2', inputs=('s1', 'ghost')))
-    e = code_of(DEFAULT_REGISTRY.validate_construction, g)
+    e = code_of(validate_records, g)
     assert e.code == 'IR004' and e.field == 'steps.1.inputs.1'
 
 
 def test_validate_construction_duplicate_id():
-    e = code_of(DEFAULT_REGISTRY.validate_construction, graph(step('s1'), step('s1')))
+    e = code_of(validate_records, graph(step('s1'), step('s1')))
     assert e.code == 'IR011' and e.field == 'steps.1.id'
 
 
@@ -216,17 +226,17 @@ def test_validate_construction_reference_args_must_name_earlier_steps():
     ok = graph(step('s1', 'construct.sketch', {}), step('s2', 'construct.sketch', {}),
                step('s3', 'construct.sweep', {'profile': TextValue(kind='text', text='s1'),
                                               'path': TextValue(kind='text', text='s2')}))
-    DEFAULT_REGISTRY.validate_construction(ok)
+    validate_records(ok)
     bad = graph(step('s1', 'construct.sketch', {}),
                 step('s2', 'construct.sweep', {'profile': TextValue(kind='text', text='s1'),
                                                'path': TextValue(kind='text', text='ghost')}))
-    e = code_of(DEFAULT_REGISTRY.validate_construction, bad)
+    e = code_of(validate_records, bad)
     assert (e.code, e.field, e.span) == ('IR004', 'steps.1.args.path', SPAN)
 
 
 def test_validate_construction_bad_args_path():
     g = graph(step('s1', args={'radius': q(1, 'mm', 'length')}, op='construct.extrude'))
-    e = code_of(DEFAULT_REGISTRY.validate_construction, g)
+    e = code_of(validate_records, g)
     assert e.code == 'IR002' and e.field == 'steps.0.args.radius'
 
 
@@ -284,47 +294,60 @@ def _graph_dict():
 
 
 def test_load_artifact_graph_json_valid():
-    g = load_artifact_graph_json(json.dumps(_graph_dict()))
+    g = load_records(json.dumps(_graph_dict()))
     assert g.nodes[0].id == 'solid.a'
-    assert load_artifact_graph_json(json.dumps(_graph_dict()).encode()) == g
+    assert load_records(json.dumps(_graph_dict()).encode()) == g
 
 
 def test_load_artifact_graph_unknown_schema_version():
     d = _graph_dict()
     d['schema_version'] = 'nope'
-    e = code_of(load_artifact_graph_json, json.dumps(d))
+    e = code_of(load_records, json.dumps(d))
     assert e.code == 'IR001' and e.field == 'schema_version'
 
 
 def test_load_artifact_graph_duplicate_key():
     text = json.dumps(_graph_dict()).replace('"kind": "solid"', '"kind": "solid", "kind": "face"')
-    e = code_of(load_artifact_graph_json, text)
+    e = code_of(load_records, text)
     assert e.code == 'IR003'
 
 
 def test_load_artifact_graph_nan():
     text = json.dumps(_graph_dict()).replace('"op_seq": 0', '"op_seq": NaN')
-    assert code_of(load_artifact_graph_json, text).code == 'IR007'
+    assert code_of(load_records, text).code == 'IR007'
 
 
 def test_load_artifact_graph_extra_field_and_bad_seq():
     d = _graph_dict()
     d['nodes'][0]['zzz'] = 1
-    e = code_of(load_artifact_graph_json, json.dumps(d))
+    e = code_of(load_records, json.dumps(d))
     assert e.code == 'IR002' and e.field == 'nodes.0.zzz'
     d = _graph_dict()
     d['nodes'][0]['op_seq'] = 9
-    assert code_of(load_artifact_graph_json, json.dumps(d)).code == 'IR004'
+    assert code_of(load_records, json.dumps(d)).code == 'IR004'
 
 
 def test_load_artifact_graph_invalid_json_and_non_dict():
-    assert code_of(load_artifact_graph_json, '{').code == 'IR010'
-    assert code_of(load_artifact_graph_json, '[]').code == 'IR001'
+    assert code_of(load_records, '{').code == 'IR010'
+    assert code_of(load_records, '[]').code == 'IR001'
+
+
+def unchecked_stream(*entries):
+    """Bypass the model's own registry check to exercise validate_op_stream directly."""
+    return OpStream.model_construct(schema_version=OP_STREAM_VERSION, entries=tuple(entries))
 
 
 def test_validate_op_stream():
-    validate_op_stream(stream(entry(0), entry(1, 'capability.build')), DEFAULT_REGISTRY)
-    e = code_of(validate_op_stream, stream(entry(0, 'nope.op')), DEFAULT_REGISTRY)
+    validate_op_stream(stream(entry(0), entry(1, 'capability.build')), DEFAULT_REGISTRY, require_executable=False)
+    e = code_of(validate_op_stream, unchecked_stream(entry(0, 'nope.op')), DEFAULT_REGISTRY,
+                require_executable=False)
     assert e.code == 'IR008' and e.field == 'entries.0.operation' and e.span == SPAN
-    e = code_of(validate_op_stream, stream(entry(0, ver='7')), DEFAULT_REGISTRY)
+    e = code_of(validate_op_stream, unchecked_stream(entry(0, ver='7')), DEFAULT_REGISTRY,
+                require_executable=False)
     assert e.code == 'IR001'
+
+
+def test_opstream_construction_enforces_the_registry():
+    e = code_of(stream, entry(0, 'nope.op'))
+    assert e.code == 'IR008' and e.field == 'entries.0.operation'
+    assert code_of(stream, entry(0, ver='7')).code == 'IR001'

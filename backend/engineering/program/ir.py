@@ -6,7 +6,9 @@ import math
 import re
 from typing import Annotated, Literal
 
-from pydantic import Field, StringConstraints, ValidationError, field_validator, model_validator
+from pydantic import (
+    AfterValidator, Field, StringConstraints, ValidationError, field_validator, model_validator,
+)
 
 from .errors import IRModel, ProgramError, SourceSpan, Str240
 from .units import CANONICAL_UNIT, Dimension
@@ -23,7 +25,16 @@ __all__ = [
     'execution_lock', 'load_program_json', 'program_from_dict',
 ]
 
-SemanticId = Annotated[str, StringConstraints(pattern=r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$', max_length=128)]
+def _semantic_id_length(value: str) -> str:
+    # An identifier-format limit, not a budget: IR010 (budget-bounded lists and free strings are IR012).
+    if len(value) > 128:
+        raise ProgramError('IR010', 'identifier is longer than 128 characters')
+    return value
+
+
+SemanticId = Annotated[
+    str, StringConstraints(pattern=r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$'),
+    AfterValidator(_semantic_id_length), Field(json_schema_extra={'maxLength': 128})]
 Identifier = Annotated[str, StringConstraints(pattern=r'^[a-z][a-z0-9_]{0,63}$')]
 Name128 = Annotated[str, StringConstraints(min_length=1, max_length=128)]
 Name64 = Annotated[str, StringConstraints(min_length=1, max_length=64)]
@@ -200,6 +211,18 @@ class ProgramIR(IRModel):
     provenance: ProgramProvenance
     span: SourceSpan | None = None
 
+    @model_validator(mode='before')
+    @classmethod
+    def _budgets(cls, data):
+        return _prepare_input(data)
+
+    @classmethod
+    def model_validate_json(cls, json_data, **kwargs):  # type: ignore[override]
+        """Routed through the strict loader (byte cap, duplicate keys, non-finite, budgets)."""
+        if kwargs:
+            raise TypeError('ProgramIR.model_validate_json takes no options; use load_program_json')
+        return load_program_json(json_data)
+
     @model_validator(mode='after')
     def _cross_checks(self):
         req_ids = {r.id for r in self.requirements.requirements}
@@ -370,11 +393,33 @@ def _check_budgets(obj) -> None:
             raise ProgramError('IR010', 'string contains a lone surrogate')
 
 
+def _tuplify(node):
+    # Depth is already bounded by _check_budgets. Arrays become tuples because the records are strict
+    # (a function-before validator hands its result to the strict validator as Python data).
+    if isinstance(node, dict):
+        return {k: _tuplify(v) for k, v in node.items()}
+    if isinstance(node, (list, tuple)):
+        return tuple(_tuplify(v) for v in node)
+    return node
+
+
+def _prepare_input(data):
+    """`mode='before'` hook of every top-level record: budgets for every construction path."""
+    if isinstance(data, dict):
+        _check_budgets(data)
+        return _tuplify(data)
+    return data
+
+
 def _dumps_strict(obj) -> str:
     try:
         return json.dumps(obj, allow_nan=False)
-    except ValueError:
-        raise ProgramError('IR007', 'non-finite number in program') from None
+    except ValueError as exc:
+        # json raises ValueError for non-finite floats ("Out of range float values are not JSON
+        # compliant") and for circular references; only the former is a number problem.
+        if 'Out of range float' in str(exc):
+            raise ProgramError('IR007', 'non-finite number in program') from None
+        raise ProgramError('IR010', f'program is not JSON-serializable: {exc}') from None
     except TypeError as exc:
         raise ProgramError('IR010', f'program is not JSON-serializable: {exc}') from None
     except RecursionError:
@@ -433,14 +478,22 @@ def program_from_dict(obj) -> ProgramIR:
     return _validate(obj)
 
 
-def _validate(obj) -> ProgramIR:
-    if not isinstance(obj, dict) or obj.get('schema_version') != PROGRAM_IR_VERSION:
-        raise ProgramError('IR001', f'unknown or missing schema_version (expected {PROGRAM_IR_VERSION!r})',
+def _validate_record(cls, obj, version: str):
+    """Validate an already strictly parsed object into `cls`, mapping failures to typed errors.
+
+    Uses the pydantic validator directly: the public `model_validate_json` of the IR records is
+    overridden to route through the strict loaders (which end up here)."""
+    if not isinstance(obj, dict) or obj.get('schema_version') != version:
+        raise ProgramError('IR001', f'unknown or missing schema_version (expected {version!r})',
                            'schema_version')
     try:
-        return ProgramIR.model_validate_json(_dumps_strict(obj))
+        return cls.__pydantic_validator__.validate_json(_dumps_strict(obj))
     except ValidationError as exc:
         raise _map_error(exc.errors(include_url=False), obj) from None
+
+
+def _validate(obj) -> ProgramIR:
+    return _validate_record(ProgramIR, obj, PROGRAM_IR_VERSION)
 
 
 def _map_error(errors, obj) -> ProgramError:
