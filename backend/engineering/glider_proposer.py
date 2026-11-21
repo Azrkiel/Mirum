@@ -48,7 +48,8 @@ _CALIBRATION_WORDS = frozenset((
     'calibration', 'calibrations', 'calibrate', 'calibrated', 'calibrating', 'flight', 'flights', 'test', 'tests',
     'testing', 'tested', 'flighttest', 'latest', 'last', 'recent', 'most', 'new', 'newest', 'updated', 'update', 'use',
     'using', 'apply', 'from', 'our', 'my', 'the', 'a', 'an', 'of', 'with', 'data', 'values', 'source', 'record',
-    'records', 'results', 'measured', 'measurements', 'version'))
+    'records', 'results', 'measured', 'measurements', 'version', 'glider', 'this', 'shipped', 'for', 'to', 'on',
+    'in', 'at'))
 _WORD = re.compile(r'[a-z]+')
 
 

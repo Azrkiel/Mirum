@@ -60,6 +60,7 @@ def assert_calibration_clarification(proposal):
     'Updated flight-test calibration',
     'calibration data from flight testing',
     'Use the calibration source from our latest flight-test record',
+    'Use the shipped calibration from the flight test for this glider',
 ])
 def test_calibration_feature_becomes_clarification(feature):
     assert_calibration_clarification(run(reply(FIELDS, unsupported_features=[feature])))
