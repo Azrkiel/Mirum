@@ -29,11 +29,12 @@ CAPABILITIES = ('co2_dragster', 'regen_chamber', 'glider_cem')
 # Pinned SHA-256 of each fixed corpus file. A changed corpus is refused before any call.
 CORPUS_SHA256 = {
     'co2_dragster': 'fdc429faa9225a677877ae68d0990669a3010a56438560f3541ef3a3a941aa68',
-    'regen_chamber': '95b161ecc66b9a8a2475d967e4dc7259bbf4db8df00597d1233d3c3bc3ecc397',
+    'regen_chamber': '1d97dd5347596b87db9135f1668ca69e9de4d1f0aa015eb1f44305e84d870671',
     'glider_cem': '720656584ee76af737a20d90c3ac9571c0fc9c8581839312e9779579843b4215',
 }
-# Corpus file per capability. glider_cem uses v2 (D6: sparse extraction); v1 stays cited by run 1.
-CORPUS_FILES = {'co2_dragster': 'co2_dragster-v1.json', 'regen_chamber': 'regen_chamber-v1.json',
+# Corpus file per capability. glider_cem v2 (D6: sparse extraction); regen_chamber v2 (R05/R13 expected_content
+# corrected to list the stated value). The v1 files stay cited by run 1.
+CORPUS_FILES = {'co2_dragster': 'co2_dragster-v1.json', 'regen_chamber': 'regen_chamber-v2.json',
                 'glider_cem': 'glider_cem-v2.json'}
 SPEC_PREFIX = 'specification.'
 MISSING = object()

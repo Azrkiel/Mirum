@@ -82,7 +82,7 @@ def test_cap_stops_at_30_with_always_repair_provider():
 def test_corpus_tamper_is_refused(tmp_path):
     for name in e05.CORPUS_FILES.values():
         shutil.copy(CORPUS_DIR / name, tmp_path / name)
-    with open(tmp_path / 'regen_chamber-v1.json', 'a', encoding='utf-8') as handle:
+    with open(tmp_path / e05.CORPUS_FILES['regen_chamber'], 'a', encoding='utf-8') as handle:
         handle.write(' ')
     with pytest.raises(e05.CorpusPinMismatch):
         e05.load_corpora(tmp_path)
@@ -169,19 +169,21 @@ def test_evidence_contains_ids_states_and_counts_only(tmp_path):
     corpus_dir.mkdir()
     for name in e05.CORPUS_FILES.values():
         shutil.copy(CORPUS_DIR / name, corpus_dir / name)
-    cases_in = json.loads((corpus_dir / 'regen_chamber-v1.json').read_text(encoding='utf-8'))
+    regen_name = e05.CORPUS_FILES['regen_chamber']
+    pinned = e05.CORPUS_SHA256['regen_chamber']
+    cases_in = json.loads((corpus_dir / regen_name).read_text(encoding='utf-8'))
     for c in cases_in['cases']:
         c['prompt'] = prompt_text
-    (corpus_dir / 'regen_chamber-v1.json').write_text(json.dumps(cases_in), encoding='utf-8')
+    (corpus_dir / regen_name).write_text(json.dumps(cases_in), encoding='utf-8')
     # Re-pin the modified corpus so the run proceeds; the pin itself is tested separately.
     import hashlib
-    e05.CORPUS_SHA256['regen_chamber'] = hashlib.sha256((corpus_dir / 'regen_chamber-v1.json').read_bytes()).hexdigest()
+    e05.CORPUS_SHA256['regen_chamber'] = hashlib.sha256((corpus_dir / regen_name).read_bytes()).hexdigest()
     try:
         evidence = e05.run(tmp_path / 'out', ('regen_chamber',), sha=SHA, image_id=IMAGE, run_id='run-test-01',
                            authorization='owner-test', corpus_dir=corpus_dir,
                            proposer_factory=factory, budget_factory=fixed_budget)
     finally:
-        e05.CORPUS_SHA256['regen_chamber'] = '95b161ecc66b9a8a2475d967e4dc7259bbf4db8df00597d1233d3c3bc3ecc397'
+        e05.CORPUS_SHA256['regen_chamber'] = pinned
     text = (tmp_path / 'out' / 'e05-live.json').read_text(encoding='utf-8')
     assert SENTINEL not in text
     assert 'request' not in text

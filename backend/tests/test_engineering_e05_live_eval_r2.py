@@ -407,10 +407,14 @@ def test_t9_corpus_self_check_complete_cases_stay_accurate(capability):
     assert sum(r['silent_requirement_drop'] for r in result['cases']) == 0
     for record in result['cases']:
         assert record['reason'] is None if record['state'] == 'proposed' else record['reason'] in e05.REASON_IDS
+    # With every case answered by its own fixture reply, the whole capability passes the unchanged gate.
+    assert all(r['unstated_ai_values'] == 0 for r in result['cases']), \
+        [r['case_id'] for r in result['cases'] if r['unstated_ai_values']]
+    assert e05.gate(result) != 'blocked'
 
 
 def test_t9_harness_loads_glider_v2_and_keeps_v1_pins():
-    assert e05.CORPUS_FILES == {'co2_dragster': 'co2_dragster-v1.json', 'regen_chamber': 'regen_chamber-v1.json',
+    assert e05.CORPUS_FILES == {'co2_dragster': 'co2_dragster-v1.json', 'regen_chamber': 'regen_chamber-v2.json',
                                 'glider_cem': 'glider_cem-v2.json'}
     import hashlib
     for capability, name in e05.CORPUS_FILES.items():
@@ -418,3 +422,25 @@ def test_t9_harness_loads_glider_v2_and_keeps_v1_pins():
     # Run 1 cited these v1 files by SHA; they must never change.
     assert hashlib.sha256((CORPUS_DIR / 'glider_cem-v1.json').read_bytes()).hexdigest() == \
         'c4113bb1334fd0951082efe0141120b6615dc05bbed4433afce1310c9a8db3a3'
+    assert hashlib.sha256((CORPUS_DIR / 'regen_chamber-v1.json').read_bytes()).hexdigest() ==         '95b161ecc66b9a8a2475d967e4dc7259bbf4db8df00597d1233d3c3bc3ecc397'
+
+
+def test_regen_v2_differs_from_v1_only_in_r05_r13_expected_content():
+    v1 = json.loads((CORPUS_DIR / 'regen_chamber-v1.json').read_text(encoding='utf-8'))
+    v2 = json.loads((CORPUS_DIR / 'regen_chamber-v2.json').read_text(encoding='utf-8'))
+    assert v2.pop('changes_from_v1') and v2.pop('version') == 'e05-regen_chamber-v2'
+    v1.pop('version')
+    cases1 = {c['id']: c for c in v1.pop('cases')}
+    cases2 = {c['id']: c for c in v2.pop('cases')}
+    assert v1 == v2 and cases1.keys() == cases2.keys()
+    for case_id, case in cases1.items():
+        other = dict(cases2[case_id])
+        if case_id == 'R05':
+            assert other.pop('expected_content') == {'specification.throat_radius_mm': 40.0}
+            assert '40 mm' in case['prompt']
+            case = {k: v for k, v in case.items() if k != 'expected_content'}
+        elif case_id == 'R13':
+            assert other.pop('expected_content') == {'specification.channel_count': 300}
+            assert '300 coolant channels' in case['prompt']
+            case = {k: v for k, v in case.items() if k != 'expected_content'}
+        assert case == other, case_id
