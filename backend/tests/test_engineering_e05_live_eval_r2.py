@@ -24,7 +24,8 @@ CORPUS_DIR = ROOT / 'backend' / 'tests' / 'fixtures' / 'engineering' / 'proposal
 SHA = 'a' * 40
 IMAGE = 'sha256:' + 'b' * 64
 CANARY = 'CANARY-e05fix-7f3a'
-GENERATOR_IDS = tuple(descriptor.id for descriptor in GENERATORS)
+# rectangular_plate (E03) has no AI path and no E05 corpus.
+GENERATOR_IDS = tuple(descriptor.id for descriptor in GENERATORS if descriptor.id != 'rectangular_plate')
 FAMILY_PROMPTS = {
     'co2_dragster': ('Design a wedge body for a CO2 dragster.',
                      'Make a teardrop CO2 race car.'),
