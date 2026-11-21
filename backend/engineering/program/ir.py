@@ -372,7 +372,7 @@ def _map_error(errors, obj) -> ProgramError:
         code = 'IR002'
     elif etype == 'finite_number':
         code = 'IR007'
-    elif etype == 'literal_error' and loc and loc[-1] == 'schema_version':
+    elif etype in ('literal_error', 'missing') and loc and loc[-1] == 'schema_version':
         code = 'IR001'
     else:
         code = 'IR010'

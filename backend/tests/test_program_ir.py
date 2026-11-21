@@ -119,6 +119,13 @@ def test_nested_unknown_schema_version_ir001():
     assert (e.code, e.field) == ('IR001', 'construction.schema_version')
 
 
+def test_nested_missing_schema_version_ir001():
+    d = make_dict()
+    del d['construction']['schema_version']
+    e = load_err(d)
+    assert (e.code, e.field) == ('IR001', 'construction.schema_version')
+
+
 def test_extra_field_ir002():
     d = make_dict()
     d['surprise'] = 1
