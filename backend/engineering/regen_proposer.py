@@ -22,6 +22,7 @@ from .briefs import InputIssue
 from .capabilities import GENERATOR_SPEC_PREFIX, REGEN
 from .contracts import ContractModel, FieldOrigin, Provenance, Text
 from .grounding import NumberField
+from .limits import run_in_thread_owned
 from .proposer import GeminiProposalProvider
 
 CALL_SECONDS = 45
@@ -164,7 +165,7 @@ class AiProposer:
 
     async def _call(self, text, settings):
         """One reserved provider call -> ``(reply_text, None)`` or ``(None, reason_id)``; never provider text."""
-        if not self.budget.reserve():
+        if not await run_in_thread_owned(self.budget.reserve, on_orphan=lambda ok: ok and self.budget.release()):
             return None, 'unavailable.budget'
         try:
             try:
