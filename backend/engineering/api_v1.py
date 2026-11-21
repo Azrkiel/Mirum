@@ -276,7 +276,11 @@ def attach_v1_routes(app,limiter):
                 from .store import GeneratorSpendBudget
                 spend=GeneratorSpendBudget(budget,SQLiteProposalLedger(value.store),body.capability,
                                            hashlib.sha256(body.prompt.encode()).hexdigest())
-                proposer=proposal_contract.ai_proposer(body.capability,enabled=value.ai_enabled,budget=spend)
+                try:
+                    # Resolution fails closed too: any error here (not installed, import) is "unavailable".
+                    proposer=proposal_contract.ai_proposer(body.capability,enabled=value.ai_enabled,budget=spend)
+                except Exception:
+                    return unavailable()
                 try:
                     proposal=proposal_contract.conform(body.capability,await proposer.propose(body.prompt))
                 except proposal_contract.NonConformingProposal:

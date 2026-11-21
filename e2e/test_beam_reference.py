@@ -72,6 +72,13 @@ def test_reference_beam_accepted_through_the_ui(stack, token, api, page, shot, e
     expect(beam.accepted_notice).to_be_visible(timeout=30_000)
     cells = beam.attempts_cells()
     if cells is not None:  # Streamlit exposes the grid cells to the accessibility tree
+        # The data grid exposes only rendered rows, so wait (bounded) until all 3 attempt rows show.
+        for _ in range(60):
+            flat = " ".join(cells)
+            if flat.count("rejected") + flat.count("accepted") >= 3:
+                break
+            page.wait_for_timeout(500)
+            cells = beam.attempts_cells() or cells
         flat = " ".join(cells)
         assert flat.count("rejected") == 2 and flat.count("accepted") == 1, cells
     # "Measured STEP preview": the plotly chart renders from the captured GLB.
