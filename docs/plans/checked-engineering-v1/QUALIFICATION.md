@@ -413,3 +413,26 @@ applies the same router family gate as `api_v1`; (2) regen clarification drafts 
 not state; (3) glider gets a sparse, engineering-specific extraction on the engineering key and model (stated fields
 only; defaults filled by policy), leaving `/cem` behavior unchanged; (4) dragster D03 is investigated (field
 mismatches 2).
+
+## E05 live qualification run 2 (2026-11-21): PASSED
+
+Run `qual-20261120-k6-e05r2` (Actions run 44867204408) on main `e939110` (after the fix loop #114), image
+`sha256:3163e97842899631ed6cc132ae17a2d80d1314bdb337cdee4954ac39ceb1365a`, key k6 through `b13-live` (the owner approved
+the deployment in the GitHub UI). Owner authorization: `owner-20261120-e05r2`. Round-2 caps: the unused part of the
+approved 90 calls (co2_dragster 18, regen_chamber 19, glider_cem 18). Corpora: co2_dragster-v1, regen_chamber-v2
+(R05/R13 `expected_content` corrected to list the stated value), glider_cem-v2 (sparse extraction). The gate rule is
+unchanged from run 1. Evidence: [evidence/E05.json](evidence/E05.json) (`live_run_2`, `harness_evidence_2`).
+
+| Capability | Calls (cap) | Complete cases accurate | Silent drops | Unstated AI values | Unreviewed executions | Gate |
+|---|---|---|---|---|---|---|
+| co2_dragster | 9 (18) | 3 of 3 (D03 now proposed and accurate) | 0 | 0 | 0 | passed |
+| regen_chamber | 11 (19) | 3 of 3 | 0 | 0 | 0 | passed |
+| glider_cem | 12 (18) | 3 of 3 | 0 | 0 | 0 | passed |
+
+32 calls used in run 2; 67 of the approved 90 over both runs. Every non-proposed case has a reason id (no model text);
+every out-of-family prompt ended `unsupported.family` before any call. One conservative deviation: G06 (prompt asks to
+use the latest flight-test calibration; expected `clarification_required`) ended `unsupported` with reason
+`unsupported.feature`; no value was adopted. Follow-up: map a calibration-update request to the documented
+clarification instead of a refusal. Dragster reason ids read `<state>.unclassified` because its proposer is B13-pinned.
+
+E05 live qualification is complete. The AI flag stays off in every deployment until the owner decides to enable it.

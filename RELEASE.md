@@ -108,7 +108,7 @@ curl --fail-with-body -sS -H "$auth" "$api/capabilities" > "$work/capabilities.j
 jq -e '
   .ai_enabled == false and .ai_available == false
   and ([.capabilities[] | select(.available) | .id] | sort) ==
-    ["co2_dragster", "glider_cem", "rectangular_cantilever", "regen_chamber"]
+    ["co2_dragster", "glider_cem", "rectangular_cantilever", "rectangular_plate", "regen_chamber"]
 ' "$work/capabilities.json" >/dev/null
 jq --slurpfile capabilities "$work/capabilities.json" '
   .specification as $spec
