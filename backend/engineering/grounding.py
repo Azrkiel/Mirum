@@ -16,7 +16,8 @@ optional exponent, e.g. ``-3``, ``0.025``, ``1.5e3``, ``.5``). A digit glued to 
 
 Choices (enums and text): a value is grounded iff one of its fixed synonyms occurs in the prompt,
 case-insensitive, at word boundaries, after both are normalized (lowercase; every run of
-``-``, ``_`` or whitespace becomes one space). A list value is grounded iff every element is.
+``-``, ``_`` or whitespace becomes one space). A list value is grounded iff it is non-empty and every
+element is.
 Booleans and ``None`` are never grounded (``None`` means unset; callers skip it).
 """
 from __future__ import annotations
@@ -52,19 +53,41 @@ class ChoiceField:
     synonyms: Mapping[str, tuple[str, ...]]   # value -> fixed synonyms (the value itself is not implied)
 
 
+def _normalize(text: str) -> str:
+    return re.sub(r'[-_\s]+', ' ', text.lower()).strip()
+
+
 def number_tokens(prompt: str) -> tuple[float, ...]:
     """Every ``NUMBER`` token in ``prompt`` as a float, in order (duplicates kept)."""
-    raise NotImplementedError
+    return tuple(float(match.group()) for match in NUMBER.finditer(prompt))
 
 
 def is_grounded_number(value: float, prompt: str, dimension: str, unit: str) -> bool:
     """The number rule above. ``bool`` values are never grounded; an unknown dimension or unit raises ``KeyError``."""
-    raise NotImplementedError
+    factors = UNIT_TO_SI[dimension]
+    target = factors[unit]
+    if isinstance(value, bool):
+        return False
+    tokens = number_tokens(prompt)
+    if value == 0:
+        return any(token == 0 for token in tokens)
+    limit = REL_TOL * abs(value)
+    return any(abs(token * factor / target - value) <= limit
+               for token in tokens for factor in factors.values())
 
 
 def is_grounded_choice(value: Any, prompt: str, synonyms: Mapping[str, tuple[str, ...]]) -> bool:
     """The choice rule above. A value missing from ``synonyms`` is not grounded. Lists: every element."""
-    raise NotImplementedError
+    if isinstance(value, (list, tuple)):
+        return bool(value) and all(is_grounded_choice(item, prompt, synonyms) for item in value)
+    if not isinstance(value, str) or value not in synonyms:
+        return False
+    text = _normalize(prompt)
+    for synonym in synonyms[value]:
+        words = _normalize(synonym)
+        if words and re.search(r'(?<!\w)' + re.escape(words) + r'(?!\w)', text):
+            return True
+    return False
 
 
 def ungrounded_fields(values: Mapping[str, Any], prompt: str,
@@ -73,4 +96,18 @@ def ungrounded_fields(values: Mapping[str, Any], prompt: str,
 
     A name with no entry in ``kinds`` is ungrounded (conservative). ``None`` values are skipped.
     """
-    raise NotImplementedError
+    bad = []
+    for name, value in values.items():
+        if value is None:
+            continue
+        kind = kinds.get(name)
+        if isinstance(kind, NumberField):
+            grounded = (isinstance(value, (int, float)) and
+                        is_grounded_number(value, prompt, kind.dimension, kind.unit))
+        elif isinstance(kind, ChoiceField):
+            grounded = is_grounded_choice(value, prompt, kind.synonyms)
+        else:
+            grounded = False
+        if not grounded:
+            bad.append(name)
+    return tuple(sorted(bad))

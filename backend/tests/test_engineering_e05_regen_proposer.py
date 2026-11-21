@@ -78,7 +78,8 @@ def test_complete_prompt_is_proposed_with_origins():
 
 def test_preset_and_base_spec_overlay():
     base = dict(regen_presets.EXAMPLES['small'], wall_thickness_mm=6.5)
-    proposal, _ = run(FakeProvider([reply(dict(channel_count=28), preset='small')]), base_spec=base)
+    proposal, _ = run(FakeProvider([reply(dict(channel_count=28), preset='small')]),
+                      prompt=PROMPT + ' Use 28 channels.', base_spec=base)
     assert proposal.state == 'proposed'
     origins = {o.field: o for o in proposal.provenance.field_origins}
     assert origins['specification.wall_thickness_mm'].origin == 'user_supplied'
@@ -167,20 +168,22 @@ def test_unsupported_features_listed():
 
 
 def test_stated_voxel_below_limit_refused():
-    proposal, _ = run(FakeProvider([reply(dict(voxel_size_mm=0.2))]))
+    proposal, _ = run(FakeProvider([reply(dict(voxel_size_mm=0.2))]), prompt=PROMPT + ' Voxel size 0.2 mm.')
     assert proposal.state == 'unsupported' and 'specification' not in proposal.payload
     assert proposal.issues[0].field == 'specification.voxel_size_mm'
 
 
 def test_unsupported_value_is_never_downgraded_to_a_clarification():
     proposal, _ = run(FakeProvider([reply(dict(voxel_size_mm=0.2), state='clarification_required',
-                                          questions=['Which channel count?'])]))
+                                          questions=['Which channel count?'])]),
+                      prompt=PROMPT + ' Voxel size 0.2 mm.')
     assert proposal.state == 'unsupported' and 'specification' not in proposal.payload
     assert proposal.issues[0].field == 'specification.voxel_size_mm'
 
 
 def test_envelope_violation_is_clarification_with_partial_spec():
-    proposal, _ = run(FakeProvider([reply(dict(throat_radius_mm=40.0))]))
+    proposal, _ = run(FakeProvider([reply(dict(throat_radius_mm=40.0))]),
+                      prompt=PROMPT + ' Throat radius 40 mm.')
     assert proposal.state == 'clarification_required'
     assert proposal.payload['specification']['throat_radius_mm'] == 40.0
     assert proposal.reasons and all(i.field.startswith('specification') for i in proposal.issues)
