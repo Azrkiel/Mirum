@@ -4,7 +4,7 @@ Planning only. All new tasks are not_started; parent B/E status is preserved.
 
 | Complete | ID | Task | State | Prerequisites | Evidence |
 |---|---|---|---|---|---|
-| [ ] | F01 | [Freeze the framework scope and AgentCAD reuse decisions](tasks/F01-scope-and-reuse.md) | not_started | B14, E05 | Not produced |
+| [x] | F01 | [Freeze the framework scope and AgentCAD reuse decisions](tasks/F01-scope-and-reuse.md) | complete | B14, E05 | Docs/contracts only, base 456e622 (2026-11-21): [decision record](F01-DECISIONS.md), [inventory](F01-INVENTORY.md), [reuse ledger](REUSE-LEDGER.md), frozen MEL v0.1 lexical rules and material_source_kind translation in [LANGUAGE.md](LANGUAGE.md). P01 only. [F01 handoff](handoffs/F01.md) |
 | [ ] | F02 | [Define Mirum's typed engineering program and operation registry](tasks/F02-typed-ir.md) | not_started | F01 | Not produced |
 | [ ] | F03 | [Implement and qualify the kernel adapter framework](tasks/F03-kernel-adapters.md) | not_started | F02, E01, E02 | Not produced |
 | [ ] | F04 | [Implement Mirum Engineering Language v0.1](tasks/F04-language-frontend.md) | not_started | F02 | Not produced |

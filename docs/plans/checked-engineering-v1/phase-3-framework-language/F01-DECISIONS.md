@@ -182,4 +182,5 @@ P14 is evidenced by F10 only (no other card lists it).
 - E04 is blocked, so no physical or manufacturing claims.
 - v0.2 scope growth may conflict with "not a universal CAD feature editor".
 - Own-backend study PR #122 is not yet merged; this record cites it by name.
+- Six divergences in existing code (V1-V6 in [F01-INVENTORY.md](F01-INVENTORY.md#divergences-and-how-phase-3-resolves-them)) are not fixed by F01; Phase 3 rules there keep new code off them. V1 (router assurance `checked_design` for every match) and V5 (`conform` does not check origin completeness, prompt SHA-256 or version) are reported to the lead.
 - material_source_kind translation is frozen in [LANGUAGE.md](LANGUAGE.md) (identity mapping to `material.source_kind`, backend/engineering/contracts.py:102 at 456e622); if that enum changes, MEL needs a new versioned translation.
