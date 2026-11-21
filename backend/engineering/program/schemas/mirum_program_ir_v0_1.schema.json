@@ -21,6 +21,7 @@
             "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
             "type": "string"
           },
+          "maxItems": 256,
           "title": "Requirement Refs",
           "type": "array"
         },
@@ -183,6 +184,7 @@
           "items": {
             "$ref": "#/$defs/ConstructionStep"
           },
+          "maxItems": 256,
           "title": "Steps",
           "type": "array"
         }
@@ -215,6 +217,7 @@
               }
             ]
           },
+          "maxProperties": 64,
           "title": "Args",
           "type": "object"
         },
@@ -231,14 +234,19 @@
             "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
             "type": "string"
           },
+          "maxItems": 256,
           "title": "Inputs",
           "type": "array"
         },
         "operation": {
+          "maxLength": 128,
+          "minLength": 1,
           "title": "Operation",
           "type": "string"
         },
         "operation_version": {
+          "maxLength": 64,
+          "minLength": 1,
           "title": "Operation Version",
           "type": "string"
         },
@@ -306,13 +314,27 @@
       "additionalProperties": false,
       "properties": {
         "backend": {
-          "maxLength": 64,
-          "minLength": 1,
+          "enum": [
+            "occt",
+            "picogk"
+          ],
           "title": "Backend",
           "type": "string"
         },
         "exports": {
           "items": {
+            "enum": [
+              "step",
+              "glb",
+              "source",
+              "brief",
+              "specification",
+              "attempts",
+              "report_json",
+              "report_markdown",
+              "manifest",
+              "zip"
+            ],
             "type": "string"
           },
           "maxItems": 32,
@@ -342,6 +364,7 @@
         "source_id": {
           "anyOf": [
             {
+              "maxLength": 240,
               "type": "string"
             },
             {
@@ -359,6 +382,7 @@
         "translated_from": {
           "anyOf": [
             {
+              "maxLength": 240,
               "type": "string"
             },
             {
@@ -507,6 +531,7 @@
         "source_id": {
           "anyOf": [
             {
+              "maxLength": 240,
               "type": "string"
             },
             {
@@ -538,7 +563,7 @@
           "type": "string"
         },
         "text": {
-          "maxLength": 4096,
+          "maxLength": 240,
           "minLength": 1,
           "title": "Text",
           "type": "string"
@@ -558,6 +583,7 @@
       "items": {
         "$ref": "#/$defs/AnalysisPlanRef"
       },
+      "maxItems": 256,
       "title": "Analysis",
       "type": "array"
     },
@@ -579,6 +605,7 @@
       "items": {
         "$ref": "#/$defs/EvidenceExpectation"
       },
+      "maxItems": 256,
       "title": "Evidence",
       "type": "array"
     },

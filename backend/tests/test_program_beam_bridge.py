@@ -236,10 +236,10 @@ def test_changing_height_or_force_changes_semantic_hash():
 def test_backend_and_exports_change_only_the_lock_hash():
     base = form_program()
     other = program_from_brief_content(form_content(), provenance=base.provenance,
-                                       backend='other', exports=('step',))
+                                       backend='picogk', exports=('step',))
     assert semantic_sha256(other) == semantic_sha256(base)
     assert execution_lock_sha256(other) != execution_lock_sha256(base)
-    assert other.execution.backend == 'other' and other.execution.exports == ('step',)
+    assert other.execution.backend == 'picogk' and other.execution.exports == ('step',)
 
 
 # ------------------------------------------------------------------ negatives

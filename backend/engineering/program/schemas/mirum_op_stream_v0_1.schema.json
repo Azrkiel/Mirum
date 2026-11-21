@@ -4,10 +4,14 @@
       "additionalProperties": false,
       "properties": {
         "operation": {
+          "maxLength": 128,
+          "minLength": 1,
           "title": "Operation",
           "type": "string"
         },
         "operation_version": {
+          "maxLength": 64,
+          "minLength": 1,
           "title": "Operation Version",
           "type": "string"
         },
@@ -73,6 +77,7 @@
         "source_id": {
           "anyOf": [
             {
+              "maxLength": 240,
               "type": "string"
             },
             {
@@ -99,6 +104,7 @@
       "items": {
         "$ref": "#/$defs/OpStreamEntry"
       },
+      "maxItems": 256,
       "title": "Entries",
       "type": "array"
     },

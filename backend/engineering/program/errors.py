@@ -4,11 +4,16 @@ Codes (exact strings):
   IR001 unknown_version, IR002 unknown_field, IR003 duplicate_field,
   IR004 unresolved_reference, IR005 unknown_unit, IR006 unit_mismatch,
   IR007 nonfinite_number, IR008 unknown_operation, IR009 not_executable,
-  IR010 invalid_value, IR011 duplicate_id.
+  IR010 invalid_value, IR011 duplicate_id, IR012 budget_exceeded.
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
+
+# Free-text bound shared by every IR string field (the legacy contracts Text limit).
+Str240 = Annotated[str, StringConstraints(max_length=240)]
 
 CODES = {
     'IR001': 'unknown_version',
@@ -22,6 +27,7 @@ CODES = {
     'IR009': 'not_executable',
     'IR010': 'invalid_value',
     'IR011': 'duplicate_id',
+    'IR012': 'budget_exceeded',
 }
 
 
@@ -49,7 +55,7 @@ class SourceSpan(IRModel):
     column: int
     end_line: int
     end_column: int
-    source_id: str | None = None
+    source_id: Str240 | None = None
 
     @model_validator(mode='after')
     def _check(self):

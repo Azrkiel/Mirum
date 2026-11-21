@@ -23,6 +23,7 @@
         "source_id": {
           "anyOf": [
             {
+              "maxLength": 240,
               "type": "string"
             },
             {

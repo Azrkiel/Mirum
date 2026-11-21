@@ -123,7 +123,7 @@
     "kind": "artifact_graph",
     "expect": {
       "code": "IR008",
-      "field": "entries.1.operation"
+      "field": "op_stream.entries.1.operation"
     },
     "note": "From artifact-graph: replace the second op-stream operation with construct.unknown."
   },

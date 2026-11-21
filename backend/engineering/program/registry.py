@@ -5,15 +5,14 @@ reserved: typed and validated but never executable.
 """
 from __future__ import annotations
 
-import json
 from typing import Annotated, Literal
 
 from pydantic import Field, ValidationError, model_validator
 
-from .errors import IRModel, ProgramError, SourceSpan
+from .errors import IRModel, ProgramError, SourceSpan, Str240
 from .ir import (
-    ConstructionGraph, QuantityValue, SemanticId, TextValue, Value, _NonFinite,
-    _map_error, _span_for, _walk_dups, _walk_nonfinite,
+    MAX_LIST, ConstructionGraph, Name64, Name128, QuantityValue, SemanticId, TextValue, Value,
+    _dumps_strict, _map_error, _parse_json_bounded,
 )
 from .units import Dimension
 from .versions import ARTIFACT_GRAPH_VERSION, REGISTRY_VERSION
@@ -28,11 +27,11 @@ Representation = Literal['brep', 'mesh', 'voxel', 'report', 'file']
 
 
 class ArgSpec(IRModel):
-    name: str
+    name: Name64
     kind: Literal['quantity', 'text', 'reference']
     dimension: Dimension | None = None
     required: bool = True
-    allowed: tuple[str, ...] = ()
+    allowed: Annotated[tuple[Str240, ...], Field(max_length=MAX_LIST)] = ()
 
     @model_validator(mode='after')
     def _dimension_rule(self):
@@ -42,20 +41,20 @@ class ArgSpec(IRModel):
 
 
 class OutputSpec(IRModel):
-    name: str
+    name: Name64
     type: Literal['solid', 'sketch', 'artifact', 'measurement', 'report', 'file']
 
 
 class OperationDescriptor(IRModel):
-    id: str
-    version: str
-    summary: str
-    args: tuple[ArgSpec, ...]
-    preconditions: tuple[str, ...]
-    outputs: tuple[OutputSpec, ...]
+    id: Name128
+    version: Name64
+    summary: Str240
+    args: Annotated[tuple[ArgSpec, ...], Field(max_length=MAX_LIST)]
+    preconditions: Annotated[tuple[Str240, ...], Field(max_length=MAX_LIST)]
+    outputs: Annotated[tuple[OutputSpec, ...], Field(max_length=MAX_LIST)]
     representations: tuple[Representation, ...]
-    backend_requirements: tuple[str, ...]
-    capability_versions: tuple[str, ...]
+    backend_requirements: Annotated[tuple[Str240, ...], Field(max_length=MAX_LIST)]
+    capability_versions: Annotated[tuple[Str240, ...], Field(max_length=MAX_LIST)]
     executable: bool
 
     @model_validator(mode='after')
@@ -135,13 +134,16 @@ class OperationRegistry:
                                        f'{list(spec.allowed)}', where, span)
         return d
 
-    def validate_construction(self, graph: ConstructionGraph) -> None:
+    def validate_construction(self, graph: ConstructionGraph, *, require_executable: bool = False) -> None:
         seen: set[str] = set()
         for i, s in enumerate(graph.steps):
             at = f'steps.{i}'
             if s.id in seen:
                 raise ProgramError('IR011', f'duplicate step id {s.id!r}', f'{at}.id', s.span)
-            self.get(s.operation, s.operation_version, field=f'{at}.operation', span=s.span)
+            if require_executable:
+                self.require_executable(s.operation, s.operation_version, field=f'{at}.operation', span=s.span)
+            else:
+                self.get(s.operation, s.operation_version, field=f'{at}.operation', span=s.span)
             for j, ref in enumerate(s.inputs):
                 if ref not in seen:
                     raise ProgramError('IR004', f'step {s.id!r} input {ref!r} is not an earlier step',
@@ -236,15 +238,15 @@ DEFAULT_REGISTRY = OperationRegistry(_DESCRIPTORS)
 
 class OpStreamEntry(IRModel):
     seq: Annotated[int, Field(ge=0)]
-    operation: str
-    operation_version: str
+    operation: Name128
+    operation_version: Name64
     step_ref: SemanticId | None = None
     span: SourceSpan | None = None
 
 
 class OpStream(IRModel):
     schema_version: Literal['mirum_op_stream_v0_1']
-    entries: tuple[OpStreamEntry, ...]
+    entries: Annotated[tuple[OpStreamEntry, ...], Field(max_length=MAX_LIST)]
 
     @model_validator(mode='after')
     def _seq(self):
@@ -265,7 +267,7 @@ class ArtifactNode(IRModel):
 class ArtifactGraph(IRModel):
     schema_version: Literal['mirum_artifact_graph_v0_1']
     op_stream: OpStream
-    nodes: tuple[ArtifactNode, ...]
+    nodes: Annotated[tuple[ArtifactNode, ...], Field(max_length=MAX_LIST)]
 
     @model_validator(mode='after')
     def _cross(self):
@@ -281,39 +283,29 @@ class ArtifactGraph(IRModel):
         return self
 
 
-def validate_op_stream(stream: OpStream, registry: OperationRegistry = DEFAULT_REGISTRY) -> None:
+def validate_op_stream(stream: OpStream, registry: OperationRegistry = DEFAULT_REGISTRY, *,
+                       require_executable: bool = False, field_prefix: str | None = None) -> None:
     for i, e in enumerate(stream.entries):
-        registry.get(e.operation, e.operation_version, field=f'entries.{i}.operation', span=e.span)
+        where = _path(field_prefix, f'entries.{i}.operation')
+        if require_executable:
+            registry.require_executable(e.operation, e.operation_version, field=where, span=e.span)
+        else:
+            registry.get(e.operation, e.operation_version, field=where, span=e.span)
 
 
-def load_artifact_graph_json(text: str | bytes) -> ArtifactGraph:
-    dups: dict[int, tuple[dict, str]] = {}
-
-    def hook(pairs):
-        d: dict = {}
-        dup_key = None
-        for k, v in pairs:
-            if k in d and dup_key is None:
-                dup_key = k
-            d[k] = v
-        if dup_key is not None:
-            dups[id(d)] = (d, dup_key)
-        return d
-
-    try:
-        obj = json.loads(text, object_pairs_hook=hook, parse_constant=_NonFinite)
-    except (ValueError, UnicodeDecodeError) as exc:
-        raise ProgramError('IR010', f'invalid JSON: {exc}') from None
-    if dups:
-        raise ProgramError('IR003', 'duplicate object key', _walk_dups(obj, [], dups))
-    bad = _walk_nonfinite(obj, [])
-    if bad is not None:
-        raise ProgramError('IR007', 'non-finite number literal', bad or None,
-                           _span_for(obj, bad.split('.') if bad else []))
+def load_artifact_graph_json(text: str | bytes, *, require_executable: bool = False,
+                             registry: OperationRegistry | None = None) -> ArtifactGraph:
+    """Strict, budgeted load. Operations are always validated against the registry (unknown operation
+    or version is rejected); reserved `construct.*` operations load as records unless
+    `require_executable` is set, which is what any execution-facing caller must pass."""
+    obj = _parse_json_bounded(text)
     if not isinstance(obj, dict) or obj.get('schema_version') != ARTIFACT_GRAPH_VERSION:
         raise ProgramError('IR001', f'unknown or missing schema_version (expected {ARTIFACT_GRAPH_VERSION!r})',
                            'schema_version')
     try:
-        return ArtifactGraph.model_validate_json(json.dumps(obj, allow_nan=False))
+        graph = ArtifactGraph.model_validate_json(_dumps_strict(obj))
     except ValidationError as exc:
         raise _map_error(exc.errors(include_url=False), obj) from None
+    validate_op_stream(graph.op_stream, registry or DEFAULT_REGISTRY, require_executable=require_executable,
+                       field_prefix='op_stream')
+    return graph

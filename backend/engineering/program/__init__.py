@@ -1,4 +1,9 @@
-"""Mirum program IR (F02). Pure: pydantic + stdlib only."""
+"""Mirum program IR (F02). Pure records and contracts, no execution.
+
+Imports: pydantic, stdlib, cem.core (canonical JSON) and, for the beam bridge only, the pure
+record modules engineering.contracts and engineering.capabilities. It never imports cadquery, OCP,
+google.genai, fastapi or httpx (a test pins this).
+"""
 from __future__ import annotations
 
 from .versions import (  # noqa: F401

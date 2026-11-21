@@ -6,8 +6,10 @@
         "allowed": {
           "default": [],
           "items": {
+            "maxLength": 240,
             "type": "string"
           },
+          "maxItems": 256,
           "title": "Allowed",
           "type": "array"
         },
@@ -42,6 +44,8 @@
           "type": "string"
         },
         "name": {
+          "maxLength": 64,
+          "minLength": 1,
           "title": "Name",
           "type": "string"
         },
@@ -62,6 +66,8 @@
       "additionalProperties": false,
       "properties": {
         "name": {
+          "maxLength": 64,
+          "minLength": 1,
           "title": "Name",
           "type": "string"
         },
@@ -92,20 +98,25 @@
       "items": {
         "$ref": "#/$defs/ArgSpec"
       },
+      "maxItems": 256,
       "title": "Args",
       "type": "array"
     },
     "backend_requirements": {
       "items": {
+        "maxLength": 240,
         "type": "string"
       },
+      "maxItems": 256,
       "title": "Backend Requirements",
       "type": "array"
     },
     "capability_versions": {
       "items": {
+        "maxLength": 240,
         "type": "string"
       },
+      "maxItems": 256,
       "title": "Capability Versions",
       "type": "array"
     },
@@ -114,6 +125,8 @@
       "type": "boolean"
     },
     "id": {
+      "maxLength": 128,
+      "minLength": 1,
       "title": "Id",
       "type": "string"
     },
@@ -121,13 +134,16 @@
       "items": {
         "$ref": "#/$defs/OutputSpec"
       },
+      "maxItems": 256,
       "title": "Outputs",
       "type": "array"
     },
     "preconditions": {
       "items": {
+        "maxLength": 240,
         "type": "string"
       },
+      "maxItems": 256,
       "title": "Preconditions",
       "type": "array"
     },
@@ -146,10 +162,13 @@
       "type": "array"
     },
     "summary": {
+      "maxLength": 240,
       "title": "Summary",
       "type": "string"
     },
     "version": {
+      "maxLength": 64,
+      "minLength": 1,
       "title": "Version",
       "type": "string"
     }

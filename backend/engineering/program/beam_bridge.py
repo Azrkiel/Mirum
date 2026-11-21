@@ -25,6 +25,8 @@ from .versions import CONSTRUCTION_GRAPH_VERSION, PROGRAM_IR_VERSION
 __all__ = ['beam_capability_ref', 'program_from_brief_content', 'brief_content_from_program']
 
 HEIGHT_ID = 'beam.height'
+BEAM_BACKEND = 'occt'
+BEAM_EXPORTS = ('step', 'glb')  # the geometry artifacts the beam path produces (model.step, preview.glb)
 # (requirement id, kind/dimension)
 _REQUIREMENTS: tuple[tuple[str, str], ...] = (
     ('beam.length', 'length'),
@@ -53,8 +55,8 @@ def _suffix(check: str) -> str:
 
 
 def program_from_brief_content(content: BriefContent, *, provenance: ProgramProvenance,
-                               design: str = 'reference_beam', backend: str = 'occt',
-                               exports: tuple[str, ...] = ('step', 'glb')) -> ProgramIR:
+                               design: str = 'reference_beam', backend: str = BEAM_BACKEND,
+                               exports: tuple[str, ...] = BEAM_EXPORTS) -> ProgramIR:
     req = content.requirements
     mat = req.material
     raw: dict[str, float | str] = {
@@ -146,6 +148,36 @@ def brief_content_from_program(ir: ProgramIR) -> BriefContent:
     checks = [a.check for a in ir.analysis]
     if len(checks) != len(CAPABILITY.required_checks) or set(checks) != set(CAPABILITY.required_checks):
         raise ProgramError('IR010', 'analysis must list every required beam check exactly once', 'analysis')
+    # The legacy brief cannot carry any of the following; anything but the bridge's canonical mapping
+    # is rejected rather than silently dropped. List order is not semantic (hashes sort), so it is
+    # normalized by the bridge; names, references, flags and execution are not.
+    canonical_refs = sorted((*(rid for rid, _ in _REQUIREMENTS), HEIGHT_ID))
+    for i, a in enumerate(ir.analysis):
+        if a.id != 'check.' + _suffix(a.check):
+            raise ProgramError('IR010', f'analysis id {a.id!r} is not the canonical id for check {a.check!r}',
+                               f'analysis.{i}.id', a.span)
+        if sorted(a.requirement_refs) != canonical_refs:
+            raise ProgramError('IR010', 'analysis requirement_refs differ from the bridge mapping, which the '
+                               'legacy brief cannot represent', f'analysis.{i}.requirement_refs', a.span)
+    expected_evidence = {'evidence.' + _suffix(c): 'check.' + _suffix(c) for c in checks}
+    for i, e in enumerate(ir.evidence):
+        if e.id not in expected_evidence:
+            raise ProgramError('IR010', f'evidence id {e.id!r} is not a canonical beam evidence id',
+                               f'evidence.{i}.id', e.span)
+        if e.analysis_ref != expected_evidence[e.id]:
+            raise ProgramError('IR010', f'evidence {e.id!r} does not reference its canonical analysis',
+                               f'evidence.{i}.analysis_ref', e.span)
+        if not e.required:
+            raise ProgramError('IR010', 'evidence.required must be true: the legacy brief requires every '
+                               'check', f'evidence.{i}.required', e.span)
+    if len(ir.evidence) != len(expected_evidence):
+        raise ProgramError('IR010', 'evidence must list every required beam check exactly once', 'evidence')
+    if ir.execution.backend != BEAM_BACKEND:
+        raise ProgramError('IR010', f'backend {ir.execution.backend!r} is not the beam backend '
+                           f'{BEAM_BACKEND!r}', 'execution.backend')
+    if tuple(ir.execution.exports) != BEAM_EXPORTS:
+        raise ProgramError('IR010', f'exports {list(ir.execution.exports)} differ from the beam path exports '
+                           f'{list(BEAM_EXPORTS)}', 'execution.exports')
 
     num = {rid: _number(by_id[rid], dim) for rid, dim in _REQUIREMENTS if dim != 'text'}
     payload = {

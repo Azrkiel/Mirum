@@ -31,24 +31,36 @@ def _clean(value):
         if not math.isfinite(value):
             raise ProgramError('IR007', 'non-finite number cannot be hashed')
         return 0.0 if value == 0 else value
+    if isinstance(value, str):
+        _utf8(value)
+        return value
     if isinstance(value, dict):
-        return {k: _clean(v) for k, v in value.items()}
+        return {_clean(k): _clean(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_clean(v) for v in value]
     return value
 
 
+def _utf8(text: str) -> bytes:
+    try:
+        return text.encode('utf-8')
+    except UnicodeEncodeError:
+        raise ProgramError('IR010', 'text contains a lone surrogate and cannot be hashed') from None
+
+
 def canonical_json(value) -> str:
-    return _cem_canonical_json(_prepare(value))
+    text = _cem_canonical_json(_prepare(value))
+    _utf8(text)
+    return text
 
 
 def _sha(text: str) -> str:
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+    return hashlib.sha256(_utf8(text)).hexdigest()
 
 
 def source_sha256(raw: str | bytes | dict | list) -> str:
     if isinstance(raw, str):
-        return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+        return hashlib.sha256(_utf8(raw)).hexdigest()
     if isinstance(raw, (bytes, bytearray)):
         return hashlib.sha256(bytes(raw)).hexdigest()
     if isinstance(raw, (dict, list)):
@@ -60,6 +72,10 @@ def semantic_payload(ir: ProgramIR) -> dict:
     def dump(m):
         return m.model_dump(mode='json')
 
+    def value_key(v):
+        # numeric order for quantities, text order for text; values are unique per parameter (IR010 otherwise)
+        return (v['kind'], v.get('dimension', ''), v.get('value', 0.0), v.get('text', ''))
+
     return {
         'semantics_version': SEMANTICS_VERSION,
         'capability': {'id': ir.capability.id, 'version': ir.capability.version},
@@ -69,7 +85,8 @@ def semantic_payload(ir: ProgramIR) -> dict:
         'candidates': {
             'mode': ir.candidates.mode,
             'parameters': sorted(
-                ({'id': p.id, 'values': [dump(v) for v in p.values]} for p in ir.candidates.parameters),
+                ({'id': p.id, 'values': sorted((dump(v) for v in p.values), key=value_key)}
+                 for p in ir.candidates.parameters),
                 key=lambda x: x['id']),
         },
         'analysis': sorted(

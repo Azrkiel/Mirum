@@ -100,7 +100,7 @@ def test_span_provenance_design_do_not_change_semantic_hash():
 
 
 @pytest.mark.parametrize('mutate', [
-    lambda d: d['execution'].update(backend='other'),
+    lambda d: d['execution'].update(backend='picogk'),
     lambda d: d['execution'].update(exports=['step']),
     lambda d: d['capability'].update(numerical_policy_version='np2'),
     lambda d: d['capability'].update(resource_policy_version='rp2'),

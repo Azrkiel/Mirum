@@ -2,6 +2,10 @@
   "additionalProperties": false,
   "properties": {
     "backend": {
+      "enum": [
+        "occt",
+        "picogk"
+      ],
       "title": "Backend",
       "type": "string"
     },
@@ -15,8 +19,21 @@
     },
     "exports": {
       "items": {
+        "enum": [
+          "step",
+          "glb",
+          "source",
+          "brief",
+          "specification",
+          "attempts",
+          "report_json",
+          "report_markdown",
+          "manifest",
+          "zip"
+        ],
         "type": "string"
       },
+      "maxItems": 32,
       "title": "Exports",
       "type": "array"
     },
