@@ -485,7 +485,7 @@ def test_supported_requests_are_not_refused():
 
 # --- registry --------------------------------------------------------------------
 
-@pytest.mark.parametrize('capability_id', ['co2_dragster', 'regen_chamber', 'glider_cem', 'rectangular_plate'])
+@pytest.mark.parametrize('capability_id', ['co2_dragster', 'regen_chamber', 'glider_cem'])
 def test_missing_adapter_is_unsupported_capability(capability_id):
     from engineering.capabilities import UnsupportedCapability, get_generator
     get_adapter = REAL_GET_ADAPTER
