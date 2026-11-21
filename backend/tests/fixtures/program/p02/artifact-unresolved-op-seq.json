@@ -1,0 +1,37 @@
+{
+  "schema_version": "mirum_artifact_graph_v0_1",
+  "op_stream": {
+    "schema_version": "mirum_op_stream_v0_1",
+    "entries": [
+      {
+        "seq": 0,
+        "operation": "construct.sketch",
+        "operation_version": "0.1.0",
+        "step_ref": "step.profile"
+      },
+      {
+        "seq": 1,
+        "operation": "construct.extrude",
+        "operation_version": "0.1.0",
+        "step_ref": "step.solid"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "solid.beam",
+      "kind": "solid",
+      "op_seq": 2
+    },
+    {
+      "id": "face.top",
+      "kind": "face",
+      "op_seq": 1
+    },
+    {
+      "id": "edge.longitudinal",
+      "kind": "edge",
+      "op_seq": 1
+    }
+  ]
+}

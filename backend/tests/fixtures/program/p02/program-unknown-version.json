@@ -1,0 +1,270 @@
+{
+  "schema_version": "mirum_program_ir_v9_9",
+  "design": "reference_beam",
+  "capability": {
+    "id": "rectangular_cantilever",
+    "version": "1.0.0",
+    "numerical_policy_version": "beam_numerical_v1",
+    "resource_policy_version": "engineering_resources_v1"
+  },
+  "requirements": {
+    "requirements": [
+      {
+        "id": "beam.length",
+        "value": {
+          "kind": "quantity",
+          "dimension": "length",
+          "value": 200,
+          "unit": "mm"
+        },
+        "span": {
+          "line": 10,
+          "column": 3,
+          "end_line": 10,
+          "end_column": 18,
+          "source_id": "beam.mir"
+        }
+      },
+      {
+        "id": "beam.width",
+        "value": {
+          "kind": "quantity",
+          "dimension": "length",
+          "value": 10,
+          "unit": "mm"
+        },
+        "span": {
+          "line": 11,
+          "column": 3,
+          "end_line": 11,
+          "end_column": 16,
+          "source_id": "beam.mir"
+        }
+      },
+      {
+        "id": "beam.dimensional_tolerance",
+        "value": {
+          "kind": "quantity",
+          "dimension": "length",
+          "value": 0.01,
+          "unit": "mm"
+        },
+        "span": {
+          "line": 12,
+          "column": 3,
+          "end_line": 12,
+          "end_column": 34,
+          "source_id": "beam.mir"
+        }
+      },
+      {
+        "id": "load.tip_force",
+        "value": {
+          "kind": "quantity",
+          "dimension": "force",
+          "value": 50,
+          "unit": "N"
+        },
+        "span": {
+          "line": 13,
+          "column": 3,
+          "end_line": 13,
+          "end_column": 19,
+          "source_id": "beam.mir"
+        }
+      },
+      {
+        "id": "limit.max_tip_deflection",
+        "value": {
+          "kind": "quantity",
+          "dimension": "length",
+          "value": 1,
+          "unit": "mm"
+        },
+        "span": {
+          "line": 14,
+          "column": 3,
+          "end_line": 14,
+          "end_column": 28,
+          "source_id": "beam.mir"
+        }
+      },
+      {
+        "id": "material.youngs_modulus",
+        "value": {
+          "kind": "quantity",
+          "dimension": "pressure",
+          "value": 70000,
+          "unit": "MPa"
+        },
+        "span": {
+          "line": 15,
+          "column": 3,
+          "end_line": 15,
+          "end_column": 29,
+          "source_id": "beam.mir"
+        }
+      },
+      {
+        "id": "material.allowable_stress",
+        "value": {
+          "kind": "quantity",
+          "dimension": "pressure",
+          "value": 120,
+          "unit": "MPa"
+        },
+        "span": {
+          "line": 16,
+          "column": 3,
+          "end_line": 16,
+          "end_column": 29,
+          "source_id": "beam.mir"
+        }
+      },
+      {
+        "id": "material.reference",
+        "value": {
+          "kind": "text",
+          "text": "Illustrative user-provided properties; not certified stock values"
+        },
+        "span": {
+          "line": 17,
+          "column": 3,
+          "end_line": 17,
+          "end_column": 91,
+          "source_id": "beam.mir"
+        }
+      },
+      {
+        "id": "material.source_kind",
+        "value": {
+          "kind": "text",
+          "text": "illustrative"
+        },
+        "span": {
+          "line": 18,
+          "column": 3,
+          "end_line": 18,
+          "end_column": 40,
+          "source_id": "beam.mir"
+        }
+      },
+      {
+        "id": "model.assumptions",
+        "value": {
+          "kind": "text",
+          "text": "ideal_clamp_end_force_linear_elastic"
+        },
+        "span": {
+          "line": 19,
+          "column": 3,
+          "end_line": 19,
+          "end_column": 55,
+          "source_id": "beam.mir"
+        }
+      }
+    ]
+  },
+  "candidates": {
+    "mode": "bounded_thickness",
+    "parameters": [
+      {
+        "id": "beam.height",
+        "values": [
+          {
+            "kind": "quantity",
+            "dimension": "length",
+            "value": 5,
+            "unit": "mm"
+          },
+          {
+            "kind": "quantity",
+            "dimension": "length",
+            "value": 10,
+            "unit": "mm"
+          },
+          {
+            "kind": "quantity",
+            "dimension": "length",
+            "value": 15,
+            "unit": "mm"
+          }
+        ],
+        "span": {
+          "line": 21,
+          "column": 3,
+          "end_line": 21,
+          "end_column": 43,
+          "source_id": "beam.mir"
+        }
+      }
+    ],
+    "span": {
+      "line": 20,
+      "column": 3,
+      "end_line": 20,
+      "end_column": 29,
+      "source_id": "beam.mir"
+    }
+  },
+  "analysis": [
+    {
+      "id": "check.stress_allowable",
+      "check": "stress_allowable",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.height",
+        "load.tip_force",
+        "material.allowable_stress"
+      ]
+    },
+    {
+      "id": "check.displacement_requirement",
+      "check": "displacement_requirement",
+      "requirement_refs": [
+        "beam.length",
+        "beam.width",
+        "beam.height",
+        "load.tip_force",
+        "material.youngs_modulus",
+        "limit.max_tip_deflection"
+      ]
+    }
+  ],
+  "construction": {
+    "schema_version": "mirum_construction_graph_v0_1",
+    "steps": []
+  },
+  "evidence": [
+    {
+      "id": "evidence.stress_allowable",
+      "analysis_ref": "check.stress_allowable",
+      "required": true
+    },
+    {
+      "id": "evidence.displacement_requirement",
+      "analysis_ref": "check.displacement_requirement",
+      "required": true
+    }
+  ],
+  "execution": {
+    "backend": "occt",
+    "exports": [
+      "step",
+      "glb"
+    ]
+  },
+  "provenance": {
+    "kind": "language",
+    "source_sha256": "b79bff31b61c50864c32d498ea99bebfbf58d3fd2af7206cc85900db4c3ce69f",
+    "source_id": "beam.mir"
+  },
+  "span": {
+    "line": 4,
+    "column": 1,
+    "end_line": 23,
+    "end_column": 1,
+    "source_id": "beam.mir"
+  }
+}

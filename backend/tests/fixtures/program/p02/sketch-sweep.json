@@ -1,0 +1,45 @@
+{
+  "schema_version": "mirum_construction_graph_v0_1",
+  "steps": [
+    {
+      "id": "step.profile",
+      "operation": "construct.sketch",
+      "operation_version": "0.1.0",
+      "args": {
+        "plane": {
+          "kind": "text",
+          "text": "xy"
+        }
+      },
+      "inputs": []
+    },
+    {
+      "id": "step.path",
+      "operation": "construct.sketch",
+      "operation_version": "0.1.0",
+      "args": {
+        "plane": {
+          "kind": "text",
+          "text": "xz"
+        }
+      },
+      "inputs": []
+    },
+    {
+      "id": "step.solid",
+      "operation": "construct.sweep",
+      "operation_version": "0.1.0",
+      "args": {
+        "profile": {
+          "kind": "text",
+          "text": "step.profile"
+        },
+        "path": {
+          "kind": "text",
+          "text": "step.path"
+        }
+      },
+      "inputs": []
+    }
+  ]
+}
