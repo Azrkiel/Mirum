@@ -262,3 +262,86 @@ def test_api_and_harness_refuse_before_ai(ai_client, monkeypatch, capability, pr
     assert_reason(record, reason_id)
     issues = [issue for issue in response.json()['issues'] if issue['field'] == 'request']
     assert (record['state'], reason) in [(issue['state'], issue['reason']) for issue in issues]
+
+
+# --- D8: owner-authorized round 2, caps 18/19/18 --------------------------------------------------
+ROUND2 = {'co2_dragster': 18, 'regen_chamber': 19, 'glider_cem': 18}
+
+
+def test_round2_caps_are_exact():
+    assert e05.ROUND2_CAPS == ROUND2
+
+
+@pytest.mark.parametrize('extra', [[], ['--round', '1'], ['--round', '3']])
+def test_main_refuses_without_round_2_before_any_load(extra, monkeypatch, tmp_path):
+    def boom(*args, **kwargs):
+        raise AssertionError('must not load or build anything')
+
+    monkeypatch.setenv('MIRUM_ENGINEERING_AI_DRAFTS', '0')
+    monkeypatch.setattr(e05, 'load_corpora', boom)
+    monkeypatch.setattr(e05, 'build_proposer', boom)
+    monkeypatch.setattr(e05, 'load_credential', boom)
+    with pytest.raises(SystemExit) as exit_info:
+        e05.main([str(tmp_path / 'out'), 'glider_cem', SHA, str(tmp_path / 'cred'),
+                  '--run-id', 'r1', '--authorization', 'owner-test', '--image-id', IMAGE, *extra])
+    assert exit_info.value.code == 2
+
+
+@pytest.mark.parametrize('bad', [1, 3, 0, True, '2', None])
+def test_run_refuses_other_rounds_before_any_call(bad, monkeypatch, tmp_path):
+    def boom(*args, **kwargs):
+        raise AssertionError('must not load or call anything')
+
+    monkeypatch.setattr(e05, 'load_corpora', boom)
+    with pytest.raises(ValueError):
+        e05.run(tmp_path, ('co2_dragster',), sha=SHA, image_id=IMAGE, run_id='test-r2', authorization='owner-test',
+                proposer_factory=boom, round_number=bad)
+    assert not (tmp_path / 'e05-live.json').exists()
+
+
+class ReservingProposer:
+    def __init__(self, budget):
+        self.budget = budget
+        self.reserved = 0
+
+    async def propose(self, prompt, base_spec=None):
+        for _ in range(2):  # a call plus a repair, like the real proposers; in flight is released each time
+            if self.budget.reserve():
+                self.reserved += 1
+                self.budget.release()
+        return proposal(state='clarification_required', payload={'specification': {}})
+
+
+@pytest.mark.parametrize('capability', sorted(ROUND2))
+def test_default_budget_is_the_round2_cap_and_stops_exactly_there(capability, monkeypatch, tmp_path):
+    seen = []
+    real = e05.CountingBudget
+
+    def spy_budget(*args, **kwargs):
+        budget = real(*args, **kwargs)
+        seen.append((args, kwargs, budget))
+        return budget
+
+    proposers = []
+
+    def factory(cap, budget):
+        proposer = ReservingProposer(budget)
+        proposers.append(proposer)
+        return proposer
+
+    monkeypatch.setattr(e05, 'CountingBudget', spy_budget)
+    monkeypatch.setattr(e05.family_gate if hasattr(e05, 'family_gate') else family_gate, 'family_gate',
+                        lambda prompt, cap: None)
+    evidence = e05.run(tmp_path, (capability,), sha=SHA, image_id=IMAGE, run_id='test-r2',
+                       authorization='owner-20261120-e05r2', corpus_dir=CORPUS_DIR,
+                       proposer_factory=factory, pace_seconds=0)
+    assert [args for args, kwargs, _ in seen] == [(ROUND2[capability],)]
+    result = evidence['capabilities'][capability]
+    assert result['budget_cap'] == ROUND2[capability]
+    assert result['calls'] == proposers[0].reserved == ROUND2[capability]
+    assert result['stop'] == 'budget_exhausted' and result['budget_exhausted'] is True
+    assert evidence['round'] == 2
+    assert evidence['call_caps'] == {capability: ROUND2[capability]}
+    assert evidence['authorization'] == 'owner-20261120-e05r2'
+    assert 'call_cap_per_capability' not in evidence
+    assert json.loads((tmp_path / 'e05-live.json').read_text(encoding='utf-8')) == evidence

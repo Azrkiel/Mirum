@@ -3,7 +3,9 @@
 Owner-gated: runs only inside the reviewer-gated b13-live job. Never prints credentials, prompts or
 replies; evidence JSON holds run identity, corpus hashes, call counts and per-case ids and states only.
 Non-proposed cases record a fixed `reason` id (or exception:<ClassName>), never model text.
-Each capability has a hard cap of CALL_CAP provider calls (repair calls included, one unit each).
+Round 2 only (owner authorization given at dispatch): exactly one second run, with per-capability hard caps
+ROUND2_CAPS (co2_dragster 18, regen_chamber 19, glider_cem 18: the unused part of the approved 90 calls),
+repair calls included, one unit each. main() requires --round 2; any other round is refused before any call.
 """
 import argparse
 import asyncio
@@ -19,7 +21,9 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS_DIR = ROOT / 'backend' / 'tests' / 'fixtures' / 'engineering' / 'proposals'
-CALL_CAP = 30
+CALL_CAP = 30  # default CountingBudget size only; run() uses ROUND2_CAPS
+ROUND2_CAPS = {'co2_dragster': 18, 'regen_chamber': 19, 'glider_cem': 18}
+ROUND = 2
 PACE_MAX = 120
 CAPABILITIES = ('co2_dragster', 'regen_chamber', 'glider_cem')
 # Pinned SHA-256 of each fixed corpus file. A changed corpus is refused before any call.
@@ -172,7 +176,7 @@ class no_native_execution:
         return False
 
 
-def run_capability(capability, cases, proposer, budget, *, pace_seconds=0, sleep=time.sleep):
+def run_capability(capability, cases, proposer, budget, *, pace_seconds=0, sleep=time.sleep, budget_cap=CALL_CAP):
     """Run every case through one proposer. Stops at the first budget denial, with no retry."""
     records = []
     outcome = 'completed'
@@ -212,7 +216,7 @@ def run_capability(capability, cases, proposer, budget, *, pace_seconds=0, sleep
     return dict(
         cases=records,
         calls=budget.used(),
-        budget_cap=CALL_CAP,
+        budget_cap=budget_cap,
         budget_exhausted=outcome == 'budget_exhausted',
         unreviewed_executions=native.attempts,
         stop=outcome,
@@ -243,14 +247,19 @@ def build_proposer(capability, budget):
 
 
 def run(output, capabilities, *, sha, image_id, run_id, authorization, pace_seconds=0,
-        corpus_dir=CORPUS_DIR, proposer_factory=build_proposer, budget_factory=CountingBudget):
+        corpus_dir=CORPUS_DIR, proposer_factory=build_proposer, budget_factory=None, round_number=2):
+    if round_number != ROUND or isinstance(round_number, bool):
+        raise ValueError('Only round 2 is authorized')
+    if any(capability not in ROUND2_CAPS for capability in capabilities):
+        raise ValueError('Unknown capability')
     if not (re.fullmatch(r'[0-9a-f]{40}', sha) and re.fullmatch(r'sha256:[0-9a-f]{64}', image_id)):
         raise ValueError('An immutable commit and image id are required')
     if not (isinstance(pace_seconds, (int, float)) and 0 <= pace_seconds <= PACE_MAX):
         raise ValueError('pace_seconds out of range')
     corpora = load_corpora(corpus_dir)  # refuses before any call
     evidence = dict(run_id=run_id, authorization=authorization, tested_implementation_sha=sha,
-                    image_id=image_id, call_cap_per_capability=CALL_CAP, pace_seconds=pace_seconds,
+                    image_id=image_id, round=ROUND,
+                    call_caps={c: ROUND2_CAPS[c] for c in capabilities}, pace_seconds=pace_seconds,
                     corpus_sha256=dict(CORPUS_SHA256), capabilities={}, qualification='blocked')
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -263,12 +272,13 @@ def run(output, capabilities, *, sha, image_id, run_id, authorization, pace_seco
 
     try:
         for capability in capabilities:
-            budget = budget_factory()
+            budget = budget_factory() if budget_factory else CountingBudget(ROUND2_CAPS[capability])
             try:
                 proposer = proposer_factory(capability, budget)
                 result = run_capability(capability, [{k: v for k, v in c.items() if k != 'fixture_response'}
                                                      for c in corpora[capability]],
-                                        proposer, budget, pace_seconds=pace_seconds)
+                                        proposer, budget, pace_seconds=pace_seconds,
+                                        budget_cap=ROUND2_CAPS[capability])
                 result['gate'] = gate(result)
             except Exception as error:
                 # Record what was spent before re-raising; the error class only, never its message.
@@ -317,13 +327,15 @@ def main(argv=None):
     parser.add_argument('--run-id', required=True)
     parser.add_argument('--authorization', required=True)
     parser.add_argument('--image-id', required=True)
+    parser.add_argument('--round', type=int, choices=[ROUND], required=True)
     parser.add_argument('--pace-seconds', type=float, default=0)
     args = parser.parse_args(argv)
     capabilities = CAPABILITIES if args.capability == 'all' else (args.capability,)
     if args.credentials:
         load_credential(args.credentials)
     evidence = run(args.output, capabilities, sha=args.sha, image_id=args.image_id, run_id=args.run_id,
-                   authorization=args.authorization, pace_seconds=args.pace_seconds)
+                   authorization=args.authorization, pace_seconds=args.pace_seconds,
+                   round_number=args.round)
     print(json.dumps({k: evidence[k] for k in ('qualification',)}))
     return 0 if evidence['qualification'] == 'passed' else 2
 

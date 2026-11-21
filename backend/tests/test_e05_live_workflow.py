@@ -93,9 +93,11 @@ def test_job_fails_unless_the_qualification_passed():
 
 def test_atomic_tag_reservation_is_one_per_capability_with_its_own_prefix():
     s = step('Validate inputs')
-    assert 'e05-${cap}-' in s
+    assert 'matching-refs/tags/e05r2-${cap}-"' in s
     assert '[ "$used" -lt 1 ]' in s
-    assert 'refs/tags/e05-${cap}-${RUN_ID}' in s
+    assert 'refs/tags/e05r2-${cap}-${RUN_ID}' in s
+    assert s.index('matching-refs/tags/e05r2-${cap}-') < s.index('git/refs')
+    assert 'e05-${cap}-' not in s
     # Own prefix: b13-live's diagnostic/qualification counters are untouched.
     assert 'b13-' not in s.replace('b13-live', '')
 
@@ -140,3 +142,21 @@ def test_uses_the_verification_image_and_the_harness_script():
     assert 'Dockerfile.verify' in text()
     assert 'python scripts/e05_live_eval.py' in text()
     assert '--pace-seconds 12' in text()
+
+
+def test_run_command_passes_round_2():
+    s = step('docker run')
+    assert re.findall(r'--round (\S+)', s) == ['2']
+
+
+def test_documented_caps_equal_the_harness_round2_caps():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('e05_live_eval', ROOT / 'scripts' / 'e05_live_eval.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    expected = {'co2_dragster': 18, 'regen_chamber': 19, 'glider_cem': 18}
+    assert module.ROUND2_CAPS == expected
+    header = text().split('\non:\n', 1)[0]
+    documented = dict(re.findall(r'(co2_dragster|regen_chamber|glider_cem) (\d+)', header))
+    assert {k: int(v) for k, v in documented.items()} == expected
+    assert 'caps 18/19/18' in text()

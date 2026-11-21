@@ -229,7 +229,7 @@ def test_harness_has_no_legacy_client_and_main_never_imports_google_generativeai
     monkeypatch.setattr(e05, 'load_credential', lambda path: 'GEMINI_API_KEY_HEAVY')
     monkeypatch.setattr(e05, 'run', lambda *a, **k: dict(qualification='passed'))
     code = e05.main([str(tmp_path / 'out'), 'glider_cem', 'a' * 40, str(tmp_path / 'cred'),
-                     '--run-id', 'r1', '--authorization', 'owner-test', '--image-id', 'img'])
+                     '--run-id', 'r1', '--authorization', 'owner-test', '--image-id', 'img', '--round', '2'])
     assert code == 0 and imported == []
 
 
