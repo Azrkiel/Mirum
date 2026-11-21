@@ -29,6 +29,30 @@ CORPUS_SHA256 = {
 }
 SPEC_PREFIX = 'specification.'
 MISSING = object()
+# D1 (E05 fix loop): every non-proposed case records ``reason``: one of these fixed ids, or
+# ``exception:<ClassName>`` when ``propose`` raised. Never model text, never an exception message.
+# regen/glider proposals carry ``reason_id`` (the id of their first reason); a proposal without a
+# known id (the pinned dragster proposer has none) is recorded as ``<state prefix>.unclassified``.
+REASON_IDS = frozenset({
+    # family gate (backend/engineering/family_gate.py), also the proposers' own router/out_of_family refusals
+    'unsupported.family', 'clarification.ambiguous',
+    # unsupported
+    'unsupported.feature',          # the model listed an unsupported feature or answered unsupported
+    'unsupported.value',            # the descriptor's refuse() rejected a value (incl. glider thermal/ridge, family)
+    # clarification
+    'clarification.model_question',  # the model asked a question
+    'clarification.missing_field',   # a required value is absent (e.g. glider launch.method)
+    'clarification.invalid_value',   # parse_spec rejected the assembled specification
+    'clarification.ungrounded_value',  # D4/D5: an AI value the prompt does not state was dropped
+    'clarification.families',        # glider families left at 'all'
+    'clarification.calibration',     # glider calibration_version needs the user
+    # unavailable
+    'unavailable.budget', 'unavailable.timeout', 'unavailable.provider_error',
+    'unavailable.provider_unconfigured', 'unavailable.oversize_reply', 'unavailable.nonconforming',
+    # fallback for proposals without a known id
+    'unavailable.unclassified', 'clarification.unclassified', 'unsupported.unclassified',
+})
+EXCEPTION_REASON = re.compile(r'exception:[A-Za-z_][A-Za-z0-9_]*')
 
 
 class CorpusPinMismatch(RuntimeError):
