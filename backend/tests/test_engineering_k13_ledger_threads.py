@@ -225,3 +225,73 @@ def test_cancelled_reserve_does_not_leak_the_inflight_slot():
     finally:
         gate.set()
     assert inflight(inner) == 0 and inner.used() == 1 and provider.calls == 0
+
+
+def _beam_with_blocking(ledger_cls):
+    provider = FixtureProvider([response()])
+    service, draft, proposer, _ = setup(provider, budget=AiCallBudget(5, 1))
+    proposer.ledger = ledger_cls()
+    return draft, proposer
+
+
+def test_cancel_during_save_keeps_saves_ordered_and_final_status_cancelled():
+    """Security re-review MEDIUM: a stale 'running' save must not land after the final status save."""
+    from engineering.proposer import MemoryProposalLedger
+    started, release = threading.Event(), threading.Event()
+
+    class Ledger(MemoryProposalLedger):
+        def save(self, audit):
+            if audit.status == 'running' and audit.calls == 1 and not started.is_set():
+                started.set()
+                release.wait(5)
+            super().save(audit)
+
+    draft, proposer = _beam_with_blocking(Ledger)
+
+    async def go():
+        task = asyncio.create_task(proposer.propose(draft.draft_id, expected_revision=draft.revision,
+                                                    prompt='Reference fixture prompt'))
+        while not started.is_set():
+            await asyncio.sleep(0.01)
+        task.cancel()
+        await asyncio.sleep(0.05)
+        release.set()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        await asyncio.sleep(0.05)
+
+    asyncio.run(go())
+    assert proposer.ledger.read(draft.draft_id, draft.revision).status == 'cancelled'
+
+
+def test_cancel_during_claim_records_cancelled_not_running():
+    """Security re-review LOW: a cancelled claim must not strand a 'running' audit row."""
+    from engineering.proposer import MemoryProposalLedger
+    started, release = threading.Event(), threading.Event()
+
+    class Ledger(MemoryProposalLedger):
+        def claim(self, audit):
+            started.set()
+            release.wait(5)
+            super().claim(audit)
+
+    draft, proposer = _beam_with_blocking(Ledger)
+
+    async def go():
+        task = asyncio.create_task(proposer.propose(draft.draft_id, expected_revision=draft.revision,
+                                                    prompt='Reference fixture prompt'))
+        while not started.is_set():
+            await asyncio.sleep(0.01)
+        task.cancel()
+        await asyncio.sleep(0.05)
+        release.set()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        await asyncio.sleep(0.05)
+
+    asyncio.run(go())
+    assert proposer.ledger.read(draft.draft_id, draft.revision).status == 'cancelled'

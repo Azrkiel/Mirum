@@ -425,13 +425,25 @@ class BriefProposer:
         audit = ProposalAudit(draft_id=draft_id, draft_revision=expected_revision, settings=settings,
                               status='running', calls=0, request_characters=len(text+REPAIR_PROMPT),
                               request_sha256=hashlib.sha256(prompt.encode()).hexdigest())
-        await asyncio.to_thread(self.ledger.claim, audit)
+        # Ledger writes run in threads, one at a time and in order: a cancelled await never lets an
+        # older write land after a newer one, and a cancelled claim still ends 'cancelled'.
+        pending = asyncio.ensure_future(asyncio.to_thread(self.ledger.claim, audit))
+        try:
+            await asyncio.shield(pending)
+        except asyncio.CancelledError:
+            await asyncio.wait({pending})
+            if not pending.cancelled() and pending.exception() is None:
+                await asyncio.to_thread(self.ledger.save, ProposalAudit.model_validate(
+                    dict(audit.model_dump(), status='cancelled')))
+            raise
         status = 'unavailable'
         owner, reserved = uuid4().hex, False
         async def update(**changes):
-            nonlocal audit
+            nonlocal audit, pending
             audit = ProposalAudit.model_validate(dict(audit.model_dump(), **changes))
-            await asyncio.to_thread(self.ledger.save, audit)
+            await asyncio.wait({pending})
+            pending = asyncio.ensure_future(asyncio.to_thread(self.ledger.save, audit))
+            await asyncio.shield(pending)
         try:
             self.service.begin_proposal(draft_id, expected_revision, owner)
             reserved = True

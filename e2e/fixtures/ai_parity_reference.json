@@ -21,7 +21,7 @@
     "commit": "f11cf90ff299ec8feb2775bf7096cfd2d4bd63cc",
     "image_id": "sha256:3527bfa6cb569d6f655054e080904a99f37427c9682c1706d53227d4e2a44f86",
     "source_sha256": {
-      "engineering.proposer": "78630072bf0f81e21830b4df6e846c035f2d8289cc7a5df522c8457e92b54367",
+      "engineering.proposer": "a684e2cd761716b32da5fdea2ca5f4f8b675e2191a695445c7c7666c237cb453",
       "engineering.dragster_proposer": "6dd8167c71b98a53791478fedafec0a9ff5e1d8e2d6f40510d90376c14e60364",
       "config": "f777d21de4749c2e4ddc8569c96b4da955de2acaa734bc89704e644b64d5d0b1",
       "subagents.model_registry": "e72505d7a1650f6dd8925700f8bd9e0ba9789ca71166169a8054d27b5c98c22e"
