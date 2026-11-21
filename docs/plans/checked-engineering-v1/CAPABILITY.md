@@ -100,3 +100,5 @@ B08 must additionally assess numerical evidence and all delivered associations;
 an adapter outcome alone is not permission to publish. B09 owns admission and
 overall job budgets; B10 owns atomic publication. Legacy APIs and order remain
 unchanged. No migration is required.
+
+The second family, `rectangular_plate` 1.0.0 (claim `checked_design`), is described in [PLATE_CAPABILITY.md](PLATE_CAPABILITY.md).

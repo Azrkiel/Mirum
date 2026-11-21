@@ -37,6 +37,23 @@ accepted payloads identify one revision. Scope remains digital beam checks;
 manufactured behavior, physical material qualification, manufacturing release and
 standards conformity are not evaluated.
 
+## Checked plate workflow
+
+Choose the plate entry in the workflow selector. It is a typed form only: no JSON editor, no AI or rules draft, and
+no entry-method control, because the plate has no AI path in E03. Fields are `length_a_mm`, `width_b_mm`, edge
+condition (simply supported or clamped), `pressure_mpa`, `youngs_modulus_mpa`, `poissons_ratio`,
+`allowable_stress_mpa`, `max_deflection_mm`, `dimensional_tolerance_mm`, material source kind and reference, and the
+candidate thicknesses (comma separated). Mode is `fixed_design` (one thickness) or `bounded_thickness` (one to four).
+Values are sent exactly as typed; the server validates them and refusals are shown as is. Nothing is clipped,
+swapped or defaulted by the form.
+
+The result view shows: the claim (Checked design), the selected thickness and the attempts, the checked deflection
+against its limit with the Kirchhoff value and the shear-allowance note (`w_check = w_K (1 + 20 (h/b)^2)`), the
+maximum von Mises stress and its location, the mesh history, the references, the guards, and for a simply supported
+plate the corner forces with the note that corners are held down. It states that the allowable is the user's design
+allowable and that no hidden safety factor is applied. Scope is digital plate checks; certification and standards
+conformity are not evaluated. See [PLATE_CAPABILITY.md](PLATE_CAPABILITY.md).
+
 ## Local native browser verification
 
 Use B01's Linux image with source mounted read-only. Create a named engineering

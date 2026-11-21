@@ -56,3 +56,15 @@ missing mount, unsupported worker/replica setting or second owner rejects startu
 An explicit development data path without REQUIRE_VOLUME is permitted for tests
 and local probes; it does not prove survival of container replacement. Typed use
 does not require provider credentials. Live-provider compatibility remains open.
+
+## Rectangular plate (E03)
+
+- GET capabilities lists `rectangular_plate` 1.0.0 after the beam (appended after the other generators), claim
+  `checked_design`, available only with native evidence. See [PLATE_CAPABILITY.md](PLATE_CAPABILITY.md).
+- Drafts, briefs and jobs use the generator path with the `PlateBrief` specification (`mode`, `requirements`,
+  `candidate_thicknesses_mm`). Typed drafts (`mode: "form"`) validate strictly; invalid requirements, non-finite
+  numbers and unknown fields are 422 and are never clipped or swapped.
+- AI draft (`mode: "ai"`) for the plate: 503 when the AI-drafts flag is off; 422 "Invalid or unsupported engineering
+  input" when it is on. The plate has no proposer: zero provider calls, no budget spent.
+- Job outcome text for a rejection is the fixed "No candidate in the reviewed set passed"; the named guard or check
+  is in each attempt's failures (attempts and report artifacts).
