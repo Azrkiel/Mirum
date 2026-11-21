@@ -30,4 +30,10 @@ def family_gate(prompt: str, capability_id: str) -> GateRefusal | None:
     ``routed.capability_id is None and routed.reason.startswith('Ambiguous')`` ->
     ``GateRefusal('clarification_required', AMBIGUOUS, 'clarification.ambiguous')``; else ``None``.
     """
-    raise NotImplementedError
+    from .router import route
+    routed = route(prompt)
+    if routed.capability_id not in (None, capability_id):
+        return GateRefusal('unsupported', OTHER_FAMILY, 'unsupported.family')
+    if routed.capability_id is None and routed.reason.startswith('Ambiguous'):
+        return GateRefusal('clarification_required', AMBIGUOUS, 'clarification.ambiguous')
+    return None

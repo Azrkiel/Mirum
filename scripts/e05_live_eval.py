@@ -2,6 +2,7 @@
 
 Owner-gated: runs only inside the reviewer-gated b13-live job. Never prints credentials, prompts or
 replies; evidence JSON holds run identity, corpus hashes, call counts and per-case ids and states only.
+Non-proposed cases record a fixed `reason` id (or exception:<ClassName>), never model text.
 Each capability has a hard cap of CALL_CAP provider calls (repair calls included, one unit each).
 """
 import argparse
@@ -52,6 +53,8 @@ REASON_IDS = frozenset({
     # fallback for proposals without a known id
     'unavailable.unclassified', 'clarification.unclassified', 'unsupported.unclassified',
 })
+_UNCLASSIFIED = {'unavailable': 'unavailable.unclassified', 'clarification_required': 'clarification.unclassified',
+                 'unsupported': 'unsupported.unclassified'}
 EXCEPTION_REASON = re.compile(r'exception:[A-Za-z_][A-Za-z0-9_]*')
 
 
@@ -102,10 +105,15 @@ def score_case(case, proposal):
     accurate = bool(case['kind'] == 'complete' and state == 'proposed' and state == case['expected_state']
                     and mismatches == 0 and unstated_ai == 0)
     silent_drop = state == 'proposed' and not accurate
+    reason = None
+    if state != 'proposed':
+        reason = getattr(proposal, 'reason_id', None)
+        if reason not in REASON_IDS:
+            reason = _UNCLASSIFIED.get(state, 'unavailable.unclassified')
     return dict(case_id=case['id'], kind=case['kind'], expected_state=case['expected_state'], state=state,
                 state_as_expected=state == case['expected_state'], field_mismatches=mismatches,
                 unstated_ai_values=unstated_ai, accurate_reviewable_draft=accurate,
-                silent_requirement_drop=silent_drop)
+                silent_requirement_drop=silent_drop, reason=reason)
 
 
 def outcome_label(record):
@@ -169,18 +177,31 @@ def run_capability(capability, cases, proposer, budget, *, pace_seconds=0, sleep
     records = []
     outcome = 'completed'
     native = no_native_execution()
+    from types import SimpleNamespace
+    from engineering import family_gate as _fg
     with native:
         for index, case in enumerate(cases):
             if index and pace_seconds:
                 sleep(pace_seconds)
+            refusal = _fg.family_gate(case['prompt'], capability)
+            if refusal is not None:
+                stand_in = SimpleNamespace(state=refusal.state, payload={}, provenance=None,
+                                           reason_id=refusal.reason_id)
+                record = score_case(case, stand_in)
+                record['outcome'] = outcome_label(record)
+                records.append(record)
+                continue
             denied_before = budget.denied
             try:
                 proposal = asyncio.run(proposer.propose(case['prompt']))
-            except NativeExecutionAttempted:
-                outcome = 'native_execution_attempted'
-                break
-            except Exception as error:
-                outcome = 'provider_error:' + type(error).__name__
+            except (NativeExecutionAttempted, Exception) as error:
+                native_stop = isinstance(error, NativeExecutionAttempted)
+                outcome = 'native_execution_attempted' if native_stop else 'provider_error:' + type(error).__name__
+                records.append(dict(case_id=case['id'], kind=case['kind'], expected_state=case['expected_state'],
+                                    state='error', state_as_expected=False, field_mismatches=0,
+                                    unstated_ai_values=0, accurate_reviewable_draft=False,
+                                    silent_requirement_drop=False, reason='exception:' + type(error).__name__,
+                                    outcome='exception'))
                 break
             if budget.denied > denied_before:
                 outcome = 'budget_exhausted'

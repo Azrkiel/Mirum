@@ -1,0 +1,264 @@
+"""Offline regression tests for E05 family refusals and public evidence reason codes."""
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, call
+
+import pytest
+
+from engineering import family_gate
+from engineering.capabilities import GENERATORS
+
+try:
+    from backend.tests.test_native_api_hardening_ports import offline_models  # noqa: F401
+except ImportError:
+    pass
+
+
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / 'scripts' / 'e05_live_eval.py'
+CORPUS_DIR = ROOT / 'backend' / 'tests' / 'fixtures' / 'engineering' / 'proposals'
+SHA = 'a' * 40
+IMAGE = 'sha256:' + 'b' * 64
+CANARY = 'CANARY-e05fix-7f3a'
+GENERATOR_IDS = tuple(descriptor.id for descriptor in GENERATORS)
+FAMILY_PROMPTS = {
+    'co2_dragster': ('Design a wedge body for a CO2 dragster.',
+                     'Make a teardrop CO2 race car.'),
+    'regen_chamber': ('Draw a regeneratively cooled rocket chamber.',
+                      'Model a thrust chamber with cooling channels.'),
+    'glider_cem': ('Design a hand-launched glider for distance.',
+                   'Make a passive glider for maximum flight time.'),
+    'rectangular_cantilever': ('Size a rectangular cantilever beam.',
+                               'Check the tip load on a rectangular cantilever beam.'),
+}
+AMBIGUOUS = ('Design a CO2 dragster and a hand-launched glider for distance.',
+             'Size a rectangular cantilever beam and model a thrust chamber with cooling channels.')
+NO_MATCH = ('Design a coffee mug.', 'Make a bookshelf.')
+
+
+def other_family_prompts(requested_id):
+    return [prompt for family, prompts in FAMILY_PROMPTS.items()
+            if family != requested_id for prompt in prompts]
+
+
+REFUSALS = [
+    (capability, prompt, state, reason, reason_id)
+    for capability in GENERATOR_IDS
+    for prompts, state, reason, reason_id in (
+        (other_family_prompts(capability), 'unsupported', family_gate.OTHER_FAMILY, 'unsupported.family'),
+        (AMBIGUOUS, 'clarification_required', family_gate.AMBIGUOUS, 'clarification.ambiguous'),
+    )
+    for prompt in prompts
+]
+
+
+def load_script():
+    spec = importlib.util.spec_from_file_location('e05_live_eval', SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+e05 = load_script()
+
+
+def case(cid, kind='complete', expected_state='proposed', expected=None, prompt='p'):
+    return dict(id=cid, kind=kind, expected_state=expected_state, prompt=prompt,
+                expected_content=expected if expected is not None else {})
+
+
+def proposal(state='proposed', payload=None, origins=()):
+    return SimpleNamespace(state=state, payload=payload if payload is not None else {}, issues=(), reasons=(),
+                           provenance=SimpleNamespace(field_origins=[SimpleNamespace(**o) for o in origins]))
+
+
+def fake_budget():
+    budget = Mock(spec=e05.CountingBudget, denied=0)
+    budget.used.return_value = 0
+    budget.has_capacity.return_value = True
+    return budget
+
+
+def assert_reason(record, expected):
+    reason = record['reason']
+    assert reason == expected
+    if record['state'] == 'proposed':
+        assert reason is None
+    else:
+        assert reason in e05.REASON_IDS or e05.EXCEPTION_REASON.fullmatch(reason)
+
+
+@pytest.mark.parametrize(('capability', 'prompt', 'state', 'reason', 'reason_id'), REFUSALS)
+def test_family_gate_refuses(capability, prompt, state, reason, reason_id):
+    assert family_gate.family_gate(prompt, capability) == family_gate.GateRefusal(state, reason, reason_id)
+
+
+@pytest.mark.parametrize('capability', GENERATOR_IDS)
+def test_family_gate_accepts_own_family_and_no_match(capability):
+    cases = e05.load_corpora(CORPUS_DIR)[capability]
+    for item in cases:
+        if item['expected_route'] == capability:
+            assert family_gate.family_gate(item['prompt'], capability) is None, item['id']
+    for prompt in NO_MATCH:
+        assert family_gate.family_gate(prompt, capability) is None
+
+
+@pytest.mark.parametrize('capability', GENERATOR_IDS)
+def test_harness_gates_real_corpus_before_proposer(capability):
+    cases = e05.load_corpora(CORPUS_DIR)[capability]
+    spy = AsyncMock(return_value=proposal())
+    budget = fake_budget()
+    result = e05.run_capability(capability, cases, SimpleNamespace(propose=spy), budget)
+    assert result['stop'] == 'completed'
+    records = result['cases']
+    assert [record['case_id'] for record in records] == [item['id'] for item in cases]
+    expected_calls = []
+    for item, record in zip(cases, records, strict=True):
+        if item['expected_route'] in (None, capability):
+            expected_calls.append(call(item['prompt']))
+            assert record['state'] == 'proposed', item['id']
+            assert_reason(record, None)
+        else:
+            assert record['state'] == 'unsupported', item['id']
+            assert_reason(record, 'unsupported.family')
+    assert spy.await_args_list == expected_calls
+    budget.reserve.assert_not_called()
+    if capability == 'co2_dragster':
+        states = {record['case_id']: record['state'] for record in records}
+        assert all(states[cid] == 'unsupported' for cid in ('D07', 'D08', 'D09'))
+
+
+def test_harness_scores_the_shared_gate_refusal(monkeypatch):
+    item = case('gate', expected={'specification.length_mm': 1}, expected_state='clarification_required')
+    refusal = family_gate.GateRefusal('clarification_required', family_gate.AMBIGUOUS, 'clarification.ambiguous')
+    gate = Mock(return_value=refusal)
+    monkeypatch.setattr(family_gate, 'family_gate', gate)
+    harness = load_script()
+    spy = AsyncMock(return_value=proposal())
+    budget = fake_budget()
+    result = harness.run_capability('glider_cem', [item], SimpleNamespace(propose=spy), budget)
+    gate.assert_called_once_with(item['prompt'], 'glider_cem')
+    spy.assert_not_called()
+    budget.reserve.assert_not_called()
+    record, = result['cases']
+    assert record['state'] == 'clarification_required'
+    assert_reason(record, 'clarification.ambiguous')
+    assert record['field_mismatches'] == 1
+    assert record['unstated_ai_values'] == 0
+    assert record['outcome'] == 'expected_block'
+
+
+MISSING_ID = object()
+
+
+@pytest.mark.parametrize(('state', 'reason_id', 'expected'), [
+    ('proposed', 'unsupported.family', None),
+    ('unavailable', MISSING_ID, 'unavailable.unclassified'),
+    ('unavailable', 'unavailable.timeout', 'unavailable.timeout'),
+    ('clarification_required', '', 'clarification.unclassified'),
+    ('clarification_required', 'Please specify a dimension', 'clarification.unclassified'),
+    ('unsupported', 'unsupported.invented', 'unsupported.unclassified'),
+    ('unsupported', 'unsupported.feature', 'unsupported.feature'),
+    ('cancelled', None, 'unavailable.unclassified'),
+])
+def test_harness_maps_reason_id(state, reason_id, expected):
+    reply = proposal(state=state)
+    if reason_id is not MISSING_ID:
+        reply.reason_id = reason_id
+    spy = AsyncMock(return_value=reply)
+    result = e05.run_capability('co2_dragster', [case('reason')], SimpleNamespace(propose=spy), fake_budget())
+    record, = result['cases']
+    assert record['state'] == state
+    assert_reason(record, expected)
+
+
+def run_dragster_evidence(tmp_path, spy):
+    evidence = e05.run(tmp_path, ('co2_dragster',), sha=SHA, image_id=IMAGE, run_id='test-r2',
+                       authorization='owner-test', corpus_dir=CORPUS_DIR, budget_factory=fake_budget,
+                       proposer_factory=lambda capability, budget: SimpleNamespace(propose=spy))
+    text = (tmp_path / 'e05-live.json').read_text(encoding='utf-8')
+    assert CANARY not in text
+    assert CANARY not in json.dumps(evidence)
+    saved = json.loads(text)
+    assert saved == evidence
+    return saved['capabilities']['co2_dragster']
+
+
+@pytest.mark.parametrize(('error', 'stop'), [
+    (RuntimeError, 'provider_error:RuntimeError'),
+    (e05.NativeExecutionAttempted, 'native_execution_attempted'),
+])
+def test_exception_records_failing_case_and_omits_message(tmp_path, error, stop):
+    first = e05.load_corpora(CORPUS_DIR)['co2_dragster'][0]
+    spy = AsyncMock(side_effect=error(CANARY))
+    result = run_dragster_evidence(tmp_path, spy)
+    spy.assert_awaited_once_with(first['prompt'])
+    assert result['stop'] == stop
+    record, = result['cases']
+    expected = dict(case_id=first['id'], kind=first['kind'], expected_state=first['expected_state'],
+                    state='error', state_as_expected=False, field_mismatches=0, unstated_ai_values=0,
+                    accurate_reviewable_draft=False, silent_requirement_drop=False, outcome='exception')
+    assert {key: record[key] for key in expected} == expected
+    assert_reason(record, f'exception:{error.__name__}')
+
+
+def test_unavailable_evidence_omits_model_and_issue_text(tmp_path):
+    reply = proposal(state='unavailable')
+    reply.reason_id = CANARY
+    reply.reasons = (CANARY,)
+    reply.issues = (SimpleNamespace(field='request', state='unavailable', reason=CANARY),)
+    result = run_dragster_evidence(tmp_path, AsyncMock(return_value=reply))
+    cases = e05.load_corpora(CORPUS_DIR)['co2_dragster']
+    assert result['stop'] == 'completed'
+    for item, record in zip(cases, result['cases'], strict=True):
+        assert record['case_id'] == item['id']
+        if item['expected_route'] == 'co2_dragster':
+            assert record['state'] == 'unavailable'
+            assert_reason(record, 'unavailable.unclassified')
+        else:
+            assert record['state'] == 'unsupported'
+            assert_reason(record, 'unsupported.family')
+
+
+def test_api_uses_shared_family_gate():
+    source = (ROOT / 'backend' / 'engineering' / 'api_v1.py').read_text(encoding='utf-8')
+    assert 'family_gate(' in source
+    assert 'routed.reason.startswith' not in source
+
+
+@pytest.fixture
+def ai_client(request, tmp_path, monkeypatch):
+    TestClient = pytest.importorskip('fastapi.testclient').TestClient
+    from backend.tests.test_native_api_hardening_ports import main
+    request.getfixturevalue('offline_models')
+    import config
+
+    monkeypatch.setattr(config, 'ENGINEERING_AI_DRAFTS', True)
+    monkeypatch.setenv('MIRUM_ENGINEERING_DATA_DIR', str(tmp_path / 'engineering'))
+    with TestClient(main.app) as client:
+        main.app.state.limiter.reset()
+        yield client
+
+
+@pytest.mark.parametrize(('capability', 'prompt', 'state', 'reason', 'reason_id'), REFUSALS)
+def test_api_and_harness_refuse_before_ai(ai_client, monkeypatch, capability, prompt, state, reason, reason_id):
+    from engineering import proposal_contract
+
+    ai_factory = Mock(side_effect=AssertionError('Family gate reached the AI path'))
+    monkeypatch.setattr(proposal_contract, 'ai_proposer', ai_factory)
+    response = ai_client.post('/engineering/v1/drafts', json=dict(
+        capability=capability, mode='ai', prompt=prompt, input={}))
+    ai_factory.assert_not_called()
+    assert response.status_code == 201, response.text
+    spy = AsyncMock(return_value=proposal())
+    result = e05.run_capability(capability, [case('parity', prompt=prompt)], SimpleNamespace(propose=spy), fake_budget())
+    spy.assert_not_called()
+    record, = result['cases']
+    assert record['state'] == state
+    assert_reason(record, reason_id)
+    issues = [issue for issue in response.json()['issues'] if issue['field'] == 'request']
+    assert (record['state'], reason) in [(issue['state'], issue['reason']) for issue in issues]
