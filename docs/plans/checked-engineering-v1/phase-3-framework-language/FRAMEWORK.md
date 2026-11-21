@@ -14,11 +14,17 @@ Input (.mir / form / AI proposal)
 
 A language frontend cannot bypass the existing reviewed brief. AI is a proposal source. Builders construct geometry, inspectors measure artifacts, solvers evaluate declared physics, and the acceptance policy alone determines which claims the evidence supports.
 
+Frozen in F01 (see [F01-DECISIONS.md](F01-DECISIONS.md) D3): the AI edit loop is built offline and fixture-driven first (F08 tools, F09 loop). The agent may edit construction only, never requirements. Any live qualification needs its own owner authorization, call budget and tag namespace.
+
 ## Required records
 
 ProgramIR contains schema/version, named design, capability version, fixed physical requirements, candidate space, material/source references, assumptions, requested exports, semantic feature IDs and source-span mapping. Keep build operations and check requirements separate: operation success does not establish requirement satisfaction.
 
 OperationDescriptor contains operation ID/version, typed arguments, dimensional units, preconditions, output types, supported representations and backend requirements. V0.1 uses a small registry of supported capability build/inspect/analyze/export actions. It is not a universal CAD feature editor.
+
+Frozen in F01 (see [F01-DECISIONS.md](F01-DECISIONS.md) D1): F02 reserves, without implementing, the RequirementPlan record separate from a ConstructionGraph, and OperationDescriptor entries for sketch, extrude, revolve, sweep, loft, fillet/chamfer, shell, pattern and boolean. The typed construction block is MEL v0.2, specified after the v0.1 slice.
+
+Frozen in F01 (see [F01-DECISIONS.md](F01-DECISIONS.md) D7): a span-tagged operation stream and an ArtifactGraph (operation to faces, edges and solids with source span) are F02 records and F03 adapter outputs.
 
 ExecutionLock pins language/compiler/IR versions, capability/numerical/resource policies, backend/native library/build versions, required solver versions, representations, tolerances and selected exports. Resolve it before review. Native deployment changes are detected by a fresh availability probe; incompatible locks require re-review or an explicitly documented reproducible old environment.
 
@@ -42,6 +48,8 @@ Execution context includes locked versions, deadlines, memory/output budgets, ca
 
 Initial backends: OCCT via existing CadQuery for native B-rep; PicoGK for its existing voxel-derived geometry/STL path. A geometry adapter is distinct from a CapabilityAdapter such as beam, regen geometry or glider CEM; retain the domain adapter as planner/analysis coordinator above it.
 
+Frozen in F01 (see [F01-DECISIONS.md](F01-DECISIONS.md) D2, D8): the native B-rep binding for v0.x is CadQuery/OCP; build123d is evaluated in F03 conformance. The two qualified backends are beam (rectangular_cantilever) on OCCT (CadQuery) and regen_chamber on PicoGK. glider_cem is a domain capability, not a kernel; rectangular_plate and dragster come later.
+
 ## Representation and conversion rules
 
 B-rep, meshes and volumetric representations carry different fidelity and editability. An adapter must declare which operations and measurements it supports. Do not manufacture STEP by merely wrapping a tessellation and claim parametric editability.
@@ -60,11 +68,13 @@ Reuse B09/B10 jobs, admission, persistent storage and publication. Stage complet
 
 Rollback selects an existing immutable historical revision and records a new history event/pointer with its original requirements/lock. It does not assert that it satisfies the current brief. Expired or altered artifacts cannot be relabelled as restored; a rebuild is a new checked run. Crash markers and journal transactions reconcile file/database state; cancellation cannot expose partial accepted work.
 
+Frozen in F01 (see [F01-DECISIONS.md](F01-DECISIONS.md) D4): preview is a client-side mesh of the saved artifact; there is no server-side streaming preview.
+
 Retain V1-compatible package fields. A new explicit bundle schema additionally includes program.mir, program.ir.json, build-plan.json, check-plan.json, execution-lock.json, compiler diagnostics and revision metadata. Hash payloads in a manifest and store archive/manifest digests outside to avoid circularity. Budget source/IR/history/preview size at admission and keep active downloads safe.
 
 ## Suggested implementation boundaries
 
-Use new backend/engineering/program/ modules for IR, registry, compiler, semantics, revisions and adapters, and backend/engineering/language/ for parser/AST/formatter. Names are provisional until F01 maps actual integrated code.
+Use new backend/engineering/program/ modules for IR, registry, compiler, semantics, revisions and adapters, and backend/engineering/language/ for parser/AST/formatter. Frozen in F01 (see [F01-DECISIONS.md](F01-DECISIONS.md) D9): backend/engineering/ at 456e622 has no subpackages and no program or language modules, so these names are accepted as the module boundaries. Existing flat modules (capabilities.py, contracts.py, jobs.py, bundles.py, store.py, api_v1.py, *_adapter.py) are reused, not moved.
 
 Existing beam Literal-based contracts are intentionally narrow. Keep legacy consumers compatible; add a versioned generic envelope and explicit translators rather than globally relaxing validation. Reuse native builders, physics solvers, jobs and publication. New endpoints/tools are thin bindings over a common service layer.
 
