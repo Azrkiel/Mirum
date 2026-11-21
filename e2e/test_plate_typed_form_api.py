@@ -42,8 +42,13 @@ def _fill(page, label: str, value: str) -> None:
 
 
 def _choose(page, label: str, option: str) -> None:
-    page.get_by_label(label, exact=True).first.click()
-    page.get_by_role("option", name=option).click()
+    # Streamlit 1.39 selectboxes are not label-associated: find the widget by its label text (data-testid tier).
+    box = page.get_by_test_id("stSelectbox").filter(
+        has=page.get_by_test_id("stWidgetLabel").get_by_text(label, exact=True))
+    expect(box).to_have_count(1, timeout=60_000)
+    box.locator('[data-baseweb="select"]').click()
+    page.get_by_role("option", name=option, exact=True).click()
+    expect(box).to_contain_text(option)
 
 
 def test_plate_typed_form_ss_accepted(stack, token, api, page, shot, external_requests):
