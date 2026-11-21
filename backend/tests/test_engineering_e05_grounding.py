@@ -182,3 +182,8 @@ def test_glider_temperature_field_is_celsius():
     kinds = {k: v for k, v in vars(glider_extraction).items() if isinstance(v, dict) and 'temperature_c' in v
              and isinstance(v['temperature_c'], NumberField)}
     assert kinds and all(v['temperature_c'] == NumberField('temperature', 'C') for v in kinds.values())
+
+
+def test_bare_symbol_temperatures_bind_their_scale():
+    assert is_grounded_number(20.0, 'ambient 20 C', 'temperature', 'C')
+    assert not is_grounded_number(68.0, 'ambient 68 F', 'temperature', 'C')

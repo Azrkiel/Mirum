@@ -78,6 +78,7 @@ _SYMBOLS: dict[str, tuple[str, str]] = {
     'kg': ('mass', 'kg'), 'g': ('mass', 'g'),
     's': ('time', 's'), 'ms': ('time', 'ms'), 'h': ('time', 'h'),
     'm/s': ('velocity', 'm/s'), 'km/h': ('velocity', 'km/h'),
+    'C': ('temperature', 'C'), 'F': ('temperature_f', 'F'),
 }
 _WORDS: dict[str, tuple[str, str]] = {}
 for _dim, _unit, _names in (
