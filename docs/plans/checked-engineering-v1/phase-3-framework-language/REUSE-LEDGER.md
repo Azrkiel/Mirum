@@ -3,7 +3,7 @@
 Record every external idea or code reuse here before it lands in Mirum. Use `reimplemented-not-copied` for ideas implemented in Mirum's own code and `copy` for code approved through the copy gate.
 Owner decision D6 (2026-11-21) limits current reuse from AgentCAD and Zoo to ideas.
 Status 2026-11-21: no upstream code, examples, transcripts, logs, evidence ZIPs, viewers or benchmark data copied into Mirum.
-See [AGENTCAD-REUSE.md](AGENTCAD-REUSE.md), P01 in [ACCEPTANCE.md](ACCEPTANCE.md), and the own-backend study, PR #122 (docs/plans/2026-11-21-own-backend.md on branch docs/own-backend).
+See [AGENTCAD-REUSE.md](AGENTCAD-REUSE.md), P01 in [ACCEPTANCE.md](ACCEPTANCE.md), and the own-backend study, PR #122 (docs/plans/2026-11-21-own-backend.md, merged to main at b85b61e).
 
 ## Copy gate
 
