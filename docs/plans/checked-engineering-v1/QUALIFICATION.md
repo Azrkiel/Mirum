@@ -365,3 +365,17 @@ typed behavior is demonstrated but is not labelled a B14 qualified typed-only
 candidate. E01-E05 and F01-F11 remain untouched. Preserve artifact and live-budget
 volumes. No bandit/pip-audit/ruff pass, physical/manufacturing evidence, production
 deployment or main integration is claimed.
+
+## E05 live qualification (planned)
+
+Planned only. No live call has been made and no result is claimed here.
+
+- **Scope:** `co2_dragster`, `regen_chamber`, `glider_cem`, each through its E05 AI proposer and `proposal_contract.conform`. The beam is not re-run.
+- **Corpora:** `backend/tests/fixtures/engineering/proposals/<capability>-v1.json`, pinned in `scripts/e05_live_eval.py` by SHA-256 (co2_dragster `fdc429fa...`, regen_chamber `95b161ec...`, glider_cem `c4113bb1...`). A mismatch refuses the run before any call. Corpus sizes: 12, 13 and 14 cases, 3 complete each.
+- **Budget (owner Q1, 2026-11-20):** 30 provider calls per capability, 90 total. Every call, including a repair, reserves one `AiCallBudget` unit that is never refunded. Exhaustion ends that capability with `budget_exhausted`. There is no retry.
+- **Key (owner Q2):** k6 through environment `b13-live`, secret `B13_GEMINI_API_KEY`. The container gets only `GEMINI_API_KEY_HEAVY`. `GEMINI_API_KEY_PRO` is blank, which keeps the glider key-mismatch guard passing.
+- **Reservation:** one tag `e05-<capability>-<run_id>` per capability, created before any call. A capability is reserved once, ever. A second run needs new owner authorization.
+- **Scoring (per case):** `accurate` = complete kind, state `proposed`, every `expected_content` path equal to the proposal, and no `ai_proposed` field outside the stated set. `silent drop` = state `proposed` and not accurate. `unreviewed execution` = any subprocess start during proposal (blocked and counted).
+- **Gate, per capability (B13 run-5 rule, adapted):** B13 run 5 (`qual-20261118-k6`) passed when all 30 cases ran, complete-accurate was at least 8 of 10 complete cases, silent drops were 0 and unreviewed executions were 0 (`scripts/checked_engineering_live_eval.py`, `qualification` rule). These corpora have only 3 complete cases each, so this plan uses the same rule with the threshold set to every complete case: all cases run, all complete cases accurate, 0 silent drops, 0 unstated AI values, 0 unreviewed executions. Any stop, budget exhaustion or provider error blocks.
+- **Evidence:** `e05-live.json` with run id, authorization, tested SHA, image id, corpus SHA-256s, calls per capability, and per-case case id, kind, expected state, state and counts. No prompts, raw replies or reasons. Only `*.json` is uploaded.
+- **Workflow:** `.github/workflows/e05-live.yml`, manual dispatch only, `main` only, pace 12 s between calls, 120-minute job limit.
