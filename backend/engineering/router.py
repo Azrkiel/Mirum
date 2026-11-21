@@ -76,6 +76,29 @@ def _beam(text: str) -> tuple[bool, str]:
     return False, 'Cantilever beam without rectangular sizing intent'
 
 
+def _plate(text: str) -> tuple[bool, str]:
+    if _has(r'\bholes?\b|\bcut ?outs?\b|\bslots?\b|\bbolt\w*|\bmounting\b|\bbase\b|\badapter\b|\bbrackets?\b'
+            r'|\bflanges?\b|\bgussets?\b|\bend plates?\b|\bcover plates?\b|\bbacking plates?\b|\bpressure plates?\b'
+            r'|\bstiffen\w*|\bribs?\b|\bribbed\b|\bcircular\b|\bround\b|\bcircle\b|\bannular\b|\btriangular\b'
+            r'|\bskew\w*|\belliptic\w*|\bhexagonal\b|\bfree edges?\b|\bone free\b|\bcantilever\w*|\bbeams?\b|\bgirder\b'
+            r'|\bpoint (?:load|force|support)\w*|\bconcentrated\b|\bpatch\b|\bbuckl\w*|\bin plane\b|\bcompress\w*'
+            r'|\bcomposites?\b|\blaminat\w*|\bsandwich\b|\borthotropic\b|\banisotropic\b|\bthermal\b|\btemperature\b'
+            r'|\bdynamic\b|\bimpact\b|\bvibrat\w*|\bfatigue\b|\bcyclic\b|\blarge deflection\b|\bmembrane\b'
+            r'|\bheat exchanger\b|\blicen[sc]e\b|\bname ?plate\b|\bnumber plate\b|\barmou?r\b|\bballistic\b'
+            r'|\bfood\b|\bdinner\b|\bserving\b|\bdish\b|\bcold plate\b|\bhot plate\b|\bmixed\b|\bpartial\w*'
+            r'|\btapered\b|\bvariable thickness\b|\bstepped\b|\bcorrugated\b|\bcurved\b|\bplates\b', text):
+        return False, 'Excluded plate category'
+    if not (_has(r'\bplate\b', text) and _has(r'\brectangular\b|\brectangle\b|\bflat\b|\bpanel\b', text)):
+        return False, 'No rectangular plate intent'
+    if not _has(r'\buniform(?:ly)?\b|\bdistributed\b|\bpressure\b', text):
+        return False, 'Plate without a uniform pressure load'
+    if not _has(r'\bsimply supported\b|\bclamped\b|\bfixed edges?\b|\bfixed on all\b|\bedges? (?:are )?fixed\b', text):
+        return False, 'Plate without a supported edge condition'
+    if _has(r'\bsiz(?:e|ing)\b|\bthickness\b|\bdeflect\w*\b|\bdisplacement\b|\bstress\b', text):
+        return True, 'Rectangular plate bending sizing request under uniform pressure'
+    return False, 'Plate without sizing intent'
+
+
 def route(prompt: str) -> RouteDecision:
     text = _norm(prompt)
     matches: list[tuple[str, str]] = []
@@ -83,7 +106,7 @@ def route(prompt: str) -> RouteDecision:
     if drag.is_dragster:
         matches.append(('co2_dragster', drag.reason))
     for cap, rule in (('regen_chamber', _regen), ('glider_cem', _glider),
-                      ('rectangular_cantilever', _beam)):
+                      ('rectangular_cantilever', _beam), ('rectangular_plate', _plate)):
         ok, why = rule(text)
         if ok:
             matches.append((cap, why))

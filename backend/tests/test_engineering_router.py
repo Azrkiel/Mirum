@@ -50,6 +50,17 @@ POSITIVE = {
         'What thickness does a rectangular cantilever beam need for a 50 N tip load',
         'rectangular steel cantilever beam sizing with a displacement limit',
     ],
+    'rectangular_plate': [
+        'Size the thickness of a simply supported rectangular plate under uniform pressure of 0.05 MPa',
+        'A clamped rectangular plate, 400 x 300 mm, uniform load, find the thickness for a 1 mm deflection limit',
+        'Rectangular plate with fixed edges under distributed pressure: check deflection and stress',
+        'What thickness does a simply supported rectangular steel plate need under 5 kPa uniform pressure',
+        'Design a flat rectangular plate with clamped edges under uniform pressure, max deflection 2 mm',
+        'Size an aluminum rectangular plate, all four edges simply supported, uniformly distributed load',
+        'rectangular plate in bending, clamped on all edges, uniform pressure 0.1 MPa, allowable stress 200 MPa',
+        'Compute the maximum stress of a rectangular plate with fixed edges under a uniform load',
+        'Rectangular panel, called a plate here, simply supported on four edges, uniform pressure, sizing',
+    ],
 }
 
 NEGATIVE = {
@@ -86,6 +97,28 @@ NEGATIVE = {
         'A beam compass for drawing circles',
         'An H-beam column base plate',
     ],
+    'rectangular_plate': [
+        'An H-beam column base plate',
+        'A rectangular mounting plate with 4 holes, simply supported, uniform pressure, find thickness',
+        'A ribbed rectangular plate, clamped edges, uniform pressure, size the thickness',
+        'A circular plate with clamped edges under uniform pressure, find the thickness',
+        'A rectangular plate simply supported under a point load at the center, check deflection',
+        'Check the buckling of a rectangular plate under in-plane compression, simply supported',
+        'A rectangular plate with one free edge and three clamped edges under uniform pressure, thickness',
+        'A rectangular composite laminate plate under uniform pressure, simply supported, size thickness',
+        'A rectangular license plate bracket for a car',
+        'A plate heat exchanger with rectangular plates under pressure, clamped edges, stress',
+        'A rectangular steel armour plate under ballistic impact',
+        'A rectangular dinner plate for serving food',
+        'Rectangular plate under uniform pressure with large deflection and membrane stress, simply supported',
+        'A rectangular plate with a central cutout under uniform pressure, clamped edges, thickness',
+        'A rectangular adapter plate flange, bolted, uniform load, clamped edges',
+        'A rectangular plate under uniform pressure with a thermal gradient, clamped, stress',
+        'Rectangular plate under a dynamic impact load, simply supported, deflection',
+        'A triangular plate simply supported under uniform pressure, thickness',
+        'A rectangular gusset plate with a patch load, fixed edges, stress',
+        'A rectangular sandwich plate, clamped, uniform pressure, deflection',
+    ],
 }
 
 
@@ -108,6 +141,11 @@ def test_negative(capability, prompt):
     assert d.capability_id != capability, d
     assert d.capability_id is None
     assert d.assurance == 'unverified_geometry' and d.reason
+
+
+def test_cantilever_beam_stays_beam():
+    assert route('Size a rectangular cantilever beam for a 200 N tip force').capability_id == 'rectangular_cantilever'
+    assert route('Size a clamped rectangular cantilever beam under a tip load').capability_id == 'rectangular_cantilever'
 
 
 def test_counts_at_least_eight():
@@ -159,7 +197,7 @@ def test_deterministic():
 def test_returned_ids_are_registered():
     from engineering.capabilities import list_capabilities
     registered = {c.id for c in list_capabilities()}
-    assert registered == {'rectangular_cantilever', 'co2_dragster', 'regen_chamber', 'glider_cem'}
+    assert registered == {'rectangular_cantilever', 'co2_dragster', 'regen_chamber', 'glider_cem', 'rectangular_plate'}
     texts = [p for ps in POSITIVE.values() for p in ps] + [i['description'] for i in PROMPTS]
     texts += ['Design a CO2 dragster']
     ids = {route(t).capability_id for t in texts}
