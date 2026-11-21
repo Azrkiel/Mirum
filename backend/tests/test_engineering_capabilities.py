@@ -11,7 +11,7 @@ from backend.tests.test_engineering_spec import spec_data
 def test_registry_pins_one_bounded_capability_and_all_required_evidence():
     from engineering.capabilities import CAPABILITY, get_capability, list_capabilities
     descriptor = get_capability(CAPABILITY.id, CAPABILITY.version)
-    assert list_capabilities()[0] == descriptor and len(list_capabilities()) == 4
+    assert list_capabilities()[0] == descriptor and len(list_capabilities()) == 5
     assert descriptor.units == 'mm_N_MPa'
     assert descriptor.exports == ('step', 'glb', 'source', 'brief', 'specification',
                                   'attempts', 'report_json', 'report_markdown', 'manifest', 'zip')

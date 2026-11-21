@@ -485,7 +485,7 @@ def test_supported_requests_are_not_refused():
 
 # --- registry --------------------------------------------------------------------
 
-@pytest.mark.parametrize('capability_id', ['co2_dragster', 'regen_chamber', 'glider_cem'])
+@pytest.mark.parametrize('capability_id', ['co2_dragster', 'regen_chamber', 'glider_cem', 'rectangular_plate'])
 def test_missing_adapter_is_unsupported_capability(capability_id):
     from engineering.capabilities import UnsupportedCapability, get_generator
     get_adapter = REAL_GET_ADAPTER
@@ -500,7 +500,7 @@ def test_registry_lists_beam_first_and_resolves_each_generator_by_exact_versions
     from engineering.capabilities import (CAPABILITY, GENERATORS, UnsupportedCapability, get_capability,
                                           list_capabilities)
     assert list_capabilities() == (CAPABILITY, *GENERATORS)
-    assert [g.id for g in GENERATORS] == ['co2_dragster', 'regen_chamber', 'glider_cem']
+    assert [g.id for g in GENERATORS] == ['co2_dragster', 'regen_chamber', 'glider_cem', 'rectangular_plate']
     for g in GENERATORS:
         assert get_capability(g.id, g.version, numerical_policy_version=g.numerical_version) is g
         with pytest.raises(UnsupportedCapability):
@@ -521,7 +521,7 @@ def test_required_check_sets_match_the_plan():
     assert len(get_generator('co2_dragster').base_checks) == 14
     assert len(get_generator('regen_chamber').base_checks) == 13
     assert len(get_generator('glider_cem').base_checks) == 13
-    for g in ('co2_dragster', 'regen_chamber', 'glider_cem'):
+    for g in ('co2_dragster', 'regen_chamber', 'glider_cem', 'rectangular_plate'):
         ids = get_generator(g).all_check_ids
         assert len(ids) == len(set(ids))
 
@@ -539,7 +539,7 @@ def test_importing_the_registry_loads_no_provider_native_or_web_modules():
     code = ('import sys\n'
             'before = set(sys.modules)\n'
             'import engineering.capabilities as c\n'
-            'assert len(c.list_capabilities()) == 4\n'
+            'assert len(c.list_capabilities()) == 5\n'
             'bad = sorted(m for m in set(sys.modules) - before if m.split(".")[0] in '
             '("google", "cadquery", "OCP", "aerosandbox", "trimesh", "scipy", "fastapi"))\n'
             'assert not bad, bad\n')
