@@ -42,9 +42,23 @@ PAYLOAD_QUESTION = 'A payload needs mass, diameter and length all stated; enter 
 CALIBRATION_REFERENCE = 'cem.glider.calibration initial snapshot (shipped default)'
 DEFAULT_REFERENCE = 'GliderMissionRequirements default'
 _CALIBRATION_MENTION = re.compile(r'calibrat|flight[- ]?test', re.IGNORECASE)
-_OTHER_UNSUPPORTED = re.compile(
-    r'thermal|ridge|slope|soar|power|motor|engine|propell|electric|battery|radio|\brc\b|servo|remote'
-    r'|autopilot|gps|camera|script|code', re.IGNORECASE)
+# A model-listed unsupported feature is treated as a calibration ask only if it is plain ASCII and every word is
+# in this allowlist (fail closed: any other word, e.g. "rocket" or "RC", keeps the refusal).
+_CALIBRATION_WORDS = frozenset((
+    'calibration', 'calibrations', 'calibrate', 'calibrated', 'calibrating', 'flight', 'flights', 'test', 'tests',
+    'testing', 'tested', 'flighttest', 'latest', 'last', 'recent', 'most', 'new', 'newest', 'updated', 'update', 'use',
+    'using', 'apply', 'from', 'our', 'my', 'the', 'a', 'an', 'of', 'with', 'data', 'values', 'source', 'record',
+    'records', 'results', 'measured', 'measurements', 'version'))
+_WORD = re.compile(r'[a-z]+')
+
+
+def _is_calibration_ask(feature: str) -> bool:
+    if not feature.isascii() or not _CALIBRATION_MENTION.search(feature):
+        return False
+    text = feature.lower()
+    if re.search(r'[^a-z0-9\s.,;:\'"()-]', text):
+        return False
+    return all(word in _CALIBRATION_WORDS for word in _WORD.findall(text))
 _FAMILIES_FIELD = 'specification.requirements.discovery.families'
 _CALIBRATION_FIELD = 'specification.calibration_version'
 _REQUIREMENTS_PREFIX = GENERATOR_SPEC_PREFIX + 'requirements.'
@@ -130,15 +144,14 @@ class AiProposer:
         features = list(reply.unsupported_features)
         if features and _CALIBRATION_MENTION.search(prompt):
             # A calibration ask is a clarification (calibration_version is never taken from the model).
-            features = [f for f in features
-                        if not (_CALIBRATION_MENTION.search(f) and not _OTHER_UNSUPPORTED.search(f))]
+            features = [f for f in features if not _is_calibration_ask(f)]
         dropped = len(features) < len(reply.unsupported_features)
         if features:
             return self._unsupported((_issue('unsupported', f, 'features') for f in features),
                                      'unsupported.feature')
 
         provided = {k: v for k, v in reply.fields.model_dump().items() if v is not None}
-        if reply.questions and not provided:
+        if reply.questions and not provided and not dropped:
             # The model only asked questions: no requirements to review, so no specification.
             issues = tuple(_issue('clarification_required', q) for q in reply.questions)
             return self._done('clarification_required', self._payload(), issues, None,

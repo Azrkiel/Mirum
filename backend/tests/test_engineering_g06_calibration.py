@@ -81,6 +81,30 @@ def test_calibration_feature_with_rc_flight_stays_unsupported():
     assert p.state == 'unsupported' and p.reason_id == 'unsupported.feature'
 
 
+@pytest.mark.parametrize('feature', [
+    'Calibrate from flight test for a rocket-boosted glider',
+    'Use the flight test calibration with a jet turbine',
+    'Calibrate from flight test for R/C control',
+    'Calibrate from flight test for a drone',
+    'Use the calibration from our latest flight test and run a python script',
+    'Calibrate from flight test for a pоwered glider',
+    'Calibrate from flight test for a pow​ered glider',
+    'Calibrate from flight test for ＲＣ flight',
+    'Use the cаlibration from the latest flight test',
+])
+def test_calibration_feature_with_any_other_ask_stays_unsupported(feature):
+    p = run(reply(FIELDS, unsupported_features=[feature]))
+    assert p.state == 'unsupported' and p.reason_id == 'unsupported.feature'
+
+
+def test_dropped_calibration_with_model_questions_still_asks_calibration():
+    p = run(reply({}, questions=['Which launch height?'],
+                  unsupported_features=['Use the calibration from the latest flight test']))
+    assert p.state == 'clarification_required'
+    assert CAL_FIELD in [i.field for i in p.issues]
+    assert any(i.reason == CALIBRATION_QUESTION for i in p.issues)
+
+
 def test_prompt_without_calibration_mention_stays_unsupported():
     p = run(reply(FIELDS, unsupported_features=['Use the calibration from the latest flight test']), G06_FIRST)
     assert p.state == 'unsupported' and p.reason_id == 'unsupported.feature'
