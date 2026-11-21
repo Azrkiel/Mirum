@@ -4,7 +4,7 @@ F01–F10 release requires every P01–P14 row plus the prerequisite B/E evidenc
 
 | ID | Accepted behavior | State | Evidence |
 |---|---|---|---|
-| P01 | AgentCAD reuse inventory pins source files and licensing/attribution decisions; no bundled logs, benchmarks or unreviewed transplants. | not_run | Not produced |
+| P01 | AgentCAD reuse inventory pins source files and licensing/attribution decisions; no bundled logs, benchmarks or unreviewed transplants. | pass (F01, 2026-11-21) | [REUSE-LEDGER.md](REUSE-LEDGER.md), [F01-DECISIONS.md](F01-DECISIONS.md) D6, [F01 handoff](handoffs/F01.md); all rows reimplemented, no code copied |
 | P02 | Versioned grammar/IR/registry reject unknown operations, duplicate fields, unresolved references and invalid source before native work. | not_run | Not produced |
 | P03 | Form, AI and language input with equivalent reviewed meaning produce the same requirement/candidate semantics; provenance remains distinguishable. | not_run | Not produced |
 | P04 | Real OCCT and PicoGK adapters pass their declared conformance suites; unsupported requests and unavailable backends cannot silently fall back. | not_run | Not produced |

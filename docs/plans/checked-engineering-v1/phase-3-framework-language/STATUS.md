@@ -1,6 +1,6 @@
 # Phase 3 task status
 
-Planning only. All new tasks are not_started; parent B/E status is preserved.
+F01 complete (2026-11-21, docs/contracts only); F02-F11 not_started. Parent B/E status is preserved.
 
 | Complete | ID | Task | State | Prerequisites | Evidence |
 |---|---|---|---|---|---|
