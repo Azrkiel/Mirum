@@ -19,15 +19,123 @@ number     = [ "-" ], digits, [ ".", digits ],
 string     = JSON_quoted_string ;
 ```
 
-UTF-8 input; whitespace and // line comments are ignored outside strings. Keywords are reserved. F04 must spell out lexical character classes and error handling, including invalid Unicode/control characters and malformed escapes. Duplicate assignment keys and unknown language versions fail. Formatter preserves meaning and has a stable style.
+UTF-8 input; whitespace and // line comments are ignored outside strings. Keywords are reserved. F04 must spell out lexical character classes and error handling, including invalid Unicode/control characters and malformed escapes. Duplicate assignment keys and unknown language versions fail. Formatter preserves meaning and has a stable style. (Lexical details are frozen in F01 below.)
+
+## Lexical specification (Frozen in F01)
+
+Frozen in F01. These rules refine the EBNF above; they do not change the grammar. The lexer is deterministic and ASCII-only outside strings and comments.
+
+### 1. Encoding and size
+
+- Input is UTF-8. Invalid UTF-8 (overlong forms, encoded lone surrogates, truncated sequences) is an error.
+- A leading byte-order mark (EF BB BF) is rejected. A NUL byte anywhere is an error.
+- Source budget is 64 KiB and 10,000 tokens, as set in the resource budgets of [FRAMEWORK.md](FRAMEWORK.md). This section cites those numbers and does not change them.
+
+### 2. Character classes outside strings and comments
+
+| Class | Rule |
+|---|---|
+| Whitespace | space, tab, LF, CRLF. A CR not followed by LF is an error. |
+| Identifier | `[A-Za-z_][A-Za-z0-9_]*`, case-sensitive, at most 64 characters. The 64 limit is a v0.1 lexical limit. |
+| Punctuation | `{ } [ ] = ; ,` and the `-` sign of a number. |
+| Anything else | error (non-ASCII, other punctuation, other control characters) |
+
+### 3. Reserved keywords
+
+`language`, `mirum`, `design`. Keywords are case-sensitive (`Design` is an ordinary identifier). `true`, `false` and `null` are reserved for later versions and are rejected as identifiers in v0.1.
+
+### 4. Numbers
+
+The EBNF `number` rule applies, plus:
+
+- No leading zeros except a single `0` directly before `.` or at the end of the integer part (`0`, `0.5` are valid; `007` is an error).
+- No leading `+`. No `.` without digits on both sides (`.5` and `5.` are errors).
+- At most 32 characters in total.
+- A value that is non-finite after conversion to IEEE-754 binary64 is an error.
+- A unit is an identifier following the number on the same line, separated by optional spaces or tabs. Unit lookup is semantic (F05), not lexical.
+
+### 5. Strings
+
+- JSON string syntax (RFC 8259), single line.
+- Allowed escapes exactly: `\"` `\\` `\/` `\b` `\f` `\n` `\r` `\t` `\uXXXX` (4 hex digits, either case). Any other escape is an error.
+- A `\u` high surrogate must be followed immediately by a `\u` low surrogate. An unpaired surrogate is an error.
+- Raw U+0000-U+001F and U+007F inside a string are errors; they must be escaped.
+- Maximum decoded length is 4096 code points (a v0.1 lexical limit).
+
+### 6. Comments
+
+`//` to end of line. A comment may contain any valid UTF-8 except control characters U+0000-U+0008, U+000B-U+001F (tab is allowed) and U+007F. There are no block comments in v0.1; `/*` is an error.
+
+### 7. Trojan-source guard
+
+The bidirectional control characters U+202A-U+202E, U+2066-U+2069, U+200E and U+200F are rejected everywhere, including strings and comments. String content may express them only through `\u` escapes, which semantic checks may still reject.
+
+### 8. Lexical error codes
+
+Every code has category `lexical`. Each diagnostic carries a source span (byte offset plus line:column, both 1-based, column counted in Unicode scalar values) and an actionable hint, per [Compiler stages and executable output](#compiler-stages-and-executable-output). Lexing stops at the first error in v0.1: one diagnostic, deterministic.
+
+| Code | Meaning |
+|---|---|
+| MEL-L001 | Invalid UTF-8 |
+| MEL-L002 | Byte-order mark at start of input |
+| MEL-L003 | NUL byte |
+| MEL-L004 | Bare CR (not followed by LF) |
+| MEL-L005 | Disallowed character outside string/comment |
+| MEL-L006 | Bidirectional control character |
+| MEL-L007 | Identifier longer than 64 characters |
+| MEL-L008 | Reserved word used as identifier (including true/false/null) |
+| MEL-L009 | Malformed number |
+| MEL-L010 | Leading zero in number |
+| MEL-L011 | Number longer than 32 characters |
+| MEL-L012 | Non-finite number after binary64 conversion |
+| MEL-L013 | Unterminated string |
+| MEL-L014 | Newline in string |
+| MEL-L015 | Raw control character in string |
+| MEL-L016 | Invalid escape sequence |
+| MEL-L017 | Malformed `\u` escape |
+| MEL-L018 | Unpaired surrogate escape |
+| MEL-L019 | String longer than 4096 code points |
+| MEL-L020 | Block comment not supported |
+| MEL-L021 | Control character in comment |
+| MEL-L022 | Source larger than 64 KiB |
+| MEL-L023 | More than 10,000 tokens |
+
+### 9. Implementation
+
+F04 implements these rules with positive and negative fixtures (P06) and may only tighten them through a versioned change recorded in its handoff.
 
 ## Beam fixture
 
 See [beam.mir](examples/beam.mir). Field names below are the proposed language surface, translated to the registered rectangular_cantilever 1.0.0 capability rather than blindly forwarded to Python.
 
-Required fields: capability, capability_version, backend, numerical_policy, resource_policy, length, width, dimensional_tolerance, tip_force, max_tip_deflection, youngs_modulus, allowable_stress, material_reference, material_source_kind, assumptions, mode, candidate_heights and exports. F01 verifies material_source_kind mapping against actual B03 schema and freezes an explicit translation; no unknown value is silently defaulted.
+Required fields: capability, capability_version, backend, numerical_policy, resource_policy, length, width, dimensional_tolerance, tip_force, max_tip_deflection, youngs_modulus, allowable_stress, material_reference, material_source_kind, assumptions, mode, candidate_heights and exports. F01 verifies material_source_kind mapping against actual B03 schema and freezes an explicit translation; no unknown value is silently defaulted (frozen in F01 below).
 
 The backend symbolic selector occt resolves to a pinned installed backend before review. It is not “choose whatever works.” source fields contain explicit policy versions. Exports must be supported by the chosen adapter and capability. Other capabilities use their own registered typed field sets; unsupported fields fail, rather than warn and continue.
+
+## material_source_kind translation (Frozen in F01)
+
+Frozen in F01. Verified against the repository at commit 456e622:
+
+- The B03 contract field is `source_kind: Literal['illustrative', 'user_supplied', 'documented']` on `MaterialReference`, at `backend/engineering/contracts.py:102`; its dotted review path `material.source_kind` is listed in `REVIEW_FIELDS` at `backend/engineering/contracts.py:27`. The B03 task card that owns the contracts is [B03-contracts.md](../tasks/B03-contracts.md) (it does not spell out this field; the code is the authority).
+- `backend/engineering/plate_spec.py:80` carries the same three values for rectangular_plate.
+- `backend/engineering/proposer.py:42` requires that source_kind retain its illustrative/user_supplied/documented meaning, and `backend/engineering/proposer.py:57` declares the optional proposal field with the same three values.
+
+| MEL `material_source_kind` | Contract field | Contract value |
+|---|---|---|
+| `"illustrative"` | `material.source_kind` | `'illustrative'` |
+| `"user_supplied"` | `material.source_kind` | `'user_supplied'` |
+| `"documented"` | `material.source_kind` | `'documented'` |
+
+The mapping is an identity of strings. The MEL value must be a string literal, not an identifier.
+
+Rules:
+
+- A missing `material_source_kind`, any other value, a wrong-case value (`"Illustrative"`) or a non-string value is a compilation error. This is semantic error MEL-S001 (provisional name; F05 assigns the final semantic code table).
+- There is no default.
+- The value is an assertion to review, not certification of physical stock (see Type and semantic checks).
+- If the contract enum changes, MEL needs a new versioned translation. No silent reinterpretation of existing programs.
+
+[beam.mir](examples/beam.mir) uses `material_source_kind = "illustrative";`, which maps to `'illustrative'`.
 
 ## Type and semantic checks
 

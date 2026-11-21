@@ -126,7 +126,7 @@ Modules: see D9. Version identifiers:
 
 ## 5. Frozen translation
 
-The beam fixture field material_source_kind is mapped to the B03 schema by an explicit translation frozen in [LANGUAGE.md](LANGUAGE.md); no unknown value is silently defaulted.
+The beam fixture field material_source_kind is mapped to the B03 schema by an explicit translation frozen in [LANGUAGE.md](LANGUAGE.md): "illustrative", "user_supplied" and "documented" map one-to-one to `material.source_kind` (backend/engineering/contracts.py:102); any other value, a missing value or a non-string is a compilation error; no default. MEL v0.1 lexical rules and error codes MEL-L001 to MEL-L023 are frozen in the same file.
 
 ## 6. Support matrix (D8)
 
@@ -182,4 +182,4 @@ P14 is evidenced by F10 only (no other card lists it).
 - E04 is blocked, so no physical or manufacturing claims.
 - v0.2 scope growth may conflict with "not a universal CAD feature editor".
 - Own-backend study PR #122 is not yet merged; this record cites it by name.
-- material_source_kind translation is frozen in [LANGUAGE.md](LANGUAGE.md) and must be rechecked against the B03 schema in F04.
+- material_source_kind translation is frozen in [LANGUAGE.md](LANGUAGE.md) (identity mapping to `material.source_kind`, backend/engineering/contracts.py:102 at 456e622); if that enum changes, MEL needs a new versioned translation.
