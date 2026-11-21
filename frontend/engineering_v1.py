@@ -12,6 +12,7 @@ import math
 from engineering_state import checked_bytes
 
 BEAM_ID = 'rectangular_cantilever'
+PLATE_ID = 'rectangular_plate'
 MAX_INPUT_BYTES = 16 * 1024
 SPEC_PREFIX = 'specification.'
 CHECKED_LABEL = 'Checked design'
@@ -198,6 +199,7 @@ def claim_of(entry, job=None):
     for source in (job, entry):
         claim = source.get('claim') if isinstance(source, dict) else None
         if claim in ('geometry_checks_only', 'screening_only'): return claim
+        if claim == 'checked_design' and entry.get('id') == PLATE_ID: return None
     return 'screening_only'
 
 
@@ -338,3 +340,95 @@ def propose_ai_draft(client, entry, prompt):
         return dict(status='unavailable', prepared=kept if isinstance(kept, dict) else None,
                     message=ai_failure_message(error))
     return dict(status=ai_status(prepared), prepared=prepared, message=None)
+
+
+# ---------------------------------------------------------------- rectangular_plate (typed form, result view)
+
+PLATE_ASSUMPTIONS = 'kirchhoff_uniform_pressure_uniform_edges_linear_elastic'
+PLATE_NUMBERS = (  # (field, label) in form order; edge condition sits between width and pressure
+    ('length_a_mm', 'Length a (mm)'), ('width_b_mm', 'Width b (mm)'), ('pressure_mpa', 'Pressure q (MPa)'),
+    ('youngs_modulus_mpa', "Young's modulus E (MPa)"), ('poissons_ratio', "Poisson's ratio nu"),
+    ('allowable_stress_mpa', 'Allowable stress (MPa)'), ('max_deflection_mm', 'Max deflection (mm)'),
+    ('dimensional_tolerance_mm', 'Dimensional tolerance (mm)'))
+PLATE_LABELS = dict(PLATE_NUMBERS, candidate_thicknesses_mm='Candidate thickness', material_reference='Material reference')
+PLATE_EDGES = {'simply_supported': 'Simply supported', 'clamped': 'Clamped'}
+PLATE_SOURCES = {'illustrative': 'Illustrative', 'user_supplied': 'User supplied', 'documented': 'Documented'}
+PLATE_MODES = {'fixed_design': 'Fixed thickness', 'bounded_thickness': 'Bounded thickness (1-4 candidates)'}
+PLATE_SHEAR_NOTE = 'The checked deflection includes the shear allowance w_check = w_K (1 + 20 (h/b)^2).'
+PLATE_CORNER_NOTE = ('corners held down: the simply supported edges and corners are held against lift; '
+                     'corner hold-down forces are reported')
+PLATE_ALLOWABLE_NOTE = 'The allowable stress is your design allowable; no hidden safety factor is applied'
+
+
+def _plate_number(raw, field, label):
+    text = raw.get(field)
+    try: value = float(str(text).strip())
+    except ValueError: raise ValueError(f'{label}: expected a number') from None
+    if not math.isfinite(value): raise ValueError(f'{label}: expected a finite number')
+    return value
+
+
+def plate_brief(raw):
+    """PlateBrief payload from the form's raw strings. Values are parsed, never clipped, swapped or defaulted."""
+    numbers = {field: _plate_number(raw, field, label) for field, label in PLATE_NUMBERS}
+    thicknesses = []
+    for part in str(raw.get('candidate_thicknesses_mm', '')).split(','):
+        thicknesses.append(_plate_number(dict(t=part), 't', 'Candidate thickness'))
+    requirements = dict(
+        family='rectangular_plate', units='mm_N_MPa', length_a_mm=numbers['length_a_mm'], width_b_mm=numbers['width_b_mm'],
+        edge_condition=raw.get('edge_condition'), pressure_mpa=numbers['pressure_mpa'],
+        youngs_modulus_mpa=numbers['youngs_modulus_mpa'], poissons_ratio=numbers['poissons_ratio'],
+        allowable_stress_mpa=numbers['allowable_stress_mpa'], max_deflection_mm=numbers['max_deflection_mm'],
+        dimensional_tolerance_mm=numbers['dimensional_tolerance_mm'],
+        material_reference=dict(source_kind=raw.get('source_kind'), reference=str(raw.get('material_reference', ''))),
+        assumptions=PLATE_ASSUMPTIONS)
+    return dict(mode=raw.get('mode'), requirements=requirements, candidate_thicknesses_mm=thicknesses)
+
+
+def _plate_text(value):
+    return json.dumps(value, allow_nan=False) if isinstance(value, (int, float)) and not isinstance(value, bool) else ''
+
+
+def plate_form_values(brief):
+    """Raw form strings from a PlateBrief dict (a draft's specification); blanks for a new form."""
+    brief = brief if isinstance(brief, dict) else {}
+    req = brief.get('requirements') if isinstance(brief.get('requirements'), dict) else {}
+    material = req.get('material_reference') if isinstance(req.get('material_reference'), dict) else {}
+    values = {field: _plate_text(req.get(field)) for field, _ in PLATE_NUMBERS}
+    thicknesses = brief.get('candidate_thicknesses_mm')
+    values.update(
+        edge_condition=req.get('edge_condition') if req.get('edge_condition') in PLATE_EDGES else 'simply_supported',
+        material_reference=material.get('reference') if isinstance(material.get('reference'), str) else '',
+        source_kind=material.get('source_kind') if material.get('source_kind') in PLATE_SOURCES else 'illustrative',
+        mode=brief.get('mode') if brief.get('mode') in PLATE_MODES else 'fixed_design',
+        candidate_thicknesses_mm=', '.join(_plate_text(t) for t in thicknesses) if isinstance(thicknesses, list) else '')
+    return values
+
+
+def _dict(value):
+    return value if isinstance(value, dict) else {}
+
+
+def plate_result_view(report):
+    """Facts the plate result shows, from generator-report.json. Missing parts stay None/empty, never invented."""
+    report = _dict(report)
+    attempts = [a for a in report.get('attempts') or [] if isinstance(a, dict)]
+    verify = _dict(attempts[-1].get('verify')) if attempts else {}
+    checks, history = _dict(verify.get('checks')), [h for h in verify.get('mesh_history') or [] if isinstance(h, dict)]
+    deflection, stress = _dict(checks.get('deflection_limit')), _dict(checks.get('stress_limit'))
+    corner = report.get('corner_forces')
+    notes = [PLATE_SHEAR_NOTE]
+    if isinstance(corner, dict): notes.append(PLATE_CORNER_NOTE)
+    notes.append(PLATE_ALLOWABLE_NOTE)
+    return dict(
+        selected_thickness_mm=report.get('selected_thickness_mm'),
+        attempts=[dict(thickness_mm=a.get('thickness_mm'), passed=a.get('passed') is True) for a in attempts],
+        deflection=dict(checked_mm=deflection.get('quantity'), limit_mm=deflection.get('limit'),
+                        kirchhoff_mm=history[-1].get('w_max') if history else None),
+        stress=dict(von_mises_mpa=stress.get('quantity'), allowable_mpa=stress.get('limit'),
+                    location=verify.get('vm_max_location')),
+        mesh_history=history, references=_dict(verify.get('references')) or None,
+        guards=_dict(verify.get('guards')), corner_forces=corner if isinstance(corner, dict) else None,
+        notes=notes,
+        lines=['engineering_certified: ' + ('true' if report.get('engineering_certified') is True else 'false'),
+               'standards: not evaluated'])

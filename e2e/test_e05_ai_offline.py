@@ -57,6 +57,9 @@ def _shot(page, name: str) -> None:
     page.screenshot(path=str(ARTIFACTS / (re.sub(r"[^\w.-]+", "_", name) + ".png")), full_page=True)
 
 
+PLATE_LABEL = "Rectangular plate under uniform pressure"  # capabilities.PLATE.label
+
+
 def _capability_group(page):
     return page.get_by_role("radiogroup", name="Capability")
 
@@ -72,7 +75,7 @@ def _open_checked(page, token):
 
 def test_flag_off_no_ai_control_on_any_capability(token, page):
     view, labels = _open_checked(page, token)
-    assert len(labels) == 4, labels
+    assert len(labels) == 5, labels
     for label in labels:
         _capability_group(page).get_by_text(label, exact=True).click()
         page.wait_for_timeout(1500)  # let the rerun settle; the assertions are on stable absence
@@ -84,10 +87,16 @@ def test_flag_off_no_ai_control_on_any_capability(token, page):
 
 def test_ai_mode_is_offered_for_every_capability(token, page):
     view, labels = _open_checked(page, token)
-    assert len(labels) == 4, labels
+    assert len(labels) == 5, labels
     for label in labels:
         _capability_group(page).get_by_text(label, exact=True).click()
         entry = page.get_by_role("radiogroup", name="Entry method")
+        if label == PLATE_LABEL:
+            # E03 contract: no AI path for rectangular_plate; its typed form has no entry-method choice.
+            page.wait_for_timeout(1500)  # let the rerun settle; the assertions are on stable absence
+            expect(entry).to_have_count(0)
+            expect(page.get_by_text("AI-assisted draft", exact=True)).to_have_count(0)
+            continue
         expect(entry).to_be_visible(timeout=60_000)
         expect(entry.get_by_text("AI-assisted draft", exact=True)).to_be_visible()
         expect(entry.get_by_text("Typed form", exact=True)).to_be_visible()
