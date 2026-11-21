@@ -1,11 +1,11 @@
 # Phase 3 task status
 
-F01 complete (2026-11-21, docs/contracts only); F02-F11 not_started. Parent B/E status is preserved.
+F01 complete (2026-11-21, docs/contracts only); F02 complete (2026-11-21, records/contracts only); F03-F11 not_started. Parent B/E status is preserved.
 
 | Complete | ID | Task | State | Prerequisites | Evidence |
 |---|---|---|---|---|---|
 | [x] | F01 | [Freeze the framework scope and AgentCAD reuse decisions](tasks/F01-scope-and-reuse.md) | complete | B14, E05 | Docs/contracts only, base 456e622 (2026-11-21): [decision record](F01-DECISIONS.md), [inventory](F01-INVENTORY.md), [reuse ledger](REUSE-LEDGER.md), frozen MEL v0.1 lexical rules and material_source_kind translation in [LANGUAGE.md](LANGUAGE.md). P01 only. [F01 handoff](handoffs/F01.md) |
-| [ ] | F02 | [Define Mirum's typed engineering program and operation registry](tasks/F02-typed-ir.md) | not_started | F01 | Not produced |
+| [x] | F02 | [Define Mirum's typed engineering program and operation registry](tasks/F02-typed-ir.md) | complete | F01 | Records/contracts only, no execution; tested 92f9088 (2026-11-21): backend/engineering/program/ (ProgramIR `mirum_program_ir_v0_1`, registry `mirum_operation_registry_v0_1`, ExecutionLock `mirum_execution_lock_v0_1`, four hashes, beam bridge, committed JSON Schemas), P02 corpus (IR/registry part) and P03 form/AI/language fixtures. [F02 handoff](handoffs/F02.md) |
 | [ ] | F03 | [Implement and qualify the kernel adapter framework](tasks/F03-kernel-adapters.md) | not_started | F02, E01, E02 | Not produced |
 | [ ] | F04 | [Implement Mirum Engineering Language v0.1](tasks/F04-language-frontend.md) | not_started | F02 | Not produced |
 | [ ] | F05 | [Compile language programs into reviewed executable engineering plans](tasks/F05-compiler-and-review.md) | not_started | F03, F04 | Not produced |
