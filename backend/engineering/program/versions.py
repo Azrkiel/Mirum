@@ -11,3 +11,6 @@ EXECUTION_LOCK_VERSION = 'mirum_execution_lock_v0_1'
 CONSTRUCTION_GRAPH_VERSION = 'mirum_construction_graph_v0_1'
 OP_STREAM_VERSION = 'mirum_op_stream_v0_1'
 ARTIFACT_GRAPH_VERSION = 'mirum_artifact_graph_v0_1'
+# MEL (F05): language version and compiler version recorded by the MEL semantic compiler.
+MEL_LANGUAGE_VERSION = '0.1'
+MEL_COMPILER_VERSION = 'mirum_mel_compiler_v0_1'
