@@ -291,7 +291,7 @@ def test_prune_uses_an_index_on_created(tmp_path):
     real = SQLiteStore(tmp_path)
     try:
         with real.transaction() as db:
-            plan = ' '.join(str(r) for r in db.execute(
+            plan = ' '.join(str(tuple(r)) for r in db.execute(
                 'EXPLAIN QUERY PLAN DELETE FROM ai_client_requests WHERE created<=?', (0.0,)).fetchall())
     finally:
         real.close()
