@@ -1,0 +1,270 @@
+{
+  "$defs": {
+    "BackendLock": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Adapter Version",
+          "type": "string"
+        },
+        "backend": {
+          "enum": [
+            "occt",
+            "picogk"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "export_formats": {
+          "items": {
+            "enum": [
+              "step",
+              "glb",
+              "stl"
+            ],
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Export Formats",
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "native",
+            "mock"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "native_versions": {
+          "items": {
+            "$ref": "#/$defs/NativeVersion"
+          },
+          "maxItems": 256,
+          "title": "Native Versions",
+          "type": "array"
+        },
+        "representations": {
+          "items": {
+            "enum": [
+              "brep",
+              "mesh",
+              "voxel",
+              "report",
+              "file"
+            ],
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Representations",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "mirum_kernel_v0_1",
+          "default": "mirum_kernel_v0_1",
+          "enum": [
+            "mirum_kernel_v0_1"
+          ],
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "tolerances": {
+          "items": {
+            "$ref": "#/$defs/ToleranceConvention"
+          },
+          "maxItems": 256,
+          "title": "Tolerances",
+          "type": "array"
+        }
+      },
+      "required": [
+        "backend",
+        "adapter_version",
+        "mode",
+        "native_versions",
+        "representations",
+        "export_formats",
+        "tolerances"
+      ],
+      "title": "BackendLock",
+      "type": "object"
+    },
+    "NativeVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 240,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "NativeVersion",
+      "type": "object"
+    },
+    "ToleranceConvention": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 240,
+          "title": "Source",
+          "type": "string"
+        },
+        "unit": {
+          "enum": [
+            "mm",
+            "mm3",
+            "relative",
+            "count"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "minimum": 0.0,
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "unit",
+        "source"
+      ],
+      "title": "ToleranceConvention",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "F05 execution lock: the v0_1 fields plus language/compiler versions and the F03 BackendLock.\n\nLives here (not ir.py) because it embeds BackendLock and kernel imports ir; ir.load_execution_lock_json\nimports it lazily.",
+  "properties": {
+    "backend": {
+      "enum": [
+        "occt",
+        "picogk"
+      ],
+      "title": "Backend",
+      "type": "string"
+    },
+    "backend_lock": {
+      "$ref": "#/$defs/BackendLock"
+    },
+    "capability_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Capability Id",
+      "type": "string"
+    },
+    "capability_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Capability Version",
+      "type": "string"
+    },
+    "compiler_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Compiler Version",
+      "type": "string"
+    },
+    "exports": {
+      "items": {
+        "enum": [
+          "step",
+          "glb",
+          "source",
+          "brief",
+          "specification",
+          "attempts",
+          "report_json",
+          "report_markdown",
+          "manifest",
+          "zip"
+        ],
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Exports",
+      "type": "array"
+    },
+    "language_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Language Version",
+      "type": "string"
+    },
+    "numerical_policy_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Numerical Policy Version",
+      "type": "string"
+    },
+    "program_ir_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Program Ir Version",
+      "type": "string"
+    },
+    "registry_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Registry Version",
+      "type": "string"
+    },
+    "resource_policy_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Resource Policy Version",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "mirum_execution_lock_v0_2",
+      "enum": [
+        "mirum_execution_lock_v0_2"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantics_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Semantics Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "program_ir_version",
+    "semantics_version",
+    "registry_version",
+    "capability_id",
+    "capability_version",
+    "numerical_policy_version",
+    "resource_policy_version",
+    "backend",
+    "exports",
+    "language_version",
+    "compiler_version",
+    "backend_lock"
+  ],
+  "title": "ExecutionLockV0_2",
+  "type": "object"
+}

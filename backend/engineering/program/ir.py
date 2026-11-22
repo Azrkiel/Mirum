@@ -17,8 +17,9 @@ from pydantic import (
 from .errors import MAX_POSITION, IRModel, ProgramError, SourceSpan, Str240
 from .units import CANONICAL_UNIT, Dimension
 from .versions import (
-    CONSTRUCTION_GRAPH_VERSION, EXECUTION_LOCK_VERSION, PROGRAM_IR_VERSION,
-    REGISTRY_VERSION, SEMANTICS_VERSION,
+    CONSTRUCTION_GRAPH_VERSION, EXECUTION_LOCK_VERSION, EXECUTION_LOCK_VERSION_V0_2,
+    MEL_COMPILER_VERSION, MEL_LANGUAGE_VERSION, PROGRAM_IR_VERSION, REGISTRY_VERSION,
+    SEMANTICS_VERSION,
 )
 
 __all__ = [
@@ -26,7 +27,7 @@ __all__ = [
     'RequirementPlan', 'CandidateParameter', 'CandidateSpace', 'AnalysisPlanRef',
     'EvidenceExpectation', 'ConstructionStep', 'ConstructionGraph', 'CapabilityRef',
     'ExecutionSelection', 'ProgramProvenance', 'ProgramIR', 'ExecutionLock',
-    'execution_lock', 'load_program_json', 'program_from_dict', 'MAX_POSITION',
+    'execution_lock', 'execution_lock_v0_2', 'load_execution_lock_json', 'load_program_json', 'program_from_dict', 'MAX_POSITION',
 ]
 
 def _semantic_id_length(value: str) -> str:
@@ -497,6 +498,44 @@ def _parse_json_bounded(text: str | bytes):
         raise ProgramError('IR007', 'non-finite number literal', bad or None,
                            _span_for(obj, bad.split('.') if bad else []))
     return obj
+
+
+def execution_lock_v0_2(ir: ProgramIR, backend_lock):
+    """v0_2 lock for `ir` pinned to a native kernel.BackendLock (ValueError for a mock or non-lock).
+
+    The record lives in kernel.py (it embeds BackendLock and kernel imports this module), so it is
+    imported lazily here."""
+    from .kernel import BackendLock, ExecutionLockV0_2
+    if not isinstance(backend_lock, BackendLock):
+        raise ValueError('backend_lock must be a BackendLock')
+    if backend_lock.mode != 'native':
+        raise ValueError('a mock backend lock cannot be part of an execution lock')
+    base = execution_lock(ir)
+    # A backend or export mismatch fails the record validators (pydantic ValidationError, a ValueError).
+    return ExecutionLockV0_2(
+        schema_version=EXECUTION_LOCK_VERSION_V0_2,
+        program_ir_version=base.program_ir_version,
+        semantics_version=base.semantics_version,
+        registry_version=REGISTRY_VERSION,
+        capability_id=base.capability_id,
+        capability_version=base.capability_version,
+        numerical_policy_version=base.numerical_policy_version,
+        resource_policy_version=base.resource_policy_version,
+        backend=base.backend,
+        exports=base.exports,
+        language_version=MEL_LANGUAGE_VERSION,
+        compiler_version=MEL_COMPILER_VERSION,
+        backend_lock=backend_lock)
+
+
+def load_execution_lock_json(text: str | bytes):
+    """Strict versioned lock loader: ExecutionLock (v0_1) or kernel.ExecutionLockV0_2 (v0_2)."""
+    from .kernel import ExecutionLockV0_2
+    obj = _parse_json_bounded(text)
+    version = obj.get('schema_version') if isinstance(obj, dict) else None
+    if version == EXECUTION_LOCK_VERSION_V0_2:
+        return _validate_record(ExecutionLockV0_2, obj, EXECUTION_LOCK_VERSION_V0_2)
+    return _validate_record(ExecutionLock, obj, EXECUTION_LOCK_VERSION)
 
 
 def load_program_json(text: str | bytes) -> ProgramIR:

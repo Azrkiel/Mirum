@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from engineering.language import MelError, format_program, format_source, parse
+from engineering.language.diagnostics import MEL_S_IR_CODES
 from engineering.language.lower_beam import compile_beam
 from engineering.program.beam_bridge import brief_content_from_program, program_from_brief_content
 from engineering.program.hashing import execution_lock_sha256, semantic_sha256
@@ -125,13 +126,20 @@ SEMANTIC = [
 ]
 
 
+MEL_S = {'unknown-field': 'MEL-S002', 'missing-field': 'MEL-S003', 'unit-mismatch': 'MEL-S005', 'unknown-unit': 'MEL-S004', 'unitless-length': 'MEL-S006', 'string-for-quantity': 'MEL-S008', 'quantity-for-string': 'MEL-S008', 'source-kind-case': 'MEL-S001', 'source-kind-unknown': 'MEL-S001', 'mass-is-not-force': 'MEL-S005', 'heights-not-list': 'MEL-S008', 'too-many-heights': 'MEL-S014', 'backend-picogk': 'MEL-S012', 'exports-extra': 'MEL-S013', 'wrong-capability': 'MEL-S011', 'design-name-uppercase': 'MEL-S010'}
+
+
 @pytest.mark.parametrize('case,edit,code,field,line', SEMANTIC, ids=[c[0] for c in SEMANTIC])
 def test_semantic_failure_points_at_the_field(case, edit, code, field, line):
     with pytest.raises(MelError) as excinfo:
         compile_beam(replace(*edit))
     d = excinfo.value.diagnostic
-    assert (d.code, d.field, d.span.start.line) == (code, field, line)
+    assert (d.field, d.span.start.line) == (field, line)
     assert d.category == 'semantic'
+    mel = MEL_S[case]
+    assert d.code == mel
+    assert MEL_S_IR_CODES[mel] == code
+    assert d.ir_code == code
 
 
 def test_lexical_and_syntax_errors_stop_before_lowering():
@@ -209,7 +217,7 @@ def test_escaped_control_and_format_characters_are_rejected_in_text_fields(code_
     with pytest.raises(MelError) as excinfo:
         compile_beam(replace('"ideal_clamp_end_force_linear_elastic"', '"ideal' + escaped + '"'))
     d = excinfo.value.diagnostic
-    assert (d.code, d.field, d.span.start.line) == ('IR010', 'assumptions', 19)
+    assert (d.code, d.ir_code, d.field, d.span.start.line) == ('MEL-S009', 'IR010', 'assumptions', 19)
 
 
 def test_escaped_printable_non_ascii_is_still_a_string():

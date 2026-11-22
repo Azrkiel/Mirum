@@ -7,6 +7,7 @@ Positions: ``offset`` is a 0-based byte offset into the UTF-8 source; ``line`` a
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 # Lexical codes are frozen in LANGUAGE.md (F01); syntax/structure codes are frozen in F04.
 LEXICAL = {
@@ -48,6 +49,36 @@ SYNTAX = {
     'MEL-P011': 'Unexpected end of input',
 }
 
+SEMANTIC = {
+    'MEL-S001': 'material_source_kind is missing or not "illustrative", "user_supplied" or "documented"',
+    'MEL-S002': 'Unknown field for this capability and version',
+    'MEL-S003': 'Missing required field (no defaults)',
+    'MEL-S004': 'Unknown unit',
+    'MEL-S005': 'Unit of the wrong dimension',
+    'MEL-S006': 'Physical quantity without a unit',
+    'MEL-S007': 'Non-finite value',
+    'MEL-S008': 'Wrong kind of value for this field',
+    'MEL-S009': 'Text contains a control, format or separator character',
+    'MEL-S010': 'Invalid design name',
+    'MEL-S011': 'Unsupported capability or capability version',
+    'MEL-S012': 'Backend not supported for this capability',
+    'MEL-S013': 'Export not supported by this backend and capability',
+    'MEL-S014': 'Candidate policy violation',
+    'MEL-S015': 'Value rejected by the reviewed brief validation',
+    'MEL-S016': 'Invalid source_id label',
+    'MEL-S017': 'Reviewed round trip mismatch',
+    'MEL-S018': 'Compile deadline exceeded',
+    'MEL-S019': 'Invalid program record',
+}
+# MEL-S code -> F02 IR code (None: no IR equivalent).
+MEL_S_IR_CODES = MappingProxyType({
+    'MEL-S001': 'IR010', 'MEL-S002': 'IR002', 'MEL-S003': 'IR010', 'MEL-S004': 'IR005',
+    'MEL-S005': 'IR006', 'MEL-S006': 'IR006', 'MEL-S007': 'IR007', 'MEL-S008': 'IR010',
+    'MEL-S009': 'IR010', 'MEL-S010': 'IR010', 'MEL-S011': 'IR010', 'MEL-S012': 'IR010',
+    'MEL-S013': 'IR010', 'MEL-S014': 'IR010', 'MEL-S015': 'IR010', 'MEL-S016': None,
+    'MEL-S017': 'IR010', 'MEL-S018': None, 'MEL-S019': 'IR010',
+})
+
 HINTS = {
     'MEL-L001': 'Save the file as UTF-8.',
     'MEL-L002': 'Remove the byte-order mark at the start of the file.',
@@ -83,6 +114,25 @@ HINTS = {
     'MEL-P009': 'Reduce the number of values.',
     'MEL-P010': 'Use at most 256 elements per list.',
     'MEL-P011': 'Complete the design block and close it with }.',
+    'MEL-S001': 'Set material_source_kind to exactly "illustrative", "user_supplied" or "documented".',
+    'MEL-S002': 'Remove the field or use one of the fields this capability defines.',
+    'MEL-S003': 'Add the missing field; no field has a default.',
+    'MEL-S004': 'Use a supported unit such as mm, m, N, kN or MPa.',
+    'MEL-S005': 'Use a unit of the dimension this field needs (length, force or pressure).',
+    'MEL-S006': 'Write the number with a unit, for example 10 mm.',
+    'MEL-S007': 'Use a finite number.',
+    'MEL-S008': 'Use the kind of value this field expects: a quantity, a string or a list.',
+    'MEL-S009': 'Remove control, invisible format and line separator characters from the text.',
+    'MEL-S010': 'Use a design name of lower case letters, digits and _, starting with a letter (at most 64).',
+    'MEL-S011': 'Use capability "rectangular_cantilever" with capability_version "1.0.0".',
+    'MEL-S012': 'Use backend "occt".',
+    'MEL-S013': 'Set exports to exactly ["step", "glb"].',
+    'MEL-S014': 'List one to four unique candidate heights inside the capability envelope.',
+    'MEL-S015': 'Change the value to one the reviewed brief validation accepts.',
+    'MEL-S016': 'Use a relative label of [A-Za-z0-9._-] segments, at most 128 characters, without . or .. segments.',
+    'MEL-S017': 'Report this compiler defect; the reviewed round trip did not reproduce the validated brief.',
+    'MEL-S018': 'Shorten or simplify the source so it compiles within 2 seconds.',
+    'MEL-S019': 'Check the field values; the program record built from them was invalid.',
 }
 
 _SNIPPET = 64
@@ -122,11 +172,12 @@ class Span:
 @dataclass(frozen=True)
 class Diagnostic:
     code: str
-    category: str  # 'lexical' | 'syntax' | 'semantic'
+    category: str  # 'lexical' | 'syntax' | 'semantic' | 'resource'
     message: str
     hint: str
     span: Span
     field: str | None = field(default=None)
+    ir_code: str | None = None
 
 
 class MelError(ValueError):
@@ -143,7 +194,10 @@ def make(code: str, span: Span, message: str | None = None, *, field_name: str |
         category, base = 'lexical', LEXICAL[code]
     elif code in SYNTAX:
         category, base = 'syntax', SYNTAX[code]
+    elif code in SEMANTIC:
+        category, base = ('resource' if code == 'MEL-S018' else 'semantic'), SEMANTIC[code]
     else:
         category, base = 'semantic', 'Invalid program'
     hint = HINTS.get(code, 'Fix the value of this field.')
-    return MelError(Diagnostic(code, category, message or base, hint, span, field_name))
+    return MelError(Diagnostic(code, category, message or base, hint, span, field_name,
+                               MEL_S_IR_CODES.get(code)))

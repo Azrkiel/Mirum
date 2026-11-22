@@ -1,10 +1,11 @@
 """Committed F02 JSON Schemas and registry export must equal what the models generate."""
 from __future__ import annotations
 
+import hashlib
 import json
 
 from engineering.program import PROGRAM_IR_VERSION, schema_export as se
-from engineering.program.versions import REGISTRY_VERSION
+from engineering.program.versions import REGISTRY_VERSION, REGISTRY_VERSION_V0_1
 
 
 def test_committed_files_equal_generated_byte_for_byte():
@@ -33,8 +34,24 @@ def test_program_ir_schema_is_closed_and_pins_version():
     assert prop.get('const', None) == PROGRAM_IR_VERSION or prop.get('enum') == [PROGRAM_IR_VERSION]
 
 
-def test_registry_export_lists_v0_1_operations_plus_regen():
-    data = json.loads((se.SCHEMA_DIR / se.REGISTRY_EXPORT_NAME).read_text(encoding='utf-8'))
+REGISTRY_V0_1_EXPORT_SHA256 = '0f20ac6e522e485b787ecc2e54feb55def59868ec13ceea574ae1c4d932c54df'
+
+
+def test_registry_v0_1_export_is_the_pre_f03_bytes():
+    raw = (se.SCHEMA_DIR / se.REGISTRY_EXPORT_NAME_V0_1).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == REGISTRY_V0_1_EXPORT_SHA256
+    data = json.loads(raw)
+    assert data['registry_version'] == REGISTRY_VERSION_V0_1
+    ops = data['operations']
+    assert len(ops) == 14
+    assert all(o['version'] == '0.1.0' for o in ops)
+    executable = {o['id'] for o in ops if o['executable']}
+    assert executable == {'capability.build', 'capability.inspect', 'capability.analyze', 'capability.export'}
+    assert all(o['id'].startswith('construct.') for o in ops if not o['executable'])
+
+
+def test_registry_v0_2_export_lists_v0_1_operations_plus_regen():
+    data = json.loads((se.SCHEMA_DIR / se.REGISTRY_EXPORT_NAME_V0_2).read_text(encoding='utf-8'))
     assert data['registry_version'] == REGISTRY_VERSION
     ops = data['operations']
     v01 = [o for o in ops if o['version'] == '0.1.0']
