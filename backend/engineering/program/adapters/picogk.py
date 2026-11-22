@@ -43,10 +43,11 @@ _HEX64_TOKEN = re.compile(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])')
 # the builder's directory (/opt/regen/app/builder). The Dockerfile reads only its first field.
 _MANIFEST_NAME = 'picogk-runtime.sha256'
 _MANIFEST_BUDGET_BYTES = 4096
-# K37: STL reread deadline, strictly tighter than REGEN.resources.overall_seconds (420). Provisional:
-# pinned by backend/tests/test_regen_native_k37.py (the native timing must show a >= 5x margin) and by
-# the F05 PR CI evidence. The reread runs on a dedicated one-thread executor behind a non-waiting slot.
-INSPECT_DEADLINE_S = 120.0
+# K37: STL reread deadline, strictly tighter than REGEN.resources.overall_seconds (420). Evidence: the
+# real reread of the small cleaned STL (68,073,484 bytes) took 1.804 s in picogk-runtime (F05 PR #138,
+# run 45002982642); 20 s keeps a > 10x margin. backend/tests/test_regen_native_k37.py re-measures it
+# natively and requires >= 5x. The reread runs on a dedicated one-thread executor behind a non-waiting slot.
+INSPECT_DEADLINE_S = 20.0
 # Legacy alias (older tests patch this name); the tighter of the two values applies.
 _INSPECT_DEADLINE_S = INSPECT_DEADLINE_S
 _REREAD_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix='picogk-reread')

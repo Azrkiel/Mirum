@@ -234,7 +234,9 @@ def test_host_worst_case_is_fast():
 
 # ---------------------------------------------------------------- P03 pins
 
-@pytest.mark.parametrize('path', [DOC_MIR, P03_MIR])
+# The native CI image ships backend/ but not docs/; there the byte-identical p03 copy is pinned alone
+# (test_program_beam_bridge.py::test_fixture_beam_mir_is_the_documented_example ties the two together).
+@pytest.mark.parametrize('path', [P03_MIR] + ([DOC_MIR] if DOC_MIR.exists() else []))
 def test_p03_pins(path):
     raw = path.read_bytes()
     out = compile_source(raw)

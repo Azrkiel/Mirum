@@ -20,8 +20,9 @@ cadquery = pytest.importorskip('cadquery')
 pytestmark = pytest.mark.skipif(os.name != 'posix', reason='ProcessRunner needs posix process groups')
 
 ROOT = Path(__file__).resolve().parents[2]
-MIR = (ROOT / 'docs' / 'plans' / 'checked-engineering-v1' / 'phase-3-framework-language'
-       / 'examples' / 'beam.mir')
+# The native image ships backend/ but not docs/: use the byte-identical copy of examples/beam.mir
+# (pinned equal to the documented example by test_program_beam_bridge.py in a full checkout).
+MIR = ROOT / 'backend' / 'tests' / 'fixtures' / 'program' / 'p03' / 'beam.mir'
 FORM = ROOT / 'backend' / 'tests' / 'fixtures' / 'program' / 'p03' / 'form.json'
 HEIGHTS = [5.0, 10.0, 15.0]
 MIB = 1024 * 1024
