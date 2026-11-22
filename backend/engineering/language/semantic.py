@@ -286,6 +286,7 @@ def _compile_program(program: Program, data: bytes, source_id: str | None, guard
         if back != content or back.brief_sha256 != content.brief_sha256:
             raise _error('MEL-S017', 'the reviewed round trip did not reproduce the validated brief',
                          program.design_span, 'program')
+        guard.check(program.design_span, 'design')  # security review LOW-1 (PR #138): after the bridge
         data_ir = json.loads(ir.model_dump_json())
         data_ir['provenance']['source_sha256'] = source_sha256(data)
         for requirement in data_ir['requirements']['requirements']:
@@ -340,6 +341,7 @@ def compile_source(source: bytes | str, *, source_id: str | None = None, deadlin
     decode(source)  # size, BOM and UTF-8 checks before any encoding below
     data = source.encode('utf-8') if isinstance(source, str) else bytes(source)
     program = parse(data)
+    guard.check(program.design_span, 'design')  # security review LOW-1 (PR #138): parse counts too
     return _compile_program(program, data, source_id, guard)
 
 

@@ -88,6 +88,9 @@ class ProgramReview:
     def __post_init__(self):
         if not isinstance(self.lock, (ExecutionLockV0_2, ExecutionLock)):
             raise ValueError('lock must be an execution lock')
+        # Security review LOW-3 (PR #138): a v0_2 lock is bound to its hash. (A v0_1 lock never authorizes.)
+        if isinstance(self.lock, ExecutionLockV0_2) and execution_lock_v0_2_sha256(self.lock) != self.lock_sha256:
+            raise ValueError('lock_sha256 does not match the lock')
 
 
 @dataclass(frozen=True)
@@ -234,11 +237,17 @@ async def authorize_run(review: ProgramReview, compiled, brief_service, brief_id
             or any(a.candidate_sha256 != b.candidate_sha256 or a.brief_sha256 != b.brief_sha256
                    for a, b in zip(candidates, planned))):
         return _refuse('refused', 'candidate_mismatch')
-    plans = _plans(compiled.ir, candidates)
+    ir = compiled.ir  # one read: the plans and the re-check below use the same object
+    plans = _plans(ir, candidates)
     for p in plans:
         decision = adapter.supports(p)
         if not decision.supported:
             return PlanRefusal('unsupported', tuple(decision.reasons), decision.diagnostic_code, decision)
+    # Security review LOW-2 (PR #138): the probe above awaited; re-bind the IR the plans were built
+    # from to the reviewed semantic and lock hashes, with no await before the authorization is returned.
+    if (semantic_sha256(ir) != review.semantic_sha256
+            or execution_lock_v0_2_sha256(execution_lock_v0_2(ir, fresh.backend_lock)) != review.lock_sha256):
+        return _refuse('refused', 'semantic_mismatch')
     return RunAuthorization(review=review, brief_id=brief_id, backend_lock=fresh.backend_lock,
                             plans=plans, source_sha256=compiled.source_sha256)
 

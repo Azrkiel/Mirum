@@ -264,6 +264,31 @@ def test_semantic_mismatch_when_review_hash_differs():
     assert out.reasons == ('semantic_mismatch',) and out.outcome == 'refused'
 
 
+def test_review_lock_must_match_its_hash():
+    # Security review LOW-3 (PR #138): a hand-built review cannot carry a lock other than the hashed one.
+    _, _, _, _, _, review = reviewed()
+    with pytest.raises(ValueError):
+        ProgramReview(**{**review.__dict__, 'lock_sha256': '0' * 64})
+
+
+def test_ir_swapped_during_the_probe_is_refused_before_build():
+    # Security review LOW-2 (PR #138): the probe awaits; an IR changed meanwhile must not be planned.
+    compiled, adapter, _, _, service, review = reviewed()
+    brief = finalize(service, review)
+    other = compile_source(edited('tip_force = 50 N', 'tip_force = 60 N')).ir
+
+    class Swapping(RecordingFake):
+        async def probe(self):
+            result = await super().probe()
+            object.__setattr__(compiled, 'ir', other)  # bypass the frozen record on purpose
+            return result
+
+    swapping = Swapping()
+    out = run(run_program(review, compiled, service, brief.brief_id, adapter=swapping, context=CTX))
+    assert isinstance(out, PlanRefusal) and out.reasons == ('semantic_mismatch',)
+    assert swapping.builds == []
+
+
 def test_backend_change_makes_lock_mismatch_and_zero_builds():
     compiled, adapter, _, _, service, review = reviewed()
     brief = finalize(service, review)

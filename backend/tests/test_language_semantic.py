@@ -208,6 +208,22 @@ def test_deadline_span_is_design_span_at_stage_boundary():
     assert d.code == 'MEL-S018' and d.span.start.line == 4
 
 
+def test_time_spent_in_parse_counts_against_the_deadline(monkeypatch):
+    # Security review LOW-1 (PR #138): the deadline is checked right after parsing.
+    import engineering.language.semantic as semantic
+    state = {'now': 0.0}
+    real_parse = semantic.parse
+
+    def slow_parse(data):
+        result = real_parse(data)
+        state['now'] = 2.5
+        return result
+
+    monkeypatch.setattr(semantic, 'parse', slow_parse)
+    d = fail(beam_source(), clock=lambda: state['now']).diagnostic
+    assert d.code == 'MEL-S018' and d.category == 'resource'
+
+
 def test_deadline_per_list_element():
     longer = Scripted()
     compile_source(replace('[5 mm, 10 mm, 15 mm]', '[5 mm, 10 mm, 15 mm, 20 mm]'), clock=longer)
