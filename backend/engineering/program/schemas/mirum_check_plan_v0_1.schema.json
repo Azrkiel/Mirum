@@ -1,0 +1,272 @@
+{
+  "$defs": {
+    "CandidateChecks": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Candidate Sha256",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/CheckEntry"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Entries",
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidate_sha256",
+        "entries"
+      ],
+      "title": "CandidateChecks",
+      "type": "object"
+    },
+    "CheckEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "geometry",
+            "preview",
+            "physics",
+            "manufacturing",
+            "standards"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "check_id": {
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
+          "title": "Check Id",
+          "type": "string"
+        },
+        "feature_refs": {
+          "default": [],
+          "items": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Feature Refs",
+          "type": "array"
+        },
+        "limits": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/CheckLimit"
+          },
+          "maxItems": 8,
+          "title": "Limits",
+          "type": "array"
+        },
+        "predicate": {
+          "enum": [
+            "solid_single_closed",
+            "root_section_face",
+            "free_end_face",
+            "dimension_length",
+            "dimension_width",
+            "dimension_height",
+            "datum_origin",
+            "prism_volume",
+            "preview_extent",
+            "physics_report_inputs",
+            "not_evaluated"
+          ],
+          "title": "Predicate",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "required_representation": {
+          "enum": [
+            "brep",
+            "mesh"
+          ],
+          "title": "Required Representation",
+          "type": "string"
+        },
+        "requirement_refs": {
+          "default": [],
+          "items": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Requirement Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "check_id",
+        "category",
+        "required",
+        "predicate",
+        "required_representation"
+      ],
+      "title": "CheckEntry",
+      "type": "object"
+    },
+    "CheckLimit": {
+      "additionalProperties": false,
+      "properties": {
+        "comparison": {
+          "enum": [
+            "le",
+            "ge",
+            "abs_le",
+            "eq"
+          ],
+          "title": "Comparison",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "scale_refs": {
+          "default": [],
+          "items": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Scale Refs",
+          "type": "array"
+        },
+        "source": {
+          "maxLength": 120,
+          "title": "Source",
+          "type": "string"
+        },
+        "unit": {
+          "enum": [
+            "mm",
+            "mm2",
+            "mm3",
+            "mm4",
+            "ratio",
+            "count"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "maximum": 1000000000000.0,
+          "minimum": -1000000000000.0,
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "unit",
+        "comparison",
+        "source"
+      ],
+      "title": "CheckLimit",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "brief_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Brief Sha256",
+      "type": "string"
+    },
+    "candidates": {
+      "items": {
+        "$ref": "#/$defs/CandidateChecks"
+      },
+      "maxItems": 4,
+      "minItems": 1,
+      "title": "Candidates",
+      "type": "array"
+    },
+    "capability_id": {
+      "const": "rectangular_cantilever",
+      "enum": [
+        "rectangular_cantilever"
+      ],
+      "title": "Capability Id",
+      "type": "string"
+    },
+    "capability_version": {
+      "const": "1.0.0",
+      "enum": [
+        "1.0.0"
+      ],
+      "title": "Capability Version",
+      "type": "string"
+    },
+    "claim_scope": {
+      "const": "checked_design",
+      "enum": [
+        "checked_design"
+      ],
+      "title": "Claim Scope",
+      "type": "string"
+    },
+    "fixed_requirements_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Fixed Requirements Sha256",
+      "type": "string"
+    },
+    "lock_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Lock Sha256",
+      "type": "string"
+    },
+    "mesh_convention_pinned": {
+      "title": "Mesh Convention Pinned",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "mirum_check_plan_v0_1",
+      "default": "mirum_check_plan_v0_1",
+      "enum": [
+        "mirum_check_plan_v0_1"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantic_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Semantic Sha256",
+      "type": "string"
+    }
+  },
+  "required": [
+    "capability_id",
+    "capability_version",
+    "claim_scope",
+    "semantic_sha256",
+    "lock_sha256",
+    "brief_sha256",
+    "fixed_requirements_sha256",
+    "mesh_convention_pinned",
+    "candidates"
+  ],
+  "title": "CheckPlan",
+  "type": "object"
+}
