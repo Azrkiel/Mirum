@@ -37,6 +37,7 @@ __all__ = [
     'DeliveredEvidence', 'build_check_plan', 'check_plan_sha256', 'evidence_sha256',
     'derive_verdict', 'check_evidence_against_plan', 'ReportInputs', 'bind_features', 'evaluate',
     'build_delivered_evidence', 'preview_can_pass', 'GLB_LINEAR_DEFLECTION_MM', 'GLB_F32_REL',
+    'UNKNOWN_SHA256',
 ]
 
 MAX_FACES = 64
@@ -58,6 +59,9 @@ _POLICY_VALUES = {name: value for name, value in CAPABILITY.numerical.model_dump
 POLICY_FIELDS = tuple(sorted(_POLICY_VALUES))
 
 _BIG = 1e12
+# Placeholder for a hash that was never computed (a non-verified record made before the bundle, the plan
+# or the candidate was known). A verified record can never carry it.
+UNKNOWN_SHA256 = '0' * 64
 
 # GLB preview error model (manager decision, F07 design notes).
 # Source: CadQuery v2.6.1 cadquery/assembly.py, Assembly.save(exportType='GLB') meshes with the default
@@ -571,7 +575,7 @@ class DeliveredEvidence(IRModel):
     candidate_sha256: Hash64
     claim_scope: ClaimScope
     manifest_sha256: Hash64
-    step_sha256: Hash64
+    step_sha256: Hash64 | None  # None only for a record made before the STEP was leased (never verified)
     glb_sha256: Hash64 | None = None
     check_plan_sha256: Hash64
     check_plan_version: Literal['mirum_check_plan_v0_1'] = CHECK_PLAN_VERSION
@@ -591,6 +595,9 @@ class DeliveredEvidence(IRModel):
             _bad('the verdict is not consistent with the checks')
         if self.verdict == 'verified' and self.reasons:
             _bad('a verified record carries no reasons')
+        if self.verdict == 'verified' and (self.step_sha256 is None or UNKNOWN_SHA256 in (
+                self.step_sha256, self.manifest_sha256, self.check_plan_sha256, self.candidate_sha256)):
+            _bad('a verified record names its STEP, manifest, plan and candidate')
         if 'mock_backend' in self.reasons and (
                 self.verdict != 'unavailable' or any(c.state == 'passed' for c in self.checks)):
             _bad('a mock backend yields unavailable evidence that passes nothing')

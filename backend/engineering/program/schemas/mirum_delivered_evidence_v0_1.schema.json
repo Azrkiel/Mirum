@@ -517,11 +517,18 @@
       "type": "string"
     },
     "step_sha256": {
-      "maxLength": 64,
-      "minLength": 64,
-      "pattern": "^[0-9a-f]{64}$",
-      "title": "Step Sha256",
-      "type": "string"
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Step Sha256"
     },
     "verdict": {
       "enum": [
