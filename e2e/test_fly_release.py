@@ -156,8 +156,27 @@ def test_init_script_parses_with_sh():
 def test_fly_tomls_have_no_build_section_and_no_forbidden_settings():
     for path in (BACKEND_TOML, FRONTEND_TOML):
         assert "[build]" not in toml_code(path), path
-        assert "MIRUM_ENGINEERING_AI_DRAFTS" not in read(path), path
         assert not re.search(r"^\s*MIRUM_ACCESS_TOKEN\s*=", toml_code(path), re.M), path
+    assert "MIRUM_ENGINEERING_AI" not in read(FRONTEND_TOML)
+    assert "GEMINI" not in toml_code(BACKEND_TOML) and "GEMINI" not in toml_code(FRONTEND_TOML)
+
+
+# Owner yes 2026-11-22 (runbook docs/runbooks/2026-11-21-ai-flag-enable.md section 5): AI drafts on in prod,
+# with exactly these caps. Any other AI setting, or a looser value, must fail here and get its own review.
+AI_ENV = {
+    "MIRUM_ENGINEERING_AI_DRAFTS": "1",
+    "MIRUM_ENGINEERING_AI_DAILY_CALLS": "20",
+    "MIRUM_ENGINEERING_AI_CONCURRENCY": "1",
+    "MIRUM_ENGINEERING_AI_REQUESTS_PER_CLIENT_DAY": "5",
+}
+
+
+def test_backend_toml_pins_the_ai_settings_exactly():
+    code = toml_code(BACKEND_TOML)
+    found = dict(re.findall(r'^(MIRUM_[A-Z_]*AI[A-Z_]*) = "([^"]*)"$', code, re.M))
+    assert found == AI_ENV
+    for name in AI_ENV:
+        assert len(re.findall(r"^\s*" + name + r"\s*=", code, re.M)) == 1, name
 
 
 def test_backend_toml_settings():

@@ -1,8 +1,10 @@
 # Runbook: enabling AI draft preparation in production
 
-Status: proposal for owner review, 2026-11-21. Nothing in this file has been executed. Prod runs with the
-flag OFF (handoff `.claude/handoffs/2026-11-21-1830.md` section 3). Every step below that spends money, changes
-a secret or deploys needs the owner's explicit yes at the time it is run.
+Status: 2026-11-22: owner said yes to the staging live check and to the prod enable. Section 5 steps 2-3 are
+the `deploy/fly/backend.fly.toml` `[env]` change (pinned by `e2e/test_fly_release.py`); the deploy happens only
+after the section 4 staging check passes on the same backend digest. Until that deploy, prod runs with the flag
+OFF (handoff `.claude/handoffs/2026-11-21-1830.md` section 3). Every step below that spends money, changes a
+secret or deploys needs the owner's explicit yes at the time it is run.
 
 ## 1. Scope
 
