@@ -212,7 +212,7 @@ def _artifact():
 def test_mock_inspect_and_export():
     m = MockKernelAdapter('occt')
     art = _artifact()
-    i = m.inspect(art, beam_plan())
+    i = asyncio.run(m.inspect(art, beam_plan()))
     assert (i.outcome, i.reasons, i.mode) == ('unavailable', ('mock_backend',), 'mock')
     assert i.measurements == () and i.artifact_sha256 == art.ref.sha256
     e = m.export(art, 'step')

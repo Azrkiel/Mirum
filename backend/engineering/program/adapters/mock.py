@@ -40,7 +40,7 @@ class MockKernelAdapter:
                                      diagnostic_code=decision.diagnostic_code, **common))
         return Built(BuildResult(outcome='planned', op_stream=plan.op_stream, **common))
 
-    def inspect(self, artifact: Artifact, plan: BuildPlan) -> InspectResult:
+    async def inspect(self, artifact: Artifact, plan: BuildPlan) -> InspectResult:
         return InspectResult(backend=self.backend, mode='mock', outcome='unavailable',
                              reasons=('mock_backend',), artifact_sha256=artifact.ref.sha256)
 

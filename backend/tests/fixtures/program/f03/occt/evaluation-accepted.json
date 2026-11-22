@@ -1,0 +1,19 @@
+{
+  "outcome": "accepted",
+  "report_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "report": {
+    "measurements": {
+      "length_mm": 200.0,
+      "width_mm": 10.0,
+      "height_mm": 15.0,
+      "volume_mm3": 30000.0,
+      "surface_area_mm2": 10300.0,
+      "section_area_mm2": 150.0,
+      "section_iy_mm4": 2812.5
+    }
+  },
+  "artifacts": {
+    "model.step": "ISO-10303-21; fixture step bytes",
+    "preview.glb": "glTF fixture glb bytes"
+  }
+}

@@ -1,0 +1,321 @@
+"""OCCT kernel adapter (F03): a thin wrapper over the existing CadQuery beam path.
+
+It never decides engineering acceptance and never re-implements beam mathematics: the verdict is
+copied from the evaluation dict returned by engineering.cantilever.CantileverAdapter.evaluate
+(policy.assess already ran inside it). Module-level imports stay native-free; cadquery and OCP are
+only ever imported inside owned subprocesses (the probe script and the existing worker.py).
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import math
+import os
+import re
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any, Mapping
+
+from pydantic import ValidationError
+
+from ..errors import SourceSpan
+from ..kernel import (
+    Artifact, ArtifactRef, BackendDescription, Built, BuildPlan, BuildResult, ExecutionContext,
+    ExportResult, InspectResult, KernelFormat, Measurement, NativeVersion, ProbeResult,
+    SupportDecision, ToleranceConvention, check_plan, make_description,
+)
+from ..registry import ArtifactGraph, ArtifactNode
+
+__all__ = ['OcctAdapter', 'ADAPTER_VERSION', 'compare_reread']
+
+ADAPTER_VERSION = 'occt-0.1.0'
+
+_PROBE_SCRIPT = Path(__file__).with_name('_occt_probe.py')
+_WORKER_SCRIPT = Path(__file__).resolve().parents[2] / 'worker.py'
+
+# Limits cited from engineering/service.py generate_verified (line 34): the worker runs under
+# ProcessRunner(timeout=30, output_limit=1048576, memory_mb=1536) and its report is capped at 1 MiB.
+_WORKER_TIMEOUT_S = 30
+_WORKER_OUTPUT_LIMIT = 1048576
+_WORKER_MEMORY_MB = 1536
+_REPORT_CAP_BYTES = 1048576
+# The probe prints one short JSON line; same memory and timeout budget as the worker.
+_PROBE_OUTPUT_LIMIT = 65536
+
+# The beam capability descriptor (engineering.capabilities.CAPABILITY) has no `claim` field. The
+# existing code states the beam claim as this literal (engineering/api_v1.py:384, router.CHECKED).
+_BEAM_CLAIM = 'checked_design'
+
+_BOX_VOLUME = 1 * 2 * 3  # probe box 1 x 2 x 3 mm
+_HEX64 = re.compile(r'^[0-9a-f]{64}$')
+
+# report['measurements'] key -> (record name, unit)
+_MEASUREMENT_NAMES: tuple[tuple[str, str, str], ...] = (
+    ('length_mm', 'beam.length', 'mm'),
+    ('width_mm', 'beam.width', 'mm'),
+    ('height_mm', 'beam.height', 'mm'),
+    ('volume_mm3', 'beam.volume', 'mm3'),
+    ('surface_area_mm2', 'beam.surface_area', 'mm2'),
+    ('section_area_mm2', 'beam.section_area', 'mm2'),
+    ('section_iy_mm4', 'beam.section_iy', 'mm4'),
+)
+_REQUIRED_REREAD = ('length_mm', 'width_mm', 'height_mm', 'volume_mm3')
+
+_ARTIFACT_SPECS = (
+    # (artifact name in evaluation['artifacts'], format, representation, node id)
+    ('model.step', 'step', 'brep', 'beam.solid'),
+    ('preview.glb', 'glb', 'mesh', 'beam.preview'),
+)
+
+
+def _tolerances() -> tuple[ToleranceConvention, ...]:
+    # The per-brief dimensional tolerance (spec.dimensional_tolerance_mm) has no static constant, so
+    # it is deliberately not declared here.
+    return (
+        ToleranceConvention(
+            name='topology_tolerance_max', value=1e-6, unit='mm',
+            source='engineering.verify.verify_step dimensional_evidence_budget'),
+        ToleranceConvention(
+            name='datum_origin', value=1e-6, unit='mm',
+            source='engineering.verify.verify_step datum_frame'),
+        ToleranceConvention(
+            name='volume_relative', value=1e-8, unit='relative',
+            source='engineering.verify.verify_step complete_prism_metrics'),
+        ToleranceConvention(
+            name='volume_absolute_floor', value=1e-6, unit='mm3',
+            source='engineering.verify.verify_step complete_prism_metrics'),
+    )
+
+
+def _finite(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _reject_constant(_name):
+    raise ValueError('non-finite JSON constant')
+
+
+def _measurements(raw: Any, source: str) -> tuple[Measurement, ...]:
+    """Map report measurement keys to records; only keys present and finite, never guessed."""
+    if not isinstance(raw, Mapping):
+        return ()
+    return tuple(Measurement(name=name, value=float(raw[key]), unit=unit, source=source)
+                 for key, name, unit in _MEASUREMENT_NAMES if _finite(raw.get(key)))
+
+
+def compare_reread(report: Mapping[str, Any], spec: Any, artifact_sha256: str) -> InspectResult:
+    """Pure comparison of a reread report against the requested dimensions (no native call)."""
+    def result(outcome, reasons=(), measurements=(), deviations=()):
+        return InspectResult(backend='occt', mode='native', outcome=outcome, reasons=reasons,
+                             artifact_sha256=artifact_sha256, measurements=measurements,
+                             deviations=deviations)
+
+    if not isinstance(report, Mapping):
+        return result('unavailable', ('evidence_invalid',))
+    if report.get('step_sha256') != artifact_sha256:
+        return result('precision_failure', ('reread_mismatch',))
+    raw = report.get('measurements')
+    if not isinstance(raw, Mapping) or not all(_finite(raw.get(k)) for k in _REQUIRED_REREAD):
+        return result('unavailable', ('evidence_invalid',))
+    measured = _measurements(raw, 'reread')
+    length, width, height, volume = (float(raw[k]) for k in _REQUIRED_REREAD)
+    requested = (spec.length_mm, spec.width_mm, spec.height_mm)
+    dims = tuple(abs(a - b) for a, b in zip((length, width, height), requested))
+    # Same rule as verify.verify_step size_requirements (tolerance = spec.dimensional_tolerance_mm).
+    dims_ok = all(d <= spec.dimensional_tolerance_mm for d in dims)
+    volume_error = abs(volume - length * width * height)
+    # Same rule as verify.verify_step complete_prism_metrics.
+    volume_ok = volume_error <= max(1e-6, volume * 1e-8)
+    deviations = tuple(
+        Measurement(name=name, value=value, unit=unit, source='reread')
+        for name, value, unit in (('beam.length', dims[0], 'mm'), ('beam.width', dims[1], 'mm'),
+                                  ('beam.height', dims[2], 'mm'), ('beam.volume', volume_error, 'mm3')))
+    if not (dims_ok and volume_ok):
+        return result('precision_failure', ('measurement_out_of_tolerance',), measured, deviations)
+    return result('consistent', (), measured, deviations)
+
+
+class OcctAdapter:
+    backend = 'occt'
+    mode = 'native'
+
+    def __init__(self, *, python: str | None = None):
+        self._python = python or sys.executable
+
+    def describe(self) -> BackendDescription:
+        return make_description('occt', mode='native', adapter_version=ADAPTER_VERSION,
+                                tolerances=_tolerances())
+
+    # ------------------------------------------------------------------ probe
+
+    async def probe(self) -> ProbeResult:
+        def no(reason: str) -> ProbeResult:
+            return ProbeResult(backend='occt', mode='native', available=False, reasons=(reason,))
+
+        if not os.path.exists(self._python):
+            return no('runtime_missing')
+        from process_runner import ProcessRunner
+        # Same timeout and memory budget as the worker (service.py:34); output capped at 64 KiB.
+        runner = ProcessRunner(timeout=30, output_limit=_PROBE_OUTPUT_LIMIT, memory_mb=1536)
+        try:
+            outcome = await runner.run([self._python, str(_PROBE_SCRIPT)], env=None)
+        finally:
+            await runner.close()
+        if not isinstance(outcome, Mapping):
+            return no('probe_failed')
+        if outcome.get('code'):  # includes PROCESS_TREE_UNAVAILABLE, TIMEOUT, OUTPUT_LIMIT
+            return no('probe_failed')
+        if outcome.get('returncode') == 3:
+            return no('runtime_missing')
+        if outcome.get('returncode') != 0:
+            return no('probe_failed')
+        stdout = outcome.get('stdout')
+        if not isinstance(stdout, str) or len(stdout.encode('utf-8', 'ignore')) > _PROBE_OUTPUT_LIMIT:
+            return no('probe_failed')
+        try:
+            data = json.loads(stdout, parse_constant=_reject_constant)
+        except ValueError:
+            return no('probe_failed')
+        if not isinstance(data, dict):
+            return no('probe_failed')
+        if data.get('error') == 'import':
+            return no('runtime_missing')
+        cad, ocp, volume = data.get('cadquery'), data.get('ocp'), data.get('volume')
+        if not (isinstance(cad, str) and isinstance(ocp, str) and cad and ocp and _finite(volume)):
+            return no('probe_failed')
+        # Same rule as verify.verify_step complete_prism_metrics.
+        if abs(volume - _BOX_VOLUME) > max(1e-6, _BOX_VOLUME * 1e-8):
+            return no('probe_failed')
+        try:
+            versions = (NativeVersion(name='cadquery', version=cad), NativeVersion(name='OCP', version=ocp))
+            return ProbeResult(backend='occt', mode='native', available=True, native_versions=versions)
+        except ValidationError:
+            return no('probe_failed')
+
+    # ------------------------------------------------------------------ support / build
+
+    def supports(self, plan: BuildPlan) -> SupportDecision:
+        return check_plan(self.describe(), plan)
+
+    async def build(self, plan: BuildPlan, context: ExecutionContext) -> Built:
+        common = dict(backend='occt', adapter_version=ADAPTER_VERSION, mode='native',
+                      capability_id=plan.capability_id, capability_version=plan.capability_version)
+
+        def refuse(outcome: str, reasons: tuple, code: str | None = None) -> Built:
+            return Built(BuildResult(outcome=outcome, reasons=reasons, diagnostic_code=code, **common))
+
+        decision = self.supports(plan)
+        if not decision.supported:
+            return refuse('unsupported', decision.reasons, decision.diagnostic_code)
+        probe = await self.probe()
+        if not probe.available:
+            return refuse('unavailable', probe.reasons)
+
+        # Lazy: these modules sit next to native code and are only needed once a build starts.
+        from engineering.cantilever import CantileverAdapter
+        from engineering.capabilities import UnsupportedCapability
+        from engineering.service import EngineeringUnavailable
+        try:
+            candidate = type(plan.candidate).model_validate(plan.candidate.model_dump())
+        except ValueError:
+            return refuse('unsupported', ('candidate_invalid',))
+        try:
+            evaluation = await asyncio.wait_for(CantileverAdapter().evaluate(candidate),
+                                                context.deadline_s)
+        except (asyncio.TimeoutError, TimeoutError):
+            return refuse('unavailable', ('deadline_exceeded',))
+        except EngineeringUnavailable:
+            return refuse('unavailable', ('native_failed',))
+        except UnsupportedCapability:
+            return refuse('unsupported', ('candidate_invalid',))
+
+        domain = getattr(evaluation.get('outcome'), 'value', None)
+        if domain not in ('accepted', 'rejected'):
+            return refuse('unavailable', ('evidence_invalid',))
+        report = evaluation.get('report')
+        report_sha = evaluation.get('report_sha256')
+        measurements = _measurements(report.get('measurements') if isinstance(report, Mapping) else None,
+                                     'report')
+        refs: list[ArtifactRef] = []
+        carried: list[Artifact] = []
+        if domain == 'accepted':
+            produced = evaluation.get('artifacts')
+            produced = produced if isinstance(produced, Mapping) else {}
+            data = {name: produced.get(name) for name, *_ in _ARTIFACT_SPECS}
+            if not all(isinstance(v, (bytes, bytearray)) for v in data.values()):
+                return refuse('unavailable', ('evidence_invalid',))
+            if sum(len(v) for v in data.values()) > context.max_artifact_bytes:
+                return refuse('unavailable', ('budget_exceeded',))
+            for name, fmt, representation, node_id in _ARTIFACT_SPECS:
+                blob = bytes(data[name])
+                ref = ArtifactRef(name=name, format=fmt, representation=representation,
+                                  sha256=hashlib.sha256(blob).hexdigest(), size=len(blob),
+                                  node_id=node_id)
+                refs.append(ref)
+                carried.append(Artifact(ref, blob))
+        build_span: SourceSpan | None = plan.op_stream.entries[0].span
+        graph = ArtifactGraph(
+            schema_version='mirum_artifact_graph_v0_1', op_stream=plan.op_stream,
+            nodes=tuple(ArtifactNode(id=r.node_id, kind='solid', op_seq=0, span=build_span)
+                        for r in refs))
+        result = BuildResult(
+            outcome='completed', domain_outcome=domain, claim_scope=_BEAM_CLAIM,
+            artifacts=tuple(refs), measurements=measurements,
+            report_sha256=report_sha if isinstance(report_sha, str) and _HEX64.match(report_sha) else None,
+            op_stream=plan.op_stream, artifact_graph=graph, **common)
+        return Built(result, tuple(carried), evaluation)
+
+    # ------------------------------------------------------------------ inspect / export
+
+    async def inspect(self, artifact: Artifact, plan: BuildPlan) -> InspectResult:
+        sha = artifact.ref.sha256
+
+        def refuse(outcome: str, reason: str) -> InspectResult:
+            return InspectResult(backend='occt', mode='native', outcome=outcome, reasons=(reason,),
+                                 artifact_sha256=sha)
+
+        if artifact.ref.format != 'step' or not self.supports(plan).supported:
+            return refuse('unsupported', 'operation_not_supported')
+
+        from compiler import _WORK_DIR
+        from process_runner import ProcessRunner
+        from engineering.spec import canonical_spec
+        spec = plan.candidate.specification
+        with tempfile.TemporaryDirectory(prefix='kernel-occt-', dir=_WORK_DIR) as temporary:
+            stage = Path(temporary)
+            step_path, spec_path, report_path = (stage / n for n in ('model.step', 'spec.json', 'report.json'))
+            step_path.write_bytes(artifact.data)
+            spec_path.write_text(canonical_spec(spec), encoding='utf-8')
+            # Same environment construction as engineering.service.generate_verified.
+            env = {key: os.environ[key] for key in ('PATH', 'HOME', 'LANG', 'SYSTEMROOT', 'WINDIR',
+                   'USERPROFILE', 'TEMP', 'TMP') if key in os.environ}
+            env.update(OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1', PYTHONDONTWRITEBYTECODE='1')
+            runner = ProcessRunner(timeout=_WORKER_TIMEOUT_S, output_limit=_WORKER_OUTPUT_LIMIT,
+                                   memory_mb=_WORKER_MEMORY_MB)
+            try:
+                outcome = await runner.run([self._python, str(_WORKER_SCRIPT), str(step_path),
+                                            str(spec_path), str(report_path)], cwd=str(stage), env=env)
+            finally:
+                await runner.close()
+            if not isinstance(outcome, Mapping) or outcome.get('code') or outcome.get('returncode') != 0:
+                return refuse('unavailable', 'native_failed')
+            try:
+                if report_path.stat().st_size > _REPORT_CAP_BYTES:
+                    raise ValueError('report budget')
+                report = json.loads(report_path.read_text(encoding='utf-8'),
+                                    parse_constant=_reject_constant)
+            except (OSError, ValueError):
+                return refuse('unavailable', 'native_failed')
+        if not isinstance(report, dict):
+            return refuse('unavailable', 'native_failed')
+        return compare_reread(report, spec, sha)
+
+    def export(self, artifact: Artifact, fmt: KernelFormat) -> ExportResult:
+        if fmt in ('step', 'glb') and artifact.ref.format == fmt:
+            return ExportResult(backend='occt', mode='native', outcome='exported', format=fmt,
+                                artifact=artifact.ref)
+        # No conversion, ever.
+        return ExportResult(backend='occt', mode='native', outcome='unsupported',
+                            reasons=('export_not_supported',), format=fmt)
