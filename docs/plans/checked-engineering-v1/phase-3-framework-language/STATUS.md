@@ -1,13 +1,13 @@
 # Phase 3 task status
 
-F01 complete (2026-11-21, docs/contracts only); F02 complete (2026-11-21, records/contracts only); F03-F11 not_started. Parent B/E status is preserved.
+F01 complete (2026-11-21, docs/contracts only); F02 complete (2026-11-21, records/contracts only); F04 complete (2026-11-21, offline frontend); F03 and F05-F11 not_started. Parent B/E status is preserved.
 
 | Complete | ID | Task | State | Prerequisites | Evidence |
 |---|---|---|---|---|---|
 | [x] | F01 | [Freeze the framework scope and AgentCAD reuse decisions](tasks/F01-scope-and-reuse.md) | complete | B14, E05 | Docs/contracts only, base 456e622 (2026-11-21): [decision record](F01-DECISIONS.md), [inventory](F01-INVENTORY.md), [reuse ledger](REUSE-LEDGER.md), frozen MEL v0.1 lexical rules and material_source_kind translation in [LANGUAGE.md](LANGUAGE.md). P01 only. [F01 handoff](handoffs/F01.md) |
 | [x] | F02 | [Define Mirum's typed engineering program and operation registry](tasks/F02-typed-ir.md) | complete | F01 | Records/contracts only, no execution; tested 92f9088 (2026-11-21): backend/engineering/program/ (ProgramIR `mirum_program_ir_v0_1`, registry `mirum_operation_registry_v0_1`, ExecutionLock `mirum_execution_lock_v0_1`, four hashes, beam bridge, committed JSON Schemas), P02 corpus (IR/registry part) and P03 form/AI/language fixtures. [F02 handoff](handoffs/F02.md) |
 | [ ] | F03 | [Implement and qualify the kernel adapter framework](tasks/F03-kernel-adapters.md) | not_started | F02, E01, E02 | Not produced |
-| [ ] | F04 | [Implement Mirum Engineering Language v0.1](tasks/F04-language-frontend.md) | not_started | F02 | Not produced |
+| [x] | F04 | [Implement Mirum Engineering Language v0.1](tasks/F04-language-frontend.md) | complete | F02 | Offline frontend, no execution (2026-11-21): backend/engineering/language/ (lexer MEL-L001-L023, recursive-descent parser MEL-P001-P011 with FRAMEWORK.md budgets, syntax tree, canonical formatter, provisional beam lowering to ProgramIR equal to the F02 P03 semantics). P02 grammar part, P06 parser part. [F04 handoff](handoffs/F04.md) |
 | [ ] | F05 | [Compile language programs into reviewed executable engineering plans](tasks/F05-compiler-and-review.md) | not_started | F03, F04 | Not produced |
 | [ ] | F06 | [Add reversible program revisions and transactional execution](tasks/F06-transactional-revisions.md) | not_started | F05 | Not produced |
 | [ ] | F07 | [Bind semantic features and independent checks to delivered geometry](tasks/F07-independent-verification.md) | not_started | F05, F06 | Not produced |
