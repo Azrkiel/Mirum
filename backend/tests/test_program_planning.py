@@ -271,6 +271,20 @@ def test_review_lock_must_match_its_hash():
         ProgramReview(**{**review.__dict__, 'lock_sha256': '0' * 64})
 
 
+def test_self_consistent_altered_lock_is_refused_before_build():
+    # Offline twin of the native altered-lock test: a review whose lock and hash agree with each other
+    # but not with the fresh probe is refused (re-review), with zero builds.
+    from engineering.program.ir import execution_lock_v0_2
+    compiled, adapter, _, _, service, review = reviewed()
+    brief = finalize(service, review)
+    real = review.lock.backend_lock
+    altered = type(real).model_validate({**real.model_dump(mode='json'), 'adapter_version': 'altered-0.0.0'})
+    lock = execution_lock_v0_2(compiled.ir, altered)
+    forged = ProgramReview(**{**review.__dict__, 'lock': lock, 'lock_sha256': execution_lock_v0_2_sha256(lock)})
+    out = run(run_program(forged, compiled, service, brief.brief_id, adapter=adapter, context=CTX))
+    assert out == PlanRefusal('unavailable', ('lock_mismatch',)) and adapter.builds == []
+
+
 def test_ir_swapped_during_the_probe_is_refused_before_build():
     # Security review LOW-2 (PR #138): the probe awaits; an IR changed meanwhile must not be planned.
     compiled, adapter, _, _, service, review = reviewed()
