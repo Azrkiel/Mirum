@@ -199,3 +199,38 @@ def test_import_and_compile_load_no_native_provider_or_web_module():
     out = subprocess.run([sys.executable, '-c', code, str(MIR)], capture_output=True, text=True, env=env,
                          timeout=120, check=True)
     assert json.loads(out.stdout.strip().splitlines()[-1]) == [[], []]
+
+
+# ---------------------------------------------------------------- security review fixes (PR #133)
+
+@pytest.mark.parametrize('code_point', [0x00, 0x1F, 0x7F, 0x202E, 0x2066, 0x200B, 0x061C, 0x2028, 0xFEFF])
+def test_escaped_control_and_format_characters_are_rejected_in_text_fields(code_point):
+    escaped = BS + 'u' + format(code_point, '04x')
+    with pytest.raises(MelError) as excinfo:
+        compile_beam(replace('"ideal_clamp_end_force_linear_elastic"', '"ideal' + escaped + '"'))
+    d = excinfo.value.diagnostic
+    assert (d.code, d.field, d.span.start.line) == ('IR010', 'assumptions', 19)
+
+
+def test_escaped_printable_non_ascii_is_still_a_string():
+    escaped = BS + 'u00e9'
+    with pytest.raises(MelError) as excinfo:  # still not a known assumptions value, but not a control error
+        compile_beam(replace('"ideal_clamp_end_force_linear_elastic"', '"caf' + escaped + '"'))
+    assert 'control' not in excinfo.value.diagnostic.message
+
+
+def test_requirement_map_covers_every_bridge_requirement():
+    from engineering.language.lower_beam import REQUIREMENT_FIELDS
+    from engineering.program.beam_bridge import _REQUIREMENTS
+    assert set(REQUIREMENT_FIELDS) == {rid for rid, _ in _REQUIREMENTS}
+
+
+@pytest.mark.parametrize('bad', ['', '../x.mir', 'a/../b', '/abs.mir', 'a//b', 'C:' + BS + 'x', 'a b', 'x' * 129,
+                                 'a/./b'])
+def test_source_id_is_a_validated_label(bad):
+    with pytest.raises(ValueError):
+        compile_beam(beam_source(), source_id=bad)
+
+
+def test_source_id_examples_path_is_accepted():
+    assert compile_beam(beam_source(), source_id='examples/beam.mir').provenance.source_id == 'examples/beam.mir'

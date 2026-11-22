@@ -22,7 +22,10 @@ MAX_STRING = 4096
 KEYWORDS = frozenset({'language', 'mirum', 'design'})
 RESERVED = frozenset({'true', 'false', 'null'})
 PUNCTUATION = frozenset('{}[]=;,')
-BIDI = frozenset(chr(c) for c in (*range(0x202A, 0x202F), *range(0x2066, 0x206A), 0x200E, 0x200F))
+# The frozen set (LANGUAGE.md section 7) plus an F04 tightening (section 10): U+061C (Arabic letter
+# mark) and the line/paragraph separators U+2028/U+2029.
+BIDI = frozenset(chr(c) for c in (*range(0x202A, 0x202F), *range(0x2066, 0x206A), 0x200E, 0x200F,
+                                  0x061C, 0x2028, 0x2029))
 _ESCAPES = {'"': '"', '\\': '\\', '/': '/', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t'}
 _HEX = frozenset('0123456789abcdefABCDEF')
 _DIGITS = frozenset('0123456789')

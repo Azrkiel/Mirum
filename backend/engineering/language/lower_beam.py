@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import unicodedata
 
 from .diagnostics import MelError, Span, make, snippet
 from .parser import parse
@@ -23,6 +24,14 @@ from .syntax import Assignment, ListValue, Program, Quantity, String
 CAPABILITY_ID = 'rectangular_cantilever'
 CAPABILITY_VERSION = '1.0.0'
 _DESIGN_NAME = re.compile('[a-z][a-z0-9_]{0,63}')  # ProgramIR Identifier
+_SOURCE_SEGMENT = re.compile('[A-Za-z0-9._-]+')
+
+
+def _valid_source_id(value: str) -> bool:
+    if not isinstance(value, str) or not 0 < len(value) <= 128:
+        return False
+    parts = value.split('/')
+    return all(_SOURCE_SEGMENT.fullmatch(p) and p not in ('.', '..') for p in parts)
 
 # MEL field -> (kind, legacy payload path, dimension for quantities). Order = payload order.
 FIELDS: dict[str, tuple[str, tuple[str, ...], str | None]] = {
@@ -82,6 +91,12 @@ def _quantity(name: str, value, dimension: str, span: Span) -> float:
 def _string(name: str, value, span: Span) -> str:
     if not isinstance(value, String):
         raise _error('IR010', f'{name} must be a string', span, name)
+    # Semantic check (LANGUAGE.md section 7): code points written as escapes are still refused when they
+    # are controls (Cc), invisible format characters (Cf, incl. every bidi control) or line separators.
+    for ch in value.value:
+        if unicodedata.category(ch) in ('Cc', 'Cf', 'Zl', 'Zp'):
+            raise _error('IR010', f'{name} contains a control or invisible format character '
+                         f'(U+{ord(ch):04X})', value.span, name)
     return value.value
 
 
@@ -149,7 +164,12 @@ def _span_dict(span: Span, source_id: str | None) -> dict:
 
 
 def lower_program(program: Program, source: bytes, *, source_id: str | None = None):
-    """Lower a parsed beam program. ``source`` is the exact bytes the program was parsed from."""
+    """Lower a parsed beam program. ``source`` is the exact bytes the program was parsed from.
+
+    ``source_id`` is a label recorded in provenance and spans, never opened as a path: relative
+    segments of [A-Za-z0-9._-], at most 128 characters, no '.' or '..' segment."""
+    if source_id is not None and not _valid_source_id(source_id):
+        raise ValueError('source_id must be a relative label of [A-Za-z0-9._-] segments, at most 128 characters')
     from engineering.briefs import BriefService, MemoryBriefRepository
     from engineering.program.beam_bridge import brief_content_from_program, program_from_brief_content
     from engineering.program.errors import ProgramError
@@ -175,7 +195,11 @@ def lower_program(program: Program, source: bytes, *, source_id: str | None = No
         brief_content_from_program(ir, design=program.design)
         data = json.loads(ir.model_dump_json())
         for requirement in data['requirements']['requirements']:
-            a = program.get(REQUIREMENT_FIELDS[requirement['id']])
+            mapped = REQUIREMENT_FIELDS.get(requirement['id'])
+            if mapped is None:  # fail closed if the bridge ever emits an unmapped requirement
+                raise _error('IR010', 'the beam bridge produced an unmapped requirement', program.design_span,
+                             'program')
+            a = program.get(mapped)
             requirement['span'] = _span_dict(a.span, source_id)
         heights = program.get('candidate_heights')
         data['candidates']['parameters'][0]['span'] = _span_dict(heights.span, source_id)

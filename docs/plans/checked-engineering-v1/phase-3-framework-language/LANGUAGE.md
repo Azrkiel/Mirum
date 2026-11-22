@@ -106,7 +106,9 @@ F04 implements these rules with positive and negative fixtures (P06) and may onl
 
 ### 10. Parser, syntax codes and formatter (Frozen in F04)
 
-Frozen in F04 (see [F04 handoff](handoffs/F04.md)); no lexical rule above changed.
+Frozen in F04 (see [F04 handoff](handoffs/F04.md)). One tightening of section 7 (security review of the F04 PR): U+061C (Arabic letter mark), U+2028 and U+2029 are rejected everywhere as MEL-L006, like the listed bidi controls. No other lexical rule changed.
+
+- Semantic check for text fields of the beam lowering: a decoded string containing a control (Cc), invisible format character (Cf, which includes every bidi control) or line/paragraph separator, even when written as an escape, is rejected (IR010).
 
 - Implementation: a hand-written lexer and recursive-descent parser in backend/engineering/language/ (stdlib only, no parser library, no evaluation of source).
 - Positions: byte offset 0-based; line and column 1-based, column in Unicode scalar values; spans end inclusive.

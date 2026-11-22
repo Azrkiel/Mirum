@@ -34,6 +34,10 @@ NEGATIVE = [
     ('L006-bidi-in-string', '"' + RLO + '"', 'MEL-L006', 1, 2),
     ('L006-bidi-in-comment', 'a // x' + LRI, 'MEL-L006', 1, 7),
     ('L006-lrm-outside', 'a ' + LRM, 'MEL-L006', 1, 3),
+    # F04 tightening (LANGUAGE.md section 10): Arabic letter mark, line and paragraph separators.
+    ('L006-arabic-letter-mark', '"a' + chr(0x061C) + 'b"', 'MEL-L006', 1, 3),
+    ('L006-line-separator', '"a' + chr(0x2028) + '"', 'MEL-L006', 1, 3),
+    ('L006-paragraph-separator', '// x' + chr(0x2029), 'MEL-L006', 1, 5),
     ('L007-identifier', 'a' * 65, 'MEL-L007', 1, 1),
     ('L008-true', 'x = true', 'MEL-L008', 1, 5),
     ('L008-null', 'null', 'MEL-L008', 1, 1),
