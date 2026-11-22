@@ -162,30 +162,41 @@ def test_fly_tomls_have_no_build_section_and_no_forbidden_settings():
 
 
 # Owner yes 2026-11-22 (runbook docs/runbooks/2026-11-21-ai-flag-enable.md section 5): AI drafts on in prod,
-# with exactly these caps. The dragster interpreter shares the flag but has its own un-ledgered budget, so it is
-# pinned to 0. Any other AI or provider setting, or a looser value, must fail here and get its own review.
+# with exactly these caps. Dragster AI drafts go through the dragster interpreter, which keeps its own cap: hold it
+# at the same 20 (default 200). The whole backend [env] is pinned, so any new or looser setting fails here and
+# gets its own review.
 AI_ENV = {
     "MIRUM_ENGINEERING_AI_DRAFTS": "1",
     "MIRUM_ENGINEERING_AI_DAILY_CALLS": "20",
     "MIRUM_ENGINEERING_AI_CONCURRENCY": "1",
     "MIRUM_ENGINEERING_AI_REQUESTS_PER_CLIENT_DAY": "5",
-    "MIRUM_DRAGSTER_INTERPRET_DAILY_CAP": "0",
+    "MIRUM_DRAGSTER_INTERPRET_DAILY_CAP": "20",
 }
-AI_WORDS = ("AI", "GEMINI", "INTERPRET", "PROVIDER", "MODEL", "KEY")
+BACKEND_ENV = {"MIRUM_OPEN_ACCESS": "1", "MIRUM_TRUSTED_CLIENT_HEADER": "1", **AI_ENV}
+AI_WORDS = ("AI", "GEMINI", "INTERPRET", "PROVIDER", "MODEL", "KEY", "CRITIC", "MACHINIST", "ACCESS_TOKEN")
 
 
-def _ai_names(table):
-    return {k: v for k, v in table.items() if any(w in k.upper() for w in AI_WORDS)}
+def _nested_env_tables(node, path=()):
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == "env" and path:
+                yield path + (k,)
+            yield from _nested_env_tables(v, path + (k,))
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            yield from _nested_env_tables(v, path + (str(i),))
 
 
-def test_backend_toml_pins_the_ai_settings_exactly():
+def test_fly_tomls_pin_env_exactly_when_parsed():
     # Parsed with tomllib, so quoted or dotted keys are seen the way Fly sees them.
     import tomllib
     doc = tomllib.loads(read(BACKEND_TOML))
-    assert _ai_names(doc.get("env", {})) == AI_ENV
+    assert doc.get("env") == BACKEND_ENV
     assert set(doc) <= {"app", "primary_region", "mounts", "env", "http_service", "vm"}, sorted(doc)
     front = tomllib.loads(read(FRONTEND_TOML))
-    assert _ai_names(front.get("env", {})) == {}
+    assert not [k for k in front.get("env", {}) if any(w in k.upper() for w in AI_WORDS + ("OPEN_ACCESS",))]
+    for parsed in (doc, front):
+        assert list(_nested_env_tables(parsed)) == []
 
 
 def test_backend_toml_settings():
