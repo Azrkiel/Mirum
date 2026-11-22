@@ -15,6 +15,7 @@ import os
 import re
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -338,3 +339,102 @@ class OcctAdapter:
         # No conversion, ever.
         return ExportResult(backend='occt', mode='native', outcome='unsupported',
                             reasons=('export_not_supported',), format=fmt)
+
+    # ------------------------------------------------------------------ measure (F07, additive)
+
+    async def measure(self, artifact_step: Artifact, artifact_glb: Artifact | None,
+                      plan: BuildPlan) -> 'MeasureOutcome':
+        """Measure the EXACT delivered bytes in an owned subprocess (_occt_measure.py).
+
+        Not part of the KernelAdapter Protocol. Never raises on bad bytes: any failure is a
+        MeasureOutcome with table None and a reason (native_failed / too_many_faces / unsupported).
+        """
+        if (artifact_step.ref.format != 'step'
+                or (artifact_glb is not None and artifact_glb.ref.format != 'glb')
+                or not self.supports(plan).supported):
+            return MeasureOutcome(None, None, 'unsupported')
+        from compiler import _WORK_DIR
+        from process_runner import ProcessRunner
+        try:
+            with tempfile.TemporaryDirectory(prefix='kernel-occt-', dir=_WORK_DIR) as temporary:
+                stage = Path(temporary)
+                step_path, glb_path = stage / 'model.step', stage / 'preview.glb'
+                step_path.write_bytes(artifact_step.data)
+                command = [self._python, str(_MEASURE_SCRIPT), str(step_path)]
+                if artifact_glb is not None:
+                    glb_path.write_bytes(artifact_glb.data)
+                    command.append(str(glb_path))
+                env = {key: os.environ[key] for key in ('PATH', 'HOME', 'LANG', 'SYSTEMROOT', 'WINDIR',
+                       'USERPROFILE', 'TEMP', 'TMP') if key in os.environ}
+                env.update(OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1', PYTHONDONTWRITEBYTECODE='1')
+                runner = ProcessRunner(timeout=_WORKER_TIMEOUT_S, output_limit=_WORKER_OUTPUT_LIMIT,
+                                       memory_mb=_WORKER_MEMORY_MB)
+                try:
+                    outcome = await runner.run(command, cwd=str(stage), env=env)
+                finally:
+                    await runner.close()
+        except OSError:
+            return MeasureOutcome(None, None, 'native_failed')
+        if not isinstance(outcome, Mapping) or outcome.get('code') or outcome.get('returncode') != 0:
+            return MeasureOutcome(None, None, 'native_failed')
+        return parse_measure_stdout(outcome.get('stdout'), want_mesh=artifact_glb is not None)
+
+
+@dataclass(frozen=True)
+class MeasureOutcome:
+    """Result of OcctAdapter.measure. table None means no usable measurement (see reason).
+
+    mesh_error is set when a GLB was supplied but was unparsable or out of budget; mesh is then an
+    empty MeshSummary so the evaluator fails the preview closed (empty mesh), never silently skips it.
+    """
+    table: 'FaceTable | None'
+    mesh: 'MeshSummary | None'
+    reason: str | None = None
+    mesh_error: str | None = None
+
+
+_MEASURE_SCRIPT = Path(__file__).with_name('_occt_measure.py')
+_MEASURE_STDOUT_LIMIT = 1048576
+
+
+def parse_measure_stdout(stdout: Any, *, want_mesh: bool) -> MeasureOutcome:
+    """Validate the measurement worker's single JSON object. Fails closed; never raises."""
+    from ..evidence import GLB_LINEAR_DEFLECTION_MM, FaceTable, MeshSummary
+
+    def fail(reason: str) -> MeasureOutcome:
+        return MeasureOutcome(None, None, reason)
+
+    if not isinstance(stdout, str) or len(stdout.encode('utf-8', 'ignore')) > _MEASURE_STDOUT_LIMIT:
+        return fail('native_failed')
+    try:
+        data = json.loads(stdout, parse_constant=_reject_constant)
+    except (ValueError, RecursionError):
+        return fail('native_failed')
+    if not isinstance(data, dict):
+        return fail('native_failed')
+    if data.get('error') == 'too_many_faces':
+        return fail('too_many_faces')
+    table_raw = data.get('table')
+    if data.get('error') or not isinstance(table_raw, dict):
+        return fail('native_failed')
+    try:
+        table = FaceTable.model_validate_json(json.dumps(table_raw))
+    except (ValidationError, ValueError):
+        return fail('native_failed')
+    if not want_mesh:
+        return MeasureOutcome(table, None)
+    mesh_raw = data.get('mesh')
+    empty = MeshSummary(triangle_count=0, vertex_count=0, bounds_mm=(0.0,) * 6,
+                        mesh_bound_mm=GLB_LINEAR_DEFLECTION_MM)
+    if not isinstance(mesh_raw, dict) or mesh_raw.get('error') is not None or 'bounds_mm' not in mesh_raw:
+        error = mesh_raw.get('error') if isinstance(mesh_raw, dict) else None
+        code = error if isinstance(error, str) and re.fullmatch(r'[a-z_]{1,40}', error) else 'glb_invalid'
+        return MeasureOutcome(table, empty, None, code)
+    try:
+        mesh = MeshSummary.model_validate_json(json.dumps({
+            'triangle_count': mesh_raw.get('triangle_count'), 'vertex_count': mesh_raw.get('vertex_count'),
+            'bounds_mm': mesh_raw.get('bounds_mm'), 'mesh_bound_mm': GLB_LINEAR_DEFLECTION_MM,
+            'node_names': mesh_raw.get('node_names', [])}))
+    except (ValidationError, ValueError):
+        return MeasureOutcome(table, empty, None, 'glb_invalid')
+    return MeasureOutcome(table, mesh)
