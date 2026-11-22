@@ -136,17 +136,29 @@ def _violations(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
     found = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else None
-        if name == 'model_construct':
-            found.append(f'{path.name}:{node.lineno} model_construct')
-        elif name == 'model_copy' and any(k.arg == 'update' for k in node.keywords):
-            found.append(f'{path.name}:{node.lineno} model_copy(update=)')
-        elif name == 'TypeAdapter':
-            found.append(f'{path.name}:{node.lineno} TypeAdapter')
-    return found
+        line = getattr(node, 'lineno', 0)
+        if isinstance(node, ast.ImportFrom) and any(a.name == 'TypeAdapter' for a in node.names):
+            found.append((line, 'import TypeAdapter'))  # catches `TypeAdapter as T` aliases
+        elif isinstance(node, ast.Constant) and node.value in _BYPASS_NAMES:
+            found.append((line, f'string {node.value}'))  # getattr(x, 'model_construct') and friends
+        elif isinstance(node, ast.Attribute) and node.attr == '__pydantic_validator__':
+            found.append((line, '__pydantic_validator__'))
+        elif isinstance(node, ast.Call):
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else None
+            if name == 'model_construct':
+                found.append((line, 'model_construct'))
+            elif name == 'model_copy' and any(k.arg == 'update' for k in node.keywords):
+                found.append((line, 'model_copy(update=)'))
+            elif name == 'TypeAdapter':
+                found.append((line, 'TypeAdapter'))
+            elif (name == '__setattr__' and isinstance(func, ast.Attribute)
+                  and isinstance(func.value, ast.Name) and func.value.id == 'object'):
+                found.append((line, 'object.__setattr__'))
+    return [f'{path.name}:{line} {what}' for line, what in sorted(found)]
+
+
+_BYPASS_NAMES = {'model_construct', 'model_copy', 'TypeAdapter', '__pydantic_validator__'}
 
 
 def _imports_program(path: Path) -> bool:
@@ -181,10 +193,21 @@ def test_the_ban_scanner_finds_each_bypass(tmp_path):
         'a = ProgramIR.model_construct()\n'
         'b = a.model_copy(update={"design": "x"})\n'
         'c = a.model_copy()\n'
-        'd = TypeAdapter(ProgramIR)\n', encoding='utf-8', newline='\n')
+        'd = TypeAdapter(ProgramIR)\n'
+        'from pydantic import TypeAdapter as T\n'
+        'e = getattr(ProgramIR, "model_construct")()\n'
+        'object.__setattr__(a, "design", "x")\n'
+        'f = ProgramIR.__pydantic_validator__\n', encoding='utf-8', newline='\n')
     assert _imports_program(sample)
     assert [v.split(' ', 1)[1] for v in _violations(sample)] == [
-        'model_construct', 'model_copy(update=)', 'TypeAdapter']
+        'import TypeAdapter', 'model_construct', 'model_copy(update=)', 'TypeAdapter', 'import TypeAdapter',
+        'string model_construct', 'object.__setattr__', '__pydantic_validator__']
+
+
+def test_dumps_strict_nonfinite_dict_key_is_ir007():
+    with pytest.raises(ProgramError) as excinfo:
+        _dumps_strict({math.nan: 1})
+    assert excinfo.value.code == 'IR007'
 
 
 # ---------------------------------------------------------------- K30d

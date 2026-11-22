@@ -437,7 +437,11 @@ def _has_nonfinite(obj) -> bool:
             if id(node) in seen:
                 continue
             seen.add(id(node))
-            stack.extend(node.values() if isinstance(node, dict) else node)
+            if isinstance(node, dict):
+                stack.extend(node.keys())  # a Python caller can use float keys
+                stack.extend(node.values())
+            else:
+                stack.extend(node)
     return False
 
 
