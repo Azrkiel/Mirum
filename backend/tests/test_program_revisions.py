@@ -660,3 +660,609 @@ def test_real_store_no_fk_and_jobs_delete_and_journal_triggers(tmp_path, lock, b
                 db.execute('DELETE FROM program_journal')
     finally:
         store.close()
+
+
+# =====================================================================================================
+# F06 task 4: RevisionService (stage, run, settle, cancel, snapshot views, open_artifact)
+# =====================================================================================================
+# Host tests (Windows) use HostStore and fakes. Everything marked ``native_only`` needs cadquery, a real
+# posix SQLiteStore and ProcessRunner: those tests run only in the CI native shards.
+
+import asyncio
+import json
+import threading
+import time
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
+from engineering.program.transactions import RevisionService
+
+F06 = Path(__file__).resolve().parent / 'fixtures' / 'program' / 'f06'
+P03 = Path(__file__).resolve().parent / 'fixtures' / 'program' / 'p03'
+CLIENT = 'client-a'
+native_only = pytest.mark.skipif(os.name != 'posix', reason='native service tests need posix SQLiteStore')
+
+
+def _host_service(host, clock):
+    pub = SimpleNamespace()
+    jobs = SimpleNamespace(store=host, publisher=pub)
+    briefs = SimpleNamespace(repository=SimpleNamespace(store=host))
+    return RevisionService(host, jobs, pub, briefs, clock=clock)
+
+
+def test_service_constructor_requires_one_shared_store(host, clock):
+    other = HostStore()
+    pub = SimpleNamespace()
+    good_jobs = SimpleNamespace(store=host, publisher=pub)
+    good_briefs = SimpleNamespace(repository=SimpleNamespace(store=host))
+    RevisionService(host, good_jobs, pub, good_briefs, clock=clock)
+    with pytest.raises(ValueError):
+        RevisionService(host, good_jobs, pub, SimpleNamespace(repository=SimpleNamespace(store=other)))
+    with pytest.raises(ValueError):
+        RevisionService(host, SimpleNamespace(store=other, publisher=pub), pub, good_briefs)
+    with pytest.raises(ValueError):
+        RevisionService(host, SimpleNamespace(store=host, publisher=SimpleNamespace()), pub, good_briefs)
+    with pytest.raises(ValueError):
+        RevisionService(host, good_jobs, pub, SimpleNamespace(repository=SimpleNamespace()))
+
+
+def test_service_host_foreign_client_and_stale_parent_write_nothing(host, clock):
+    svc = _host_service(host, clock)
+    pid = svc.create_program('owner')
+    assert svc.current(pid, client='owner') is None
+    assert svc.history(pid, client='owner') == ()
+    for call in (lambda: svc.current(pid, client='other'), lambda: svc.history(pid, client='other'),
+                 lambda: svc.journal(pid, client='other'), lambda: svc.current('f' * 32, client='owner'),
+                 lambda: svc.view(hexid(9), client='owner'),
+                 lambda: svc.open_artifact(hexid(9), 'step', client='owner')):
+        with pytest.raises(KeyError):
+            call()
+    with pytest.raises(KeyError):
+        asyncio.run(svc.stage(pid, 'x', source_id='a.mir', expected_parent=None, client='other'))
+    before = (journal_count(host), host.db.execute('SELECT COUNT(*) FROM program_revisions').fetchone()[0])
+    # Stale parent is refused before any compile (the source below is not even valid MEL).
+    out = asyncio.run(svc.stage(pid, 'not mel', source_id='a.mir', expected_parent=hexid(5), client='owner'))
+    assert out == RevisionRefusal(('stale_parent',))
+    assert before == (journal_count(host), host.db.execute('SELECT COUNT(*) FROM program_revisions').fetchone()[0])
+
+
+def test_service_host_capacity_refusal_before_compile(host, clock, lock, bundle):
+    svc = _host_service(host, clock)
+    pid = svc.create_program('c')
+    for n in range(1, rst.MAX_STAGED_PER_PROGRAM + 1):
+        assert stage(svc.revision_store, host, lock, bundle, pid, n) is None
+    out = asyncio.run(svc.stage(pid, 'not mel', source_id='a.mir', expected_parent=None, client='c'))
+    assert out == RevisionRefusal(('capacity',), 'staged revisions per program')
+
+
+def test_service_cancel_of_a_staged_revision_never_admitted(host, clock, lock, bundle):
+    svc = _host_service(host, clock)
+    pid = svc.create_program('c')
+    assert stage(svc.revision_store, host, lock, bundle, pid, 1) is None
+    rid = hexid(1)
+    out = asyncio.run(svc.cancel(rid, client='c'))
+    assert out.state == 'cancelled'
+    assert asyncio.run(svc.cancel(rid, client='c')).state == 'cancelled'
+    with pytest.raises(KeyError):
+        asyncio.run(svc.cancel(rid, client='other'))
+    assert [e.event for e in svc.journal(pid, client='c')] == ['staged', 'cancel_requested', 'cancelled']
+    assert svc.view(rid, client='c').artifacts == 'none'
+
+
+def test_service_settle_is_a_noop_unless_running(host, clock, lock, bundle):
+    svc = _host_service(host, clock)
+    pid = svc.create_program('c')
+    assert stage(svc.revision_store, host, lock, bundle, pid, 1) is None
+    assert svc.settle(hexid(1)).state == 'staged'
+    with pytest.raises(KeyError):
+        svc.settle(hexid(2))
+
+
+def test_service_crash_point_is_a_noop_and_recover_is_a_stub(host, clock):
+    svc = _host_service(host, clock)
+    for name in ('after_admit_before_link', 'after_link_before_start', 'before_settle_commit',
+                 'restore_after_validate'):
+        assert svc._crash_point(name) is None
+    assert svc.recover() is None
+
+
+def test_import_transactions_loads_no_native_provider_or_web_module():
+    code = (
+        'import sys, json\n'
+        'import engineering.program.transactions\n'
+        'print(json.dumps(sorted(m for m in ("cadquery", "OCP", "google.genai", "fastapi", "httpx")'
+        ' if m in sys.modules)))\n')
+    env = dict(os.environ, PYTHONPATH=f'{ROOT / "backend"}{os.pathsep}{ROOT}')
+    out = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, env=env,
+                         timeout=120, check=True)
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == []
+
+
+def test_transactions_module_is_ascii_lf():
+    text = (ROOT / 'backend' / 'engineering' / 'program' / 'transactions.py').read_bytes()
+    assert text.isascii() and b'\r' not in text
+
+
+# ---- native service harness (CI native shards only) ----
+
+BEAM = (P03 / 'beam.mir').read_text(encoding='utf-8')
+WHITESPACE = (F06 / 'beam_whitespace.mir').read_text(encoding='utf-8')
+REJECTED = (F06 / 'beam_5_10.mir').read_text(encoding='utf-8')
+
+
+def _finalize_brief(service, review):
+    from engineering.contracts import REVIEW_FIELDS, ReviewAcknowledgement
+    return service.finalize(ReviewAcknowledgement(
+        draft_id=review.draft_id, draft_revision=review.draft_revision, brief_sha256=review.brief_sha256,
+        acknowledged_fields=REVIEW_FIELDS, reviewed_at=datetime(2026, 11, 22, 12, 0, tzinfo=timezone.utc),
+        reviewed_by='local-user'))
+
+
+@pytest.fixture(scope='module')
+def occt():
+    pytest.importorskip('cadquery')
+    if os.name != 'posix':
+        pytest.skip('ProcessRunner needs posix process groups')
+    from engineering.program.adapters.occt import OcctAdapter
+    return OcctAdapter()
+
+
+@pytest.fixture(scope='module')
+def evals():
+    """Real native evidence, captured once: a search of the beam brief (5, 10, 15 mm: accepted at 15)
+    and of the heights-5/10-only brief (rejected). Replayed by the job controller in every test."""
+    pytest.importorskip('cadquery')
+    if os.name != 'posix':
+        pytest.skip('ProcessRunner needs posix process groups')
+    from engineering.briefs import BriefService, MemoryBriefRepository
+    from engineering.language.semantic import compile_source
+    from engineering.search import search
+    out = []
+    for path, expected in ((P03 / 'beam.mir', 'selected'), (F06 / 'beam_5_10.mir', 'rejected')):
+        compiled = compile_source(path.read_bytes(), source_id='capture.mir')
+        svc = BriefService(MemoryBriefRepository())
+        prepared = svc.create(json.loads(compiled.brief_content.model_dump_json()))
+        brief = _finalize_brief(svc, SimpleNamespace(
+            draft_id=prepared.draft.draft_id, draft_revision=prepared.draft.revision,
+            brief_sha256=prepared.draft.content.brief_sha256))
+        result = asyncio.run(search(brief))
+        assert result.state == expected
+        out.extend(result.evaluations)
+    return tuple(out)
+
+
+def _replay(evals):
+    from engineering.cantilever import CantileverAdapter
+    from engineering.service import EngineeringUnavailable
+
+    class Replay(CantileverAdapter):
+        """Replays captured native evaluations keyed by candidate (candidate_sha256 plus its brief)."""
+        fail = False
+        delay = 0
+        calls = 0
+
+        async def evaluate(self, candidate):
+            type(self).calls += 1
+            if self.delay:
+                await asyncio.sleep(self.delay)
+            if self.fail:
+                raise EngineeringUnavailable('replay unavailable')
+            return next(e for e in evals if e['candidate'] == candidate)
+
+    return Replay()
+
+
+def _publisher_class():
+    from engineering.bundles import BundlePublisher
+
+    class FailablePublisher(BundlePublisher):
+        fail = False
+
+        async def publish(self, *args):
+            if self.fail:
+                raise OSError('injected publication failure')
+            return await super().publish(*args)
+
+    return FailablePublisher
+
+
+class World:
+    pass
+
+
+@asynccontextmanager
+async def world(tmp_path, evals, occt):
+    from engineering.briefs import BriefService
+    from engineering.jobs import JobController
+    from engineering.store import SQLiteBriefRepository, SQLiteStore
+    w = World()
+    w.store = SQLiteStore(tmp_path)
+    w.pub = _publisher_class()(w.store)
+    w.briefs = BriefService(SQLiteBriefRepository(w.store))
+    w.replay = _replay(evals)
+    w.jobs = JobController(w.store, publisher=w.pub, adapter=w.replay)
+    w.svc = RevisionService(w.store, w.jobs, w.pub, w.briefs,
+                            adapter_factory=lambda backend, mode='native': occt)
+    w.pid = w.svc.create_program(CLIENT)
+    try:
+        yield w
+    finally:
+        await w.svc.close()
+        await w.jobs.close()
+        w.store.close()
+
+
+async def stage_final(w, text, parent):
+    rev = await w.svc.stage(w.pid, text, source_id='beam.mir', expected_parent=parent, client=CLIENT)
+    assert isinstance(rev, ProgramRevision), rev
+    brief = _finalize_brief(w.briefs, rev)
+    return rev, brief.brief_id
+
+
+async def start_run(w, rev, brief_id):
+    out = await w.svc.run(rev.revision_id, brief_id, client=CLIENT)
+    assert isinstance(out, ProgramRevision) and out.state == 'running', out
+    return out
+
+
+async def land_staged(w, rev, brief_id):
+    await start_run(w, rev, brief_id)
+    await w.svc.wait(rev.revision_id)
+    return w.svc.view(rev.revision_id, client=CLIENT).revision
+
+
+async def land(w, text, parent):
+    """Stage, finalize, run and settle one revision; returns the settled record."""
+    rev, brief_id = await stage_final(w, text, parent)
+    return await land_staged(w, rev, brief_id)
+
+
+def step_sha(w, rid):
+    download = w.svc.open_artifact(rid, 'step', client=CLIENT)
+    try:
+        return download.sha256
+    finally:
+        download.close()
+
+
+def table_counts(w):
+    with w.store.transaction() as db:
+        return tuple(db.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0]
+                     for t in ('program_revisions', 'program_journal', 'drafts', 'jobs'))
+
+
+async def with_first(w):
+    first = await land(w, BEAM, None)
+    assert first.state == 'published', first
+    view = w.svc.current(w.pid, client=CLIENT)
+    assert view.revision.revision_id == first.revision_id and view.artifacts == 'available' and view.is_current
+    return first, step_sha(w, first.revision_id)
+
+
+def assert_head_unchanged(w, first, sha):
+    view = w.svc.current(w.pid, client=CLIENT)
+    assert view.revision.revision_id == first.revision_id
+    assert view.artifacts == 'available'
+    assert step_sha(w, first.revision_id) == sha
+
+
+@native_only
+def test_first_revision_publishes_and_is_current(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _ = await with_first(w)
+            assert first.published_seq == 1 and first.kind == 'edit' and first.parent is None
+            assert first.evidence_revision_id == first.revision_id
+            assert [e.event for e in w.svc.journal(w.pid, client=CLIENT)] == [
+                'staged', 'admit_intent', 'linked', 'published']
+            assert w.svc.history(w.pid, client=CLIENT) == (first,)
+    asyncio.run(scenario())
+
+
+@native_only
+def test_rejected_batch_leaves_the_head_and_its_download(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, sha = await with_first(w)
+            second = await land(w, REJECTED, first.revision_id)
+            assert second.state == 'rejected' and second.published_seq is None
+            assert w.svc.view(second.revision_id, client=CLIENT).artifacts == 'none'
+            assert_head_unchanged(w, first, sha)
+    asyncio.run(scenario())
+
+
+@native_only
+def test_unavailable_batch_leaves_the_head_and_its_download(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, sha = await with_first(w)
+            w.replay.fail = True
+            second = await land(w, WHITESPACE, first.revision_id)
+            assert second.state == 'failed'
+            assert_head_unchanged(w, first, sha)
+    asyncio.run(scenario())
+
+
+@native_only
+def test_cancelled_batch_leaves_the_head_and_its_download(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, sha = await with_first(w)
+            w.replay.delay = 10
+            rev, brief_id = await stage_final(w, WHITESPACE, first.revision_id)
+            await start_run(w, rev, brief_id)
+            await asyncio.sleep(0.5)
+            await w.svc.cancel(rev.revision_id, client=CLIENT)
+            await w.svc.wait(rev.revision_id)
+            assert w.svc.view(rev.revision_id, client=CLIENT).revision.state == 'cancelled'
+            assert_head_unchanged(w, first, sha)
+            # Cancelling a published or already cancelled revision is a no-op.
+            assert (await w.svc.cancel(first.revision_id, client=CLIENT)).state == 'published'
+            assert (await w.svc.cancel(rev.revision_id, client=CLIENT)).state == 'cancelled'
+    asyncio.run(scenario())
+
+
+@native_only
+def test_publication_failure_batch_leaves_the_head_and_its_download(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, sha = await with_first(w)
+            w.pub.fail = True
+            second = await land(w, WHITESPACE, first.revision_id)
+            assert second.state == 'failed'
+            assert_head_unchanged(w, first, sha)
+    asyncio.run(scenario())
+
+
+@native_only
+def test_exception_before_settle_commit_rolls_everything_back(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, sha = await with_first(w)
+
+            def boom(name):
+                if name == 'before_settle_commit':
+                    raise RuntimeError('injected before settle commit')
+            w.svc._crash_point = boom
+            second = await land(w, WHITESPACE, first.revision_id)
+            assert second.state == 'running' and second.published_seq is None
+            assert isinstance(w.svc.last_settle_error, RuntimeError)
+            assert_head_unchanged(w, first, sha)
+            assert 'published' not in [e.event for e in w.svc.journal(w.pid, client=CLIENT)][4:]
+            # The job finished; a later settle with the seam cleared rolls forward exactly once.
+            del w.svc._crash_point
+            settled = w.svc.settle(second.revision_id)
+            assert settled.state == 'published' and settled.published_seq == 2
+            assert w.svc.current(w.pid, client=CLIENT).revision.revision_id == second.revision_id
+            assert w.svc.settle(second.revision_id) == settled
+    asyncio.run(scenario())
+
+
+@native_only
+def test_read_versus_promotion_hammer_every_view_is_consistent(tmp_path, evals, occt):
+    from engineering.jobs import parse_run
+
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _ = await with_first(w)
+            second, brief_id = await stage_final(w, WHITESPACE, first.revision_id)
+            stop, problems, seen = threading.Event(), [], []
+
+            def check(view):
+                rev = view.revision
+                if rev.state == 'published':
+                    assert view.is_current
+                    assert rev.bundle is not None and rev.published_seq is not None
+                    with w.store.transaction() as db:
+                        row = db.execute('SELECT record FROM jobs WHERE id=?', (rev.job_id,)).fetchone()
+                    assert parse_run(row['record']).bundle == rev.bundle
+                    assert view.artifacts == 'available'
+                else:
+                    assert view.artifacts == 'none' and not view.is_current
+
+            def reader():
+                try:
+                    while not stop.is_set():
+                        current = w.svc.current(w.pid, client=CLIENT)
+                        pending = w.svc.view(second.revision_id, client=CLIENT)
+                        assert current.is_current and current.revision.state == 'published'
+                        check(current)
+                        check(pending)
+                        seen.append((current.revision.revision_id, pending.revision.state))
+                        time.sleep(0.001)
+                except BaseException as exc:  # reported by the main thread
+                    problems.append(exc)
+
+            threads = [threading.Thread(target=reader) for _ in range(3)]
+            for t in threads:
+                t.start()
+            try:
+                await start_run(w, second, brief_id)
+                await w.svc.wait(second.revision_id)
+                await asyncio.sleep(0.05)
+            finally:
+                stop.set()
+                for t in threads:
+                    t.join(timeout=30)
+            assert problems == []
+            assert seen
+            assert {rid for rid, _ in seen} <= {first.revision_id, second.revision_id}
+            assert w.svc.current(w.pid, client=CLIENT).revision.revision_id == second.revision_id
+    asyncio.run(scenario())
+
+
+@native_only
+def test_open_artifact_is_pinned_to_its_own_revision(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, sha1 = await with_first(w)
+            second = await land(w, WHITESPACE, first.revision_id)
+            assert second.state == 'published' and second.job_id != first.job_id
+            for rev in (first, second):
+                recorded = next(p.sha256 for p in rev.bundle.payloads if p.path == 'model.step')
+                download = w.svc.open_artifact(rev.revision_id, 'step', client=CLIENT)
+                try:
+                    assert download.sha256 == recorded
+                finally:
+                    download.close()
+            assert step_sha(w, first.revision_id) == sha1
+            with pytest.raises(KeyError):
+                w.svc.open_artifact(first.revision_id, 'no-such-format', client=CLIENT)
+    asyncio.run(scenario())
+
+
+@native_only
+def test_stale_parent_at_staging_writes_nothing(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            await with_first(w)
+            before = table_counts(w)
+            out = await w.svc.stage(w.pid, BEAM, source_id='beam.mir', expected_parent=None, client=CLIENT)
+            assert out == RevisionRefusal(('stale_parent',))
+            assert table_counts(w) == before
+    asyncio.run(scenario())
+
+
+@native_only
+def test_stale_parent_between_staged_siblings_first_to_publish_wins(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, sha = await with_first(w)
+            a, a_brief = await stage_final(w, WHITESPACE, first.revision_id)
+            b, b_brief = await stage_final(w, WHITESPACE, first.revision_id)
+            winner = await land_staged(w, a, a_brief)
+            assert winner.state == 'published' and winner.published_seq == 2
+            calls, jobs_before = type(w.replay).calls, table_counts(w)[3]
+            out = await w.svc.run(b.revision_id, b_brief, client=CLIENT)
+            assert out == RevisionRefusal(('stale_parent',))
+            lost = w.svc.view(b.revision_id, client=CLIENT).revision
+            assert lost.state == 'conflict' and lost.reason == 'stale_parent'
+            assert type(w.replay).calls == calls and table_counts(w)[3] == jobs_before  # no native work
+            assert w.svc.current(w.pid, client=CLIENT).revision.revision_id == a.revision_id
+            assert step_sha(w, first.revision_id) == sha
+    asyncio.run(scenario())
+
+
+@native_only
+def test_promotion_cas_conflict_when_the_head_moved_during_the_run(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _ = await with_first(w)
+            a, a_brief = await stage_final(w, WHITESPACE, first.revision_id)
+            c, c_brief = await stage_final(w, WHITESPACE, first.revision_id)
+            real_settle = w.svc.settle
+            w.svc.settle = lambda rid: None  # let a's job finish without settling it
+            try:
+                await start_run(w, a, a_brief)
+                await w.svc.wait(a.revision_id)
+            finally:
+                del w.svc.settle
+            assert w.svc.view(a.revision_id, client=CLIENT).revision.state == 'running'
+            winner = await land_staged(w, c, c_brief)
+            assert winner.state == 'published'
+            lost = real_settle(a.revision_id)
+            assert lost.state == 'conflict' and lost.reason == 'stale_parent'
+            assert w.svc.current(w.pid, client=CLIENT).revision.revision_id == c.revision_id
+    asyncio.run(scenario())
+
+
+@native_only
+def test_cancel_between_admit_and_link_leaves_the_native_slot_reclaimable(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, sha = await with_first(w)
+            a, a_brief = await stage_final(w, WHITESPACE, first.revision_id)
+            b, b_brief = await stage_final(w, WHITESPACE, first.revision_id)
+
+            def cancel_at(name):
+                if name == 'after_admit_before_link':
+                    w.svc._cancel_sync(a.revision_id, client=CLIENT)
+            w.svc._crash_point = cancel_at
+            running = await w.svc.run(a.revision_id, a_brief, client=CLIENT)
+            del w.svc._crash_point
+            assert running.state == 'running'
+            await w.svc.wait(a.revision_id)
+            assert w.svc.view(a.revision_id, client=CLIENT).revision.state == 'cancelled'
+            assert_head_unchanged(w, first, sha)
+            # The slot was released: a following run admits and publishes.
+            following = await land_staged(w, b, b_brief)
+            assert following.state == 'published'
+    asyncio.run(scenario())
+
+
+@native_only
+def test_review_expired_after_the_draft_is_tombstoned(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _ = await with_first(w)
+            rev, brief_id = await stage_final(w, WHITESPACE, first.revision_id)
+            with w.store.transaction() as db:
+                db.execute('UPDATE drafts SET record=? WHERE id=?', ('{"expired":true}', rev.draft_id))
+            calls = type(w.replay).calls
+            out = await w.svc.run(rev.revision_id, brief_id, client=CLIENT)
+            assert out == RevisionRefusal(('review_expired',))
+            assert w.svc.view(rev.revision_id, client=CLIENT).revision.state == 'staged'
+            assert type(w.replay).calls == calls
+    asyncio.run(scenario())
+
+
+@native_only
+def test_bundles_cleanup_deleting_old_jobs_with_revision_rows_present(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _ = await with_first(w)
+            second = await land(w, REJECTED, first.revision_id)
+            old = time.time() - 8 * 86400
+            with w.store.transaction() as db:
+                db.execute('UPDATE jobs SET deadline=?, reserved=0', (old,))
+            w.pub.cleanup()
+            with w.store.transaction() as db:
+                assert db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0] == 0
+                assert db.execute('SELECT COUNT(*) FROM publications').fetchone()[0] == 0
+            assert len(w.svc.history(w.pid, client=CLIENT)) == 2
+            view = w.svc.current(w.pid, client=CLIENT)
+            assert view.revision.revision_id == first.revision_id and view.artifacts == 'missing'
+            assert w.svc.view(second.revision_id, client=CLIENT).revision.state == 'rejected'
+            with pytest.raises(KeyError):
+                w.svc.open_artifact(first.revision_id, 'step', client=CLIENT)
+            assert w.svc.settle(first.revision_id).state == 'published'
+    asyncio.run(scenario())
+
+
+@native_only
+def test_expired_head_shows_the_head_with_expired_artifacts(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _ = await with_first(w)
+            second = await land(w, WHITESPACE, first.revision_id)
+            assert second.state == 'published'
+            with w.store.transaction() as db:
+                db.execute('UPDATE publications SET expires=? WHERE job=?', (time.time() - 1, second.job_id))
+            view = w.svc.current(w.pid, client=CLIENT)
+            assert view.revision.revision_id == second.revision_id  # never an older revision
+            assert view.artifacts == 'expired' and view.is_current
+            assert w.svc.view(first.revision_id, client=CLIENT).artifacts == 'available'
+    asyncio.run(scenario())
+
+
+@native_only
+def test_foreign_client_gets_key_error_everywhere(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, brief_id = await stage_final(w, BEAM, None)
+            rid = first.revision_id
+            calls = (lambda: w.svc.current(w.pid, client='other'), lambda: w.svc.view(rid, client='other'),
+                     lambda: w.svc.history(w.pid, client='other'), lambda: w.svc.journal(w.pid, client='other'),
+                     lambda: w.svc.open_artifact(rid, 'step', client='other'))
+            for call in calls:
+                with pytest.raises(KeyError):
+                    call()
+            with pytest.raises(KeyError):
+                await w.svc.stage(w.pid, BEAM, source_id='beam.mir', expected_parent=None, client='other')
+            with pytest.raises(KeyError):
+                await w.svc.run(rid, brief_id, client='other')
+            with pytest.raises(KeyError):
+                await w.svc.cancel(rid, client='other')
+            assert w.svc.view(rid, client=CLIENT).revision.state == 'staged'
+    asyncio.run(scenario())
