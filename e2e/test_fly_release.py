@@ -156,8 +156,47 @@ def test_init_script_parses_with_sh():
 def test_fly_tomls_have_no_build_section_and_no_forbidden_settings():
     for path in (BACKEND_TOML, FRONTEND_TOML):
         assert "[build]" not in toml_code(path), path
-        assert "MIRUM_ENGINEERING_AI_DRAFTS" not in read(path), path
         assert not re.search(r"^\s*MIRUM_ACCESS_TOKEN\s*=", toml_code(path), re.M), path
+    assert "MIRUM_ENGINEERING_AI" not in read(FRONTEND_TOML)
+    assert "GEMINI" not in toml_code(BACKEND_TOML) and "GEMINI" not in toml_code(FRONTEND_TOML)
+
+
+# Owner yes 2026-11-22 (runbook docs/runbooks/2026-11-21-ai-flag-enable.md section 5): AI drafts on in prod,
+# with exactly these caps. Dragster AI drafts go through the dragster interpreter, which keeps its own cap: hold it
+# at the same 20 (default 200). The whole backend [env] is pinned, so any new or looser setting fails here and
+# gets its own review.
+AI_ENV = {
+    "MIRUM_ENGINEERING_AI_DRAFTS": "1",
+    "MIRUM_ENGINEERING_AI_DAILY_CALLS": "20",
+    "MIRUM_ENGINEERING_AI_CONCURRENCY": "1",
+    "MIRUM_ENGINEERING_AI_REQUESTS_PER_CLIENT_DAY": "5",
+    "MIRUM_DRAGSTER_INTERPRET_DAILY_CAP": "20",
+}
+BACKEND_ENV = {"MIRUM_OPEN_ACCESS": "1", "MIRUM_TRUSTED_CLIENT_HEADER": "1", **AI_ENV}
+AI_WORDS = ("AI", "GEMINI", "INTERPRET", "PROVIDER", "MODEL", "KEY", "CRITIC", "MACHINIST", "ACCESS_TOKEN")
+
+
+def _nested_env_tables(node, path=()):
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == "env" and path:
+                yield path + (k,)
+            yield from _nested_env_tables(v, path + (k,))
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            yield from _nested_env_tables(v, path + (str(i),))
+
+
+def test_fly_tomls_pin_env_exactly_when_parsed():
+    # Parsed with tomllib, so quoted or dotted keys are seen the way Fly sees them.
+    import tomllib
+    doc = tomllib.loads(read(BACKEND_TOML))
+    assert doc.get("env") == BACKEND_ENV
+    assert set(doc) <= {"app", "primary_region", "mounts", "env", "http_service", "vm"}, sorted(doc)
+    front = tomllib.loads(read(FRONTEND_TOML))
+    assert not [k for k in front.get("env", {}) if any(w in k.upper() for w in AI_WORDS + ("OPEN_ACCESS",))]
+    for parsed in (doc, front):
+        assert list(_nested_env_tables(parsed)) == []
 
 
 def test_backend_toml_settings():

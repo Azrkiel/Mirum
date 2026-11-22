@@ -21,6 +21,22 @@ primary_region = "iad"
   # reach it, so no outside visitor can forge the header. Remove this line if the
   # backend ever gets a public address, or if untrusted apps join the org.
   MIRUM_TRUSTED_CLIENT_HEADER = "1"
+  # AI drafts on (owner yes 2026-11-22, after the staging live check; runbook
+  # docs/runbooks/2026-11-21-ai-flag-enable.md section 5). The key is a Fly secret
+  # (GEMINI_API_KEY_HEAVY), never here. Caps: at most 20 provider calls a day,
+  # one at a time, and 5 AI draft requests per visitor per day.
+  # Disable: set MIRUM_ENGINEERING_AI_DRAFTS = "0" and redeploy the same digest.
+  # Emergency stop: MIRUM_ENGINEERING_AI_DAILY_CALLS = "0" (no provider calls).
+  # Dragster AI drafts call the dragster interpreter, which keeps its own in-process
+  # cap (default 200/day). Each engineering dragster draft reserves one of the 20
+  # calls above first. The legacy /dragsters/interpret route also uses that cap;
+  # the frontend never calls it and the backend is private, so visitors cannot
+  # reach it. Hold the interpreter cap at the same 20, not the default 200.
+  MIRUM_ENGINEERING_AI_DRAFTS = "1"
+  MIRUM_ENGINEERING_AI_DAILY_CALLS = "20"
+  MIRUM_ENGINEERING_AI_CONCURRENCY = "1"
+  MIRUM_ENGINEERING_AI_REQUESTS_PER_CLIENT_DAY = "5"
+  MIRUM_DRAGSTER_INTERPRET_DAILY_CAP = "20"
 
 [http_service]
   internal_port = 8000
