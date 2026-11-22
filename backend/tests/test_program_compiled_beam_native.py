@@ -151,7 +151,8 @@ def test_native_gate_refuses_an_altered_lock_before_any_build(native):
         ProgramReview(**{**review.__dict__, 'lock_sha256': '0' * 64})
     # A self-consistent review whose lock differs from the real kernel's fresh lock is refused.
     real = review.lock.backend_lock
-    altered = type(real).model_validate({**real.model_dump(mode='json'), 'adapter_version': 'altered-0.0.0'})
+    fields = {name: getattr(real, name) for name in type(real).model_fields}
+    altered = type(real)(**{**fields, 'adapter_version': 'altered-0.0.0'})
     lock = execution_lock_v0_2(native['compiled'].ir, altered)
     forged = ProgramReview(**{**review.__dict__, 'lock': lock, 'lock_sha256': execution_lock_v0_2_sha256(lock)})
     out = run(authorize_run(forged, native['compiled'], native['service'], native['brief'].brief_id,

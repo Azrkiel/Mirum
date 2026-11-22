@@ -278,7 +278,8 @@ def test_self_consistent_altered_lock_is_refused_before_build():
     compiled, adapter, _, _, service, review = reviewed()
     brief = finalize(service, review)
     real = review.lock.backend_lock
-    altered = type(real).model_validate({**real.model_dump(mode='json'), 'adapter_version': 'altered-0.0.0'})
+    fields = {name: getattr(real, name) for name in type(real).model_fields}
+    altered = type(real)(**{**fields, 'adapter_version': 'altered-0.0.0'})
     lock = execution_lock_v0_2(compiled.ir, altered)
     forged = ProgramReview(**{**review.__dict__, 'lock': lock, 'lock_sha256': execution_lock_v0_2_sha256(lock)})
     out = run(run_program(forged, compiled, service, brief.brief_id, adapter=adapter, context=CTX))
