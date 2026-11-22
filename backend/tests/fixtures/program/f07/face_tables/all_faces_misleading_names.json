@@ -1,0 +1,20 @@
+{
+  "id": "all_faces_misleading_names",
+  "description": "Every face is renamed. The top is named root_section and the bottom free_end. Normals, positions, and areas still select the same root and free faces, so all bindings and required checks pass.",
+  "candidate_height_mm": 15.0,
+  "table": {
+    "solid_count": 1, "closed_solid_count": 1, "bounds": [0, 0, 0, 200, 10, 15], "volume": 30000.0, "area": 10300.0,
+    "max_topology_tolerance": 1e-7,
+    "native_versions": [{"name": "cadquery", "version": "2.6.1"}, {"name": "OCP", "version": "7.8.1"}],
+    "faces": [
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [0, 5, 7.5], "area": 150.0, "bounds": [0, 0, 0, 0, 10, 15], "name": "free_end_top"},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [200, 5, 7.5], "area": 150.0, "bounds": [200, 0, 0, 200, 10, 15], "name": "fixed_clamp"},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [100, 0, 7.5], "area": 3000.0, "bounds": [0, 0, 0, 200, 0, 15], "name": "top_face"},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [100, 10, 7.5], "area": 3000.0, "bounds": [0, 10, 0, 200, 10, 15], "name": "solid"},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [100, 5, 0], "area": 2000.0, "bounds": [0, 0, 0, 200, 10, 0], "name": "free_end"},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [100, 5, 15], "area": 2000.0, "bounds": [0, 0, 15, 200, 10, 15], "name": "root_section"}
+    ]
+  },
+  "mesh": null,
+  "expected": {"verdict": "verified", "bindings": {"beam.solid": "bound", "beam.root_section": "bound", "beam.free_end": "bound"}}
+}

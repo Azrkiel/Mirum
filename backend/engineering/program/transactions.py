@@ -24,7 +24,10 @@ from engineering.store import ArtifactExpired
 from engineering.language.semantic import compile_source
 from engineering.language.diagnostics import MelError
 
+from . import delivered
 from .adapters import adapter_for
+from .delivered import DeliveredVerifier, EvidenceRowInvalid
+from .evidence import evidence_sha256
 from .planning import (
     PlanRefusal, ProgramReview, authorize_run, lock_program, open_review, plan_program,
 )
@@ -37,6 +40,7 @@ from .revisions import (
 
 __all__ = ['RevisionService']
 
+_DEFAULT = object()  # RevisionService(verifier=...) sentinel: build the real DeliveredVerifier
 _CRASH_POINTS = ('after_admit_before_link', 'after_link_before_start', 'before_settle_commit',
                  'restore_after_validate')
 
@@ -46,7 +50,8 @@ def _utc(ts: float) -> datetime:
 
 
 class RevisionService:
-    def __init__(self, store, jobs, publisher, briefs, adapter_factory=adapter_for, *, clock=time.time):
+    def __init__(self, store, jobs, publisher, briefs, adapter_factory=adapter_for, *, clock=time.time,
+                 verifier=_DEFAULT):
         if getattr(getattr(briefs, 'repository', None), 'store', None) is not store:
             raise ValueError('briefs must use the same store')
         if getattr(jobs, 'store', None) is not store or getattr(jobs, 'publisher', None) is not publisher:
@@ -57,6 +62,8 @@ class RevisionService:
         self.briefs = briefs
         self.adapter_factory = adapter_factory
         self.clock = clock
+        # F07 D9: a monotone gate. Default is the real verifier (fail closed); None disables it (F06 behaviour).
+        self.verifier = DeliveredVerifier(store, publisher, adapter_factory) if verifier is _DEFAULT else verifier
         self.revision_store = RevisionStore(store, clock=clock)
         self._tasks: dict[str, asyncio.Task] = {}
         self._admitting: Counter = Counter()
@@ -336,11 +343,42 @@ class RevisionService:
     async def _settle_when_done(self, revision_id, job_id) -> None:
         try:
             await self.jobs.wait(job_id)
+            if self.verifier is not None:
+                try:
+                    await self._verify_if_accepted(revision_id)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # settle still runs and fails closed (delivered_unverified)
+                    self.last_settle_error = exc
             self.settle(revision_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # the revision stays running; recovery (task 5) or a later settle finishes it
             self.last_settle_error = exc
+
+    async def _verify_if_accepted(self, revision_id) -> None:
+        """F07 D7: measure the delivered bytes of a committed accepted job, outside any transaction.
+
+        A rejected, cancelled, unavailable, missing or unreadable job, a cancel request, a compacted or
+        unreadable payload and a revision that is no longer running are never verified; settle then decides
+        (a missing row fails closed through match_problem)."""
+        with self.store.transaction() as db:
+            got = self.revision_store.get(db, revision_id)
+            if got is None or got[0].state != 'running' or got[1] or got[2] is None:
+                return
+            rev, _cancel, payload = got
+            row = db.execute('SELECT record FROM jobs WHERE id=?', (rev.job_id,)).fetchone()
+        if row is None:
+            return
+        try:
+            run = parse_run(row['record'])
+            ir = load_program_json(payload.ir_json)
+        except ValueError:
+            return
+        if (run.lifecycle.value != 'completed' or run.outcome.value != 'accepted'
+                or getattr(run, 'bundle', None) is None):
+            return
+        await self.verifier.verify(rev, ir)
 
     async def wait(self, revision_id) -> None:
         """Await the owned settle task of a revision (tests, shutdown)."""
@@ -396,11 +434,19 @@ class RevisionService:
             return finish('failed', 'failed', 'job_record_invalid')
         if run.lifecycle.value == 'completed' and run.outcome.value == 'accepted':
             problem = self._acceptance_problem(rev, run) or validation_problem
+            detail = {'job_id': rev.job_id}
+            if problem is None and self.verifier is not None:
+                # F07 D7/D8: a verified row bound to this job, bundle and method version, read in THIS
+                # transaction. Journal detail keys allow only [a-z_], so 'evidence_hash' carries the sha256.
+                problem = self.verifier.evidence.match_problem(
+                    db, rev.revision_id, job_id=rev.job_id, bundle=run.bundle,
+                    method_version=delivered.method_version())
+                if problem is None:
+                    detail['evidence_hash'] = evidence_sha256(self.verifier.evidence.get(db, rev.revision_id))
             if problem is not None:
                 return finish('failed', 'failed', problem)
             promoted = rs.promote(db, rev, expected_head=rev.parent, bundle=run.bundle,
-                                  now=max(self._now(), rev.updated_at),
-                                  detail={'job_id': rev.job_id})
+                                  now=max(self._now(), rev.updated_at), detail=detail)
             if promoted is None:
                 return finish('conflict', 'conflict', 'stale_parent')
             return promoted
@@ -494,6 +540,21 @@ class RevisionService:
             rev = self._load(db, revision_id, client)[0]
             return self._view(db, self.revision_store.program(db, rev.program_id), rev)
 
+    def evidence(self, revision_id, *, client):
+        """The re-validated delivered-geometry record of a revision (resolved through its
+        evidence_revision_id, so a restore shows its target's), or None when there is none or the gate is off.
+
+        Client-checked exactly like view() (KeyError for an unknown or foreign revision). A stored row that
+        fails validation raises RuntimeError, like the other snapshot reads of an altered record."""
+        with self.store.transaction() as db:
+            rev = self._load(db, revision_id, client)[0]
+            if self.verifier is None:
+                return None
+            try:
+                return self.verifier.evidence.get(db, rev.evidence_revision_id)
+            except EvidenceRowInvalid as exc:
+                raise RuntimeError('Program revision evidence is altered') from exc
+
     def history(self, program_id, *, client):
         with self.store.transaction() as db:
             self._owned_program(db, program_id, client)
@@ -548,6 +609,22 @@ class RevisionService:
             return 'artifacts_missing'
         return 'artifacts_altered'
 
+    def _restore_evidence_problem(self, db, target):
+        """'record_altered' unless the target's evidence row is a valid verified record for the target's own
+        job and bundle. The row's method_version is deliberately NOT compared: an older row is still the
+        evidence the target was published with, and a verifier change must not make it unrestorable.
+        None when the gate is off. Reads only; restore never measures or writes evidence."""
+        if self.verifier is None:
+            return None
+        try:
+            record = self.verifier.evidence.get(db, target.evidence_revision_id)
+        except EvidenceRowInvalid:
+            return 'record_altered'
+        if (record is None or record.verdict != 'verified' or target.bundle is None
+                or record.job_id != target.job_id or record.manifest_sha256 != target.bundle.manifest_sha256):
+            return 'record_altered'
+        return None
+
     @staticmethod
     def _restore_record_problem(target, payload):
         """'record_altered' when the stored payload or lock no longer hashes to the stored hashes."""
@@ -597,6 +674,8 @@ class RevisionService:
             if (run.lifecycle.value != 'completed' or run.outcome.value != 'accepted'
                     or getattr(run, 'bundle', None) is None or run.bundle != target.bundle):
                 return RevisionRefusal(('record_altered',))
+            if self._restore_evidence_problem(db, target) is not None:
+                return RevisionRefusal(('record_altered',))
             state = self._publication_state(db, target)
             if state is not None:
                 return RevisionRefusal((state,))
@@ -613,6 +692,8 @@ class RevisionService:
                 return RevisionRefusal(('artifacts_altered',))
             except (KeyError, OSError):
                 return RevisionRefusal(('artifacts_missing',))
+            if self._restore_evidence_problem(db, target) is not None:
+                return RevisionRefusal(('record_altered',))
             state = self._publication_state(db, target)
             if state is not None:
                 return RevisionRefusal((state,))

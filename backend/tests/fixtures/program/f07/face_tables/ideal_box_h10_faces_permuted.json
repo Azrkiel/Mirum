@@ -1,0 +1,20 @@
+{
+  "id": "ideal_box_h10_faces_permuted",
+  "description": "The six faces from ideal_box_h10 appear in the order bottom, top, free end, +Y, root, -Y. There is still one match per end, and all required checks pass.",
+  "candidate_height_mm": 10.0,
+  "table": {
+    "solid_count": 1, "closed_solid_count": 1, "bounds": [0, 0, 0, 200, 10, 10], "volume": 20000.0, "area": 8200.0,
+    "max_topology_tolerance": 1e-7,
+    "native_versions": [{"name": "cadquery", "version": "2.6.1"}, {"name": "OCP", "version": "7.8.1"}],
+    "faces": [
+      {"surface": "plane", "normal": [0, 0, -1], "center": [100, 5, 0], "area": 2000.0, "bounds": [0, 0, 0, 200, 10, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [100, 5, 10], "area": 2000.0, "bounds": [0, 0, 10, 200, 10, 10]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [200, 5, 5], "area": 100.0, "bounds": [200, 0, 0, 200, 10, 10]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [100, 10, 5], "area": 2000.0, "bounds": [0, 10, 0, 200, 10, 10]},
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [0, 5, 5], "area": 100.0, "bounds": [0, 0, 0, 0, 10, 10]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [100, 0, 5], "area": 2000.0, "bounds": [0, 0, 0, 200, 0, 10]}
+    ]
+  },
+  "mesh": null,
+  "expected": {"verdict": "verified", "bindings": {"beam.solid": "bound", "beam.root_section": "bound", "beam.free_end": "bound"}}
+}

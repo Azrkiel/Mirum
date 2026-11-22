@@ -1,0 +1,20 @@
+{
+  "id": "root_area_within_absolute_floor_h5",
+  "description": "Root area 49.9999991 mm2 is short by 9e-7 mm2. This exceeds the relative term 1e-8*50 = 5e-7 mm2 but is within the 1e-6 mm2 absolute floor, so the root binds.",
+  "candidate_height_mm": 5.0,
+  "table": {
+    "solid_count": 1, "closed_solid_count": 1, "bounds": [0, 0, 0, 200, 10, 5], "volume": 10000.0, "area": 6099.9999991,
+    "max_topology_tolerance": 1e-7,
+    "native_versions": [{"name": "cadquery", "version": "2.6.1"}, {"name": "OCP", "version": "7.8.1"}],
+    "faces": [
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [0, 5, 2.5], "area": 49.9999991, "bounds": [0, 0, 0, 0, 10, 5]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [200, 5, 2.5], "area": 50.0, "bounds": [200, 0, 0, 200, 10, 5]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [100, 0, 2.5], "area": 1000.0, "bounds": [0, 0, 0, 200, 0, 5]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [100, 10, 2.5], "area": 1000.0, "bounds": [0, 10, 0, 200, 10, 5]},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [100, 5, 0], "area": 2000.0, "bounds": [0, 0, 0, 200, 10, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [100, 5, 5], "area": 2000.0, "bounds": [0, 0, 5, 200, 10, 5]}
+    ]
+  },
+  "mesh": null,
+  "expected": {"verdict": "verified", "bindings": {"beam.solid": "bound", "beam.root_section": "bound", "beam.free_end": "bound"}}
+}

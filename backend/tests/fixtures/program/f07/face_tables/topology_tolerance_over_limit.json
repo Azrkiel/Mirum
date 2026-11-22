@@ -1,0 +1,20 @@
+{
+  "id": "topology_tolerance_over_limit",
+  "description": "Topology tolerance 1.000001e-6 mm exceeds the 1e-6 mm solid check limit. The closed solid still binds, and the guards for exact dimensions and free-end position give 2.000002e-6 mm <= 0.01 mm.",
+  "candidate_height_mm": 15.0,
+  "table": {
+    "solid_count": 1, "closed_solid_count": 1, "bounds": [0, 0, 0, 200, 10, 15], "volume": 30000.0, "area": 10300.0,
+    "max_topology_tolerance": 1.000001e-6,
+    "native_versions": [{"name": "cadquery", "version": "2.6.1"}, {"name": "OCP", "version": "7.8.1"}],
+    "faces": [
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [0, 5, 7.5], "area": 150.0, "bounds": [0, 0, 0, 0, 10, 15]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [200, 5, 7.5], "area": 150.0, "bounds": [200, 0, 0, 200, 10, 15]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [100, 0, 7.5], "area": 3000.0, "bounds": [0, 0, 0, 200, 0, 15]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [100, 10, 7.5], "area": 3000.0, "bounds": [0, 10, 0, 200, 10, 15]},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [100, 5, 0], "area": 2000.0, "bounds": [0, 0, 0, 200, 10, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [100, 5, 15], "area": 2000.0, "bounds": [0, 0, 15, 200, 10, 15]}
+    ]
+  },
+  "mesh": null,
+  "expected": {"verdict": "failed", "bindings": {"beam.solid": "bound", "beam.root_section": "bound", "beam.free_end": "bound"}}
+}

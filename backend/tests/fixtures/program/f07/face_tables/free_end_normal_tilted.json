@@ -1,0 +1,20 @@
+{
+  "id": "free_end_normal_tilted",
+  "description": "The free-end normal has a 2e-9 transverse component and its axial component rounds to 1. The Euclidean normal error is 2e-9 > 1e-9. Its position and 100 mm2 area satisfy the other limits.",
+  "candidate_height_mm": 10.0,
+  "table": {
+    "solid_count": 1, "closed_solid_count": 1, "bounds": [0, 0, 0, 200, 10, 10], "volume": 20000.0, "area": 8200.0,
+    "max_topology_tolerance": 1e-7,
+    "native_versions": [{"name": "cadquery", "version": "2.6.1"}, {"name": "OCP", "version": "7.8.1"}],
+    "faces": [
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [0, 5, 5], "area": 100.0, "bounds": [0, 0, 0, 0, 10, 10]},
+      {"surface": "plane", "normal": [1, 2e-9, 0], "center": [200, 5, 5], "area": 100.0, "bounds": [200, 0, 0, 200, 10, 10]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [100, 0, 5], "area": 2000.0, "bounds": [0, 0, 0, 200, 0, 10]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [100, 10, 5], "area": 2000.0, "bounds": [0, 10, 0, 200, 10, 10]},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [100, 5, 0], "area": 2000.0, "bounds": [0, 0, 0, 200, 10, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [100, 5, 10], "area": 2000.0, "bounds": [0, 0, 10, 200, 10, 10]}
+    ]
+  },
+  "mesh": null,
+  "expected": {"verdict": "failed", "bindings": {"beam.solid": "bound", "beam.root_section": "bound", "beam.free_end": "missing"}}
+}

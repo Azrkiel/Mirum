@@ -56,7 +56,7 @@ async def open_world(root, adapter, occt):
         w.briefs = BriefService(SQLiteBriefRepository(w.store))
         w.jobs = JobController(w.store, publisher=w.pub, adapter=adapter)
         w.svc = RevisionService(w.store, w.jobs, w.pub, w.briefs,
-                                adapter_factory=lambda backend, mode='native': occt)
+                                adapter_factory=lambda backend, mode='native': occt, verifier=None)
     except BaseException:
         if w.jobs is not None:
             await w.jobs.close()

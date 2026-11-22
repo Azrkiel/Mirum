@@ -1,0 +1,21 @@
+{
+  "id": "ambiguity_precedes_failed_preview",
+  "description": "Both +X faces meet the 50 mm2 end area, guarded position, and normal limits. The empty preview is a measured failure, but ambiguity in the required free-end check takes precedence.",
+  "candidate_height_mm": 5.0,
+  "table": {
+    "solid_count": 1, "closed_solid_count": 1, "bounds": [0, 0, 0, 200, 10, 5], "volume": 10000.0, "area": 6150.0,
+    "max_topology_tolerance": 1e-7,
+    "native_versions": [{"name": "cadquery", "version": "2.6.1"}, {"name": "OCP", "version": "7.8.1"}],
+    "faces": [
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [0, 5, 2.5], "area": 50.0, "bounds": [0, 0, 0, 0, 10, 5]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [200, 5, 2.5], "area": 50.0, "bounds": [200, 0, 0, 200, 10, 5]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [100, 0, 2.5], "area": 1000.0, "bounds": [0, 0, 0, 200, 0, 5]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [100, 10, 2.5], "area": 1000.0, "bounds": [0, 10, 0, 200, 10, 5]},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [100, 5, 0], "area": 2000.0, "bounds": [0, 0, 0, 200, 10, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [100, 5, 5], "area": 2000.0, "bounds": [0, 0, 5, 200, 10, 5]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [200, 5, 2.5], "area": 50.0, "bounds": [200, 0, 0, 200, 10, 5]}
+    ]
+  },
+  "mesh": {"triangle_count": 0, "vertex_count": 0, "bounds_mm": [0, 0, 0, 0, 0, 0], "mesh_bound_mm": 0.1},
+  "expected": {"verdict": "ambiguous", "bindings": {"beam.solid": "bound", "beam.root_section": "bound", "beam.free_end": "ambiguous"}}
+}

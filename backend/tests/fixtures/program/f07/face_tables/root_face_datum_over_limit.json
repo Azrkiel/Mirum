@@ -1,0 +1,20 @@
+{
+  "id": "root_face_datum_over_limit",
+  "description": "Root center and face bounds are at x = 2e-6 mm. The root offset exceeds 1e-6 mm, while the table datum at x = y = z = 0 and the free-end predicate still pass.",
+  "candidate_height_mm": 15.0,
+  "table": {
+    "solid_count": 1, "closed_solid_count": 1, "bounds": [0, 0, 0, 200, 10, 15], "volume": 30000.0, "area": 10300.0,
+    "max_topology_tolerance": 1e-7,
+    "native_versions": [{"name": "cadquery", "version": "2.6.1"}, {"name": "OCP", "version": "7.8.1"}],
+    "faces": [
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [0.000002, 5, 7.5], "area": 150.0, "bounds": [0.000002, 0, 0, 0.000002, 10, 15]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [200, 5, 7.5], "area": 150.0, "bounds": [200, 0, 0, 200, 10, 15]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [100, 0, 7.5], "area": 3000.0, "bounds": [0, 0, 0, 200, 0, 15]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [100, 10, 7.5], "area": 3000.0, "bounds": [0, 10, 0, 200, 10, 15]},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [100, 5, 0], "area": 2000.0, "bounds": [0, 0, 0, 200, 10, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [100, 5, 15], "area": 2000.0, "bounds": [0, 0, 15, 200, 10, 15]}
+    ]
+  },
+  "mesh": null,
+  "expected": {"verdict": "failed", "bindings": {"beam.solid": "bound", "beam.root_section": "missing", "beam.free_end": "bound"}}
+}

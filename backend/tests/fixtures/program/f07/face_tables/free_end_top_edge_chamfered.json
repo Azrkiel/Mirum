@@ -1,0 +1,21 @@
+{
+  "id": "free_end_top_edge_chamfered",
+  "description": "A 1x1 mm chamfer across the 10 mm wide top free-end edge reduces the +X end from 150 to 140 mm2. The 10 mm2 area error exceeds 1.5e-6 mm2. The new plane has normal (1,0,1)/sqrt(2), and the volume deficit is 5 mm3 > 0.0003 mm3.",
+  "candidate_height_mm": 15.0,
+  "table": {
+    "solid_count": 1, "closed_solid_count": 1, "bounds": [0, 0, 0, 200, 10, 15], "volume": 29995.0, "area": 10293.142135623732,
+    "max_topology_tolerance": 1e-7,
+    "native_versions": [{"name": "cadquery", "version": "2.6.1"}, {"name": "OCP", "version": "7.8.1"}],
+    "faces": [
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [0, 5, 7.5], "area": 150.0, "bounds": [0, 0, 0, 0, 10, 15]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [200, 5, 7], "area": 140.0, "bounds": [200, 0, 0, 200, 10, 14]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [99.98338611990889, 0, 7.4988053564482975], "area": 2999.5, "bounds": [0, 0, 0, 200, 0, 15]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [99.98338611990889, 10, 7.4988053564482975], "area": 2999.5, "bounds": [0, 10, 0, 200, 10, 15]},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [100, 5, 0], "area": 2000.0, "bounds": [0, 0, 0, 200, 10, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [99.5, 5, 15], "area": 1990.0, "bounds": [0, 0, 15, 199, 10, 15]},
+      {"surface": "plane", "normal": [0.7071067811865476, 0, 0.7071067811865476], "center": [199.5, 5, 14.5], "area": 14.142135623730951, "bounds": [199, 0, 14, 200, 10, 15]}
+    ]
+  },
+  "mesh": null,
+  "expected": {"verdict": "failed", "bindings": {"beam.solid": "bound", "beam.root_section": "bound", "beam.free_end": "missing"}}
+}

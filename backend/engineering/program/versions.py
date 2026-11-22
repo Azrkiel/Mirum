@@ -19,3 +19,6 @@ MEL_COMPILER_VERSION = 'mirum_mel_compiler_v0_1'
 PROGRAM_REVISION_VERSION = 'mirum_program_revision_v0_1'
 PROGRAM_JOURNAL_VERSION = 'mirum_program_journal_v0_1'
 REVISION_DIFF_VERSION = 'mirum_revision_diff_v0_1'
+# F07: delivered-geometry evidence.
+CHECK_PLAN_VERSION = 'mirum_check_plan_v0_1'
+DELIVERED_EVIDENCE_VERSION = 'mirum_delivered_evidence_v0_1'

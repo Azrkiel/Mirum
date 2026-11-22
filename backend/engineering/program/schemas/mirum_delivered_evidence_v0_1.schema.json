@@ -1,0 +1,559 @@
+{
+  "$defs": {
+    "CheckEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "geometry",
+            "preview",
+            "physics",
+            "manufacturing",
+            "standards"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "check_id": {
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$",
+          "title": "Check Id",
+          "type": "string"
+        },
+        "coverage": {
+          "enum": [
+            "measured",
+            "policy_report",
+            "identity_only",
+            "not_evaluated"
+          ],
+          "title": "Coverage",
+          "type": "string"
+        },
+        "error_bound": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorBound"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "independence": {
+          "const": "same_kernel_reread",
+          "default": "same_kernel_reread",
+          "enum": [
+            "same_kernel_reread"
+          ],
+          "title": "Independence",
+          "type": "string"
+        },
+        "measurements": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Measurement"
+          },
+          "maxItems": 16,
+          "title": "Measurements",
+          "type": "array"
+        },
+        "method": {
+          "maxLength": 64,
+          "title": "Method",
+          "type": "string"
+        },
+        "method_version": {
+          "maxLength": 64,
+          "title": "Method Version",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "binding_missing",
+                "binding_ambiguous",
+                "limit_exceeded",
+                "report_mismatch",
+                "lock_mismatch",
+                "mock_backend",
+                "not_pinned",
+                "out_of_scope",
+                "measurement_unavailable",
+                "bound_exceeds_tolerance"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "representation": {
+          "enum": [
+            "brep",
+            "mesh",
+            "none"
+          ],
+          "title": "Representation",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "passed",
+            "failed",
+            "not_evaluated",
+            "unavailable"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "category",
+        "required",
+        "state",
+        "coverage",
+        "method",
+        "method_version",
+        "representation"
+      ],
+      "title": "CheckEvidence",
+      "type": "object"
+    },
+    "CheckLimit": {
+      "additionalProperties": false,
+      "properties": {
+        "comparison": {
+          "enum": [
+            "le",
+            "ge",
+            "abs_le",
+            "eq"
+          ],
+          "title": "Comparison",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "scale_refs": {
+          "default": [],
+          "items": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Scale Refs",
+          "type": "array"
+        },
+        "source": {
+          "maxLength": 120,
+          "title": "Source",
+          "type": "string"
+        },
+        "unit": {
+          "enum": [
+            "mm",
+            "mm2",
+            "mm3",
+            "mm4",
+            "ratio",
+            "count"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "maximum": 1000000000000.0,
+          "minimum": -1000000000000.0,
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "unit",
+        "comparison",
+        "source"
+      ],
+      "title": "CheckLimit",
+      "type": "object"
+    },
+    "ErrorBound": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "maxLength": 120,
+          "title": "Source",
+          "type": "string"
+        },
+        "unit": {
+          "enum": [
+            "mm",
+            "ratio"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "maximum": 1000000000000.0,
+          "minimum": 0.0,
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "unit",
+        "source"
+      ],
+      "title": "ErrorBound",
+      "type": "object"
+    },
+    "FaceSignature": {
+      "additionalProperties": false,
+      "properties": {
+        "area": {
+          "maximum": 1000000000000.0,
+          "minimum": 0.0,
+          "title": "Area",
+          "type": "number"
+        },
+        "center": {
+          "items": {
+            "maximum": 1000000000000.0,
+            "minimum": -1000000000000.0,
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Center",
+          "type": "array"
+        },
+        "normal": {
+          "items": {
+            "maximum": 1000000000000.0,
+            "minimum": -1000000000000.0,
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Normal",
+          "type": "array"
+        }
+      },
+      "required": [
+        "normal",
+        "center",
+        "area"
+      ],
+      "title": "FaceSignature",
+      "type": "object"
+    },
+    "FeatureBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "feature": {
+          "enum": [
+            "beam.solid",
+            "beam.root_section",
+            "beam.free_end"
+          ],
+          "title": "Feature",
+          "type": "string"
+        },
+        "match_count": {
+          "maximum": 64,
+          "minimum": 0,
+          "title": "Match Count",
+          "type": "integer"
+        },
+        "signature": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FaceSignature"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "state": {
+          "enum": [
+            "bound",
+            "missing",
+            "ambiguous"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "feature",
+        "state",
+        "match_count"
+      ],
+      "title": "FeatureBinding",
+      "type": "object"
+    },
+    "Measurement": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "$ref": "#/$defs/CheckLimit"
+        },
+        "name": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "representation": {
+          "enum": [
+            "brep",
+            "mesh"
+          ],
+          "title": "Representation",
+          "type": "string"
+        },
+        "satisfied": {
+          "title": "Satisfied",
+          "type": "boolean"
+        },
+        "unit": {
+          "enum": [
+            "mm",
+            "mm2",
+            "mm3",
+            "mm4",
+            "ratio",
+            "count"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "maximum": 1000000000000.0,
+          "minimum": -1000000000000.0,
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "unit",
+        "representation",
+        "limit",
+        "satisfied"
+      ],
+      "title": "Measurement",
+      "type": "object"
+    },
+    "NativeVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 240,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "NativeVersion",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "bindings": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/FeatureBinding"
+      },
+      "maxItems": 8,
+      "title": "Bindings",
+      "type": "array"
+    },
+    "candidate_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Candidate Sha256",
+      "type": "string"
+    },
+    "check_plan_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Check Plan Sha256",
+      "type": "string"
+    },
+    "check_plan_version": {
+      "const": "mirum_check_plan_v0_1",
+      "default": "mirum_check_plan_v0_1",
+      "enum": [
+        "mirum_check_plan_v0_1"
+      ],
+      "title": "Check Plan Version",
+      "type": "string"
+    },
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/CheckEvidence"
+      },
+      "maxItems": 32,
+      "title": "Checks",
+      "type": "array"
+    },
+    "claim_scope": {
+      "enum": [
+        "checked_design",
+        "geometry_checks_only",
+        "screening_only"
+      ],
+      "title": "Claim Scope",
+      "type": "string"
+    },
+    "glb_sha256": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Glb Sha256"
+    },
+    "job_id": {
+      "maxLength": 32,
+      "minLength": 32,
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Job Id",
+      "type": "string"
+    },
+    "manifest_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Sha256",
+      "type": "string"
+    },
+    "method_version": {
+      "maxLength": 64,
+      "title": "Method Version",
+      "type": "string"
+    },
+    "native_versions": {
+      "items": {
+        "$ref": "#/$defs/NativeVersion"
+      },
+      "maxItems": 16,
+      "title": "Native Versions",
+      "type": "array"
+    },
+    "reasons": {
+      "default": [],
+      "items": {
+        "enum": [
+          "binding_missing",
+          "binding_ambiguous",
+          "limit_exceeded",
+          "report_mismatch",
+          "lock_mismatch",
+          "mock_backend",
+          "not_pinned",
+          "out_of_scope",
+          "measurement_unavailable",
+          "bound_exceeds_tolerance"
+        ],
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Reasons",
+      "type": "array"
+    },
+    "revision_id": {
+      "maxLength": 32,
+      "minLength": 32,
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Revision Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "mirum_delivered_evidence_v0_1",
+      "default": "mirum_delivered_evidence_v0_1",
+      "enum": [
+        "mirum_delivered_evidence_v0_1"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "step_sha256": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Step Sha256"
+    },
+    "verdict": {
+      "enum": [
+        "verified",
+        "failed",
+        "ambiguous",
+        "unavailable"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "required": [
+    "revision_id",
+    "job_id",
+    "candidate_sha256",
+    "claim_scope",
+    "manifest_sha256",
+    "step_sha256",
+    "check_plan_sha256",
+    "method_version",
+    "native_versions",
+    "checks",
+    "verdict"
+  ],
+  "title": "DeliveredEvidence",
+  "type": "object"
+}

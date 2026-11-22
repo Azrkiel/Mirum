@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from .errors import Diagnostic
+from .evidence import CheckPlan, DeliveredEvidence
 from .ir import ExecutionLock, ProgramIR
 from .kernel import ExecutionLockV0_2
 from .revisions import JournalEntry, ProgramRevision, RevisionDiff
@@ -34,6 +35,8 @@ SCHEMA_MODELS = {
     'mirum_program_revision_v0_1.schema.json': ProgramRevision,
     'mirum_program_journal_v0_1.schema.json': JournalEntry,
     'mirum_revision_diff_v0_1.schema.json': RevisionDiff,
+    'mirum_check_plan_v0_1.schema.json': CheckPlan,
+    'mirum_delivered_evidence_v0_1.schema.json': DeliveredEvidence,
 }
 
 REGISTRY_EXPORT_NAME_V0_1 = 'mirum_operation_registry_v0_1.json'

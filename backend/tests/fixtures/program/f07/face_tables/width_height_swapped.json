@@ -1,0 +1,20 @@
+{
+  "id": "width_height_swapped",
+  "description": "A 200x15x10 box for the 200x10x15 candidate: end faces still bind (same area) but width and height checks fail.",
+  "candidate_height_mm": 15.0,
+  "table": {
+    "solid_count": 1, "closed_solid_count": 1, "bounds": [0, 0, 0, 200, 15, 10], "volume": 30000.0, "area": 10300.0,
+    "max_topology_tolerance": 1e-7,
+    "native_versions": [{"name": "cadquery", "version": "2.6.1"}, {"name": "OCP", "version": "7.8.1"}],
+    "faces": [
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [0, 7.5, 5], "area": 150.0, "bounds": [0, 0, 0, 0, 15, 10]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [200, 7.5, 5], "area": 150.0, "bounds": [200, 0, 0, 200, 15, 10]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [100, 0, 5], "area": 2000.0, "bounds": [0, 0, 0, 200, 0, 10]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [100, 15, 5], "area": 2000.0, "bounds": [0, 15, 0, 200, 15, 10]},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [100, 7.5, 0], "area": 3000.0, "bounds": [0, 0, 0, 200, 15, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [100, 7.5, 10], "area": 3000.0, "bounds": [0, 0, 10, 200, 15, 10]}
+    ]
+  },
+  "mesh": null,
+  "expected": {"verdict": "failed", "bindings": {"beam.solid": "bound", "beam.root_section": "bound", "beam.free_end": "bound"}}
+}

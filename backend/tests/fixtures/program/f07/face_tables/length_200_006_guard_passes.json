@@ -1,0 +1,20 @@
+{
+  "id": "length_200_006_guard_passes",
+  "description": "Length and free-end position pass: 0.006 + 2*1e-7 = 0.0060002 mm <= 0.01 mm. The box volume error is 0.9 mm3 > 0.0003 mm3, and physics cross-binding sees 0.006 mm > 2e-6 mm length error. The verdict is failed.",
+  "candidate_height_mm": 15.0,
+  "table": {
+    "solid_count": 1, "closed_solid_count": 1, "bounds": [0, 0, 0, 200.006, 10, 15], "volume": 30000.9, "area": 10300.3,
+    "max_topology_tolerance": 1e-7,
+    "native_versions": [{"name": "cadquery", "version": "2.6.1"}, {"name": "OCP", "version": "7.8.1"}],
+    "faces": [
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [0, 5, 7.5], "area": 150.0, "bounds": [0, 0, 0, 0, 10, 15]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [200.006, 5, 7.5], "area": 150.0, "bounds": [200.006, 0, 0, 200.006, 10, 15]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [100.003, 0, 7.5], "area": 3000.09, "bounds": [0, 0, 0, 200.006, 0, 15]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [100.003, 10, 7.5], "area": 3000.09, "bounds": [0, 10, 0, 200.006, 10, 15]},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [100.003, 5, 0], "area": 2000.06, "bounds": [0, 0, 0, 200.006, 10, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [100.003, 5, 15], "area": 2000.06, "bounds": [0, 0, 15, 200.006, 10, 15]}
+    ]
+  },
+  "mesh": null,
+  "expected": {"verdict": "failed", "bindings": {"beam.solid": "bound", "beam.root_section": "bound", "beam.free_end": "bound"}}
+}
