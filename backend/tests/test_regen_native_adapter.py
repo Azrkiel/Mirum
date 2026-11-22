@@ -21,7 +21,6 @@ pytestmark = pytest.mark.skipif(
     reason='needs the native PicoGK builder (REGEN_NATIVE=1, REGEN_BUILDER)')
 
 HEX64 = re.compile(r'^[0-9a-f]{64}$')
-MIB = 1024 * 1024
 
 
 def run(coro):
@@ -29,8 +28,12 @@ def run(coro):
 
 
 def context(deadline_s=600):
+    from engineering.capabilities import REGEN
     from engineering.program.kernel import ExecutionContext
-    return ExecutionContext(deadline_s=deadline_s, max_artifact_bytes=64 * MIB, workspace='f03-native')
+    # The existing regen run budget (CI run 44986647861: the small.json STL exceeded 64 MiB, and the
+    # adapter correctly reported unavailable/budget_exceeded).
+    return ExecutionContext(deadline_s=deadline_s, max_artifact_bytes=REGEN.resources.run_bytes,
+                            workspace='f03-native')
 
 
 def candidate_for(spec_name='small.json'):
