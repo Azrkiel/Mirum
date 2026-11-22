@@ -132,18 +132,38 @@ def test_model_construct_bypasses_validation_so_it_is_banned():
     assert bypass.design == 'NOT A VALID IDENTIFIER'
 
 
+_BYPASS_NAMES = {'model_construct', 'model_copy', 'TypeAdapter', '__pydantic_validator__'}
+# Names banned as a bare reference, alias, import or string constant (calls of these are labelled separately).
+_REF_NAMES = _BYPASS_NAMES | {'setattr', 'import_module', '__import__'}
+_STRING_NAMES = _REF_NAMES | {'__setattr__'}
+
+
 def _violations(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
+    call_funcs = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
     found = []
     for node in ast.walk(tree):
         line = getattr(node, 'lineno', 0)
-        if isinstance(node, ast.ImportFrom) and any(a.name == 'TypeAdapter' for a in node.names):
-            found.append((line, 'import TypeAdapter'))  # catches `TypeAdapter as T` aliases
-        elif isinstance(node, ast.Constant) and node.value in _BYPASS_NAMES:
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:  # catches `X as Y` aliases
+                if alias.name in _REF_NAMES:
+                    found.append((line, f'import {alias.name}'))
+                elif alias.name == '*' and (node.module or '').split('.')[0] == 'pydantic':
+                    found.append((line, 'import * from pydantic'))
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in _STRING_NAMES:
             found.append((line, f'string {node.value}'))  # getattr(x, 'model_construct') and friends
-        elif isinstance(node, ast.Attribute) and node.attr == '__pydantic_validator__':
-            found.append((line, '__pydantic_validator__'))
-        elif isinstance(node, ast.Call):
+        elif isinstance(node, ast.Attribute):
+            if node.attr == '__pydantic_validator__':
+                found.append((line, '__pydantic_validator__'))
+            elif (node.attr == '__setattr__' and isinstance(node.value, ast.Name)
+                  and node.value.id == 'object'):
+                found.append((line, 'object.__setattr__'))  # call or alias
+            elif node.attr in _REF_NAMES and id(node) not in call_funcs:
+                found.append((line, f'reference {node.attr}'))
+        elif isinstance(node, ast.Name):
+            if node.id in _REF_NAMES and id(node) not in call_funcs:
+                found.append((line, f'reference {node.id}'))
+        if isinstance(node, ast.Call):
             func = node.func
             name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else None
             if name == 'model_construct':
@@ -152,13 +172,9 @@ def _violations(path: Path) -> list[str]:
                 found.append((line, 'model_copy(update=)'))
             elif name == 'TypeAdapter':
                 found.append((line, 'TypeAdapter'))
-            elif (name == '__setattr__' and isinstance(func, ast.Attribute)
-                  and isinstance(func.value, ast.Name) and func.value.id == 'object'):
-                found.append((line, 'object.__setattr__'))
+            elif name in ('setattr', 'import_module', '__import__'):
+                found.append((line, name))
     return [f'{path.name}:{line} {what}' for line, what in sorted(found)]
-
-
-_BYPASS_NAMES = {'model_construct', 'model_copy', 'TypeAdapter', '__pydantic_validator__'}
 
 
 def _imports_program(path: Path) -> bool:
@@ -202,6 +218,55 @@ def test_the_ban_scanner_finds_each_bypass(tmp_path):
     assert [v.split(' ', 1)[1] for v in _violations(sample)] == [
         'import TypeAdapter', 'model_construct', 'model_copy(update=)', 'TypeAdapter', 'import TypeAdapter',
         'string model_construct', 'object.__setattr__', '__pydantic_validator__']
+
+
+def _scan(tmp_path, source: str) -> list[str]:
+    sample = tmp_path / 'snippet.py'
+    sample.write_text(source, encoding='utf-8', newline='\n')
+    return [v.split(' ', 1)[1] for v in _violations(sample)]
+
+
+@pytest.mark.parametrize('source', [
+    # K33-1: non-call references and aliases
+    'import pydantic\nt = pydantic.TypeAdapter\n',
+    'f = Model.model_construct\n',
+    'v = Model.__pydantic_validator__\n',
+    'from pydantic import TypeAdapter as T\n',
+    'from pydantic import TypeAdapter\nt = TypeAdapter\n',
+    'g = lambda m: m.model_construct\n',
+    'h = Model.model_copy\n',
+    'setter = object.__setattr__\n',
+    'from pydantic import *\n',
+    # K33-2: builtin setattr, including aliases
+    'setattr(rec, "x", 1)\n',
+    's = setattr\ns(rec, "x", 1)\n',
+    'import builtins\nbuiltins.setattr(rec, "x", 1)\n',
+    'f = getattr(builtins, "setattr")\n',
+    # K33-3: dynamic loads
+    'import importlib\nm = importlib.import_module("pydantic")\n',
+    'from importlib import import_module\n',
+    'm = __import__("pydantic")\n',
+    'import pydantic\nt = getattr(pydantic, "TypeAdapter")\n',
+    'c = getattr(x, "model_construct")\n',
+    'c = getattr(x, "__pydantic_validator__")\n',
+])
+def test_the_ban_scanner_catches_k33_bypass_forms(tmp_path, source):
+    assert _scan(tmp_path, source) != []
+
+
+@pytest.mark.parametrize('source', [
+    'import json\nx = json.loads("{}")\n',
+    'a = rec.model_copy()\n',
+    'a = rec.model_dump()\nb = Model.model_validate(a)\n',
+    'from pydantic import BaseModel, ConfigDict\n',
+    'import importlib\n',
+    'v = getattr(obj, "name", None)\n',
+    'class C:\n    def __setattr__(self, k, v):\n        raise AttributeError(k)\n',
+    'object.__getattribute__(a, "x")\n',
+    'name = "set_attribute"\n',
+])
+def test_the_ban_scanner_ignores_benign_code(tmp_path, source):
+    assert _scan(tmp_path, source) == []
 
 
 def test_dumps_strict_nonfinite_dict_key_is_ir007():
