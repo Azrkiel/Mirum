@@ -60,6 +60,33 @@
       "version": "0.1.0"
     },
     {
+      "args": [],
+      "backend_requirements": [
+        "capability_runtime"
+      ],
+      "capability_versions": [
+        "regen_chamber@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.build",
+      "outputs": [
+        {
+          "name": "geometry",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [
+        "program validated against the capability",
+        "regen path is geometry-only"
+      ],
+      "representations": [
+        "voxel",
+        "mesh"
+      ],
+      "summary": "Build the geometry of a validated regen chamber design (geometry-only path).",
+      "version": "0.2.0"
+    },
+    {
       "args": [
         {
           "allowed": [
@@ -96,6 +123,42 @@
       "version": "0.1.0"
     },
     {
+      "args": [
+        {
+          "allowed": [
+            "stl"
+          ],
+          "dimension": null,
+          "kind": "text",
+          "name": "format",
+          "required": true
+        }
+      ],
+      "backend_requirements": [
+        "capability_runtime"
+      ],
+      "capability_versions": [
+        "regen_chamber@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.export",
+      "outputs": [
+        {
+          "name": "file",
+          "type": "file"
+        }
+      ],
+      "preconditions": [
+        "capability.build completed",
+        "regen path is geometry-only"
+      ],
+      "representations": [
+        "file"
+      ],
+      "summary": "Export built regen chamber geometry to STL (geometry-only).",
+      "version": "0.2.0"
+    },
+    {
       "args": [],
       "backend_requirements": [
         "capability_runtime"
@@ -119,6 +182,32 @@
       ],
       "summary": "Inspect built geometry and report measurements.",
       "version": "0.1.0"
+    },
+    {
+      "args": [],
+      "backend_requirements": [
+        "capability_runtime"
+      ],
+      "capability_versions": [
+        "regen_chamber@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.inspect",
+      "outputs": [
+        {
+          "name": "measurements",
+          "type": "measurement"
+        }
+      ],
+      "preconditions": [
+        "capability.build completed",
+        "regen path is geometry-only"
+      ],
+      "representations": [
+        "report"
+      ],
+      "summary": "Inspect built regen chamber geometry and report measurements (geometry-only).",
+      "version": "0.2.0"
     },
     {
       "args": [
@@ -487,5 +576,5 @@
       "version": "0.1.0"
     }
   ],
-  "registry_version": "mirum_operation_registry_v0_1"
+  "registry_version": "mirum_operation_registry_v0_2"
 }
