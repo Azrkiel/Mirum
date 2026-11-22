@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 # Free-text bound shared by every IR string field (the legacy contracts Text limit).
 Str240 = Annotated[str, StringConstraints(max_length=240)]
@@ -49,12 +49,17 @@ class ProgramError(ValueError):
         return Diagnostic(code=self.code, message=self.message, field=self.field, span=self.span)
 
 
+# Largest line or column a span may name: a 64 KiB source has at most 65537 lines (K30).
+MAX_POSITION = 64 * 1024 + 1
+Position = Annotated[int, Field(le=MAX_POSITION)]
+
+
 class SourceSpan(IRModel):
-    """1-based, end inclusive."""
-    line: int
-    column: int
-    end_line: int
-    end_column: int
+    """1-based, end inclusive. Scalar fields only, so it needs no budget pre-pass (K30)."""
+    line: Position
+    column: Position
+    end_line: Position
+    end_column: Position
     source_id: Str240 | None = None
 
     @model_validator(mode='after')
