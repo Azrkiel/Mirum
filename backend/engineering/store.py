@@ -70,6 +70,7 @@ class SQLiteStore:
                 request_sha256 TEXT NOT NULL, created REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS ai_client_requests(client TEXT NOT NULL, created REAL NOT NULL);
             CREATE INDEX IF NOT EXISTS ai_client_requests_client ON ai_client_requests(client, created);
+            CREATE INDEX IF NOT EXISTS ai_client_requests_created ON ai_client_requests(created);
             PRAGMA user_version=1;
         ''')
 

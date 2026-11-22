@@ -271,6 +271,33 @@ def test_beam_branch_admitted_request_counts_even_when_the_provider_is_unavailab
     assert_cap_refusal(post_beam(ai_client))
 
 
+def test_draft_quota_refusal_spends_no_cap_slot_on_either_branch(ai_client, monkeypatch):
+    # Review LOW-1 (PR #136): the draft quota is checked before the cap, so its refusal writes no cap row.
+    monkeypatch.setenv(AI_CLIENT_CAP_ENV, '5')
+    spy = Spy()
+    monkeypatch.setattr(pc, 'ai_proposer', spy)
+    runtime().proposer.provider = spy
+    runtime().quota.per_client_drafts = 0
+    before = counts(runtime())
+    for post in (post_regen, post_beam):
+        response = post(ai_client)
+        assert response.status_code != 201 and response.json().get('reasons') != [AI_CLIENT_CAP_REASON]
+    assert spy.calls == 0 and counts(runtime()) == before and before[3] == 0
+
+
+@posix
+def test_prune_uses_an_index_on_created(tmp_path):
+    # Review LOW-3 (PR #136): the per-admit prune must not scan the whole table.
+    real = SQLiteStore(tmp_path)
+    try:
+        with real.transaction() as db:
+            plan = ' '.join(str(r) for r in db.execute(
+                'EXPLAIN QUERY PLAN DELETE FROM ai_client_requests WHERE created<=?', (0.0,)).fetchall())
+    finally:
+        real.close()
+    assert 'ai_client_requests_created' in plan, plan
+
+
 def test_flag_off_never_reaches_the_cap_and_writes_nothing(off_client, monkeypatch):
     monkeypatch.setenv(AI_CLIENT_CAP_ENV, '1')
     before = counts(runtime())
