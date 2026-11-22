@@ -289,6 +289,24 @@ def test_ir_swapped_during_the_probe_is_refused_before_build():
     assert swapping.builds == []
 
 
+def test_lock_rebuild_error_after_the_probe_is_a_typed_refusal(monkeypatch):
+    # PR #138 re-review: an error rebuilding the lock is refused/lock_mismatch, not an exception.
+    import engineering.program.planning as planning
+    compiled, adapter, _, _, service, review = reviewed()
+    brief = finalize(service, review)
+    real, calls = planning.execution_lock_v0_2, []
+
+    def flaky(ir, backend_lock):
+        calls.append(1)
+        if len(calls) > 1:  # the first call is the fresh lock; the second is the re-bind
+            raise ValueError('boom')
+        return real(ir, backend_lock)
+
+    monkeypatch.setattr(planning, 'execution_lock_v0_2', flaky)
+    out = run(run_program(review, compiled, service, brief.brief_id, adapter=adapter, context=CTX))
+    assert out == PlanRefusal('refused', ('lock_mismatch',)) and adapter.builds == []
+
+
 def test_backend_change_makes_lock_mismatch_and_zero_builds():
     compiled, adapter, _, _, service, review = reviewed()
     brief = finalize(service, review)

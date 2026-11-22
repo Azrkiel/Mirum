@@ -245,9 +245,14 @@ async def authorize_run(review: ProgramReview, compiled, brief_service, brief_id
             return PlanRefusal('unsupported', tuple(decision.reasons), decision.diagnostic_code, decision)
     # Security review LOW-2 (PR #138): the probe above awaited; re-bind the IR the plans were built
     # from to the reviewed semantic and lock hashes, with no await before the authorization is returned.
-    if (semantic_sha256(ir) != review.semantic_sha256
-            or execution_lock_v0_2_sha256(execution_lock_v0_2(ir, fresh.backend_lock)) != review.lock_sha256):
+    if semantic_sha256(ir) != review.semantic_sha256:
         return _refuse('refused', 'semantic_mismatch')
+    try:
+        rebound = execution_lock_v0_2_sha256(execution_lock_v0_2(ir, fresh.backend_lock))
+    except ValueError:  # includes pydantic ValidationError: a typed refusal, never an exception
+        return _refuse('refused', 'lock_mismatch')
+    if rebound != review.lock_sha256:
+        return _refuse('refused', 'lock_mismatch')
     return RunAuthorization(review=review, brief_id=brief_id, backend_lock=fresh.backend_lock,
                             plans=plans, source_sha256=compiled.source_sha256)
 
