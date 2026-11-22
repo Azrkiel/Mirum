@@ -238,7 +238,9 @@ class Gated:
             bundle = resign_bundle(w.store, w.pub, job, replacements)
             w.pub.validate(job, bundle)  # the tampered bundle is internally consistent
             self.seq += 1
-            rev = evolve(self.first, revision_id=f'{0xf07a0000 + self.seq:032x}', bundle=bundle)
+            rid = f'{0xf07a0000 + self.seq:032x}'
+            # an edit revision is its own evidence revision (ProgramRevision validator)
+            rev = evolve(self.first, revision_id=rid, evidence_revision_id=rid, bundle=bundle)
             record = self.run(self.verifier.verify(rev, self.ir))
             with w.store.transaction() as db:
                 problem = self.verifier.evidence.match_problem(db, rev.revision_id, job_id=job, bundle=bundle)
