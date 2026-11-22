@@ -10,10 +10,12 @@ imported inside probe(), and numpy/scipy readers only inside inspect().
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import hashlib
 import math
 import re
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -41,8 +43,15 @@ _HEX64_TOKEN = re.compile(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])')
 # the builder's directory (/opt/regen/app/builder). The Dockerfile reads only its first field.
 _MANIFEST_NAME = 'picogk-runtime.sha256'
 _MANIFEST_BUDGET_BYTES = 4096
-# STL reread deadline: the capability's overall time budget.
-_INSPECT_DEADLINE_S = float(REGEN.resources.overall_seconds)
+# K37: STL reread deadline, strictly tighter than REGEN.resources.overall_seconds (420). Provisional:
+# pinned by backend/tests/test_regen_native_k37.py (the native timing must show a >= 5x margin) and by
+# the F05 PR CI evidence. The reread runs on a dedicated one-thread executor behind a non-waiting slot.
+INSPECT_DEADLINE_S = 120.0
+# Legacy alias (older tests patch this name); the tighter of the two values applies.
+_INSPECT_DEADLINE_S = INSPECT_DEADLINE_S
+_REREAD_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix='picogk-reread')
+# Held from before submit until the worker thread finishes (not when the caller times out).
+_REREAD_SLOT = threading.Lock()
 
 _NODE_ID = 'regen.chamber'
 # regen_adapter.UNITS value -> kernel Measurement unit literal. 'ratio' has no mapping and is skipped.
@@ -323,9 +332,30 @@ class PicogkAdapter:
         try:
             spec = regen_adapter.revalidate(plan.candidate.content.specification)
             tolerance = float(_pinned()['BBOX_TOLERANCE_VOXELS']) * spec.voxel_size_mm
+        except (UnsupportedCapability, ValueError, OSError):
+            return refuse('unavailable', 'evidence_invalid')
+        # K37: one dedicated reread thread, one non-waiting slot. Busy never queues or waits.
+        if not _REREAD_SLOT.acquire(blocking=False):
+            return refuse('unavailable', 'busy')
+        data = artifact.data
+
+        def reread():
+            try:
+                return _reread_mesh(data)
+            finally:
+                _REREAD_SLOT.release()   # the worker frees the slot, not the timed-out caller
+
+        try:
+            future = _REREAD_EXECUTOR.submit(reread)
+        except BaseException:
+            _REREAD_SLOT.release()
+            raise
+        # A future cancelled while still pending never runs reread(), so free the slot here.
+        future.add_done_callback(lambda f: _REREAD_SLOT.release() if f.cancelled() else None)
+        try:
             # The reread thread cannot be cancelled, but the caller gets a bounded answer.
-            mesh = await asyncio.wait_for(asyncio.to_thread(_reread_mesh, artifact.data),
-                                          _INSPECT_DEADLINE_S)
+            mesh = await asyncio.wait_for(asyncio.wrap_future(future),
+                                          min(INSPECT_DEADLINE_S, _INSPECT_DEADLINE_S))
         except (asyncio.TimeoutError, TimeoutError):
             return refuse('unavailable', 'deadline_exceeded')
         except (UnsupportedCapability, ValueError, OSError):
