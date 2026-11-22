@@ -10,10 +10,14 @@
       "type": "string"
     },
     "capability_id": {
+      "maxLength": 128,
+      "minLength": 1,
       "title": "Capability Id",
       "type": "string"
     },
     "capability_version": {
+      "maxLength": 128,
+      "minLength": 1,
       "title": "Capability Version",
       "type": "string"
     },
@@ -38,18 +42,26 @@
       "type": "array"
     },
     "numerical_policy_version": {
+      "maxLength": 128,
+      "minLength": 1,
       "title": "Numerical Policy Version",
       "type": "string"
     },
     "program_ir_version": {
+      "maxLength": 128,
+      "minLength": 1,
       "title": "Program Ir Version",
       "type": "string"
     },
     "registry_version": {
+      "maxLength": 128,
+      "minLength": 1,
       "title": "Registry Version",
       "type": "string"
     },
     "resource_policy_version": {
+      "maxLength": 128,
+      "minLength": 1,
       "title": "Resource Policy Version",
       "type": "string"
     },
@@ -62,6 +74,8 @@
       "type": "string"
     },
     "semantics_version": {
+      "maxLength": 128,
+      "minLength": 1,
       "title": "Semantics Version",
       "type": "string"
     }
