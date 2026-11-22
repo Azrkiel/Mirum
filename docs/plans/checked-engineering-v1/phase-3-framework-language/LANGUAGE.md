@@ -104,6 +104,19 @@ Every code has category `lexical`. Each diagnostic carries a source span (byte o
 
 F04 implements these rules with positive and negative fixtures (P06) and may only tighten them through a versioned change recorded in its handoff.
 
+### 10. Parser, syntax codes and formatter (Frozen in F04)
+
+Frozen in F04 (see [F04 handoff](handoffs/F04.md)); no lexical rule above changed.
+
+- Implementation: a hand-written lexer and recursive-descent parser in backend/engineering/language/ (stdlib only, no parser library, no evaluation of source).
+- Positions: byte offset 0-based; line and column 1-based, column in Unicode scalar values; spans end inclusive.
+- Whole-input check order: size (L022), BOM (L002), UTF-8 (L001); then the first error by position, where a NUL (L003) or bidi control (L006) wins a tie.
+- The token budget counts tokens excluding the end-of-input marker.
+- Syntax codes (category syntax): MEL-P001 empty source, P002 missing header, P003 unsupported version (only "0.1"), P004 unexpected token, P005 missing `;`, P006 duplicate assignment, P007 content after the design block, P008 nesting deeper than 16, P009 more than 2,000 syntax nodes, P010 list longer than 256 elements, P011 unexpected end of input. A keyword where a name is expected is MEL-L008.
+- Budgets: depth counts program 1, assignment 2, value 3, each list level +1; nodes count the program, each assignment and each value.
+- A unit is the identifier directly after a number on the same line; an `e`/`E` not followed by digits (or a sign and digits) ends the number.
+- Formatter: canonical layout (two-space indent, one assignment per line, `name = value;`, inline lists `[a, b]`, number text as written plus one space and the unit, strings as ASCII JSON escapes, LF, trailing newline). Comments are dropped; the tree and semantic hash are unchanged, the source hash changes.
+
 ## Beam fixture
 
 See [beam.mir](examples/beam.mir). Field names below are the proposed language surface, translated to the registered rectangular_cantilever 1.0.0 capability rather than blindly forwarded to Python.
