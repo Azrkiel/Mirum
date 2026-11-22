@@ -2,6 +2,7 @@
 import asyncio
 import importlib.util
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -23,6 +24,7 @@ from .limits import AiCallBudget,run_in_thread_owned
 from .proposer import make_proposer,rules_proposer
 from .store import SQLiteStore,SQLiteBriefRepository,SQLiteProposalLedger,ArtifactExpired,PreparationQuota
 
+_LOG=logging.getLogger(__name__)
 MAX_INPUT_BYTES=16*1024  # the reviewed brief bound; enforced on the model, after the body cap
 
 
@@ -280,6 +282,9 @@ def attach_v1_routes(app,limiter):
                     # Resolution fails closed too: any error here (not installed, import) is "unavailable".
                     proposer=proposal_contract.ai_proposer(body.capability,enabled=value.ai_enabled,budget=spend)
                 except Exception:
+                    # K31: one fixed line; the capability id is a registered generator id (checked above).
+                    # Never the exception text, prompt or key material.
+                    _LOG.warning('engineering.ai_route proposer_unavailable capability=%s',body.capability)
                     return unavailable()
                 try:
                     proposal=proposal_contract.conform(body.capability,await proposer.propose(body.prompt))

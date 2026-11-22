@@ -510,21 +510,25 @@
     },
     "SourceSpan": {
       "additionalProperties": false,
-      "description": "1-based, end inclusive.",
+      "description": "1-based, end inclusive. Scalar fields only, so it needs no budget pre-pass (K30).",
       "properties": {
         "column": {
+          "maximum": 65537,
           "title": "Column",
           "type": "integer"
         },
         "end_column": {
+          "maximum": 65537,
           "title": "End Column",
           "type": "integer"
         },
         "end_line": {
+          "maximum": 65537,
           "title": "End Line",
           "type": "integer"
         },
         "line": {
+          "maximum": 65537,
           "title": "Line",
           "type": "integer"
         },

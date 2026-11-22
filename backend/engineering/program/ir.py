@@ -1,4 +1,8 @@
-"""ProgramIR records and the strict loader (F02, D1)."""
+"""ProgramIR records and the strict loader (F02, D1).
+
+Records accept reserved (non-executable) operations; any executor must call
+``registry.DEFAULT_REGISTRY.require_executable`` itself before running an operation (K30).
+"""
 from __future__ import annotations
 
 import json
@@ -10,7 +14,7 @@ from pydantic import (
     AfterValidator, Field, StringConstraints, ValidationError, field_validator, model_validator,
 )
 
-from .errors import IRModel, ProgramError, SourceSpan, Str240
+from .errors import MAX_POSITION, IRModel, ProgramError, SourceSpan, Str240
 from .units import CANONICAL_UNIT, Dimension
 from .versions import (
     CONSTRUCTION_GRAPH_VERSION, EXECUTION_LOCK_VERSION, PROGRAM_IR_VERSION,
@@ -22,7 +26,7 @@ __all__ = [
     'RequirementPlan', 'CandidateParameter', 'CandidateSpace', 'AnalysisPlanRef',
     'EvidenceExpectation', 'ConstructionStep', 'ConstructionGraph', 'CapabilityRef',
     'ExecutionSelection', 'ProgramProvenance', 'ProgramIR', 'ExecutionLock',
-    'execution_lock', 'load_program_json', 'program_from_dict',
+    'execution_lock', 'load_program_json', 'program_from_dict', 'MAX_POSITION',
 ]
 
 def _semantic_id_length(value: str) -> str:
@@ -167,6 +171,11 @@ class ConstructionStep(IRModel):
     inputs: Annotated[tuple[SemanticId, ...], Field(max_length=MAX_LIST)] = ()
     span: SourceSpan | None = None
 
+    @model_validator(mode='before')
+    @classmethod
+    def _budgets(cls, data):
+        return _prepare_input(data)
+
 
 class ConstructionGraph(IRModel):
     schema_version: Literal['mirum_construction_graph_v0_1']
@@ -255,15 +264,20 @@ class ProgramIR(IRModel):
 
 class ExecutionLock(IRModel):
     schema_version: Literal['mirum_execution_lock_v0_1']
-    program_ir_version: str
-    semantics_version: str
-    registry_version: str
-    capability_id: str
-    capability_version: str
-    numerical_policy_version: str
-    resource_policy_version: str
+    program_ir_version: Name128
+    semantics_version: Name128
+    registry_version: Name128
+    capability_id: Name128
+    capability_version: Name128
+    numerical_policy_version: Name128
+    resource_policy_version: Name128
     backend: Backend
     exports: Annotated[tuple[ExportFormat, ...], Field(max_length=32)]
+
+    @model_validator(mode='before')
+    @classmethod
+    def _budgets(cls, data):
+        return _prepare_input(data)
 
 
 def execution_lock(ir: ProgramIR) -> ExecutionLock:
@@ -411,17 +425,31 @@ def _prepare_input(data):
     return data
 
 
+def _has_nonfinite(obj) -> bool:
+    """Iterative scan for non-finite floats; containers are visited once (cycles terminate)."""
+    stack, seen = [obj], set()
+    while stack:
+        node = stack.pop()
+        if isinstance(node, float):
+            if not math.isfinite(node):
+                return True
+        elif isinstance(node, (dict, list, tuple)):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            stack.extend(node.values() if isinstance(node, dict) else node)
+    return False
+
+
 def _dumps_strict(obj) -> str:
+    # Non-finite numbers are found from the values (K30), never from json's error wording.
+    if _has_nonfinite(obj):
+        raise ProgramError('IR007', 'non-finite number in program')
     try:
         return json.dumps(obj, allow_nan=False)
-    except ValueError as exc:
-        # json raises ValueError for non-finite floats ("Out of range float values are not JSON
-        # compliant") and for circular references; only the former is a number problem.
-        if 'Out of range float' in str(exc):
-            raise ProgramError('IR007', 'non-finite number in program') from None
-        raise ProgramError('IR010', f'program is not JSON-serializable: {exc}') from None
-    except TypeError as exc:
-        raise ProgramError('IR010', f'program is not JSON-serializable: {exc}') from None
+    except (ValueError, TypeError):
+        # Circular references, unsupported types (and, defensively, any other json failure).
+        raise ProgramError('IR010', 'program is not JSON-serializable') from None
     except RecursionError:
         raise ProgramError('IR012', 'program exceeds the depth budget') from None
 
