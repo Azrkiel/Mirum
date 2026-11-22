@@ -342,6 +342,15 @@ def test_scope_includes_files_that_reach_the_package_dynamically(tmp_path, sourc
     'import json\n',
     'from engineering import grounding\n',
     'import re\np = re.compile("x")\n',
+    'import importlib\nm = importlib.import_module(name)\n',
+    'import importlib\nm = importlib.import_module(self.module)\n',
+    'import importlib\nm = importlib.import_module("cem.api")\n',
+    'import importlib\nm = importlib.import_module("program")\n',
+    'import importlib\nm = importlib.import_module(".program", package=pkg)\n',
+    'import sys\nm = sys.modules[name]\n',
+    'import sys\nm = sys.modules["cem.api"]\n',
+    'import sys\nx = sys.modules\n',
+    'from sys import modules\n',
 ])
 def test_scope_excludes_unrelated_files(tmp_path, source):
     assert not _in_scope(tmp_path, source)
