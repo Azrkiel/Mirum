@@ -81,7 +81,8 @@
                 "mock_backend",
                 "not_pinned",
                 "out_of_scope",
-                "measurement_unavailable"
+                "measurement_unavailable",
+                "bound_exceeds_tolerance"
               ],
               "type": "string"
             },
@@ -490,7 +491,8 @@
           "mock_backend",
           "not_pinned",
           "out_of_scope",
-          "measurement_unavailable"
+          "measurement_unavailable",
+          "bound_exceeds_tolerance"
         ],
         "type": "string"
       },

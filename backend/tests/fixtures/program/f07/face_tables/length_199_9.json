@@ -1,0 +1,20 @@
+{
+  "id": "length_199_9",
+  "description": "Beam 0.1 mm too short (199.9): the free end is 0.1 mm off its reviewed position, so beam.free_end is missing, verdict failed.",
+  "candidate_height_mm": 15.0,
+  "table": {
+    "solid_count": 1, "closed_solid_count": 1, "bounds": [0, 0, 0, 199.9, 10, 15], "volume": 29985.0, "area": 10290.0,
+    "max_topology_tolerance": 1e-7,
+    "native_versions": [{"name": "cadquery", "version": "2.6.1"}, {"name": "OCP", "version": "7.8.1"}],
+    "faces": [
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [0, 5, 7.5], "area": 150.0, "bounds": [0, 0, 0, 0, 10, 15]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [199.9, 5, 7.5], "area": 150.0, "bounds": [199.9, 0, 0, 199.9, 10, 15]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [99.95, 0, 7.5], "area": 2998.5, "bounds": [0, 0, 0, 199.9, 0, 15]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [99.95, 10, 7.5], "area": 2998.5, "bounds": [0, 10, 0, 199.9, 10, 15]},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [99.95, 5, 0], "area": 1999.0, "bounds": [0, 0, 0, 199.9, 10, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [99.95, 5, 15], "area": 1999.0, "bounds": [0, 0, 15, 199.9, 10, 15]}
+    ]
+  },
+  "mesh": null,
+  "expected": {"verdict": "failed", "bindings": {"beam.solid": "bound", "beam.root_section": "bound", "beam.free_end": "missing"}}
+}

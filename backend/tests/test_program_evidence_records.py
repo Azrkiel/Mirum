@@ -142,7 +142,10 @@ def test_every_limit_source_is_reviewed_or_policy(plan):
 
 
 def test_preview_required_only_when_convention_pinned(compiled, lock, candidates, plan):
-    assert entries_of(plan)['delivered.preview_extent'].required is True
+    # amended: required only when pinned AND the conservative rule can pass; 0.01 mm < deflection 0.1 mm
+    assert entries_of(plan)['delivered.preview_extent'].required is False
+    assert ev.preview_can_pass(0.01, (200.0, 10.0, 15.0)) is False
+    assert ev.preview_can_pass(1.0, (200.0, 10.0, 15.0)) is True
     off = build_check_plan(compiled.ir, lock, candidates, mesh_convention_pinned=False)
     prev = entries_of(off)['delivered.preview_extent']
     assert prev.required is False and prev.required_representation == 'mesh'
@@ -343,7 +346,10 @@ def test_verdict_is_never_accepted_and_must_match_checks():
     optional_failed = check_ev(required=False, state='failed', reason='limit_exceeded',
                                measurements=(meas(value=1.0, satisfied=False),),
                                check_id='delivered.datum')
-    assert derive_verdict((check_ev(), optional_failed)) == 'verified'
+    assert derive_verdict((check_ev(), optional_failed)) == 'failed'  # amended: measured failure blocks
+    optional_unmeasured = check_ev(required=False, state='failed', coverage='not_evaluated',
+                                   reason='limit_exceeded', measurements=(), check_id='delivered.datum')
+    assert derive_verdict((check_ev(), optional_unmeasured)) == 'verified'
     assert derive_verdict(()) == 'unavailable'
 
 

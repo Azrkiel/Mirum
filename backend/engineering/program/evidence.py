@@ -35,7 +35,8 @@ __all__ = [
     'CheckLimit', 'CheckEntry', 'CandidateChecks', 'CheckPlan', 'FaceRecord', 'FaceTable',
     'MeshSummary', 'FaceSignature', 'FeatureBinding', 'Measurement', 'ErrorBound', 'CheckEvidence',
     'DeliveredEvidence', 'build_check_plan', 'check_plan_sha256', 'evidence_sha256',
-    'derive_verdict', 'check_evidence_against_plan',
+    'derive_verdict', 'check_evidence_against_plan', 'ReportInputs', 'bind_features', 'evaluate',
+    'build_delivered_evidence', 'preview_can_pass', 'GLB_LINEAR_DEFLECTION_MM', 'GLB_F32_REL',
 ]
 
 MAX_FACES = 64
@@ -48,7 +49,7 @@ PREDICATES = (
     'not_evaluated')
 REASONS = (
     'binding_missing', 'binding_ambiguous', 'limit_exceeded', 'report_mismatch', 'lock_mismatch',
-    'mock_backend', 'not_pinned', 'out_of_scope', 'measurement_unavailable')
+    'mock_backend', 'not_pinned', 'out_of_scope', 'measurement_unavailable', 'bound_exceeds_tolerance')
 # Reviewed numeric requirement ids a limit may cite (text requirements can never scale a limit).
 _TEXT_REQUIREMENTS = ('material.reference', 'material.source_kind', 'model.assumptions')
 REVIEWED_IDS = tuple(rid for rid, _ in _REQUIREMENTS if rid not in _TEXT_REQUIREMENTS) + (HEIGHT_ID,)
@@ -57,6 +58,16 @@ _POLICY_VALUES = {name: value for name, value in CAPABILITY.numerical.model_dump
 POLICY_FIELDS = tuple(sorted(_POLICY_VALUES))
 
 _BIG = 1e12
+
+# GLB preview error model (manager decision, F07 design notes).
+# Source: CadQuery v2.6.1 cadquery/assembly.py, Assembly.save(exportType='GLB') meshes with the default
+# linear deflection tolerance=0.1 model units (mm), lines 513-514. Mesh vertices lie on the true surface,
+# so the true extent of an axis lies in [mesh extent, mesh extent + 2 * deflection].
+GLB_LINEAR_DEFLECTION_MM = 0.1
+# float32 decode bound for POSITION values, relative to the largest absolute coordinate on the axis.
+# A float32 rounds to nearest with relative error <= 2**-24, so an extent (hi - lo) is off by <= 2**-23 *
+# max(|lo|, |hi|). One float32 node-transform multiplication may add the same again, hence 2**-22.
+GLB_F32_REL = 2.0 ** -22
 _FORBIDDEN_LABELS = ('beam.', 'checked_design', 'accepted for manufacture', 'accepted_for_manufacture',
                      'manufacturing accepted', 'manufacturing_accepted', 'approved for manufacture')
 
@@ -171,6 +182,18 @@ class CheckEntry(IRModel):
         return self
 
 
+def preview_can_pass(tolerance: float, extents: tuple[float, ...]) -> bool:
+    """Whether the conservative per-axis rule can ever pass: tolerance >= deflection + float32 bound."""
+    return all(tolerance >= GLB_LINEAR_DEFLECTION_MM + GLB_F32_REL * abs(r) for r in extents)
+
+
+def _entry_preview_can_pass(entry: 'CheckEntry') -> bool:
+    lims = {lim.name: lim.value for lim in entry.limits}
+    if not all(k in lims for k in ('extent', 'length', 'width', 'height')):
+        return False
+    return preview_can_pass(lims['extent'], (lims['length'], lims['width'], lims['height']))
+
+
 class CandidateChecks(IRModel):
     candidate_sha256: Hash64
     entries: Annotated[tuple[CheckEntry, ...], Field(min_length=1, max_length=16)]
@@ -213,8 +236,10 @@ class CheckPlan(IRModel):
             for e in cand.entries:
                 if e.category in ('geometry', 'physics') and not e.required:
                     _bad(f'{e.check_id} must be required')
-                if e.category == 'preview' and e.required != self.mesh_convention_pinned:
-                    _bad('the preview check is required exactly when the mesh convention is pinned')
+                if e.category == 'preview' and e.required != (
+                        self.mesh_convention_pinned and _entry_preview_can_pass(e)):
+                    _bad('the preview check is required exactly when the mesh convention is pinned '
+                         'and the conservative rule can pass for the reviewed tolerance')
         return self
 
 
@@ -263,32 +288,42 @@ def _candidate_entries(spec, pinned: bool) -> tuple[CheckEntry, ...]:
                           feature_refs=features, predicate=predicate, required_representation=rep,
                           limits=limits)
 
-    def dim(cid, predicate, req):
+    def dim(cid, predicate, req, value):
         return entry(cid, 'geometry', predicate,
-                     (_lim('dimension', dim_tol, 'mm', 'le', tol_src), guard),
+                     (_lim('dimension', dim_tol, 'mm', 'le', tol_src), guard,
+                      _lim('reviewed', value, 'mm', 'eq', f'reviewed:{req}')),
                      features=('beam.solid',), reqs=(req, 'beam.dimensional_tolerance'))
+
+    rev_w = _lim('width', width, 'mm', 'eq', 'reviewed:beam.width')
+    rev_h = _lim('height', height, 'mm', 'eq', 'reviewed:beam.height')
+    rev_l = _lim('length', length, 'mm', 'eq', 'reviewed:beam.length')
+    pinned_required = pinned and preview_can_pass(dim_tol, (length, width, height))
 
     return (
         entry('delivered.solid', 'geometry', 'solid_single_closed',
               (_lim('topology_tolerance', pol.max_topology_tolerance_mm, 'mm', 'le',
                     'policy:max_topology_tolerance_mm'),), features=('beam.solid',)),
-        entry('delivered.root_section', 'geometry', 'root_section_face', (normal, datum, area),
+        entry('delivered.root_section', 'geometry', 'root_section_face', (normal, datum, area, rev_w, rev_h),
               features=('beam.root_section',), reqs=('beam.width', 'beam.height')),
         entry('delivered.free_end', 'geometry', 'free_end_face',
-              (normal, _lim('position', dim_tol, 'mm', 'le', tol_src), guard, area),
+              (normal, _lim('position', dim_tol, 'mm', 'le', tol_src), guard, area, rev_l, rev_w,
+               rev_h),
               features=('beam.free_end',),
               reqs=('beam.length', 'beam.width', 'beam.height', 'beam.dimensional_tolerance')),
-        dim('delivered.length', 'dimension_length', 'beam.length'),
-        dim('delivered.width', 'dimension_width', 'beam.width'),
-        dim('delivered.height', 'dimension_height', HEIGHT_ID),
+        dim('delivered.length', 'dimension_length', 'beam.length', length),
+        dim('delivered.width', 'dimension_width', 'beam.width', width),
+        dim('delivered.height', 'dimension_height', HEIGHT_ID, height),
         entry('delivered.datum', 'geometry', 'datum_origin', (datum,), features=('beam.solid',)),
         entry('delivered.volume', 'geometry', 'prism_volume',
-              (_lim('volume', vol_tol, 'mm3', 'abs_le', 'policy:metric_absolute_error', box),),
+              (_lim('volume', vol_tol, 'mm3', 'abs_le', 'policy:metric_absolute_error', box),
+               _lim('reviewed_volume', length * width * height, 'mm3', 'eq', 'reviewed:beam.length',
+                    ('reviewed:beam.width', 'reviewed:beam.height'))),
               features=('beam.solid',), reqs=('beam.length', 'beam.width', HEIGHT_ID)),
         entry('delivered.preview_extent', 'preview', 'preview_extent',
-              (_lim('extent', dim_tol, 'mm', 'le', tol_src),), features=('beam.solid',),
+              (_lim('extent', dim_tol, 'mm', 'le', tol_src), rev_l, rev_w, rev_h),
+              features=('beam.solid',),
               reqs=('beam.length', 'beam.width', HEIGHT_ID, 'beam.dimensional_tolerance'),
-              required=pinned, rep='mesh'),
+              required=pinned_required, rep='mesh'),
         entry('physics.report_inputs', 'physics', 'physics_report_inputs',
               (_lim('section_iy', iy_tol, 'mm4', 'abs_le', 'policy:metric_absolute_error', section),
                _lim('length', _metric_tol(length), 'mm', 'abs_le', 'policy:metric_absolute_error',
@@ -503,10 +538,12 @@ class CheckEvidence(IRModel):
 
 
 def derive_verdict(checks: tuple[CheckEvidence, ...]) -> str:
+    """ambiguous binding on a required check; else any failed check with measured coverage (required or
+    not) or any failed required check; else any required check not passed -> unavailable; else verified."""
     required = [c for c in checks if c.required]
     if any(c.reason == 'binding_ambiguous' for c in required):
         return 'ambiguous'
-    if any(c.state == 'failed' for c in required):
+    if any(c.state == 'failed' and (c.required or c.coverage == 'measured') for c in checks):
         return 'failed'
     if not required or any(c.state != 'passed' for c in required):
         return 'unavailable'
@@ -605,3 +642,257 @@ def check_evidence_against_plan(evidence: DeliveredEvidence, plan: CheckPlan) ->
         for m in c.measurements:
             if m.limit not in e.limits:
                 _bad(f'{c.check_id} measured against a limit that is not in the plan')
+
+
+# --------------------------------------------------------------------------- binder and evaluator
+
+class ReportInputs(IRModel):
+    """Physics inputs the report claims; only cross-bound to measured geometry, never a threshold."""
+    physics_passed: bool
+    section_iy_mm4: NonNeg
+    length_mm: NonNeg
+    height_mm: NonNeg
+
+
+_PREDICATE_BY_FEATURE = {'beam.solid': 'solid_single_closed', 'beam.root_section': 'root_section_face',
+                         'beam.free_end': 'free_end_face'}
+
+
+def _limits(entry: CheckEntry) -> dict[str, CheckLimit]:
+    return {lim.name: lim for lim in entry.limits}
+
+
+def _entry_for(entries, feature: str) -> CheckEntry:
+    found = [e for e in entries if e.predicate == _PREDICATE_BY_FEATURE[feature]]
+    if len(found) != 1:
+        raise ValueError(f'the plan needs exactly one entry for {feature}')
+    return found[0]
+
+
+def _ok(lim: CheckLimit, value: float) -> bool:
+    return _compare(lim.comparison, value, lim.value)
+
+
+def _normal_error(normal, expected) -> float:
+    return math.hypot(normal[0] - expected[0], normal[1] - expected[1], normal[2] - expected[2])
+
+
+def _root_matches(table: FaceTable, entry: CheckEntry) -> list[FaceRecord]:
+    lims = _limits(entry)
+    ref = lims['width'].value * lims['height'].value
+    return [f for f in table.faces
+            if f.surface == 'plane' and f.normal is not None
+            and _ok(lims['normal_error'], _normal_error(f.normal, (-1.0, 0.0, 0.0)))
+            and _ok(lims['datum_offset'], f.center[0])
+            and _ok(lims['area'], f.area - ref)]
+
+
+def _free_position(face_cx: float, lims, tolerance: float) -> float:
+    return abs(face_cx - lims['length'].value) + lims['guard_multiplier'].value * tolerance
+
+
+def _free_matches(table: FaceTable, entry: CheckEntry) -> list[FaceRecord]:
+    lims = _limits(entry)
+    ref = lims['width'].value * lims['height'].value
+    return [f for f in table.faces
+            if f.surface == 'plane' and f.normal is not None
+            and _ok(lims['normal_error'], _normal_error(f.normal, (1.0, 0.0, 0.0)))
+            and _ok(lims['position'], _free_position(f.center[0], lims, table.max_topology_tolerance))
+            and _ok(lims['area'], f.area - ref)]
+
+
+def _binding(feature: str, matches: list[FaceRecord]) -> FeatureBinding:
+    n = len(matches)
+    state = 'bound' if n == 1 else ('missing' if n == 0 else 'ambiguous')
+    sig = None
+    if n == 1:
+        f = matches[0]
+        sig = FaceSignature(normal=f.normal, center=f.center, area=f.area)
+    return FeatureBinding(feature=feature, state=state, match_count=n, signature=sig)
+
+
+def bind_features(table: FaceTable, entries) -> tuple[FeatureBinding, ...]:
+    """Bind the three beam features by geometry only (D4). Face order, indices and names are never read.
+
+    Dimensions and tolerances come from the plan entry limits, never from the table.
+    """
+    entries = tuple(entries)
+    if table.solid_count == 1 and table.closed_solid_count == 1:
+        solid = FeatureBinding(feature='beam.solid', state='bound', match_count=1)
+    elif table.solid_count >= 2:
+        solid = FeatureBinding(feature='beam.solid', state='ambiguous', match_count=table.solid_count)
+    else:
+        solid = FeatureBinding(feature='beam.solid', state='missing', match_count=0)
+    root = _binding('beam.root_section', _root_matches(table, _entry_for(entries, 'beam.root_section')))
+    free = _binding('beam.free_end', _free_matches(table, _entry_for(entries, 'beam.free_end')))
+    return (solid, root, free)
+
+
+def _meas(name: str, value: float, lim: CheckLimit, rep: str) -> Measurement:
+    return Measurement(name=name, value=value, unit=lim.unit, representation=rep, limit=lim,
+                       satisfied=_ok(lim, value))
+
+
+def _versions_match(a, b) -> bool:
+    return {(v.name, v.version) for v in a} == {(v.name, v.version) for v in b}
+
+
+def _ev(entry: CheckEntry, state: str, coverage: str, method: str, method_version: str, *,
+        representation: str = 'none', reason: str | None = None, measurements=(),
+        bound=None) -> CheckEvidence:
+    return CheckEvidence(check_id=entry.check_id, category=entry.category, required=entry.required,
+                         state=state, coverage=coverage, method=method, method_version=method_version,
+                         representation=representation, error_bound=bound, measurements=measurements,
+                         reason=reason)
+
+
+def _geometry_measurements(entry: CheckEntry, table: FaceTable, binds: dict[str, FeatureBinding]):
+    lims = _limits(entry)
+    pred = entry.predicate
+    tol = table.max_topology_tolerance
+    lo, hi = table.bounds[:3], table.bounds[3:]
+    ext = {'x': hi[0] - lo[0], 'y': hi[1] - lo[1], 'z': hi[2] - lo[2]}
+    if pred == 'solid_single_closed':
+        return (_meas('topology_tolerance', tol, lims['topology_tolerance'], 'brep'),)
+    if pred in ('root_section_face', 'free_end_face'):
+        root = pred == 'root_section_face'
+        sig = binds['beam.root_section' if root else 'beam.free_end'].signature
+        ref = lims['width'].value * lims['height'].value
+        expected = (-1.0, 0.0, 0.0) if root else (1.0, 0.0, 0.0)
+        out = [_meas('normal_error', _normal_error(sig.normal, expected), lims['normal_error'], 'brep')]
+        if root:
+            out.append(_meas('datum_offset', sig.center[0], lims['datum_offset'], 'brep'))
+        else:
+            out.append(_meas('position', _free_position(sig.center[0], lims, tol), lims['position'],
+                             'brep'))
+        out.append(_meas('area_error', sig.area - ref, lims['area'], 'brep'))
+        return tuple(out)
+    if pred in ('dimension_length', 'dimension_width', 'dimension_height'):
+        axis = {'dimension_length': 'x', 'dimension_width': 'y', 'dimension_height': 'z'}[pred]
+        value = abs(ext[axis] - lims['reviewed'].value) + lims['guard_multiplier'].value * tol
+        return (_meas(f'dimension_{axis}', value, lims['dimension'], 'brep'),)
+    if pred == 'datum_origin':
+        return tuple(_meas(f'datum_{a}', lo[i], lims['datum_offset'], 'brep') for i, a in enumerate('xyz'))
+    if pred == 'prism_volume':
+        return (_meas('volume_error', table.volume - lims['reviewed_volume'].value, lims['volume'],
+                      'brep'),)
+    raise ValueError(f'unsupported geometry predicate {pred}')
+
+
+def _preview_evidence(entry: CheckEntry, mesh: MeshSummary | None, pinned: bool, mv: str) -> CheckEvidence:
+    method = 'glb_bounds'
+    if not pinned:
+        return _ev(entry, 'not_evaluated', 'not_evaluated', method, mv, reason='not_pinned')
+    if mesh is None:
+        state = 'unavailable' if entry.required else 'not_evaluated'
+        return _ev(entry, state, 'not_evaluated', method, mv, reason='measurement_unavailable')
+    deflection = max(GLB_LINEAR_DEFLECTION_MM, mesh.mesh_bound_mm)
+    bound = ErrorBound(value=deflection, unit='mm', source='glb_linear_deflection')
+    if mesh.triangle_count == 0:
+        return _ev(entry, 'failed', 'measured', method, mv, representation='mesh', reason='limit_exceeded',
+                   bound=bound)
+    lims = _limits(entry)
+    tol = lims['extent']
+    meas, verdicts = [], []
+    for i, axis in enumerate('xyz'):
+        ref = lims[('length', 'width', 'height')[i]].value
+        lo, hi = mesh.bounds_mm[i], mesh.bounds_mm[i + 3]
+        m = hi - lo
+        f = GLB_F32_REL * max(abs(lo), abs(hi))
+        # the true extent lies in [m - f, m + 2 * deflection + f]
+        excess = max(m - f - ref, ref - (m + 2 * deflection + f))
+        conservative = max(ref - (m - f), (m + 2 * deflection + f) - ref)
+        meas.append(_meas(f'extent_excess_{axis}', excess, tol, 'mesh'))
+        meas.append(_meas(f'extent_conservative_{axis}', conservative, tol, 'mesh'))
+        verdicts.append('failed' if excess > tol.value else (
+            'passed' if conservative <= tol.value else 'open'))
+    if 'failed' in verdicts:
+        return _ev(entry, 'failed', 'measured', method, mv, representation='mesh', reason='limit_exceeded',
+                   measurements=tuple(meas), bound=bound)
+    if all(v == 'passed' for v in verdicts):
+        return _ev(entry, 'passed', 'measured', method, mv, representation='mesh',
+                   measurements=tuple(meas), bound=bound)
+    return _ev(entry, 'not_evaluated', 'not_evaluated', method, mv, reason='bound_exceeds_tolerance')
+
+
+def _physics_evidence(entry: CheckEntry, table: FaceTable, report: ReportInputs | None, mv: str,
+                      solid: FeatureBinding) -> CheckEvidence:
+    method = 'report_cross_bind'
+    if report is None:
+        return _ev(entry, 'unavailable', 'not_evaluated', method, mv, reason='measurement_unavailable')
+    if solid.state != 'bound':
+        return _ev(entry, 'failed', 'not_evaluated', method, mv,
+                   reason='binding_missing' if solid.state == 'missing' else 'binding_ambiguous')
+    lims = _limits(entry)
+    lo, hi = table.bounds[:3], table.bounds[3:]
+    length, width, height = hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]
+    iy = width * height ** 3 / 12.0
+    meas = (_meas('section_iy_error', report.section_iy_mm4 - iy, lims['section_iy'], 'brep'),
+            _meas('length_error', report.length_mm - length, lims['length'], 'brep'),
+            _meas('height_error', report.height_mm - height, lims['height'], 'brep'))
+    ok = report.physics_passed and all(m.satisfied for m in meas)
+    return _ev(entry, 'passed' if ok else 'failed', 'policy_report', method, mv, representation='brep',
+               reason=None if ok else 'report_mismatch', measurements=meas)
+
+
+def evaluate(plan: CheckPlan, candidate_sha256: str, table: FaceTable, mesh: MeshSummary | None,
+             report_inputs: ReportInputs | None, lock_native_versions, *,
+             method_version: str) -> tuple[CheckEvidence, ...]:
+    """Pure evaluation of one reviewed candidate's plan entries against delivered measurements (D6)."""
+    cand = next((c for c in plan.candidates if c.candidate_sha256 == candidate_sha256), None)
+    if cand is None:
+        raise ValueError('the candidate is not in the check plan')
+    mv = method_version
+    binds = {b.feature: b for b in bind_features(table, cand.entries)}
+    mismatch = not _versions_match(table.native_versions, lock_native_versions)
+    bound = ErrorBound(value=table.max_topology_tolerance, unit='mm', source='occt_topology_tolerance')
+    out = []
+    for e in cand.entries:
+        if e.category in ('manufacturing', 'standards'):
+            out.append(_ev(e, 'not_evaluated', 'not_evaluated', 'none', mv))
+        elif mismatch:
+            out.append(_ev(e, 'unavailable', 'not_evaluated', 'native_versions', mv,
+                           reason='lock_mismatch'))
+        elif e.category == 'preview':
+            out.append(_preview_evidence(e, mesh, plan.mesh_convention_pinned, mv))
+        elif e.category == 'physics':
+            out.append(_physics_evidence(e, table, report_inputs, mv, binds['beam.solid']))
+        else:
+            bad = [binds[f] for f in e.feature_refs if binds[f].state != 'bound']
+            if bad:
+                amb = any(b.state == 'ambiguous' for b in bad)
+                out.append(_ev(e, 'failed', 'not_evaluated', 'brep_face_table', mv,
+                               reason='binding_ambiguous' if amb else 'binding_missing'))
+                continue
+            ms = _geometry_measurements(e, table, binds)
+            ok = bool(ms) and all(m.satisfied for m in ms)
+            out.append(_ev(e, 'passed' if ok else 'failed', 'measured', 'brep_face_table', mv,
+                           representation='brep', reason=None if ok else 'limit_exceeded',
+                           measurements=ms, bound=bound))
+    return tuple(out)
+
+
+def build_delivered_evidence(plan: CheckPlan, candidate_sha256: str, table: FaceTable,
+                             mesh: MeshSummary | None, report_inputs: ReportInputs | None,
+                             lock_native_versions, *, revision_id: str, job_id: str, manifest_sha256: str,
+                             step_sha256: str, glb_sha256: str | None,
+                             method_version: str) -> DeliveredEvidence:
+    """Bind, evaluate and assemble a validated checked_design DeliveredEvidence record."""
+    cand = next((c for c in plan.candidates if c.candidate_sha256 == candidate_sha256), None)
+    if cand is None:
+        raise ValueError('the candidate is not in the check plan')
+    bindings = bind_features(table, cand.entries)
+    checks = evaluate(plan, candidate_sha256, table, mesh, report_inputs, lock_native_versions,
+                      method_version=method_version)
+    verdict = derive_verdict(checks)
+    reasons: tuple = ()
+    if verdict != 'verified':
+        found = {c.reason for c in checks if c.reason and c.state != 'passed' and (
+            c.required or c.state == 'failed')}
+        reasons = tuple(r for r in REASONS if r in found)[:8]
+    return DeliveredEvidence(
+        revision_id=revision_id, job_id=job_id, candidate_sha256=candidate_sha256,
+        claim_scope='checked_design', manifest_sha256=manifest_sha256, step_sha256=step_sha256,
+        glb_sha256=glb_sha256, check_plan_sha256=check_plan_sha256(plan), method_version=method_version,
+        native_versions=table.native_versions, bindings=bindings, checks=checks, verdict=verdict,
+        reasons=reasons)
