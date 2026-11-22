@@ -288,7 +288,7 @@ def test_insert_staged_writes_row_payload_and_journal(rs, host, lock, bundle):
     assert [(e.event, e.revision_id) for e in entries] == [('staged', hexid(1))]
 
 
-def test_stale_parent_at_staging_writes_nothing(rs, host, lock, bundle):
+def test_store_stale_parent_at_staging_writes_nothing(rs, host, lock, bundle):
     pid = new_program(rs, host)
     with host.transaction() as db:
         r = rs.insert_staged(db, staged(lock, bundle, pid, 1, parent=hexid(9)), payload(), expected_parent=hexid(9))
