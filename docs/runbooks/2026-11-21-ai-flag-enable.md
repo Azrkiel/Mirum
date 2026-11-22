@@ -51,7 +51,7 @@ With the flag off no provider object is built and no key is read for this featur
 
 Gaps (proposed follow-ups; NOT implemented):
 
-1. Per-client AI request cap: implemented in PR #PRNUM (`store.ClientAiRequestCap`, env
+1. Per-client AI request cap: implemented in PR #136 (`store.ClientAiRequestCap`, env
    `MIRUM_ENGINEERING_AI_REQUESTS_PER_CLIENT_DAY`, rolling 24 h, SQL-derived so it survives restart; unset
    or empty = disabled, invalid = 0 = fail closed). Counts AI draft requests (one request can cost up to 2
    provider calls), never refunded.
