@@ -266,6 +266,31 @@ def test_compare_reread_out_of_tolerance():
     assert (r.outcome, r.reasons) == ('precision_failure', ('measurement_out_of_tolerance',))
 
 
+def test_compare_reread_failed_size_check_is_precision_failure():
+    # Shape of a verify_step report that stopped at size_requirements: no measurements dict, the
+    # failed check carries the reader's own guarded errors (engineering/verify.py require()).
+    check = {'state': 'failed', 'reason': 'Measured dimensions violate approved size tolerances',
+             'measurements': [{'name': 'length_guarded_error', 'value': 2e-6, 'unit': 'mm'},
+                              {'name': 'width_guarded_error', 'value': 2e-6, 'unit': 'mm'},
+                              {'name': 'height_guarded_error', 'value': 10.000002, 'unit': 'mm'},
+                              {'name': 'Bad Name', 'value': 1.0, 'unit': 'mm'},
+                              {'name': 'odd_unit', 'value': 1.0, 'unit': 'furlong'}],
+             'limits': []}
+    report = dict(step_sha256=STEP_SHA, measurements={},
+                  checks={'native_geometry': {'state': 'passed'}, 'size_requirements': check})
+    r = compare_reread(report, spec(), STEP_SHA)
+    assert (r.outcome, r.reasons, r.measurements) == ('precision_failure', ('measurement_out_of_tolerance',), ())
+    assert {m.name: m.value for m in r.deviations} == pytest.approx(
+        {'beam.reread.length_guarded_error': 2e-6, 'beam.reread.width_guarded_error': 2e-6,
+         'beam.reread.height_guarded_error': 10.000002})
+    # A hash mismatch still wins: the reread is of a different artifact.
+    r = compare_reread(dict(report, step_sha256='0' * 64), spec(), STEP_SHA)
+    assert r.reasons == ('reread_mismatch',)
+    # A passed dimensional check does not short-circuit the measurement comparison.
+    r = compare_reread(dict(reread(), checks={'size_requirements': {'state': 'passed'}}), spec(), STEP_SHA)
+    assert r.outcome == 'consistent'
+
+
 @pytest.mark.parametrize('bad', [{'measurements': {}}, {'measurements': None}, {},
                                  {'measurements': {'length_mm': 200.0, 'width_mm': 10.0,
                                                    'height_mm': 15.0, 'volume_mm3': True}}])

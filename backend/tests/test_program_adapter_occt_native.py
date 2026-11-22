@@ -133,7 +133,7 @@ def test_reread_is_consistent_and_precision_failure_is_typed(adapter, builds):
     assert ok.artifact_sha256 == step.ref.sha256
     assert abs(measure(ok.measurements, 'beam.height').value - 15.0) <= tol
     bad = run(adapter.inspect(step, plan5))
-    assert bad.outcome == 'precision_failure'
+    assert bad.outcome == 'precision_failure', bad
     assert 'measurement_out_of_tolerance' in bad.reasons
     assert bad.outcome not in ('unsupported', 'unavailable')
 

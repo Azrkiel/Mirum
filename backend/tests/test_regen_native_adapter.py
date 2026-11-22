@@ -94,11 +94,42 @@ def candidate():
     return candidate_for('small.json')
 
 
-@pytest.fixture
-def built(runner, candidate):
-    adapter = make_adapter(runner)
+@pytest.fixture(scope='module')
+def built(tmp_path_factory, candidate):
+    """One real adapter build of small.json shared by the read-only checks below."""
+    shared = make_runner(tmp_path_factory.mktemp('shared'))
+    adapter = make_adapter(shared)
     plan = plan_of(candidate)
     return adapter, plan, run(adapter.build(plan, context()))
+
+
+def _worker_log_tail(runner, job_id):
+    log = runner.root / job_id / 'worker.log'
+    return log.read_text(encoding='utf-8', errors='replace')[-3000:] if log.is_file() else '<no worker.log>'
+
+
+def test_control_job_runner_builds_small_natively(runner, candidate):
+    """Control without the kernel adapter: the shared JobRunner builds the same candidate."""
+    from engineering.regen_adapter import revalidate
+    from engineering.regen_web import BrowserSpec
+    spec = revalidate(candidate.content.specification)
+    job = runner.submit(BrowserSpec.model_validate(spec.model_dump()))
+    deadline = time.monotonic() + 600
+    while job['status'] in ('queued', 'running') and time.monotonic() < deadline:
+        time.sleep(1)
+        job = runner.get(job['id'])
+    assert job['status'] == 'accepted', (job['status'], job.get('message'), _worker_log_tail(runner, job['id']))
+
+
+def test_control_existing_regen_adapter_evaluates_small(runner, candidate):
+    """Control: the existing RegenAdapter on the same JobRunner (what the kernel adapter wraps)."""
+    from engineering.regen_adapter import RegenAdapter
+    try:
+        evaluation = run(RegenAdapter(runner=lambda: runner).evaluate(candidate))
+    except Exception as error:  # surfaced for diagnosis only; the assertion below fails the test
+        logs = [_worker_log_tail(runner, j) for j in list(runner.jobs)]
+        pytest.fail(f'RegenAdapter.evaluate raised {type(error).__name__}: {error}; jobs={runner.jobs}; logs={logs}')
+    assert evaluation['outcome'] == 'accepted'
 
 
 def test_probe_reports_runtime_identities(runner):
@@ -113,7 +144,7 @@ def test_build_small_is_geometry_only(built):
     from engineering.capabilities import REGEN
     _, _, b = built
     result = b.result
-    assert result.outcome == 'completed' and result.mode == 'native'
+    assert result.outcome == 'completed' and result.mode == 'native', result.reasons
     assert result.domain_outcome == 'accepted'
     assert result.claim_scope == 'geometry_checks_only'
     assert result.claim_scope != 'checked_design'
@@ -198,5 +229,5 @@ def test_cancellation_frees_the_slot(runner, candidate):
         return await adapter.build(plan, context())
 
     again = run(go())
-    assert again.result.outcome == 'completed'
+    assert again.result.outcome == 'completed', again.result.reasons
     assert again.result.domain_outcome == 'accepted'

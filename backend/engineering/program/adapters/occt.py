@@ -62,6 +62,10 @@ _MEASUREMENT_NAMES: tuple[tuple[str, str, str], ...] = (
     ('section_iy_mm4', 'beam.section_iy', 'mm4'),
 )
 _REQUIRED_REREAD = ('length_mm', 'width_mm', 'height_mm', 'volume_mm3')
+# verify_step checks that compare the reread geometry with the requested dimensions.
+_DIMENSION_CHECKS = ('size_requirements', 'complete_prism_metrics', 'measured_root_section')
+_MEASUREMENT_UNITS = ('mm', 'mm2', 'mm3', 'mm4')
+_SEMANTIC_TAIL = re.compile(r'^[a-z][a-z0-9_]{0,63}$')
 
 _ARTIFACT_SPECS = (
     # (artifact name in evaluation['artifacts'], format, representation, node id)
@@ -116,6 +120,21 @@ def compare_reread(report: Mapping[str, Any], spec: Any, artifact_sha256: str) -
         return result('unavailable', ('evidence_invalid',))
     if report.get('step_sha256') != artifact_sha256:
         return result('precision_failure', ('reread_mismatch',))
+    # verify_step stops before recording measurements when a dimensional check fails; the failed
+    # check's own evidence (from the independent reader, never the adapter) is the deviation.
+    checks = report.get('checks')
+    failed = [checks[n] for n in _DIMENSION_CHECKS
+              if isinstance(checks, Mapping) and isinstance(checks.get(n), Mapping)
+              and checks[n].get('state') == 'failed']
+    if failed:
+        deviations = tuple(
+            Measurement(name=f'beam.reread.{m["name"]}', value=float(m['value']), unit=m['unit'],
+                        source='reread')
+            for check in failed for m in (check.get('measurements') or ())
+            if isinstance(m, Mapping) and isinstance(m.get('name'), str)
+            and _SEMANTIC_TAIL.match(m['name']) and _finite(m.get('value'))
+            and m.get('unit') in _MEASUREMENT_UNITS)
+        return result('precision_failure', ('measurement_out_of_tolerance',), (), deviations)
     raw = report.get('measurements')
     if not isinstance(raw, Mapping) or not all(_finite(raw.get(k)) for k in _REQUIRED_REREAD):
         return result('unavailable', ('evidence_invalid',))
