@@ -1,0 +1,32 @@
+{
+  "id": "three_disjoint_closed_solids",
+  "description": "The union of three disjoint 60x10x15 closed boxes has the reviewed outer bounds. Only the outside faces at x = 0 and x = 200 meet the end predicates. Three solid matches make the verdict ambiguous.",
+  "candidate_height_mm": 15.0,
+  "table": {
+    "solid_count": 3, "closed_solid_count": 3, "bounds": [0, 0, 0, 200, 10, 15], "volume": 27000.0, "area": 9900.0,
+    "max_topology_tolerance": 1e-7,
+    "native_versions": [{"name": "cadquery", "version": "2.6.1"}, {"name": "OCP", "version": "7.8.1"}],
+    "faces": [
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [0, 5, 7.5], "area": 150.0, "bounds": [0, 0, 0, 0, 10, 15]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [60, 5, 7.5], "area": 150.0, "bounds": [60, 0, 0, 60, 10, 15]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [30, 0, 7.5], "area": 900.0, "bounds": [0, 0, 0, 60, 0, 15]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [30, 10, 7.5], "area": 900.0, "bounds": [0, 10, 0, 60, 10, 15]},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [30, 5, 0], "area": 600.0, "bounds": [0, 0, 0, 60, 10, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [30, 5, 15], "area": 600.0, "bounds": [0, 0, 15, 60, 10, 15]},
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [70, 5, 7.5], "area": 150.0, "bounds": [70, 0, 0, 70, 10, 15]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [130, 5, 7.5], "area": 150.0, "bounds": [130, 0, 0, 130, 10, 15]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [100, 0, 7.5], "area": 900.0, "bounds": [70, 0, 0, 130, 0, 15]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [100, 10, 7.5], "area": 900.0, "bounds": [70, 10, 0, 130, 10, 15]},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [100, 5, 0], "area": 600.0, "bounds": [70, 0, 0, 130, 10, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [100, 5, 15], "area": 600.0, "bounds": [70, 0, 15, 130, 10, 15]},
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [140, 5, 7.5], "area": 150.0, "bounds": [140, 0, 0, 140, 10, 15]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [200, 5, 7.5], "area": 150.0, "bounds": [200, 0, 0, 200, 10, 15]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [170, 0, 7.5], "area": 900.0, "bounds": [140, 0, 0, 200, 0, 15]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [170, 10, 7.5], "area": 900.0, "bounds": [140, 10, 0, 200, 10, 15]},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [170, 5, 0], "area": 600.0, "bounds": [140, 0, 0, 200, 10, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [170, 5, 15], "area": 600.0, "bounds": [140, 0, 15, 200, 10, 15]}
+    ]
+  },
+  "mesh": null,
+  "expected": {"verdict": "ambiguous", "bindings": {"beam.solid": "ambiguous", "beam.root_section": "bound", "beam.free_end": "bound"}}
+}

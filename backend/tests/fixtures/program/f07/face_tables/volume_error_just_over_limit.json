@@ -1,0 +1,20 @@
+{
+  "id": "volume_error_just_over_limit",
+  "description": "Exact bounds and face geometry, with measured volume 30000.00031 mm3. The volume error 0.00031 mm3 exceeds max(1e-6, 1e-8*30000) = 0.0003 mm3. All three features bind.",
+  "candidate_height_mm": 15.0,
+  "table": {
+    "solid_count": 1, "closed_solid_count": 1, "bounds": [0, 0, 0, 200, 10, 15], "volume": 30000.00031, "area": 10300.0,
+    "max_topology_tolerance": 1e-7,
+    "native_versions": [{"name": "cadquery", "version": "2.6.1"}, {"name": "OCP", "version": "7.8.1"}],
+    "faces": [
+      {"surface": "plane", "normal": [-1, 0, 0], "center": [0, 5, 7.5], "area": 150.0, "bounds": [0, 0, 0, 0, 10, 15]},
+      {"surface": "plane", "normal": [1, 0, 0], "center": [200, 5, 7.5], "area": 150.0, "bounds": [200, 0, 0, 200, 10, 15]},
+      {"surface": "plane", "normal": [0, -1, 0], "center": [100, 0, 7.5], "area": 3000.0, "bounds": [0, 0, 0, 200, 0, 15]},
+      {"surface": "plane", "normal": [0, 1, 0], "center": [100, 10, 7.5], "area": 3000.0, "bounds": [0, 10, 0, 200, 10, 15]},
+      {"surface": "plane", "normal": [0, 0, -1], "center": [100, 5, 0], "area": 2000.0, "bounds": [0, 0, 0, 200, 10, 0]},
+      {"surface": "plane", "normal": [0, 0, 1], "center": [100, 5, 15], "area": 2000.0, "bounds": [0, 0, 15, 200, 10, 15]}
+    ]
+  },
+  "mesh": null,
+  "expected": {"verdict": "failed", "bindings": {"beam.solid": "bound", "beam.root_section": "bound", "beam.free_end": "bound"}}
+}
