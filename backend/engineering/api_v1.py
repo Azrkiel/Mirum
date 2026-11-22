@@ -271,6 +271,11 @@ def attach_v1_routes(app,limiter):
                     raise proposal_contract.UnsupportedCapability('AI drafts are not offered for this capability')
                 budget=value.proposer.budget
                 if not budget.has_capacity(): return unavailable()
+                # Per-client daily AI request cap (off unless configured): counted before any draft
+                # record, ledger row or provider call, and never refunded.
+                from .store import AI_CLIENT_CAP_REASON,ClientAiRequestCap
+                if not await asyncio.to_thread(ClientAiRequestCap.from_env(value.store).admit,client):
+                    return unavailable((AI_CLIENT_CAP_REASON,))
                 await asyncio.to_thread(value.quota.admit_draft,client,ai=True,size=size)
                 # Each reserved unit is written to the ledger before its provider call, so a restart
                 # re-seeds generator spend too (capability id and request sha only; never the prompt).
@@ -336,6 +341,11 @@ def attach_v1_routes(app,limiter):
             # Over the provider-call budget: the existing AI-unavailable report, before any record or call.
             return JSONResponse(status_code=503,content=dict(state='unavailable',
                 reasons=['AI preparation unavailable; typed form remains available'],prepared=None),headers={'Cache-Control':'no-store'})
+        # Per-client daily AI request cap (off unless configured), before any draft record or provider call.
+        from .store import AI_CLIENT_CAP_REASON,ClientAiRequestCap
+        if not await asyncio.to_thread(ClientAiRequestCap.from_env(value.store).admit,client):
+            return JSONResponse(status_code=503,content=dict(state='unavailable',
+                reasons=[AI_CLIENT_CAP_REASON],prepared=None),headers={'Cache-Control':'no-store'})
         prepared=await asyncio.to_thread(create,{},len(body.prompt.encode()),True)
         result=await value.proposer.propose(prepared.draft.draft_id,expected_revision=1,prompt=body.prompt)
         await asyncio.to_thread(value.quota.touch,prepared.draft.draft_id,len(result.prepared.model_dump_json()))
