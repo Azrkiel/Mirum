@@ -810,8 +810,29 @@ def resign_bundle(store, publisher, job_id, replacements):
     assert set(replacements) <= old
     files = {name: (directory / name).read_bytes() for name in old}
     old_manifest = json.loads((directory / 'manifest.json').read_bytes())
+    replacements = dict(replacements)
+    # The accepted run's bundle digests must equal the digests its last attempt's checks recorded for the
+    # same paths (EngineeringRun.consistent_run), so a re-signer rewrites those checked-artifact identities
+    # too: in the jobs row and, unless the caller supplies attempts.json itself, in the bundle's
+    # attempts.json. Only the replaced paths are touched.
+    resigned = {n: (digest(v), len(v)) for n, v in replacements.items() if n != 'attempts.json'}
+
+    def resync(attempt):
+        touched = False
+        for check in attempt['checks']:
+            for item in check['artifacts']:
+                if item['path'] in resigned and (item['sha256'], item['bytes']) != (
+                        resigned[item['path']][0], resigned[item['path']][1]):
+                    item['sha256'], item['bytes'] = resigned[item['path']]
+                    touched = True
+        return touched
+
+    if 'attempts.json' not in replacements:
+        attempts_list = json.loads(files['attempts.json'])
+        if resync(attempts_list[-1]):
+            replacements['attempts.json'] = encode(attempts_list)
     files.update(replacements)
-    identities = [ArtifactIdentity(path=n, bytes=len(v), sha256=digest(v)) for n, v in sorted(files.items())]
+    identities =[ArtifactIdentity(path=n, bytes=len(v), sha256=digest(v)) for n, v in sorted(files.items())]
     manifest = dict(schema_version='engineering_manifest_v1', job_id=job_id,
                     brief_sha256=old_manifest['brief_sha256'],
                     selected_candidate_sha256=old_manifest['selected_candidate_sha256'],
@@ -832,14 +853,16 @@ def resign_bundle(store, publisher, job_id, replacements):
                             manifest_bytes=publication['manifest_bytes'], zip_sha256=publication['zip_sha256'],
                             zip_bytes=publication['zip_bytes'], stored_bytes=stored)
     publication['bundle'] = bundle.model_dump(mode='json')
-    for name, value in {**replacements, 'manifest.json': manifest_data, 'package.zip': zip_data}.items():
-        (directory / name).write_bytes(value)
     with store.transaction() as db:
-        db.execute('UPDATE publications SET record=? WHERE job=?', (json.dumps(publication), job_id))
         row = db.execute('SELECT record FROM jobs WHERE id=?', (job_id,)).fetchone()
         run = EngineeringRun.model_validate_json(row[0])
-        db.execute('UPDATE jobs SET record=? WHERE id=?',
-                   (changed(run, bundle=bundle).model_dump_json(), job_id))
+        attempts = run.model_dump()['attempts']
+        resync(attempts[-1])  # same rewrite as attempts.json, now in the jobs row
+        new_run = changed(run, bundle=bundle, attempts=attempts)  # validates before anything is written
+        for name, value in {**replacements, 'manifest.json': manifest_data, 'package.zip': zip_data}.items():
+            (directory / name).write_bytes(value)
+        db.execute('UPDATE publications SET record=? WHERE job=?', (json.dumps(publication), job_id))
+        db.execute('UPDATE jobs SET record=? WHERE id=?', (new_run.model_dump_json(), job_id))
     publisher.validate(job_id, bundle)  # the tampered bundle is internally consistent
     return bundle
 
@@ -1019,7 +1042,9 @@ if os.name == 'posix':
         async def measure(self, step, glb, plan):
             rev = self.world.svc.history(self.world.pid, client=CLIENT)[0]
             self.table = face_table(self.name, lock_versions(rev))
-            self.mesh = fixture_mesh(self.name)
+            # a fixture without its own mesh (null) is replayed with the ideal h15 mesh, exactly like
+            # test_failed_or_ambiguous_verdict_withholds_promotion: the failure must come from the geometry
+            self.mesh = fixture_mesh(self.name if fixture_case(self.name)['mesh'] is not None else 'ideal_box_h15')
             return await super().measure(step, glb, plan)
 
     @posix_only

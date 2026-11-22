@@ -234,8 +234,8 @@ class Gated:
 
         Returns (record, match_problem). publisher.validate must still accept the re-signed bundle."""
         w, job = self.w, self.first.job_id
-        bundle = resign_bundle(w.store, w.pub, job, replacements)
         try:
+            bundle = resign_bundle(w.store, w.pub, job, replacements)
             w.pub.validate(job, bundle)  # the tampered bundle is internally consistent
             self.seq += 1
             rev = evolve(self.first, revision_id=f'{0xf07a0000 + self.seq:032x}', bundle=bundle)
