@@ -175,6 +175,30 @@ Rules:
 
 Each failure has code/category, source span, field/operation/requirement identifier and actionable hint. No native mutation before successful review and admission.
 
+Frozen in F05 (see [F05 handoff](handoffs/F05.md)): stages 1-4 are `engineering.language.semantic.compile_source` (default and maximum deadline 2 s, checked at stage boundaries and per assignment and list element); stages 5-7 are `engineering.program.planning` (plan, v0_2 lock, review through the existing BriefService, run gate). The only compilable capability in v0.1 is rectangular_cantilever 1.0.0 on occt with exports exactly step and glb. Every other capability is MEL-S011, including regen_chamber, because the reviewed bridge carries only the beam. Semantic codes have category `semantic`; MEL-S018 has category `resource`. The diagnostic also carries the matching F02 IR code (`ir_code`). The table below replaces the provisional MEL-S001 name above:
+
+| Code | Meaning | IR code |
+|---|---|---|
+| MEL-S001 | material_source_kind missing, non-string, wrong case or unknown | IR010 |
+| MEL-S002 | Unknown field for capability@version | IR002 |
+| MEL-S003 | Missing required field (no defaults) | IR010 |
+| MEL-S004 | Unknown unit | IR005 |
+| MEL-S005 | Unit of the wrong dimension (incl. mass for force) | IR006 |
+| MEL-S006 | Unitless physical quantity | IR006 |
+| MEL-S007 | Non-finite value after unit normalization | IR007 |
+| MEL-S008 | Wrong value kind (string, quantity, list) | IR010 |
+| MEL-S009 | Text with a control, format or separator character | IR010 |
+| MEL-S010 | Invalid design name | IR010 |
+| MEL-S011 | Unsupported capability or capability version | IR010 |
+| MEL-S012 | Backend not supported for the capability | IR010 |
+| MEL-S013 | Export not supported by the backend/capability | IR010 |
+| MEL-S014 | Candidate policy violation (beam: 1-4 unique values in the envelope) | IR010 |
+| MEL-S015 | Value rejected by the reviewed brief validation | IR010 |
+| MEL-S016 | Invalid source_id label | none |
+| MEL-S017 | Reviewed round trip mismatch (fail closed) | IR010 |
+| MEL-S018 | Compile deadline exceeded (resource) | none |
+| MEL-S019 | Invalid program record from the bridge | IR010 |
+
 AST-to-IR lowering is deterministic for the same supported versions. An execution lock changes when backend/native/solver/numerical policies change. A source-only formatting edit can retain semantic approval only after recomputing and proving semantic equality; provenance still records the changed source.
 
 ## Tests and future syntax
