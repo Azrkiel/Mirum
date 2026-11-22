@@ -69,8 +69,10 @@ def test_mel_s_code(mel, edit, field, line):
     assert d.ir_code == MEL_S_IR_CODES[mel] and d.hint == HINTS[mel]
 
 
-def test_s007_non_finite_is_unreachable_from_source_so_it_is_pinned_at_the_lexer():
+def test_s007_non_finite_literal_is_lexical_and_unit_overflow_is_semantic():
     assert fail(replace('tip_force = 50 N;', 'tip_force = 1e400 N;')).diagnostic.code == 'MEL-L012'
+    d = fail(replace('length = 200 mm;', 'length = 1e308 m;')).diagnostic
+    assert (d.code, d.ir_code, d.field, d.span.start.line) == ('MEL-S007', 'IR007', 'length', 10)
 
 
 def test_s015_value_rejected_by_brief_validation():

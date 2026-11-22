@@ -1,0 +1,845 @@
+{
+  "base": "../../p03/beam.mir",
+  "cases": [
+    {
+      "id": "length-overflows-on-unit-normalization",
+      "edits": [
+        ["length = 200 mm;", "length = 1e308 m;"]
+      ],
+      "code": "MEL-S007",
+      "ir_code": "IR007",
+      "category": "semantic",
+      "field": "length",
+      "line": 10
+    },
+    {
+      "id": "missing-material-source-kind",
+      "edits": [
+        ["  material_source_kind = \"illustrative\";\n", ""]
+      ],
+      "code": "MEL-S001",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "material_source_kind",
+      "line": 4
+    },
+    {
+      "id": "material-source-kind-number",
+      "edits": [
+        ["material_source_kind = \"illustrative\";", "material_source_kind = 3;"]
+      ],
+      "code": "MEL-S001",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "material_source_kind",
+      "line": 18
+    },
+    {
+      "id": "material-source-kind-wrong-case",
+      "edits": [
+        ["material_source_kind = \"illustrative\";", "material_source_kind = \"Illustrative\";"]
+      ],
+      "code": "MEL-S001",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "material_source_kind",
+      "line": 18
+    },
+    {
+      "id": "material-source-kind-unknown",
+      "edits": [
+        ["material_source_kind = \"illustrative\";", "material_source_kind = \"certified\";"]
+      ],
+      "code": "MEL-S001",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "material_source_kind",
+      "line": 18
+    },
+    {
+      "id": "unknown-colour-field",
+      "edits": [
+        ["mode = ", "colour = \"red\";\n  mode = "]
+      ],
+      "code": "MEL-S002",
+      "ir_code": "IR002",
+      "category": "semantic",
+      "field": "colour",
+      "line": 20
+    },
+    {
+      "id": "unknown-beam-width-before-missing-width",
+      "edits": [
+        ["width = ", "beam_width = "]
+      ],
+      "code": "MEL-S002",
+      "ir_code": "IR002",
+      "category": "semantic",
+      "field": "beam_width",
+      "line": 11
+    },
+    {
+      "id": "missing-capability",
+      "edits": [
+        ["  capability = \"rectangular_cantilever\";\n", ""]
+      ],
+      "code": "MEL-S003",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "capability",
+      "line": 4
+    },
+    {
+      "id": "missing-capability-version",
+      "edits": [
+        ["  capability_version = \"1.0.0\";\n", ""]
+      ],
+      "code": "MEL-S003",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "capability_version",
+      "line": 4
+    },
+    {
+      "id": "missing-width",
+      "edits": [
+        ["  width = 10 mm;\n", ""]
+      ],
+      "code": "MEL-S003",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "width",
+      "line": 4
+    },
+    {
+      "id": "missing-tip-force",
+      "edits": [
+        ["  tip_force = 50 N;\n", ""]
+      ],
+      "code": "MEL-S003",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "tip_force",
+      "line": 4
+    },
+    {
+      "id": "missing-assumptions",
+      "edits": [
+        ["  assumptions = \"ideal_clamp_end_force_linear_elastic\";\n", ""]
+      ],
+      "code": "MEL-S003",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "assumptions",
+      "line": 4
+    },
+    {
+      "id": "force-in-lbf",
+      "edits": [
+        ["tip_force = 50 N;", "tip_force = 50 lbf;"]
+      ],
+      "code": "MEL-S004",
+      "ir_code": "IR005",
+      "category": "semantic",
+      "field": "tip_force",
+      "line": 13
+    },
+    {
+      "id": "length-in-ft",
+      "edits": [
+        ["length = 200 mm;", "length = 200 ft;"]
+      ],
+      "code": "MEL-S004",
+      "ir_code": "IR005",
+      "category": "semantic",
+      "field": "length",
+      "line": 10
+    },
+    {
+      "id": "modulus-in-psi",
+      "edits": [
+        ["youngs_modulus = 70000 MPa;", "youngs_modulus = 70000 psi;"]
+      ],
+      "code": "MEL-S004",
+      "ir_code": "IR005",
+      "category": "semantic",
+      "field": "youngs_modulus",
+      "line": 15
+    },
+    {
+      "id": "width-in-furlong",
+      "edits": [
+        ["width = 10 mm;", "width = 10 furlong;"]
+      ],
+      "code": "MEL-S004",
+      "ir_code": "IR005",
+      "category": "semantic",
+      "field": "width",
+      "line": 11
+    },
+    {
+      "id": "length-in-n",
+      "edits": [
+        ["length = 200 mm;", "length = 200 N;"]
+      ],
+      "code": "MEL-S005",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "length",
+      "line": 10
+    },
+    {
+      "id": "force-in-mm",
+      "edits": [
+        ["tip_force = 50 N;", "tip_force = 50 mm;"]
+      ],
+      "code": "MEL-S005",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "tip_force",
+      "line": 13
+    },
+    {
+      "id": "modulus-in-mm",
+      "edits": [
+        ["youngs_modulus = 70000 MPa;", "youngs_modulus = 70000 mm;"]
+      ],
+      "code": "MEL-S005",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "youngs_modulus",
+      "line": 15
+    },
+    {
+      "id": "pressure-in-n",
+      "edits": [
+        ["allowable_stress = 120 MPa;", "allowable_stress = 120 N;"]
+      ],
+      "code": "MEL-S005",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "allowable_stress",
+      "line": 16
+    },
+    {
+      "id": "force-in-kg",
+      "edits": [
+        ["tip_force = 50 N;", "tip_force = 50 kg;"]
+      ],
+      "code": "MEL-S005",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "tip_force",
+      "line": 13
+    },
+    {
+      "id": "force-in-g",
+      "edits": [
+        ["tip_force = 50 N;", "tip_force = 50 g;"]
+      ],
+      "code": "MEL-S005",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "tip_force",
+      "line": 13
+    },
+    {
+      "id": "length-in-pa",
+      "edits": [
+        ["length = 200 mm;", "length = 200 Pa;"]
+      ],
+      "code": "MEL-S005",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "length",
+      "line": 10
+    },
+    {
+      "id": "tolerance-in-kn",
+      "edits": [
+        ["dimensional_tolerance = 0.01 mm;", "dimensional_tolerance = 0.01 kN;"]
+      ],
+      "code": "MEL-S005",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "dimensional_tolerance",
+      "line": 12
+    },
+    {
+      "id": "unitless-length",
+      "edits": [
+        ["length = 200 mm;", "length = 200;"]
+      ],
+      "code": "MEL-S006",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "length",
+      "line": 10
+    },
+    {
+      "id": "unitless-width",
+      "edits": [
+        ["width = 10 mm;", "width = 10;"]
+      ],
+      "code": "MEL-S006",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "width",
+      "line": 11
+    },
+    {
+      "id": "unitless-dimensional-tolerance",
+      "edits": [
+        ["dimensional_tolerance = 0.01 mm;", "dimensional_tolerance = 0.01;"]
+      ],
+      "code": "MEL-S006",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "dimensional_tolerance",
+      "line": 12
+    },
+    {
+      "id": "unitless-tip-force",
+      "edits": [
+        ["tip_force = 50 N;", "tip_force = 50;"]
+      ],
+      "code": "MEL-S006",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "tip_force",
+      "line": 13
+    },
+    {
+      "id": "unitless-max-tip-deflection",
+      "edits": [
+        ["max_tip_deflection = 1 mm;", "max_tip_deflection = 1;"]
+      ],
+      "code": "MEL-S006",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "max_tip_deflection",
+      "line": 14
+    },
+    {
+      "id": "unitless-youngs-modulus",
+      "edits": [
+        ["youngs_modulus = 70000 MPa;", "youngs_modulus = 70000;"]
+      ],
+      "code": "MEL-S006",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "youngs_modulus",
+      "line": 15
+    },
+    {
+      "id": "unitless-allowable-stress",
+      "edits": [
+        ["allowable_stress = 120 MPa;", "allowable_stress = 120;"]
+      ],
+      "code": "MEL-S006",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "allowable_stress",
+      "line": 16
+    },
+    {
+      "id": "unitless-candidate-height",
+      "edits": [
+        ["candidate_heights = [5 mm, 10 mm, 15 mm];", "candidate_heights = [5, 10 mm, 15 mm];"]
+      ],
+      "code": "MEL-S006",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "candidate_heights",
+      "line": 21
+    },
+    {
+      "id": "multiline-string-for-quantity",
+      "edits": [
+        ["width = 10 mm;", "width = \n    \"10 mm\";"]
+      ],
+      "code": "MEL-S008",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "width",
+      "line": 11
+    },
+    {
+      "id": "quantity-for-string",
+      "edits": [
+        ["mode = \"bounded_thickness\";", "mode = 3 mm;"]
+      ],
+      "code": "MEL-S008",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "mode",
+      "line": 20
+    },
+    {
+      "id": "list-for-quantity",
+      "edits": [
+        ["width = 10 mm;", "width = [10 mm];"]
+      ],
+      "code": "MEL-S008",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "width",
+      "line": 11
+    },
+    {
+      "id": "nested-list-for-scalar",
+      "edits": [
+        ["width = 10 mm;", "width = [[10 mm]];"]
+      ],
+      "code": "MEL-S008",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "width",
+      "line": 11
+    },
+    {
+      "id": "scalar-for-candidate-list",
+      "edits": [
+        ["candidate_heights = [5 mm, 10 mm, 15 mm];", "candidate_heights = 5 mm;"]
+      ],
+      "code": "MEL-S008",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "candidate_heights",
+      "line": 21
+    },
+    {
+      "id": "scalar-for-export-list",
+      "edits": [
+        ["exports = [\"step\", \"glb\"];", "exports = \"step\";"]
+      ],
+      "code": "MEL-S008",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "exports",
+      "line": 22
+    },
+    {
+      "id": "nested-candidate-item",
+      "edits": [
+        ["candidate_heights = [5 mm, 10 mm, 15 mm];", "candidate_heights = [[5 mm], 10 mm];"]
+      ],
+      "code": "MEL-S008",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "candidate_heights",
+      "line": 21
+    },
+    {
+      "id": "multiline-quantity-export-item",
+      "edits": [
+        ["exports = [\"step\", \"glb\"];", "exports = [\"step\",\n    5 mm];"]
+      ],
+      "code": "MEL-S008",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "exports",
+      "line": 23
+    },
+    {
+      "id": "quantity-for-capability",
+      "edits": [
+        ["capability = \"rectangular_cantilever\";", "capability = 3;"]
+      ],
+      "code": "MEL-S008",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "capability",
+      "line": 5
+    },
+    {
+      "id": "assumptions-escaped-u202e",
+      "edits": [
+        ["assumptions = \"ideal_clamp_end_force_linear_elastic\";", "assumptions = \"ideal\\u202e\";"]
+      ],
+      "code": "MEL-S009",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "assumptions",
+      "line": 19
+    },
+    {
+      "id": "assumptions-escaped-u0007",
+      "edits": [
+        ["assumptions = \"ideal_clamp_end_force_linear_elastic\";", "assumptions = \"ideal\\u0007\";"]
+      ],
+      "code": "MEL-S009",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "assumptions",
+      "line": 19
+    },
+    {
+      "id": "material-reference-escaped-u200b",
+      "edits": [
+        ["material_reference = \"Illustrative user-provided properties; not certified stock values\";", "material_reference = \"Illustrative\\u200b properties\";"]
+      ],
+      "code": "MEL-S009",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "material_reference",
+      "line": 17
+    },
+    {
+      "id": "multiline-material-reference-escaped-u2028",
+      "edits": [
+        ["material_reference = \"Illustrative user-provided properties; not certified stock values\";", "material_reference = \n    \"Illustrative\\u2028 properties\";"]
+      ],
+      "code": "MEL-S009",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "material_reference",
+      "line": 18
+    },
+    {
+      "id": "uppercase-design-name",
+      "edits": [
+        ["design reference_beam", "design Reference_beam"]
+      ],
+      "code": "MEL-S010",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "design",
+      "line": 4
+    },
+    {
+      "id": "leading-underscore-design-name",
+      "edits": [
+        ["design reference_beam", "design _reference_beam"]
+      ],
+      "code": "MEL-S010",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "design",
+      "line": 4
+    },
+    {
+      "id": "capability-glider-cem",
+      "edits": [
+        ["capability = \"rectangular_cantilever\";", "capability = \"glider_cem\";"]
+      ],
+      "code": "MEL-S011",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "capability",
+      "line": 5
+    },
+    {
+      "id": "capability-rectangular-plate",
+      "edits": [
+        ["capability = \"rectangular_cantilever\";", "capability = \"rectangular_plate\";"]
+      ],
+      "code": "MEL-S011",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "capability",
+      "line": 5
+    },
+    {
+      "id": "capability-co2-dragster",
+      "edits": [
+        ["capability = \"rectangular_cantilever\";", "capability = \"co2_dragster\";"]
+      ],
+      "code": "MEL-S011",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "capability",
+      "line": 5
+    },
+    {
+      "id": "capability-regen-chamber",
+      "edits": [
+        ["capability = \"rectangular_cantilever\";", "capability = \"regen_chamber\";"]
+      ],
+      "code": "MEL-S011",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "capability",
+      "line": 5
+    },
+    {
+      "id": "capability-version-2-0-0",
+      "edits": [
+        ["capability_version = \"1.0.0\";", "capability_version = \"2.0.0\";"]
+      ],
+      "code": "MEL-S011",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "capability_version",
+      "line": 6
+    },
+    {
+      "id": "capability-version-1-0",
+      "edits": [
+        ["capability_version = \"1.0.0\";", "capability_version = \"1.0\";"]
+      ],
+      "code": "MEL-S011",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "capability_version",
+      "line": 6
+    },
+    {
+      "id": "backend-picogk",
+      "edits": [
+        ["backend = \"occt\";", "backend = \"picogk\";"]
+      ],
+      "code": "MEL-S012",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "backend",
+      "line": 7
+    },
+    {
+      "id": "backend-wrong-case",
+      "edits": [
+        ["backend = \"occt\";", "backend = \"OCCT\";"]
+      ],
+      "code": "MEL-S012",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "backend",
+      "line": 7
+    },
+    {
+      "id": "backend-cadquery",
+      "edits": [
+        ["backend = \"occt\";", "backend = \"cadquery\";"]
+      ],
+      "code": "MEL-S012",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "backend",
+      "line": 7
+    },
+    {
+      "id": "exports-step-only",
+      "edits": [
+        ["exports = [\"step\", \"glb\"];", "exports = [\"step\"];"]
+      ],
+      "code": "MEL-S013",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "exports",
+      "line": 22
+    },
+    {
+      "id": "exports-reversed",
+      "edits": [
+        ["exports = [\"step\", \"glb\"];", "exports = [\"glb\", \"step\"];"]
+      ],
+      "code": "MEL-S013",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "exports",
+      "line": 22
+    },
+    {
+      "id": "exports-extra-stl",
+      "edits": [
+        ["exports = [\"step\", \"glb\"];", "exports = [\"step\", \"glb\", \"stl\"];"]
+      ],
+      "code": "MEL-S013",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "exports",
+      "line": 22
+    },
+    {
+      "id": "exports-empty",
+      "edits": [
+        ["exports = [\"step\", \"glb\"];", "exports = [];"]
+      ],
+      "code": "MEL-S013",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "exports",
+      "line": 22
+    },
+    {
+      "id": "exports-duplicate-step",
+      "edits": [
+        ["exports = [\"step\", \"glb\"];", "exports = [\"step\", \"step\"];"]
+      ],
+      "code": "MEL-S013",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "exports",
+      "line": 22
+    },
+    {
+      "id": "five-candidate-heights",
+      "edits": [
+        ["candidate_heights = [5 mm, 10 mm, 15 mm];", "candidate_heights = [5 mm, 10 mm, 15 mm, 16 mm, 17 mm];"]
+      ],
+      "code": "MEL-S014",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "candidate_heights",
+      "line": 21
+    },
+    {
+      "id": "empty-candidate-heights",
+      "edits": [
+        ["candidate_heights = [5 mm, 10 mm, 15 mm];", "candidate_heights = [];"]
+      ],
+      "code": "MEL-S014",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "candidate_heights",
+      "line": 21
+    },
+    {
+      "id": "duplicate-candidate-heights",
+      "edits": [
+        ["candidate_heights = [5 mm, 10 mm, 15 mm];", "candidate_heights = [5 mm, 5 mm];"]
+      ],
+      "code": "MEL-S014",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "candidate_heights",
+      "line": 21
+    },
+    {
+      "id": "duplicate-candidate-heights-after-conversion",
+      "edits": [
+        ["candidate_heights = [5 mm, 10 mm, 15 mm];", "candidate_heights = [5 mm, 0.5 cm];"]
+      ],
+      "code": "MEL-S014",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "candidate_heights",
+      "line": 21
+    },
+    {
+      "id": "negative-candidate-height",
+      "edits": [
+        ["candidate_heights = [5 mm, 10 mm, 15 mm];", "candidate_heights = [5 mm, -1 mm, 15 mm];"]
+      ],
+      "code": "MEL-S014",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "candidate_heights",
+      "line": 21
+    },
+    {
+      "id": "zero-candidate-height",
+      "edits": [
+        ["candidate_heights = [5 mm, 10 mm, 15 mm];", "candidate_heights = [5 mm, 0 mm, 15 mm];"]
+      ],
+      "code": "MEL-S014",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "candidate_heights",
+      "line": 21
+    },
+    {
+      "id": "candidate-height-outside-envelope",
+      "edits": [
+        ["candidate_heights = [5 mm, 10 mm, 15 mm];", "candidate_heights = [5 mm, 10 mm, 99999 mm];"]
+      ],
+      "code": "MEL-S014",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "candidate_heights",
+      "line": 21
+    },
+    {
+      "id": "width-outside-envelope",
+      "edits": [
+        ["width = 10 mm;", "width = 100000 mm;"]
+      ],
+      "code": "MEL-S015",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "width",
+      "line": 11
+    },
+    {
+      "id": "zero-width",
+      "edits": [
+        ["width = 10 mm;", "width = 0 mm;"]
+      ],
+      "code": "MEL-S015",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "width",
+      "line": 11
+    },
+    {
+      "id": "unsupported-mode",
+      "edits": [
+        ["mode = \"bounded_thickness\";", "mode = \"unsupported\";"]
+      ],
+      "code": "MEL-S015",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "mode",
+      "line": 20
+    },
+    {
+      "id": "unknown-capability-before-unknown-field",
+      "edits": [
+        ["capability = \"rectangular_cantilever\";", "capability = \"glider_cem\";"],
+        ["mode = ", "unknown_mode = "]
+      ],
+      "code": "MEL-S011",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "capability",
+      "line": 5
+    },
+    {
+      "id": "missing-width-before-invalid-design-name",
+      "edits": [
+        ["design reference_beam", "design Reference_beam"],
+        ["  width = 10 mm;\n", ""]
+      ],
+      "code": "MEL-S003",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "width",
+      "line": 4
+    },
+    {
+      "id": "invalid-backend-before-bad-length-unit",
+      "edits": [
+        ["length = 200 mm;", "length = 200 N;"],
+        ["backend = \"occt\";", "backend = \"picogk\";"]
+      ],
+      "code": "MEL-S012",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "backend",
+      "line": 7
+    },
+    {
+      "id": "candidate-item-unit-before-list-count",
+      "edits": [
+        ["candidate_heights = [5 mm, 10 mm, 15 mm];", "candidate_heights = [5 mm, 10 mm, 15 mm, 16 mm,\n    17];"]
+      ],
+      "code": "MEL-S006",
+      "ir_code": "IR006",
+      "category": "semantic",
+      "field": "candidate_heights",
+      "line": 22
+    },
+    {
+      "id": "empty-exports-before-negative-candidate",
+      "edits": [
+        ["candidate_heights = [5 mm, 10 mm, 15 mm];", "candidate_heights = [5 mm, -1 mm, 15 mm];"],
+        ["exports = [\"step\", \"glb\"];", "exports = [];"]
+      ],
+      "code": "MEL-S013",
+      "ir_code": "IR010",
+      "category": "semantic",
+      "field": "exports",
+      "line": 22
+    }
+  ]
+}
