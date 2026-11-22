@@ -202,7 +202,8 @@ def _program_literal(value: ast.AST | None, package: ast.AST | None = None) -> b
     if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
         return False
     name = value.value
-    if name == 'engineering.program' or name.startswith('engineering.program.'):
+    # The parent package itself reaches program by attribute access (PR #137 re-review).
+    if name == 'engineering' or name == 'engineering.program' or name.startswith('engineering.program.'):
         return True
     if name == 'program' or name.startswith('program.') or name.startswith('.program'):
         return (isinstance(package, ast.Constant) and isinstance(package.value, str)
@@ -222,6 +223,9 @@ def _imports_program(path: Path) -> bool:
                 return True
         elif isinstance(node, ast.Import) and any('program' in a.name.split('.') for a in node.names):
             return True
+        elif (isinstance(node, ast.Attribute) and node.attr == 'program'
+              and isinstance(node.value, ast.Name) and node.value.id == 'engineering'):
+            return True  # `import engineering` then engineering.program
         elif isinstance(node, ast.Call):  # a literal dynamic load of the package reaches it without an import
             func = node.func
             name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else None
@@ -333,6 +337,11 @@ def _in_scope(tmp_path, source: str) -> bool:
     'from engineering import program as p\n',
     'from engineering.program import ir\n',
     'import engineering.program.ir\n',
+    # PR #137 re-review MEDIUM: the parent package reaches program by attribute access.
+    'import importlib\nm = importlib.import_module("engineering").program\n',
+    'm = __import__("engineering").program\n',
+    'import sys\nm = sys.modules["engineering"].program\n',
+    'import engineering\nm = engineering.program\n',
 ])
 def test_scope_includes_files_that_reach_the_package_dynamically(tmp_path, source):
     assert _in_scope(tmp_path, source)
