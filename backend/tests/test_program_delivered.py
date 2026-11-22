@@ -23,9 +23,10 @@ import subprocess
 import sys
 import time
 import zipfile
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -45,11 +46,13 @@ from engineering.program.delivered import (
 )
 from engineering.program.evidence import (
     UNKNOWN_SHA256, DeliveredEvidence, FaceTable, MeshSummary, build_check_plan, check_plan_sha256,
+    evidence_sha256,
 )
 from engineering.program.planning import _candidates_from_content
-from engineering.program.revisions import ProgramRevision
+from engineering.program.revisions import ProgramRevision, RevisionRefusal, build_payload
+from engineering.program.transactions import RevisionService
 from tests.test_program_revision_records import compiled, lock, make_rev  # noqa: F401
-from tests.test_program_revisions import HostStore
+from tests.test_program_revisions import HostStore, clock  # noqa: F401  (clock: fixture)
 
 ROOT = Path(__file__).resolve().parents[2]
 PROGRAM = ROOT / 'backend' / 'engineering' / 'program'
@@ -844,18 +847,20 @@ def resign_bundle(store, publisher, job_id, replacements):
 if os.name == 'posix':
     from engineering.language.semantic import compile_source
     from tests.test_program_revisions import (  # noqa: F401  (fixtures: native capture, OCCT adapter)
-        BEAM, CLIENT, REJECTED, _replay, _publisher_class, evals, land, occt,
+        BEAM, CLIENT, REJECTED, WHITESPACE, _replay, _publisher_class, evals, land, occt, step_sha,
     )
 
     class World:
         pass
 
     @asynccontextmanager
-    async def vworld(tmp_path, evals, occt):
-        """The F06 posix world: real SQLiteStore, BundlePublisher, JobController on a native replay."""
+    async def vworld(tmp_path, evals, occt, *, gate=None):
+        """The F06 posix world: real SQLiteStore, BundlePublisher, JobController on a native replay.
+
+        gate is None: verifier=None (F06 behaviour, the verifier tests drive DeliveredVerifier directly).
+        gate is an adapter factory taking the world: the service runs with the REAL delivered gate."""
         from engineering.briefs import BriefService
         from engineering.jobs import JobController
-        from engineering.program.transactions import RevisionService
         from engineering.store import SQLiteBriefRepository, SQLiteStore
         w = World()
         w.store = SQLiteStore(tmp_path)
@@ -863,9 +868,13 @@ if os.name == 'posix':
         w.briefs = BriefService(SQLiteBriefRepository(w.store))
         w.replay = _replay(evals)
         w.jobs = JobController(w.store, publisher=w.pub, adapter=w.replay)
-        extra = {'verifier': None} if 'verifier' in inspect.signature(RevisionService.__init__).parameters else {}
+        w.measure = None
+        verifier = None
+        if gate is not None:
+            w.measure = gate(w)
+            verifier = DeliveredVerifier(w.store, w.pub, factory(w.measure), timeout_s=10)
         w.svc = RevisionService(w.store, w.jobs, w.pub, w.briefs,
-                                adapter_factory=lambda backend, mode='native': occt, **extra)
+                                adapter_factory=lambda backend, mode='native': occt, verifier=verifier)
         w.pid = w.svc.create_program(CLIENT)
         try:
             yield w
@@ -999,3 +1008,460 @@ if os.name == 'posix':
                 assert ev.match_problem(db, rev.revision_id, job_id=rev.job_id, bundle=rev.bundle) is None
                 assert ev.match_problem(db, REV2, job_id=rev.job_id, bundle=rev.bundle) == DELIVERED_UNVERIFIED
         run_world(tmp_path, evals, occt, body)
+
+    class LazyReplay(MeasureAdapter):
+        """Replay whose face table carries the native versions of the world's own lock (known after staging)."""
+
+        def __init__(self, world, name='ideal_box_h15'):
+            super().__init__()
+            self.world, self.name = world, name
+
+        async def measure(self, step, glb, plan):
+            rev = self.world.svc.history(self.world.pid, client=CLIENT)[0]
+            self.table = face_table(self.name, lock_versions(rev))
+            self.mesh = fixture_mesh(self.name)
+            return await super().measure(step, glb, plan)
+
+    @posix_only
+    def test_posix_real_gate_publishes_a_verified_run_and_withholds_a_failed_one(tmp_path, evals, occt):
+        async def scenario():
+            async with vworld(tmp_path, evals, occt, gate=LazyReplay) as w:
+                first = await land(w, BEAM, None)
+                assert first.state == 'published', (first, w.svc.last_settle_error)
+                stored = w.svc.evidence(first.revision_id, client=CLIENT)
+                assert stored.verdict == 'verified'
+                entries = [e for e in w.svc.journal(w.pid, client=CLIENT)
+                           if e.event == 'published' and e.revision_id == first.revision_id]
+                assert len(entries) == 1
+                assert entries[0].detail == {'job_id': first.job_id, 'evidence_hash': evidence_sha256(stored)}
+                sha = step_sha(w, first.revision_id)
+                with pytest.raises(KeyError):
+                    w.svc.evidence(first.revision_id, client='someone-else')
+                w.measure.name = 'box_h10_for_candidate_h15'
+                second = await land(w, WHITESPACE, first.revision_id)
+                assert second.state == 'failed' and second.reason == DELIVERED_CHECK_FAILED
+                view = w.svc.current(w.pid, client=CLIENT)
+                assert view.revision.revision_id == first.revision_id and view.artifacts == 'available'
+                assert step_sha(w, first.revision_id) == sha
+                assert w.svc.evidence(second.revision_id, client=CLIENT).verdict == 'failed'
+        asyncio.run(scenario())
+
+    @posix_only
+    def test_posix_real_gate_never_verifies_a_rejected_job(tmp_path, evals, occt):
+        async def scenario():
+            async with vworld(tmp_path, evals, occt, gate=LazyReplay) as w:
+                rev = await land(w, REJECTED, None)
+                assert rev.state == 'rejected' and rev.reason == 'rejected_by_policy'
+                assert w.measure.calls == []
+                assert w.svc.evidence(rev.revision_id, client=CLIENT) is None
+                assert w.svc.current(w.pid, client=CLIENT) is None
+        asyncio.run(scenario())
+
+
+# --------------------------------------------------------------------------- F07 task 4: RevisionService gate (host)
+
+CH = 'client-h'
+OLD_METHOD = 'e' * 64
+
+
+class GatePublisher(FakePublisher):
+    """FakePublisher plus what settle and restore ask of a real publisher."""
+
+    def __init__(self, files, bundle, clock):
+        super().__init__(files, bundle)
+        self.clock = clock
+
+    def quick_check(self, job_id, envelope=None):
+        if envelope != self.bundle:
+            raise ValueError('Package fingerprint changed')
+
+    def expires_at(self, job_id):
+        return self.clock() + 100.0
+
+    @contextmanager
+    def lease(self, job_id, fmt, *, envelope=None):
+        yield
+
+
+class CountingVerifier(DeliveredVerifier):
+    calls = 0
+
+    async def verify(self, revision, ir):
+        self.calls += 1
+        return await super().verify(revision, ir)
+
+
+class StubVerifier:
+    """A verifier that writes nothing (rows are planted by the test) or a canned record, and counts calls."""
+
+    def __init__(self, store, record=None, boom=None):
+        self.evidence, self.record, self.boom, self.calls = EvidenceStore(store), record, boom, 0
+
+    async def verify(self, revision, ir):
+        self.calls += 1
+        if self.boom is not None:
+            raise self.boom
+        return self.evidence.put(self.record) if self.record is not None else None
+
+
+async def _no_wait(job_id):
+    return None
+
+
+def gate_world(hw, clock, *, adapter=None, timeout_s=5.0):
+    hw.pub = GatePublisher(hw.pub.files, hw.pub.bundle, clock)
+    hw.adapter = adapter if adapter is not None else hw.good()
+    hw.verifier = CountingVerifier(hw.store, hw.pub, factory(hw.adapter), timeout_s=timeout_s)
+    return hw
+
+
+def gate_service(hw, clock, verifier):
+    jobs = SimpleNamespace(store=hw.store, publisher=hw.pub, wait=_no_wait)
+    briefs = SimpleNamespace(repository=SimpleNamespace(store=hw.store))
+    return RevisionService(hw.store, jobs, hw.pub, briefs, clock=clock, verifier=verifier)
+
+
+def insert_running(hw, svc, pid, rid=REV1):
+    """A running revision linked to the world's job, with its reviewed IR as the payload."""
+    rev = evolve(hw.revision, revision_id=rid, evidence_revision_id=rid, program_id=pid, parent=None,
+                 state='running', bundle=None, published_seq=None, reason=None, job_id=hw.job)
+    payload = build_payload('beam.mir', 'x', hw.ir, hw.lock).model_dump_json()
+    with hw.store.transaction() as db:
+        svc.revision_store._insert(db, rev, payload, 1000.0)
+    return rev
+
+
+def state_of(svc, rid):
+    """The stored revision record (the host jobs table has no expires column, so not view())."""
+    with svc.store.transaction() as db:
+        return svc.revision_store.get(db, rid)[0]
+
+
+def settled(svc, rid, job=JOB):
+    asyncio.run(svc._settle_when_done(rid, job))
+    return state_of(svc, rid)
+
+
+def head_of(hw):
+    return hw.store.db.execute('SELECT head FROM programs').fetchone()[0]
+
+
+def evidence_rows(hw):
+    return hw.store.db.execute('SELECT COUNT(*) FROM program_evidence').fetchone()[0]
+
+
+def event_names(svc, pid):
+    return [e.event for e in svc.journal(pid, client=CH)]
+
+
+def gated(hw, clock, **kw):
+    gate_world(hw, clock, **kw)
+    svc = gate_service(hw, clock, hw.verifier)
+    pid = svc.create_program(CH)
+    insert_running(hw, svc, pid)
+    return svc, pid
+
+
+def test_default_constructor_builds_the_real_verifier_and_none_disables_the_gate(hw, clock):
+    gate_world(hw, clock)
+    jobs = SimpleNamespace(store=hw.store, publisher=hw.pub, wait=_no_wait)
+    briefs = SimpleNamespace(repository=SimpleNamespace(store=hw.store))
+    default = RevisionService(hw.store, jobs, hw.pub, briefs, clock=clock)
+    assert type(default.verifier) is DeliveredVerifier
+    assert default.verifier.store is hw.store and default.verifier.publisher is hw.pub
+    assert default.verifier.adapter_factory is default.adapter_factory
+    parameter = inspect.signature(RevisionService.__init__).parameters['verifier']
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    off = RevisionService(hw.store, jobs, hw.pub, briefs, clock=clock, verifier=None)
+    assert off.verifier is None
+    pid = off.create_program(CH)
+    insert_running(hw, off, pid)
+    assert settled(off, REV1).state == 'published', off.last_settle_error  # F06 behaviour: no verification, no evidence row
+    assert evidence_rows(hw) == 0 and off.evidence(REV1, client=CH) is None
+    detail = next(e.detail for e in off.journal(pid, client=CH) if e.event == 'published')
+    assert detail == {'job_id': JOB}
+
+
+def test_verified_run_is_published_with_the_evidence_hash(hw, clock):
+    svc, pid = gated(hw, clock)
+    rev = settled(svc, REV1)
+    assert rev.state == 'published' and rev.bundle == hw.pub.bundle and head_of(hw) == REV1
+    stored = hw.verifier.evidence.get(None, REV1)
+    assert stored.verdict == 'verified'
+    entries = [e for e in svc.journal(pid, client=CH) if e.event == 'published']
+    assert len(entries) == 1
+    assert entries[0].detail == {'job_id': JOB, 'evidence_hash': evidence_sha256(stored)}
+    assert svc.evidence(REV1, client=CH) == stored
+    assert hw.verifier.calls == 1 and len(hw.adapter.calls) == 1
+    assert svc.last_settle_error is None
+
+
+def test_evidence_read_is_client_checked_like_view(hw, clock):
+    svc, _pid = gated(hw, clock)
+    settled(svc, REV1)
+    for call in (lambda: svc.view(REV1, client='other'), lambda: svc.evidence(REV1, client='other'),
+                 lambda: svc.evidence(REV2, client=CH), lambda: svc.evidence(None, client=CH)):
+        with pytest.raises(KeyError):
+            call()
+
+
+def test_evidence_read_revalidates_the_stored_row(hw, clock):
+    svc, _pid = gated(hw, clock)
+    settled(svc, REV1)
+    hw.store.db.execute("UPDATE program_evidence SET record='{}' WHERE revision_id=?", (REV1,))
+    with pytest.raises(RuntimeError):
+        svc.evidence(REV1, client=CH)
+
+
+@pytest.mark.parametrize('table,reason', [
+    ('box_h10_for_candidate_h15', DELIVERED_CHECK_FAILED),
+    ('root_face_duplicated', DELIVERED_BINDING_AMBIGUOUS),
+])
+def test_failed_or_ambiguous_verdict_withholds_promotion(hw, clock, table, reason):
+    adapter = MeasureAdapter(face_table(table, lock_versions(hw.revision)), fixture_mesh())
+    svc, pid = gated(hw, clock, adapter=adapter)
+    rev = settled(svc, REV1)
+    assert rev.state == 'failed' and rev.reason == reason
+    assert head_of(hw) is None and rev.bundle is None
+    assert 'published' not in event_names(svc, pid) and 'rejected' not in event_names(svc, pid)
+    assert hw.verifier.evidence.get(None, REV1).verdict != 'verified'
+
+
+def test_measure_timeout_is_evidence_unavailable(hw, clock):
+    svc, pid = gated(hw, clock, adapter=hw.good(delay=30), timeout_s=0.05)
+    rev = settled(svc, REV1)
+    assert rev.state == 'failed' and rev.reason == DELIVERED_EVIDENCE_UNAVAILABLE and head_of(hw) is None
+
+
+def test_a_verifier_that_raises_leaves_no_row_and_fails_unverified(hw, clock):
+    boom = StubVerifier(hw.store, boom=RuntimeError('verifier exploded'))
+    gate_world(hw, clock)
+    svc = gate_service(hw, clock, boom)
+    pid = svc.create_program(CH)
+    insert_running(hw, svc, pid)
+    rev = settled(svc, REV1)
+    assert rev.state == 'failed' and rev.reason == DELIVERED_UNVERIFIED and head_of(hw) is None
+    assert boom.calls == 1 and evidence_rows(hw) == 0
+    assert isinstance(svc.last_settle_error, RuntimeError)
+
+
+def test_rejected_job_is_never_verified_and_stays_rejected(hw, clock):
+    hw.write_run(hw.rejected_run())
+    svc, pid = gated(hw, clock)
+    rev = settled(svc, REV1)
+    assert rev.state == 'rejected' and rev.reason == 'rejected_by_policy' and head_of(hw) is None
+    assert hw.verifier.calls == 0 and hw.adapter.calls == [] and evidence_rows(hw) == 0
+    assert svc.last_settle_error is None
+
+
+def test_a_cancel_request_skips_verification(hw, clock):
+    svc, pid = gated(hw, clock)
+    hw.store.db.execute('UPDATE program_revisions SET cancel=1 WHERE id=?', (REV1,))
+    rev = settled(svc, REV1)
+    assert rev.state == 'cancelled' and hw.verifier.calls == 0 and evidence_rows(hw) == 0
+
+
+def test_a_compacted_payload_skips_verification_and_fails_unverified(hw, clock):
+    svc, pid = gated(hw, clock)
+    hw.store.db.execute('UPDATE program_revisions SET payload=NULL WHERE id=?', (REV1,))
+    rev = settled(svc, REV1)
+    assert rev.state == 'failed' and rev.reason == DELIVERED_UNVERIFIED
+    assert hw.verifier.calls == 0 and head_of(hw) is None
+
+
+def test_verification_cannot_accept_a_rejection(hw, clock):
+    gate_world(hw, clock)
+    verified = asyncio.run(hw.verifier.verify(hw.revision, hw.ir))
+    assert verified.verdict == 'verified'
+    hw.write_run(hw.rejected_run())
+    always = StubVerifier(hw.store, record=verified)
+    svc = gate_service(hw, clock, always)
+    pid = svc.create_program(CH)
+    insert_running(hw, svc, pid)
+    rev = settled(svc, REV1)
+    assert rev.state == 'rejected' and head_of(hw) is None
+    assert always.calls == 0 and 'published' not in event_names(svc, pid)
+
+
+def _copy_row(hw, source, target):
+    hw.store.db.execute(
+        'INSERT INTO program_evidence(revision_id, job_id, manifest_sha256, step_sha256, check_plan_sha256, '
+        'method_version, verdict, record, created) SELECT ?, job_id, manifest_sha256, step_sha256, '
+        'check_plan_sha256, method_version, verdict, record, created FROM program_evidence WHERE revision_id=?',
+        (target, source))
+
+
+def _planted_service(hw, clock):
+    """A service whose verifier writes nothing: the test plants the evidence row it wants settle to see."""
+    gate_world(hw, clock)
+    stub = StubVerifier(hw.store)
+    svc = gate_service(hw, clock, stub)
+    return svc, svc.create_program(CH), stub
+
+
+def test_stale_a_verified_row_copied_under_another_revision(hw, clock):
+    gate_world(hw, clock)
+    assert asyncio.run(hw.verifier.verify(hw.revision, hw.ir)).verdict == 'verified'
+    _copy_row(hw, REV1, REV2)
+    svc, pid, stub = _planted_service(hw, clock)
+    insert_running(hw, svc, pid, rid=REV2)
+    rev = settled(svc, REV2)
+    assert rev.state == 'failed' and rev.reason == DELIVERED_EVIDENCE_STALE and head_of(hw) is None
+
+
+def test_stale_a_row_made_by_an_older_method_version(hw, clock, monkeypatch):
+    gate_world(hw, clock)
+    monkeypatch.setattr(dv, 'method_version', lambda: OLD_METHOD)
+    record = asyncio.run(hw.verifier.verify(hw.revision, hw.ir))
+    assert record.verdict == 'verified' and record.method_version == OLD_METHOD
+    monkeypatch.undo()
+    assert method_version() != OLD_METHOD
+    svc, pid, _stub = _planted_service(hw, clock)
+    insert_running(hw, svc, pid)
+    rev = settled(svc, REV1)
+    assert rev.state == 'failed' and rev.reason == DELIVERED_EVIDENCE_STALE and head_of(hw) is None
+
+
+def test_stale_a_row_whose_manifest_differs_from_the_run_bundle(hw, clock):
+    gate_world(hw, clock)
+    assert asyncio.run(hw.verifier.verify(hw.revision, hw.ir)).verdict == 'verified'
+    old_manifest = hw.pub.bundle.manifest_sha256
+    hw.resign(**{'attempts.json': hw.pub.files['attempts.json'] + b'\n'})  # republished after verification
+    assert hw.pub.bundle.manifest_sha256 != old_manifest
+    svc, pid, _stub = _planted_service(hw, clock)
+    insert_running(hw, svc, pid)
+    rev = settled(svc, REV1)
+    assert rev.state == 'failed' and rev.reason == DELIVERED_EVIDENCE_STALE and head_of(hw) is None
+
+
+def test_stale_a_tampered_row_record(hw, clock):
+    gate_world(hw, clock)
+    assert asyncio.run(hw.verifier.verify(hw.revision, hw.ir)).verdict == 'verified'
+    hw.store.db.execute("UPDATE program_evidence SET record='{}' WHERE revision_id=?", (REV1,))
+    svc, pid, _stub = _planted_service(hw, clock)
+    insert_running(hw, svc, pid)
+    assert settled(svc, REV1).reason == DELIVERED_EVIDENCE_STALE
+
+
+def test_recover_without_a_row_fails_unverified_and_never_measures(hw, clock):
+    gate_world(hw, clock)
+    base = gate_service(hw, clock, None)  # creates the revision tables; its own recover has nothing to do
+    pid = base.create_program(CH)
+    insert_running(hw, base, pid)
+    svc = gate_service(hw, clock, hw.verifier)  # the constructor recovers the running revision
+    rev = state_of(svc, REV1)
+    assert rev.state == 'failed' and rev.reason == DELIVERED_UNVERIFIED and head_of(hw) is None
+    assert hw.verifier.calls == 0 and hw.adapter.calls == [] and evidence_rows(hw) == 0
+    assert event_names(svc, pid)[-2:] == ['failed', 'recovered']
+
+
+def test_recover_with_a_matching_verified_row_rolls_forward(hw, clock):
+    gate_world(hw, clock)
+    base = gate_service(hw, clock, None)
+    pid = base.create_program(CH)
+    insert_running(hw, base, pid)
+    stored = asyncio.run(hw.verifier.verify(hw.revision, hw.ir))
+    assert stored.verdict == 'verified' and hw.verifier.calls == 1
+    svc = gate_service(hw, clock, hw.verifier)
+    rev = state_of(svc, REV1)
+    assert rev.state == 'published' and head_of(hw) == REV1
+    assert hw.verifier.calls == 1  # recover measured nothing
+    detail = next(e.detail for e in svc.journal(pid, client=CH) if e.event == 'published')
+    assert detail['evidence_hash'] == evidence_sha256(stored)
+
+
+def move_head_to_another_revision(hw, svc, pid):
+    """REV2: a later published revision that is the program head (a restore needs a head to roll back from)."""
+    other = evolve(hw.revision, revision_id=REV2, evidence_revision_id=REV2, program_id=pid, parent=REV1,
+                   state='published', bundle=hw.pub.bundle, published_seq=2, reason=None, job_id=JOB2)
+    with hw.store.transaction() as db:
+        svc.revision_store._insert(db, other, None, 1000.0)
+        db.execute('UPDATE programs SET head=?, head_seq=2 WHERE id=?', (REV2, pid))
+
+
+def _published_target(hw, clock, *, verifier='gate'):
+    """A published, restorable revision (publication row present) that is not the head."""
+    gate_world(hw, clock)
+    svc = gate_service(hw, clock, hw.verifier if verifier == 'gate' else None)
+    pid = svc.create_program(CH)
+    insert_running(hw, svc, pid)
+    assert settled(svc, REV1).state == 'published'
+    hw.store.db.execute('INSERT INTO publications(job, record, expires) VALUES (?,?,?)', (JOB, '{}', clock() + 1000.0))
+    move_head_to_another_revision(hw, svc, pid)
+    return svc, pid
+
+
+def _store_counts(hw):
+    return tuple(hw.store.db.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0]
+                 for t in ('program_revisions', 'program_journal', 'program_evidence'))
+
+
+def test_restore_with_a_verified_matching_row_succeeds_without_new_evidence(hw, clock):
+    svc, pid = _published_target(hw, clock)
+    before = _store_counts(hw)
+    restored = asyncio.run(svc.restore(REV1, expected_head=REV2, client=CH))
+    assert isinstance(restored, ProgramRevision) and restored.kind == 'restore' and restored.state == 'published'
+    assert restored.evidence_revision_id == REV1 and head_of(hw) == restored.revision_id
+    assert _store_counts(hw) == (before[0] + 1, before[1] + 1, before[2])  # no new evidence row
+    assert hw.verifier.calls == 1 and len(hw.adapter.calls) == 1  # restore never re-measures
+    assert svc.evidence(restored.revision_id, client=CH) == svc.evidence(REV1, client=CH) is not None
+
+
+def test_restore_accepts_a_row_made_by_an_older_method_version(hw, clock, monkeypatch):
+    monkeypatch.setattr(dv, 'method_version', lambda: OLD_METHOD)
+    svc, pid = _published_target(hw, clock)  # published under the old method version
+    monkeypatch.undo()
+    assert svc.evidence(REV1, client=CH).method_version == OLD_METHOD
+    restored = asyncio.run(svc.restore(REV1, expected_head=REV2, client=CH))
+    assert isinstance(restored, ProgramRevision) and restored.state == 'published'
+
+
+def test_restore_without_the_gate_needs_no_row(hw, clock):
+    svc, pid = _published_target(hw, clock, verifier=None)
+    assert evidence_rows(hw) == 0
+    restored = asyncio.run(svc.restore(REV1, expected_head=REV2, client=CH))
+    assert isinstance(restored, ProgramRevision) and restored.state == 'published'
+
+
+def _damage_deleted(hw):
+    hw.store.db.execute('DELETE FROM program_evidence')
+
+
+def _damage_garbled(hw):
+    hw.store.db.execute("UPDATE program_evidence SET record='{}'")
+
+
+def _damage_columns(hw):
+    hw.store.db.execute("UPDATE program_evidence SET job_id=?", (JOB2,))
+
+
+def _damage_other_manifest(hw):
+    """A valid verified row, but for a different bundle than the one the target published."""
+    record = hw.verifier.evidence.get(None, REV1)
+    other = record.model_copy(update={'manifest_sha256': 'f' * 64})
+    text = dv.canonical_json(other)
+    hw.store.db.execute('UPDATE program_evidence SET manifest_sha256=?, record=?', ('f' * 64, text))
+
+
+@pytest.mark.parametrize('damage', [_damage_deleted, _damage_garbled, _damage_columns, _damage_other_manifest])
+def test_restore_refuses_record_altered_when_the_evidence_row_is_missing_or_wrong(hw, clock, damage):
+    svc, pid = _published_target(hw, clock)
+    damage(hw)
+    before = _store_counts(hw)
+    refusal = asyncio.run(svc.restore(REV1, expected_head=REV2, client=CH))
+    assert refusal == RevisionRefusal(('record_altered',))
+    assert _store_counts(hw) == before and head_of(hw) == REV2
+
+
+def test_restore_rechecks_the_evidence_inside_the_final_transaction(hw, clock):
+    svc, pid = _published_target(hw, clock)
+    before = _store_counts(hw)
+
+    def crash_point(name):
+        if name == 'restore_after_validate':
+            _damage_deleted(hw)  # the row vanishes after pre-validation, before the final transaction
+
+    svc._crash_point = crash_point
+    refusal = asyncio.run(svc.restore(REV1, expected_head=REV2, client=CH))
+    assert refusal == RevisionRefusal(('record_altered',))
+    assert _store_counts(hw) == (before[0], before[1], 0) and head_of(hw) == REV2

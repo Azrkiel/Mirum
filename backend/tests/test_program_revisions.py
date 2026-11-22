@@ -688,7 +688,7 @@ def _host_service(host, clock):
     pub = SimpleNamespace()
     jobs = SimpleNamespace(store=host, publisher=pub)
     briefs = SimpleNamespace(repository=SimpleNamespace(store=host))
-    return RevisionService(host, jobs, pub, briefs, clock=clock)
+    return RevisionService(host, jobs, pub, briefs, clock=clock, verifier=None)
 
 
 def test_service_constructor_requires_one_shared_store(host, clock):
@@ -696,7 +696,7 @@ def test_service_constructor_requires_one_shared_store(host, clock):
     pub = SimpleNamespace()
     good_jobs = SimpleNamespace(store=host, publisher=pub)
     good_briefs = SimpleNamespace(repository=SimpleNamespace(store=host))
-    RevisionService(host, good_jobs, pub, good_briefs, clock=clock)
+    RevisionService(host, good_jobs, pub, good_briefs, clock=clock, verifier=None)
     with pytest.raises(ValueError):
         RevisionService(host, good_jobs, pub, SimpleNamespace(repository=SimpleNamespace(store=other)))
     with pytest.raises(ValueError):
@@ -883,7 +883,7 @@ async def world(tmp_path, evals, occt):
     w.replay = _replay(evals)
     w.jobs = JobController(w.store, publisher=w.pub, adapter=w.replay)
     w.svc = RevisionService(w.store, w.jobs, w.pub, w.briefs,
-                            adapter_factory=lambda backend, mode='native': occt)
+                            adapter_factory=lambda backend, mode='native': occt, verifier=None)
     w.pid = w.svc.create_program(CLIENT)
     try:
         yield w

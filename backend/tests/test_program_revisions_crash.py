@@ -59,7 +59,7 @@ class FakePub:
 def _service(host, clock, pub):
     jobs = SimpleNamespace(store=host, publisher=pub)  # no admit/start: recover must never call them
     briefs = SimpleNamespace(repository=SimpleNamespace(store=host))
-    return RevisionService(host, jobs, pub, briefs, clock=clock)
+    return RevisionService(host, jobs, pub, briefs, clock=clock, verifier=None)
 
 
 @pytest.fixture
@@ -250,7 +250,8 @@ async def open_world(root, evals, occt, *, service_cls=RevisionService):
         w.store.close()
         raise
     try:
-        w.svc = service_cls(w.store, w.jobs, w.pub, w.briefs, adapter_factory=lambda backend, mode='native': occt)
+        w.svc = service_cls(w.store, w.jobs, w.pub, w.briefs, adapter_factory=lambda backend, mode='native': occt,
+                          verifier=None)
     except BaseException:
         await w.jobs.close()
         w.store.close()
