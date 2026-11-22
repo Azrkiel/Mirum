@@ -69,8 +69,52 @@ class RevisionService:
         return None
 
     def recover(self) -> None:
-        """Startup reconciliation (task 5, D12). Not implemented yet."""
-        return None
+        """Startup reconciliation (D12). One pass, bounded by the row count; runs in the constructor, after
+        the JobController (and so the publisher) already recovered: every job is terminal by now.
+
+        1. Fail closed: every program head must be a published revision of that program (RuntimeError,
+           nothing modified, otherwise).
+        2. A staged revision whose journal holds an admit_intent was interrupted between intent and link
+           (a job may exist that no revision references): staged -> failed, reason 'interrupted', journaled
+           as ONE 'recovered' entry. A staged revision without an intent stays staged.
+        3. A running revision settles through the normal D6 transaction after a FULL publisher.validate of
+           its bundle (outside the transaction): CAS roll-forward to published, conflict when the head
+           moved, else cancelled/rejected/failed. A 'recovered' entry follows the terminal entry.
+
+        Never starts native work, never admits, never extends any expiry."""
+        rs = self.revision_store
+        with self.store.transaction() as db:
+            for program in db.execute('SELECT id, head FROM programs WHERE head IS NOT NULL ORDER BY id').fetchall():
+                got = rs.get(db, program['head'])
+                if got is None or got[0].program_id != program['id'] or got[0].state != 'published':
+                    raise RuntimeError('Program head does not point to a published revision of that program')
+            pending = rs.staged_or_running(db)
+            intents = {row[0] for row in db.execute(
+                "SELECT DISTINCT revision_id FROM program_journal WHERE event='admit_intent'").fetchall()}
+        for rev in pending:
+            if rev.state == 'staged':
+                if rev.revision_id in intents:
+                    with self.store.transaction() as db:
+                        failed = self._evolve(rev, state='failed', reason='interrupted')
+                        rs.transition(db, failed, expected_state='staged', event='recovered',
+                                      detail={'reason': 'interrupted'})
+                continue
+            problem = None
+            with self.store.transaction() as db:
+                row = db.execute('SELECT record FROM jobs WHERE id=?', (rev.job_id,)).fetchone()
+            run = None
+            if row is not None:
+                try:
+                    run = parse_run(row['record'])
+                except ValueError:
+                    run = None
+            if (run is not None and run.lifecycle.value == 'completed' and run.outcome.value == 'accepted'
+                    and getattr(run, 'bundle', None) is not None):
+                try:
+                    self.publisher.validate(rev.job_id, run.bundle)  # full digest check, outside any transaction
+                except Exception:
+                    problem = 'artifacts_invalid'
+            self.settle(rev.revision_id, recovered=True, validation_problem=problem)
 
     # ------------------------------------------------------------------ helpers
 
@@ -299,8 +343,12 @@ class RevisionService:
 
     # ------------------------------------------------------------------ settle
 
-    def settle(self, revision_id) -> ProgramRevision:
-        """D6: finish a running revision from its terminal job, in ONE store transaction."""
+    def settle(self, revision_id, *, recovered=False, validation_problem=None) -> ProgramRevision:
+        """D6: finish a running revision from its terminal job, in ONE store transaction.
+
+        ``recovered`` and ``validation_problem`` are used by recover() only: the former journals a
+        'recovered' entry in the same transaction, the latter (a failed full validation done before the
+        transaction) turns an otherwise accepted job into a failed revision."""
         rs = self.revision_store
         with self.store.transaction() as db:
             got = rs.get(db, revision_id) if type(revision_id) is str else None
@@ -318,11 +366,13 @@ class RevisionService:
                     run = False
                 if run and run.lifecycle not in TERMINAL:
                     return rev
-            result = self._decide(db, rev, cancel, row is None, run)
+            result = self._decide(db, rev, cancel, row is None, run, validation_problem)
+            if recovered:
+                rs.append_journal(db, result.program_id, result.revision_id, 'recovered', {'state': result.state})
             self._crash_point('before_settle_commit')
             return result
 
-    def _decide(self, db, rev, cancel, job_missing, run) -> ProgramRevision:
+    def _decide(self, db, rev, cancel, job_missing, run, validation_problem=None) -> ProgramRevision:
         rs = self.revision_store
 
         def finish(state, event, reason):
@@ -338,7 +388,7 @@ class RevisionService:
         if run is False:
             return finish('failed', 'failed', 'job_record_invalid')
         if run.lifecycle.value == 'completed' and run.outcome.value == 'accepted':
-            problem = self._acceptance_problem(rev, run)
+            problem = self._acceptance_problem(rev, run) or validation_problem
             if problem is not None:
                 return finish('failed', 'failed', problem)
             promoted = rs.promote(db, rev, expected_head=rev.parent, bundle=run.bundle,
