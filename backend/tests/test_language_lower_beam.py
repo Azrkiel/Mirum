@@ -19,8 +19,7 @@ from engineering.program.ir import ProgramProvenance, load_program_json
 
 ROOT = Path(__file__).resolve().parents[2]
 P03 = ROOT / 'backend' / 'tests' / 'fixtures' / 'program' / 'p03'
-MIR = P03 / 'beam.mir'  # byte-identical copy of the documented example (F02 test pins it)
-DOCS_MIR = ROOT / 'docs' / 'plans' / 'checked-engineering-v1' / 'phase-3-framework-language' / 'examples' / 'beam.mir'
+MIR = P03 / 'beam.mir'  # byte-identical copy of the documented example (test_program_beam_bridge pins it to the docs copy)
 LANGUAGE_DIR = ROOT / 'backend' / 'engineering' / 'language'
 BS = chr(92)
 
@@ -68,12 +67,6 @@ def test_whitespace_and_comments_do_not_change_the_tree():
     a = parse(beam_source())
     b = parse(beam_source().replace('\n', '  // note\r\n').replace(' = ', '='))
     assert a == b
-
-
-def test_docs_example_matches_when_docs_are_present():
-    if not DOCS_MIR.exists():
-        pytest.skip('docs/ is not shipped in the native image')
-    assert DOCS_MIR.read_bytes() == MIR.read_bytes()
 
 
 # ---------------------------------------------------------------- P03 lowering
