@@ -221,8 +221,9 @@ def _imports_program(path: Path) -> bool:
                 return True
             if module == 'engineering' and any(a.name == 'program' for a in node.names):
                 return True
-        elif isinstance(node, ast.Import) and any('program' in a.name.split('.') for a in node.names):
-            return True
+        elif isinstance(node, ast.Import) and any('program' in a.name.split('.') or a.name == 'engineering'
+                                                  for a in node.names):
+            return True  # a bare `import engineering` (any alias) can reach program via getattr
         elif (isinstance(node, ast.Attribute) and node.attr == 'program'
               and isinstance(node.value, ast.Name) and node.value.id == 'engineering'):
             return True  # `import engineering` then engineering.program
@@ -342,6 +343,8 @@ def _in_scope(tmp_path, source: str) -> bool:
     'm = __import__("engineering").program\n',
     'import sys\nm = sys.modules["engineering"].program\n',
     'import engineering\nm = engineering.program\n',
+    'import engineering\nm = getattr(engineering, "program")\n',
+    'import engineering as e\nm = e.program\n',
 ])
 def test_scope_includes_files_that_reach_the_package_dynamically(tmp_path, source):
     assert _in_scope(tmp_path, source)
