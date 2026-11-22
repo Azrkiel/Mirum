@@ -28,9 +28,11 @@ from .adapters import adapter_for
 from .planning import (
     PlanRefusal, ProgramReview, authorize_run, lock_program, open_review, plan_program,
 )
+from .hashing import execution_lock_v0_2_sha256, semantic_sha256
+from .ir import load_execution_lock_json, load_program_json
 from .revision_store import RevisionStore
 from .revisions import (
-    ProgramRevision, RevisionRefusal, RevisionView, build_payload,
+    ProgramRevision, RevisionDiff, RevisionRefusal, RevisionView, build_payload, diff, evidence_from_run,
 )
 
 __all__ = ['RevisionService']
@@ -172,6 +174,11 @@ class RevisionService:
         neither writes anything. The final insert repeats the parent CAS: a race lost there returns the
         refusal and leaves the freshly opened draft orphaned, which expires under the existing draft
         retention (nothing else references it)."""
+        return await self._stage(program_id, source, source_id=source_id, expected_parent=expected_parent,
+                                 client=client, kind='edit', derived_from=None)
+
+    async def _stage(self, program_id, source, *, source_id, expected_parent, client, kind, derived_from):
+        """Shared staging path of stage() (kind 'edit') and rebuild() (kind 'rebuild')."""
         if not isinstance(source_id, str) or not source_id:
             raise ValueError('source_id is required')
         rs = self.revision_store
@@ -198,8 +205,8 @@ class RevisionService:
         revision_id = uuid.uuid4().hex
         now = self._now()
         revision = ProgramRevision(
-            revision_id=revision_id, program_id=program_id, parent=expected_parent, kind='edit',
-            evidence_revision_id=revision_id, state='staged', source_sha256=compiled.source_sha256,
+            revision_id=revision_id, program_id=program_id, parent=expected_parent, kind=kind,
+            derived_from=derived_from, evidence_revision_id=revision_id, state='staged', source_sha256=compiled.source_sha256,
             semantic_sha256=compiled.semantic_sha256, brief_sha256=review.brief_sha256,
             fixed_requirements_sha256=compiled.brief_content.fixed_requirements_sha256,
             lock_sha256=review.lock_sha256, lock=lock, draft_id=review.draft_id,
@@ -506,6 +513,166 @@ class RevisionService:
         if rev.state != 'published' or rev.job_id is None or rev.bundle is None:
             raise KeyError('Revision has no published artifacts')
         return self.publisher.open_lease(rev.job_id, fmt, envelope=rev.bundle)
+
+    # ------------------------------------------------------------------ restore, rebuild, compare
+
+    def _evidence_row(self, db, rev):
+        """(evidence revision, cancel, payload) or None. The evidence revision holds the IR and source
+        (restore rows have no payload of their own)."""
+        got = self.revision_store.get(db, rev.evidence_revision_id)
+        if got is None or got[0].program_id != rev.program_id:
+            return None
+        return got
+
+    def _publication_state(self, db, rev):
+        """None when the publication is present and unexpired, else the refusal reason."""
+        row = db.execute('SELECT expires FROM publications WHERE job=?', (rev.job_id,)).fetchone()
+        if row is None:
+            return 'artifacts_missing'
+        if row['expires'] <= self.clock():
+            return 'artifacts_expired'
+        return None
+
+    def _validate_pinned(self, job_id, bundle) -> None:
+        """Full validation while a lease on the manifest keeps cleanup and discard away (blocking)."""
+        with self.publisher.lease(job_id, 'manifest', envelope=bundle):
+            self.publisher.validate(job_id, bundle)
+
+    @staticmethod
+    def _artifact_reason(exc: BaseException) -> str:
+        if isinstance(exc, ArtifactExpired):
+            return 'artifacts_expired'
+        if isinstance(exc, (KeyError, OSError)):
+            return 'artifacts_missing'
+        if isinstance(exc, ValueError) and str(exc) == 'Incomplete package':
+            return 'artifacts_missing'
+        return 'artifacts_altered'
+
+    @staticmethod
+    def _restore_record_problem(target, payload):
+        """'record_altered' when the stored payload or lock no longer hashes to the stored hashes."""
+        try:
+            ir = load_program_json(payload.ir_json)
+            payload_lock = load_execution_lock_json(payload.lock_json)
+            if (semantic_sha256(ir) != target.semantic_sha256
+                    or execution_lock_v0_2_sha256(payload_lock) != target.lock_sha256
+                    or execution_lock_v0_2_sha256(target.lock) != target.lock_sha256):
+                return 'record_altered'
+        except (ValueError, TypeError):
+            return 'record_altered'
+        return None
+
+    async def restore(self, revision_id, *, expected_head, client):
+        """D9: roll back by adding a NEW published revision that points at the target's own evidence.
+
+        Never probes, assesses, admits, or touches publications.expires / jobs.expires. Refusals are
+        returned (nothing written); an unknown or foreign revision raises KeyError."""
+        rs = self.revision_store
+        with self.store.transaction() as db:
+            rs.compact(db, now=self.clock())
+            target = self._load(db, revision_id, client)[0]
+            program = rs.program(db, target.program_id)
+            if target.state != 'published':
+                return RevisionRefusal(('not_restorable',))
+            evidence = self._evidence_row(db, target)
+            if evidence is None:
+                return RevisionRefusal(('not_restorable',))
+            if program['head'] == target.revision_id:
+                return RevisionRefusal(('already_current',))
+            payload = evidence[2]
+            if payload is None:
+                return RevisionRefusal(('history_expired',))
+            if program['head'] != expected_head:
+                return RevisionRefusal(('stale_parent',))
+            problem = self._restore_record_problem(target, payload)
+            if problem is not None:
+                return RevisionRefusal((problem,))
+            row = db.execute('SELECT record FROM jobs WHERE id=?', (target.job_id,)).fetchone()
+            if row is None:
+                return RevisionRefusal(('artifacts_missing',))
+            try:
+                run = parse_run(row['record'])
+            except ValueError:
+                return RevisionRefusal(('record_altered',))
+            if (run.lifecycle.value != 'completed' or run.outcome.value != 'accepted'
+                    or getattr(run, 'bundle', None) is None or run.bundle != target.bundle):
+                return RevisionRefusal(('record_altered',))
+            state = self._publication_state(db, target)
+            if state is not None:
+                return RevisionRefusal((state,))
+        try:
+            await asyncio.to_thread(self._validate_pinned, target.job_id, target.bundle)
+        except Exception as exc:
+            return RevisionRefusal((self._artifact_reason(exc),))
+        self._crash_point('restore_after_validate')
+        with self.store.transaction() as db:
+            rs.compact(db, now=self.clock())
+            try:
+                self.publisher.quick_check(target.job_id, target.bundle)
+            except ValueError:
+                return RevisionRefusal(('artifacts_altered',))
+            except (KeyError, OSError):
+                return RevisionRefusal(('artifacts_missing',))
+            state = self._publication_state(db, target)
+            if state is not None:
+                return RevisionRefusal((state,))
+            now = self._now()
+            restored = ProgramRevision(
+                revision_id=uuid.uuid4().hex, program_id=target.program_id, parent=expected_head,
+                kind='restore', derived_from=target.revision_id,
+                evidence_revision_id=target.evidence_revision_id, state='published',
+                source_sha256=target.source_sha256, semantic_sha256=target.semantic_sha256,
+                brief_sha256=target.brief_sha256, fixed_requirements_sha256=target.fixed_requirements_sha256,
+                lock_sha256=target.lock_sha256, lock=target.lock, draft_id=target.draft_id,
+                draft_revision=target.draft_revision, brief_id=target.brief_id, job_id=target.job_id,
+                bundle=target.bundle, published_seq=1, created_at=now, updated_at=now)
+            return rs.insert_restore(db, restored, expected_head=expected_head,
+                                     detail={'derived_from': target.revision_id})
+
+    async def rebuild(self, revision_id, *, expected_parent, client):
+        """D10: stage a NEW 'rebuild' revision from the target's stored source.
+
+        Recompiles with the current compiler, plans, takes a fresh-probe lock and opens a new review, through
+        the same path as stage(). The caller finalizes the review and runs it as a normal new job; old
+        evidence is never copied. Any revision whose evidence payload is present can be rebuilt (not only
+        published ones); a compacted payload gives history_expired. MelError propagates like stage()."""
+        rs = self.revision_store
+        with self.store.transaction() as db:
+            rs.compact(db, now=self.clock())
+            target = self._load(db, revision_id, client)[0]
+            evidence = self._evidence_row(db, target)
+        if evidence is None or evidence[2] is None:
+            return RevisionRefusal(('history_expired',))
+        payload = evidence[2]
+        return await self._stage(target.program_id, payload.source, source_id=payload.source_id,
+                                 expected_parent=expected_parent, client=client, kind='rebuild',
+                                 derived_from=target.revision_id)
+
+    def compare(self, a_id, b_id, *, client) -> RevisionDiff:
+        """D8: one snapshot transaction. IR from each side's evidence revision (None when compacted);
+        evidence summary from each side's OWN job row (None when no job or unreadable)."""
+        with self.store.transaction() as db:
+            sides = []
+            for revision_id in (a_id, b_id):
+                rev = self._load(db, revision_id, client)[0]
+                evidence_row = self._evidence_row(db, rev)
+                ir = None
+                if evidence_row is not None and evidence_row[2] is not None:
+                    try:
+                        ir = load_program_json(evidence_row[2].ir_json)
+                    except ValueError as exc:
+                        raise RuntimeError('Program revision payload is altered') from exc
+                evidence = None
+                if rev.job_id is not None:
+                    row = db.execute('SELECT record FROM jobs WHERE id=?', (rev.job_id,)).fetchone()
+                    if row is not None:
+                        try:
+                            evidence = evidence_from_run(parse_run(row['record']))
+                        except ValueError:
+                            evidence = None
+                sides.append((rev, ir, evidence))
+        (a, a_ir, a_ev), (b, b_ir, b_ev) = sides
+        return diff(a, a_ir, b, b_ir, evidence_a=a_ev, evidence_b=b_ev)
 
     # ------------------------------------------------------------------ shutdown
 

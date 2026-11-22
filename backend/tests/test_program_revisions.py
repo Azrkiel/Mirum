@@ -1266,3 +1266,315 @@ def test_foreign_client_gets_key_error_everywhere(tmp_path, evals, occt):
                 await w.svc.cancel(rid, client='other')
             assert w.svc.view(rid, client=CLIENT).revision.state == 'staged'
     asyncio.run(scenario())
+
+
+# ---- restore, rebuild, compare (task 6; D8, D9, D10) ----
+
+def _published_pair(svc, host, lock, bundle, pid):
+    """Two promoted revisions (host fake): the second is the head."""
+    rs = svc.revision_store
+    first = run_one(rs, host, lock, bundle, pid, 1)
+    with host.transaction() as db:
+        rs.promote(db, first, expected_head=None, bundle=bundle, now=NOW)
+    second = run_one(rs, host, lock, bundle, pid, 2, parent=hexid(1))
+    with host.transaction() as db:
+        rs.promote(db, second, expected_head=hexid(1), bundle=bundle, now=NOW)
+
+
+def _restore(svc, rid, head, client='c'):
+    return asyncio.run(svc.restore(rid, expected_head=head, client=client))
+
+
+def test_service_host_restore_refusal_order(host, clock, lock, bundle):
+    svc = _host_service(host, clock)
+    pid = svc.create_program('c')
+    assert stage(svc.revision_store, host, lock, bundle, pid, 3) is None
+    assert _restore(svc, hexid(3), None) == RevisionRefusal(('not_restorable',))
+    _published_pair(svc, host, lock, bundle, pid)
+    before = (journal_count(host), host.db.execute('SELECT COUNT(*) FROM program_revisions').fetchone()[0])
+    assert _restore(svc, hexid(2), hexid(2)) == RevisionRefusal(('already_current',))
+    assert _restore(svc, hexid(1), hexid(1)) == RevisionRefusal(('stale_parent',))
+    # The host payload is not a real IR: the recomputed hash cannot equal the stored one.
+    assert _restore(svc, hexid(1), hexid(2)) == RevisionRefusal(('record_altered',))
+    assert before == (journal_count(host), host.db.execute('SELECT COUNT(*) FROM program_revisions').fetchone()[0])
+    for call in (lambda: _restore(svc, hexid(1), hexid(2), client='other'), lambda: _restore(svc, hexid(9), None)):
+        with pytest.raises(KeyError):
+            call()
+
+
+def test_service_host_compacted_payload_gives_history_expired_for_restore_rebuild_compare(host, clock, lock, bundle):
+    svc = _host_service(host, clock)
+    pid = svc.create_program('c')
+    _published_pair(svc, host, lock, bundle, pid)
+    clock.t += RETENTION + 1
+    assert _restore(svc, hexid(1), hexid(2)) == RevisionRefusal(('history_expired',))
+    out = asyncio.run(svc.rebuild(hexid(1), expected_parent=hexid(2), client='c'))
+    assert out == RevisionRefusal(('history_expired',))
+    result = svc.compare(hexid(1), hexid(2), client='c')
+    assert result.detail_unavailable == 'history_expired' and result.changes == ()
+    assert result.evidence_a is None and result.evidence_b is None  # no job rows in the host fake
+    with pytest.raises(KeyError):
+        svc.compare(hexid(1), hexid(2), client='other')
+    with pytest.raises(KeyError):
+        asyncio.run(svc.rebuild(hexid(1), expected_parent=hexid(2), client='other'))
+
+
+def test_artifact_failure_mapping():
+    from engineering.store import ArtifactExpired
+    cases = {
+        'artifacts_expired': (ArtifactExpired('x'),),
+        'artifacts_missing': (FileNotFoundError('x'), KeyError('x'), ValueError('Incomplete package')),
+        'artifacts_altered': (ValueError('Package byte count changed'), ValueError('Package fingerprint changed'),
+                              ValueError('Manifest content mismatch'), ValueError('Archive content mismatch')),
+    }
+    for reason, excs in cases.items():
+        for exc in excs:
+            assert RevisionService._artifact_reason(exc) == reason
+
+
+def _expiries(w, *job_ids):
+    with w.store.transaction() as db:
+        return tuple(
+            (db.execute('SELECT expires FROM publications WHERE job=?', (j,)).fetchone()[0],
+             db.execute('SELECT expires FROM jobs WHERE id=?', (j,)).fetchone()[0]) for j in job_ids)
+
+
+def _record_columns(w):
+    with w.store.transaction() as db:
+        return tuple(tuple(r) for r in db.execute(
+            'SELECT id, record, payload, state, published_seq FROM program_revisions ORDER BY id').fetchall())
+
+
+async def _two(w):
+    first, sha1 = await with_first(w)
+    second = await land(w, WHITESPACE, first.revision_id)
+    assert second.state == 'published'
+    return first, sha1, second
+
+
+@native_only
+def test_restore_adds_a_row_and_serves_the_targets_own_bytes(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, sha1, second = await _two(w)
+            rows_before = _record_columns(w)
+            expiry_before = _expiries(w, first.job_id, second.job_id)
+            calls = type(w.replay).calls
+            probes = []
+            w.svc.adapter_factory = lambda backend, mode='native': probes.append(backend) or occt
+            restored = await w.svc.restore(first.revision_id, expected_head=second.revision_id, client=CLIENT)
+            assert isinstance(restored, ProgramRevision), restored
+            assert restored.kind == 'restore' and restored.state == 'published' and restored.published_seq == 3
+            assert restored.parent == second.revision_id and restored.derived_from == first.revision_id
+            assert restored.evidence_revision_id == first.revision_id
+            assert restored.job_id == first.job_id and restored.bundle == first.bundle
+            assert restored.lock == first.lock and restored.lock_sha256 == first.lock_sha256
+            assert restored.semantic_sha256 == first.semantic_sha256
+            view = w.svc.current(w.pid, client=CLIENT)
+            assert view.revision.revision_id == restored.revision_id and view.is_current
+            assert view.artifacts == 'available'
+            assert step_sha(w, restored.revision_id) == sha1
+            # Earlier rows are byte identical (the new row is the only difference); nothing probed or ran.
+            rows_after = _record_columns(w)
+            assert set(rows_before) <= set(rows_after) and len(rows_after) == len(rows_before) + 1
+            assert probes == [] and type(w.replay).calls == calls
+            assert _expiries(w, first.job_id, second.job_id) == expiry_before
+            assert [e.event for e in w.svc.journal(w.pid, client=CLIENT)][-1] == 'restored'
+            # A restore row is itself restorable (its evidence is the original revision's payload).
+            again = await w.svc.restore(second.revision_id, expected_head=restored.revision_id, client=CLIENT)
+            assert isinstance(again, ProgramRevision) and again.evidence_revision_id == second.revision_id
+            back = await w.svc.restore(restored.revision_id, expected_head=again.revision_id, client=CLIENT)
+            assert isinstance(back, ProgramRevision) and back.evidence_revision_id == first.revision_id
+            assert back.derived_from == restored.revision_id
+    asyncio.run(scenario())
+
+
+@native_only
+def test_restore_refusals_write_nothing(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _sha, second = await _two(w)
+            rejected = await land(w, REJECTED, second.revision_id)
+            assert rejected.state == 'rejected'
+            before = table_counts(w)
+            assert await w.svc.restore(second.revision_id, expected_head=second.revision_id, client=CLIENT) \
+                == RevisionRefusal(('already_current',))
+            assert await w.svc.restore(first.revision_id, expected_head=first.revision_id, client=CLIENT) \
+                == RevisionRefusal(('stale_parent',))
+            assert await w.svc.restore(first.revision_id, expected_head=None, client=CLIENT) \
+                == RevisionRefusal(('stale_parent',))
+            assert await w.svc.restore(rejected.revision_id, expected_head=second.revision_id, client=CLIENT) \
+                == RevisionRefusal(('not_restorable',))
+            assert table_counts(w) == before
+            with pytest.raises(KeyError):
+                await w.svc.restore(first.revision_id, expected_head=second.revision_id, client='other')
+            assert w.svc.current(w.pid, client=CLIENT).revision.revision_id == second.revision_id
+    asyncio.run(scenario())
+
+
+@native_only
+def test_expired_publication_refuses_restore_then_rebuild_runs_a_new_job(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _sha, second = await _two(w)
+            with w.store.transaction() as db:
+                db.execute('UPDATE publications SET expires=? WHERE job=?', (time.time() - 1, first.job_id))
+            before = table_counts(w)
+            out = await w.svc.restore(first.revision_id, expected_head=second.revision_id, client=CLIENT)
+            assert out == RevisionRefusal(('artifacts_expired',)) and table_counts(w) == before
+            assert w.svc.current(w.pid, client=CLIENT).revision.revision_id == second.revision_id
+
+            factory_calls, replay_calls = [], type(w.replay).calls
+            w.svc.adapter_factory = lambda backend, mode='native': factory_calls.append(backend) or occt
+            staged_rebuild = await w.svc.rebuild(first.revision_id, expected_parent=second.revision_id,
+                                                 client=CLIENT)
+            assert isinstance(staged_rebuild, ProgramRevision), staged_rebuild
+            assert staged_rebuild.kind == 'rebuild' and staged_rebuild.state == 'staged'
+            assert staged_rebuild.derived_from == first.revision_id
+            assert staged_rebuild.parent == second.revision_id
+            assert staged_rebuild.evidence_revision_id == staged_rebuild.revision_id
+            assert staged_rebuild.job_id is None and staged_rebuild.bundle is None
+            assert factory_calls, 'rebuild takes a fresh probe for its lock'
+            brief = _finalize_brief(w.briefs, staged_rebuild)
+            done = await land_staged(w, staged_rebuild, brief.brief_id)
+            assert done.state == 'published' and done.kind == 'rebuild' and done.published_seq == 3
+            assert done.job_id not in (first.job_id, second.job_id)
+            assert type(w.replay).calls > replay_calls  # attempts really re-ran
+            with w.store.transaction() as db:
+                from engineering.jobs import parse_run
+                run = parse_run(db.execute('SELECT record FROM jobs WHERE id=?', (done.job_id,)).fetchone()[0])
+            assert run.attempts and run.outcome.value == 'accepted'
+            assert w.svc.current(w.pid, client=CLIENT).revision.revision_id == done.revision_id
+            assert step_sha(w, done.revision_id)
+    asyncio.run(scenario())
+
+
+@native_only
+def test_same_size_byte_flip_gives_artifacts_altered(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _sha, second = await _two(w)
+            path = w.pub.directory(first.job_id) / 'model.step'
+            data = bytearray(path.read_bytes())
+            data[len(data) // 2] ^= 0x01
+            path.write_bytes(bytes(data))
+            before = table_counts(w)
+            out = await w.svc.restore(first.revision_id, expected_head=second.revision_id, client=CLIENT)
+            assert out == RevisionRefusal(('artifacts_altered',)) and table_counts(w) == before
+            assert w.svc.current(w.pid, client=CLIENT).revision.revision_id == second.revision_id
+    asyncio.run(scenario())
+
+
+@native_only
+def test_deleted_bundle_directory_gives_artifacts_missing(tmp_path, evals, occt):
+    async def scenario():
+        import shutil
+        async with world(tmp_path, evals, occt) as w:
+            first, _sha, second = await _two(w)
+            shutil.rmtree(w.pub.directory(first.job_id))
+            before = table_counts(w)
+            out = await w.svc.restore(first.revision_id, expected_head=second.revision_id, client=CLIENT)
+            assert out == RevisionRefusal(('artifacts_missing',)) and table_counts(w) == before
+    asyncio.run(scenario())
+
+
+@native_only
+def test_missing_publication_or_job_row_gives_artifacts_missing(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _sha, second = await _two(w)
+            with w.store.transaction() as db:
+                db.execute('DELETE FROM publications WHERE job=?', (first.job_id,))
+            out = await w.svc.restore(first.revision_id, expected_head=second.revision_id, client=CLIENT)
+            assert out == RevisionRefusal(('artifacts_missing',))
+            with w.store.transaction() as db:
+                db.execute('DELETE FROM jobs WHERE id=?', (first.job_id,))
+            out = await w.svc.restore(first.revision_id, expected_head=second.revision_id, client=CLIENT)
+            assert out == RevisionRefusal(('artifacts_missing',))
+    asyncio.run(scenario())
+
+
+@native_only
+def test_altered_stored_lock_gives_record_altered(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _sha, second = await _two(w)
+            with w.store.transaction() as db:
+                stored = json.loads(db.execute('SELECT payload FROM program_revisions WHERE id=?',
+                                               (first.revision_id,)).fetchone()[0])
+                lock_obj = json.loads(stored['lock_json'])
+
+                def bump(node):
+                    if isinstance(node, dict):
+                        for key, value in node.items():
+                            if isinstance(value, (float, int)) and not isinstance(value, bool):
+                                node[key] = value * 2 + 1
+                                return True
+                            if bump(value):
+                                return True
+                    elif isinstance(node, list):
+                        return any(bump(item) for item in node)
+                    return False
+                assert bump(lock_obj), 'the lock has a number to alter'
+                stored['lock_json'] = json.dumps(lock_obj, sort_keys=True, separators=(',', ':'))
+                db.execute('UPDATE program_revisions SET payload=? WHERE id=?',
+                           (json.dumps(stored), first.revision_id))
+            before = table_counts(w)
+            out = await w.svc.restore(first.revision_id, expected_head=second.revision_id, client=CLIENT)
+            assert out == RevisionRefusal(('record_altered',)) and table_counts(w) == before
+    asyncio.run(scenario())
+
+
+@native_only
+def test_compacted_payload_restore_rebuild_compare(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _sha, second = await _two(w)
+            with w.store.transaction() as db:
+                db.execute('UPDATE program_revisions SET created=created-?', (RETENTION + 10,))
+            before = table_counts(w)
+            out = await w.svc.restore(first.revision_id, expected_head=second.revision_id, client=CLIENT)
+            assert out == RevisionRefusal(('history_expired',))
+            out = await w.svc.rebuild(first.revision_id, expected_parent=second.revision_id, client=CLIENT)
+            assert out == RevisionRefusal(('history_expired',))
+            assert table_counts(w)[0] == before[0]
+            result = w.svc.compare(first.revision_id, second.revision_id, client=CLIENT)
+            assert result.detail_unavailable == 'history_expired' and result.changes == ()
+            assert result.evidence_a is not None and result.evidence_b is not None
+    asyncio.run(scenario())
+
+
+@native_only
+def test_restore_during_a_run_makes_the_run_conflict(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _sha, second = await _two(w)
+            third, third_brief = await stage_final(w, WHITESPACE, second.revision_id)
+            w.replay.delay = 1
+            await start_run(w, third, third_brief)
+            restored = await w.svc.restore(first.revision_id, expected_head=second.revision_id, client=CLIENT)
+            assert isinstance(restored, ProgramRevision), restored
+            await w.svc.wait(third.revision_id)
+            settled = w.svc.view(third.revision_id, client=CLIENT).revision
+            assert settled.state == 'conflict' and settled.reason == 'stale_parent'
+            assert w.svc.current(w.pid, client=CLIENT).revision.revision_id == restored.revision_id
+    asyncio.run(scenario())
+
+
+@native_only
+def test_compare_each_side_shows_its_own_evidence(tmp_path, evals, occt):
+    async def scenario():
+        async with world(tmp_path, evals, occt) as w:
+            first, _sha = await with_first(w)
+            rejected = await land(w, REJECTED, first.revision_id)
+            assert rejected.state == 'rejected'
+            result = w.svc.compare(first.revision_id, rejected.revision_id, client=CLIENT)
+            assert result.detail_unavailable is None and result.requirements_changed is False
+            assert any(c.section == 'candidates' for c in result.changes)
+            assert result.evidence_a.outcome == 'accepted' and result.evidence_a.bundle is not None
+            assert result.evidence_b.outcome == 'rejected'
+            assert result.evidence_a != result.evidence_b
+            assert w.svc.compare(first.revision_id, first.revision_id, client=CLIENT).changes == ()
+            with pytest.raises(KeyError):
+                w.svc.compare(first.revision_id, rejected.revision_id, client='other')
+    asyncio.run(scenario())
