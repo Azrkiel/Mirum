@@ -27,10 +27,14 @@ primary_region = "iad"
   # one at a time, and 5 AI draft requests per visitor per day.
   # Disable: set MIRUM_ENGINEERING_AI_DRAFTS = "0" and redeploy the same digest.
   # Emergency stop: MIRUM_ENGINEERING_AI_DAILY_CALLS = "0" (no provider calls).
+  # The legacy /dragsters/interpret route is gated by the same flag but has its own
+  # un-ledgered cap (default 200/day) outside the 20 above: keep it at "0" so the
+  # 20/day cap is the only provider budget (it stays refused, as with the flag off).
   MIRUM_ENGINEERING_AI_DRAFTS = "1"
   MIRUM_ENGINEERING_AI_DAILY_CALLS = "20"
   MIRUM_ENGINEERING_AI_CONCURRENCY = "1"
   MIRUM_ENGINEERING_AI_REQUESTS_PER_CLIENT_DAY = "5"
+  MIRUM_DRAGSTER_INTERPRET_DAILY_CAP = "0"
 
 [http_service]
   internal_port = 8000

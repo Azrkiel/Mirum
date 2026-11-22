@@ -87,7 +87,9 @@ Gaps (proposed follow-ups; NOT implemented):
 2. Set the caps on `mirum-api` (environment, not secrets): `MIRUM_ENGINEERING_AI_DAILY_CALLS`,
    `MIRUM_ENGINEERING_AI_CONCURRENCY` (prod caps decided 2026-11-22: 20 and 1), plus
    `MIRUM_ENGINEERING_AI_REQUESTS_PER_CLIENT_DAY` (decided prod value: 5 requests per client per day). Setting them in `deploy/fly/backend.fly.toml` `[env]` needs a reviewed PR.
-3. Add `MIRUM_ENGINEERING_AI_DRAFTS = "1"` to the same `[env]` block in that PR (an env value, not a secret).
+3. Add `MIRUM_ENGINEERING_AI_DRAFTS = "1"` to the same `[env]` block in that PR (an env value, not a secret),
+   and `MIRUM_DRAGSTER_INTERPRET_DAILY_CAP = "0"`: the flag also opens the un-ledgered `/dragsters/interpret`
+   route, whose own cap (default 200/day) sits outside the 20/day budget (security review of PR #140).
 4. Deploy the SAME backend digest with the new config:
    `fly deploy -a mirum-api -c deploy/fly/backend.fly.toml --image <current digest> --no-public-ips`.
 5. `fly machine start 48e062ec41e268 -a mirum-api`, then the smoke. The current smoke script asserts
