@@ -67,8 +67,10 @@ MEASURE_TIMEOUT_S = 60.0
 # --------------------------------------------------------------------------- method version (D6)
 
 _PROGRAM_DIR = Path(__file__).resolve().parent
+# occt.py holds OcctAdapter.measure, the stdout parser, the worker limits and the declared mesh bound, so a change
+# there is a method change too (security review of PR #142).
 METHOD_SOURCES = (_PROGRAM_DIR / 'evidence.py', _PROGRAM_DIR / 'delivered.py',
-                  _PROGRAM_DIR / 'adapters' / '_occt_measure.py')
+                  _PROGRAM_DIR / 'adapters' / '_occt_measure.py', _PROGRAM_DIR / 'adapters' / 'occt.py')
 
 
 def compute_method_version(paths) -> str:
@@ -81,7 +83,7 @@ def compute_method_version(paths) -> str:
 
 @functools.lru_cache(maxsize=1)
 def method_version() -> str:
-    """The verifier's method version: evidence.py + delivered.py + _occt_measure.py, once per process."""
+    """The verifier's method version: evidence.py + delivered.py + _occt_measure.py + occt.py, once per process."""
     return compute_method_version(METHOD_SOURCES)
 
 
