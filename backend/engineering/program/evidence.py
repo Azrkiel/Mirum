@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import hashlib
 import math
-from typing import Annotated, Literal
+import re
+from typing import Annotated, Any, Literal, Mapping
 
 from pydantic import AfterValidator, Field, StringConstraints, model_validator
 
-from engineering.capabilities import CAPABILITY
+from engineering.capabilities import CAPABILITY, GLIDER, REGEN
 from engineering.contracts import CandidateSpec
 from engineering.contracts import Sha256 as Hash64
 from engineering.spec import specification_digest
@@ -37,7 +38,7 @@ __all__ = [
     'DeliveredEvidence', 'build_check_plan', 'check_plan_sha256', 'evidence_sha256',
     'derive_verdict', 'check_evidence_against_plan', 'ReportInputs', 'bind_features', 'evaluate',
     'build_delivered_evidence', 'preview_can_pass', 'GLB_LINEAR_DEFLECTION_MM', 'GLB_F32_REL',
-    'UNKNOWN_SHA256',
+    'UNKNOWN_SHA256', 'evidence_from_picogk_inspect', 'evidence_from_glider_screening',
 ]
 
 MAX_FACES = 64
@@ -57,6 +58,13 @@ REVIEWED_IDS = tuple(rid for rid, _ in _REQUIREMENTS if rid not in _TEXT_REQUIRE
 _POLICY_VALUES = {name: value for name, value in CAPABILITY.numerical.model_dump().items()
                   if isinstance(value, (int, float)) and not isinstance(value, bool)}
 POLICY_FIELDS = tuple(sorted(_POLICY_VALUES))
+
+# Declared numerical refs of the non-beam capabilities, addressable as 'policy:regen.<NAME>' and
+# 'policy:glider.<NAME>' (D10). A limit citing one must equal the declared value exactly.
+_DECLARED_REFS = {f'{prefix}.{r.name}': float(r.value)
+                  for prefix, descriptor in (('regen', REGEN), ('glider', GLIDER))
+                  for r in descriptor.numerical
+                  if isinstance(r.value, (int, float)) and not isinstance(r.value, bool)}
 
 _BIG = 1e12
 # Placeholder for a hash that was never computed (a non-verified record made before the bundle, the plan
@@ -132,6 +140,9 @@ class CheckLimit(IRModel):
         if kind == 'reviewed':
             if ident not in REVIEWED_IDS:
                 _bad(f'limit source {self.source!r} is not a reviewed numeric requirement')
+        elif kind == 'policy' and ident in _DECLARED_REFS:
+            if self.scale_refs or self.value != _DECLARED_REFS[ident]:
+                _bad('a regen or glider policy limit must equal its declared value and is never scaled')
         elif kind == 'policy':
             if ident not in _POLICY_VALUES:
                 _bad(f'limit source {self.source!r} is not a numerical policy field')
@@ -470,7 +481,7 @@ class FeatureBinding(IRModel):
 
 class ErrorBound(IRModel):
     value: NonNeg
-    unit: Literal['mm']
+    unit: Literal['mm', 'ratio']
     source: Ascii120
 
 
@@ -554,10 +565,17 @@ def derive_verdict(checks: tuple[CheckEvidence, ...]) -> str:
     return 'verified'
 
 
+_SQUASHED_LABELS = tuple(re.sub(r'[^a-z0-9]', '', label) for label in _FORBIDDEN_LABELS
+                         if label != 'beam.')
+
+
 def _labels(value, found: list) -> None:
     if isinstance(value, str):
         low = value.lower()
-        if any(label in low for label in _FORBIDDEN_LABELS):
+        # case, spacing and punctuation variants ('Accepted  For-Manufacture') are the same label
+        squashed = re.sub(r'[^a-z0-9]', '', low)
+        if any(label in low for label in _FORBIDDEN_LABELS) or any(
+                label in squashed for label in _SQUASHED_LABELS):
             found.append(value)
     elif isinstance(value, dict):
         for k, v in value.items():
@@ -595,8 +613,11 @@ class DeliveredEvidence(IRModel):
             _bad('the verdict is not consistent with the checks')
         if self.verdict == 'verified' and self.reasons:
             _bad('a verified record carries no reasons')
-        if self.verdict == 'verified' and (self.step_sha256 is None or UNKNOWN_SHA256 in (
-                self.step_sha256, self.manifest_sha256, self.check_plan_sha256, self.candidate_sha256)):
+        # Only beam evidence is about a STEP; a regen or glider record has none (its STL is not a STEP).
+        if self.verdict == 'verified' and (
+                (self.step_sha256 is None and self.claim_scope == 'checked_design')
+                or UNKNOWN_SHA256 in (self.step_sha256, self.manifest_sha256, self.check_plan_sha256,
+                                      self.candidate_sha256)):
             _bad('a verified record names its STEP, manifest, plan and candidate')
         if 'mock_backend' in self.reasons and (
                 self.verdict != 'unavailable' or any(c.state == 'passed' for c in self.checks)):
@@ -620,6 +641,8 @@ class DeliveredEvidence(IRModel):
             if c.category in ('physics', 'manufacturing', 'standards') and (
                     c.state != 'not_evaluated' or c.coverage != 'not_evaluated'):
                 _bad('physics, manufacturing and standards must be not_evaluated for this claim scope')
+            if c.measurements and c.error_bound is None:
+                _bad('a check with measurements declares its error bound for this claim scope')
         found: list = []
         _labels(self.model_dump(mode='json', exclude={'claim_scope', 'schema_version'}), found)
         if found:
@@ -903,3 +926,179 @@ def build_delivered_evidence(plan: CheckPlan, candidate_sha256: str, table: Face
         glb_sha256=glb_sha256, check_plan_sha256=check_plan_sha256(plan), method_version=method_version,
         native_versions=table.native_versions, bindings=bindings, checks=checks, verdict=verdict,
         reasons=reasons)
+
+
+# --------------------------------------------------------------------------- PicoGK and glider labels (D10)
+
+_BBOX_AXES = tuple(f'bbox_{end}_{axis}' for end in ('min', 'max') for axis in 'xyz')
+
+
+def _label_ev(check_id: str, required: bool, state: str, coverage: str, method: str, mv: str, *,
+              representation: str = 'none', reason: str | None = None, measurements=(),
+              bound=None) -> CheckEvidence:
+    return CheckEvidence(check_id=check_id, category='geometry', required=required, state=state,
+                         coverage=coverage, method=method, method_version=mv, representation=representation,
+                         error_bound=bound, measurements=measurements, reason=reason)
+
+
+def _not_evaluated_entries(mv: str) -> tuple[CheckEvidence, ...]:
+    """Physics, manufacturing and standards: always present, never evaluated for these scopes."""
+    return tuple(
+        CheckEvidence(check_id=f'{cat}.not_evaluated', category=cat, required=False, state='not_evaluated',
+                      coverage='not_evaluated', method='none', method_version=mv, representation='none',
+                      reason='out_of_scope')
+        for cat in ('physics', 'manufacturing', 'standards'))
+
+
+def _label_plan_sha256(scope: str, capability, checks) -> str:
+    """Hash of the declared check set (ids and limit sources) these records are judged against."""
+    shape = [{'check_id': c.check_id, 'limits': sorted({m.limit.source for m in c.measurements})}
+             for c in checks]
+    return _sha({'claim_scope': scope, 'capability_id': capability.id,
+                 'capability_version': capability.version,
+                 'numerical_version': capability.numerical_version, 'checks': shape})
+
+
+def _label_record(scope, capability, checks, *, revision_id, job_id, candidate_sha256, manifest_sha256,
+                  method_version, native_versions) -> DeliveredEvidence:
+    checks = tuple(checks) + _not_evaluated_entries(method_version)
+    verdict = derive_verdict(checks)
+    found = {c.reason for c in checks if c.reason and c.state != 'passed' and (
+        c.required or c.state == 'failed')}
+    reasons = () if verdict == 'verified' else tuple(r for r in REASONS if r in found)[:8]
+    if verdict == 'unavailable' and not reasons:
+        reasons = ('out_of_scope',)
+    return DeliveredEvidence(
+        revision_id=revision_id, job_id=job_id, candidate_sha256=candidate_sha256, claim_scope=scope,
+        manifest_sha256=manifest_sha256, step_sha256=None, glb_sha256=None,
+        check_plan_sha256=_label_plan_sha256(scope, capability, checks), method_version=method_version,
+        native_versions=tuple(native_versions), bindings=(), checks=checks, verdict=verdict,
+        reasons=reasons)
+
+
+def _finite_positive(value) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+            and value > 0)
+
+
+def evidence_from_picogk_inspect(inspect_result, *, revision_id: str, job_id: str, candidate_sha256: str,
+                                 manifest_sha256: str, method_version: str, voxel_size_mm: float,
+                                 report_volume_mm3: float, native_versions=()) -> DeliveredEvidence:
+    """geometry_checks_only evidence from an existing PicogkAdapter.inspect result (D10).
+
+    Pure: consumes the qualified reread result, runs no native code. Limits are the regen capability's
+    declared numerical refs (BBOX_TOLERANCE_VOXELS, VOLUME_TOLERANCE); the voxel size is the reviewed
+    specification's and the report volume is the report's own number the reread is compared to, so no
+    limit comes from measured geometry. Check ids are 'geometry.bounds' and 'geometry.volume'. A mock
+    result is unavailable (mock_backend) and nothing passes. Physics, manufacturing and standards are
+    always not_evaluated. The claim is never checked_design and the verdict never 'accepted'.
+    """
+    mv = method_version
+    if not _finite_positive(voxel_size_mm) or not _finite_positive(report_volume_mm3):
+        raise ValueError('voxel_size_mm and report_volume_mm3 must be positive finite numbers')
+    common = dict(revision_id=revision_id, job_id=job_id, candidate_sha256=candidate_sha256,
+                  manifest_sha256=manifest_sha256, method_version=mv, native_versions=native_versions)
+
+    def refuse(reason: str, state: str = 'unavailable') -> DeliveredEvidence:
+        entries = [_label_ev(cid, True, state, 'not_evaluated', 'picogk_reread', mv, reason=reason)
+                   for cid in ('geometry.bounds', 'geometry.volume')]
+        return _label_record('geometry_checks_only', REGEN, entries, **common)
+
+    reasons = tuple(inspect_result.reasons)
+    if inspect_result.mode == 'mock' or 'mock_backend' in reasons:
+        return refuse('mock_backend')
+    if inspect_result.outcome == 'unsupported':
+        return refuse('out_of_scope')
+    if inspect_result.outcome == 'unavailable':
+        return refuse('measurement_unavailable')
+    precision = inspect_result.outcome == 'precision_failure'
+    if precision and 'reread_mismatch' in reasons:
+        return refuse('report_mismatch', 'failed')
+
+    dev = {m.name.rsplit('.', 1)[-1]: m.value for m in inspect_result.deviations}
+    if not all(k in dev for k in (*_BBOX_AXES, 'volume_mm3')) or not all(
+            math.isfinite(v) and v >= 0 for v in dev.values()):
+        return refuse('limit_exceeded', 'failed') if precision else refuse('measurement_unavailable')
+
+    bbox_lim = CheckLimit(name='bbox_deviation_voxels', value=_DECLARED_REFS['regen.BBOX_TOLERANCE_VOXELS'],
+                          unit='ratio', comparison='le', source='policy:regen.BBOX_TOLERANCE_VOXELS')
+    vol_lim = CheckLimit(name='volume_relative_error', value=_DECLARED_REFS['regen.VOLUME_TOLERANCE'],
+                         unit='ratio', comparison='le', source='policy:regen.VOLUME_TOLERANCE')
+    bbox_ms = tuple(_meas(f'{axis}_deviation_voxels', dev[axis] / voxel_size_mm, bbox_lim, 'mesh')
+                    for axis in _BBOX_AXES)
+    vol_ms = (_meas('volume_relative_error', dev['volume_mm3'] / report_volume_mm3, vol_lim, 'mesh'),)
+    bbox_bound = ErrorBound(value=bbox_lim.value * voxel_size_mm, unit='mm',
+                            source='policy:regen.BBOX_TOLERANCE_VOXELS*voxel_size_mm')
+    vol_bound = ErrorBound(value=vol_lim.value, unit='ratio', source='policy:regen.VOLUME_TOLERANCE')
+    parts = (('geometry.bounds', bbox_ms, bbox_bound), ('geometry.volume', vol_ms, vol_bound))
+    ok = [all(m.satisfied for m in ms) for _, ms, _ in parts]
+    if precision and all(ok):
+        ok = [False, False]   # the adapter judged it out of tolerance: never pass on a disagreeing recomputation
+    entries = [_label_ev(cid, True, 'passed' if good else 'failed', 'measured', 'picogk_reread', mv,
+                         representation='mesh', reason=None if good else 'limit_exceeded', measurements=ms,
+                         bound=bound)
+               for (cid, ms, bound), good in zip(parts, ok)]
+    return _label_record('geometry_checks_only', REGEN, entries, **common)
+
+
+# Glider check-limit name -> GLIDER numerical ref that declares its value (the only limits recorded as
+# measurements; literals and spec-derived limits stay with the glider verifier, never re-labelled here).
+_GLIDER_REFS = {'mass_relative_error': 'mass_relative_error_max', 'min_station_reynolds': 'min_station_reynolds',
+                'min_confidence': 'min_confidence', 'uncertainty_samples': 'uncertainty_samples',
+                'bundle_parts': 'parts_min', 'bundle_bytes': 'artifact_bytes_max'}
+_GLIDER_BOUND = 'mass_relative_error_max'
+
+
+def _state_text(state: Any) -> str:
+    return str(getattr(state, 'value', state))
+
+
+def evidence_from_glider_screening(evaluation: Mapping[str, Any], *, revision_id: str, job_id: str,
+                                   manifest_sha256: str, method_version: str,
+                                   candidate_sha256: str | None = None,
+                                   native_versions=()) -> DeliveredEvidence:
+    """screening_only evidence from an offline glider evaluation (the dict assemble_evaluation returns).
+
+    Only measurements whose limit is a declared GLIDER numerical ref (value equal) become measurements,
+    with source 'policy:glider.<ref>', representation 'mesh' (the CEM bundle parts are STL) and the
+    reduced-order error bound GLIDER mass_relative_error_max. A glider check without such a measurement
+    is recorded not_evaluated, or failed when the glider verifier failed it, so nothing is silently
+    dropped and nothing passes unmeasured. No beam, delivered or acceptance label is produced.
+    """
+    cand = candidate_sha256 or getattr(evaluation.get('candidate'), 'candidate_sha256', None)
+    if not isinstance(cand, str):
+        raise ValueError('a candidate_sha256 is required')
+    mv = method_version
+    bound = ErrorBound(value=_DECLARED_REFS[f'glider.{_GLIDER_BOUND}'], unit='ratio',
+                       source=f'policy:glider.{_GLIDER_BOUND}')
+    entries = []
+    for check in evaluation['checks']:
+        cid = f'screening.{check.check_id}'
+        passed = _state_text(check.state) == 'passed'
+        values = {m.name: m for m in check.measurements}
+        ms = []
+        for lim in check.limits:
+            ref = _GLIDER_REFS.get(lim.name)
+            m = values.get(lim.name)
+            if (ref is None or m is None or lim.unit not in ('ratio', 'count') or m.unit != lim.unit
+                    or lim.value != _DECLARED_REFS[f'glider.{ref}'] or not math.isfinite(m.value)):
+                continue
+            limit = CheckLimit(name=lim.name, value=_DECLARED_REFS[f'glider.{ref}'], unit=lim.unit,
+                               comparison=lim.comparison, source=f'policy:glider.{ref}')
+            ms.append(_meas(lim.name, float(m.value), limit, 'mesh'))
+        if ms and passed and all(m.satisfied for m in ms):
+            entries.append(_label_ev(cid, True, 'passed', 'measured', 'glider_screening', mv,
+                                     representation='mesh', measurements=tuple(ms), bound=bound))
+        elif not passed or ms:
+            entries.append(_label_ev(cid, True, 'failed', 'measured' if ms else 'not_evaluated',
+                                     'glider_screening', mv, representation='mesh' if ms else 'none',
+                                     reason='limit_exceeded', measurements=tuple(ms),
+                                     bound=bound if ms else None))
+        else:
+            entries.append(_label_ev(cid, False, 'not_evaluated', 'not_evaluated', 'glider_screening', mv,
+                                     reason='out_of_scope'))
+    if not entries:
+        raise ValueError('an evaluation without checks has no evidence')
+    return _label_record('screening_only', GLIDER, entries, revision_id=revision_id, job_id=job_id,
+                         candidate_sha256=cand, manifest_sha256=manifest_sha256, method_version=mv,
+                         native_versions=native_versions)

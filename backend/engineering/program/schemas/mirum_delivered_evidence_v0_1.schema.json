@@ -201,9 +201,9 @@
           "type": "string"
         },
         "unit": {
-          "const": "mm",
           "enum": [
-            "mm"
+            "mm",
+            "ratio"
           ],
           "title": "Unit",
           "type": "string"

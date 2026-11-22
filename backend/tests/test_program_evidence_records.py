@@ -491,3 +491,310 @@ def test_import_loads_no_native_provider_or_web_module():
     out = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, env=env,
                          timeout=120, check=True)
     assert json.loads(out.stdout.strip().splitlines()[-1]) == []
+
+
+# ---- task 6: PicoGK and glider evidence mapping, label invariants (D10, P05) ----
+
+import copy as _copy
+import math as _math
+from types import SimpleNamespace as _NS
+
+from engineering.capabilities import GLIDER, REGEN
+from engineering.program.evidence import evidence_from_glider_screening, evidence_from_picogk_inspect
+from engineering.program.kernel import InspectResult
+from engineering.program.kernel import Measurement as KernelMeasurement
+
+_VOXEL = 0.5
+_REPORT_VOLUME = 1000.0
+_BBOX_NAMES = [f'bbox_{e}_{a}' for e in ('min', 'max') for a in 'xyz']
+
+
+def _kernel(name, value, unit):
+    return KernelMeasurement(name=f'regen.reread.{name}', value=value, unit=unit, source='reread')
+
+
+def _inspect(outcome='consistent', reasons=(), bbox_dev=0.1, volume_dev=5.0, mode='native', with_dev=True):
+    ms = devs = ()
+    if with_dev:
+        ms = tuple(_kernel(n, 1.0, 'mm') for n in _BBOX_NAMES) + (_kernel('volume_mm3', 1000.0, 'mm3'),)
+        devs = tuple(_kernel(n, bbox_dev, 'mm') for n in _BBOX_NAMES) + (
+            _kernel('volume_mm3', volume_dev, 'mm3'),)
+    if mode == 'mock':
+        ms = devs = ()
+    return InspectResult(backend='picogk', mode=mode, outcome=outcome, reasons=reasons,
+                         artifact_sha256=H, measurements=ms, deviations=devs)
+
+
+def _picogk(inspected):
+    return evidence_from_picogk_inspect(
+        inspected, revision_id=RID, job_id=JID, candidate_sha256=H, manifest_sha256=H, method_version='v1',
+        voxel_size_mm=_VOXEL, report_volume_mm3=_REPORT_VOLUME,
+        native_versions=(NativeVersion(name='picogk_runtime_so_sha256', version='f' * 64),))
+
+
+def _by_id(rec):
+    return {c.check_id: c for c in rec.checks}
+
+
+def _assert_no_beam_labels(rec):
+    text = rec.model_dump_json().lower()
+    for label in ('beam.', 'delivered.', 'checked_design', 'accepted for manufacture'):
+        assert label not in text, label
+    assert rec.verdict != 'accepted'
+
+
+def _assert_not_evaluated_trio(rec):
+    for cat in ('physics', 'manufacturing', 'standards'):
+        c = _by_id(rec)[f'{cat}.not_evaluated']
+        assert (c.category, c.state, c.coverage, c.required) == (cat, 'not_evaluated', 'not_evaluated', False)
+
+
+def test_picogk_consistent_maps_to_geometry_checks_only_evidence():
+    rec = _picogk(_inspect())
+    assert rec.claim_scope == 'geometry_checks_only' and rec.verdict == 'verified' and rec.reasons == ()
+    checks = _by_id(rec)
+    assert set(checks) == {'geometry.bounds', 'geometry.volume', 'physics.not_evaluated',
+                           'manufacturing.not_evaluated', 'standards.not_evaluated'}
+    bounds, volume = checks['geometry.bounds'], checks['geometry.volume']
+    assert len(bounds.measurements) == 6 and len(volume.measurements) == 1
+    for c in (bounds, volume):
+        assert (c.state, c.coverage, c.representation) == ('passed', 'measured', 'mesh')
+        assert all(m.representation == 'mesh' and m.satisfied for m in c.measurements)
+        assert c.error_bound is not None
+    declared = {r.name: r.value for r in REGEN.numerical}
+    assert volume.measurements[0].limit.source == 'policy:regen.VOLUME_TOLERANCE'
+    assert volume.measurements[0].limit.value == declared['VOLUME_TOLERANCE']
+    assert volume.error_bound.value == declared['VOLUME_TOLERANCE']
+    assert bounds.measurements[0].limit.source == 'policy:regen.BBOX_TOLERANCE_VOXELS'
+    assert bounds.measurements[0].limit.value == declared['BBOX_TOLERANCE_VOXELS']
+    assert _math.isclose(bounds.measurements[0].value, 0.1 / _VOXEL)
+    assert _math.isclose(volume.measurements[0].value, 5.0 / _REPORT_VOLUME)
+    assert rec.bindings == () and rec.step_sha256 is None
+    _assert_not_evaluated_trio(rec)
+    _assert_no_beam_labels(rec)
+    assert DeliveredEvidence.model_validate_json(rec.model_dump_json()) == rec
+
+
+def test_picogk_limits_never_come_from_the_inspected_geometry():
+    # a huge deviation moves the measurement, never the limit
+    rec = _picogk(_inspect('precision_failure', ('measurement_out_of_tolerance',), bbox_dev=9.0,
+                           volume_dev=500.0))
+    for c in (_by_id(rec)['geometry.bounds'], _by_id(rec)['geometry.volume']):
+        assert {m.limit.value for m in c.measurements} <= {2.0, 0.02}
+
+
+def test_picogk_precision_failure_fails_the_checks():
+    rec = _picogk(_inspect('precision_failure', ('measurement_out_of_tolerance',), bbox_dev=3.0))
+    checks = _by_id(rec)
+    assert rec.verdict == 'failed' and 'limit_exceeded' in rec.reasons
+    assert checks['geometry.bounds'].state == 'failed' and checks['geometry.volume'].state == 'passed'
+    _assert_not_evaluated_trio(rec)
+    _assert_no_beam_labels(rec)
+
+
+def test_picogk_precision_failure_never_passes_on_a_disagreeing_recomputation():
+    rec = _picogk(_inspect('precision_failure', ('measurement_out_of_tolerance',)))
+    assert rec.verdict == 'failed'
+    assert all(c.state != 'passed' for c in rec.checks)
+
+
+def test_picogk_reread_mismatch_fails_with_report_mismatch():
+    rec = _picogk(_inspect('precision_failure', ('reread_mismatch',), with_dev=False))
+    assert rec.verdict == 'failed' and rec.reasons == ('report_mismatch',)
+    assert all(c.state == 'failed' and not c.measurements for c in rec.checks if c.category == 'geometry')
+
+
+@pytest.mark.parametrize('outcome,reasons,expected', [
+    ('unavailable', ('runtime_missing',), 'measurement_unavailable'),
+    ('unavailable', ('deadline_exceeded',), 'measurement_unavailable'),
+    ('unsupported', ('export_not_supported',), 'out_of_scope')])
+def test_picogk_unavailable_and_unsupported_yield_unavailable_evidence(outcome, reasons, expected):
+    rec = _picogk(_inspect(outcome, reasons, with_dev=False))
+    assert rec.verdict == 'unavailable' and expected in rec.reasons
+    assert not any(c.state == 'passed' for c in rec.checks)
+    _assert_not_evaluated_trio(rec)
+
+
+def test_picogk_mock_is_unavailable_with_mock_backend_and_nothing_passes():
+    rec = _picogk(_inspect('unavailable', ('mock_backend',), mode='mock'))
+    assert rec.verdict == 'unavailable' and rec.reasons == ('mock_backend',)
+    assert not any(c.state == 'passed' for c in rec.checks) and not any(c.measurements for c in rec.checks)
+    # a mock reason on a native-mode result is still refused
+    rec = _picogk(_inspect('unavailable', ('mock_backend',), with_dev=False))
+    assert rec.reasons == ('mock_backend',)
+
+
+def test_picogk_incomplete_deviations_are_unavailable_not_passed():
+    inspected = _inspect()
+    short = inspected.model_copy(update={'deviations': inspected.deviations[:3]})
+    rec = _picogk(short)
+    assert rec.verdict == 'unavailable' and not any(c.state == 'passed' for c in rec.checks)
+
+
+@pytest.mark.parametrize('voxel,volume', [(0.0, 1.0), (-1.0, 1.0), (1.0, 0.0), (_math.inf, 1.0),
+                                          (1.0, _math.nan)])
+def test_picogk_mapping_refuses_non_positive_reviewed_inputs(voxel, volume):
+    with pytest.raises(ValueError):
+        evidence_from_picogk_inspect(_inspect(), revision_id=RID, job_id=JID, candidate_sha256=H,
+                                     manifest_sha256=H, method_version='v1', voxel_size_mm=voxel,
+                                     report_volume_mm3=volume)
+
+
+def test_glider_offline_results_map_to_screening_only_evidence():
+    from tests.test_engineering_glider_adapter import assembled
+    candidate, evaluation = assembled()
+    rec = evidence_from_glider_screening(evaluation, revision_id=RID, job_id=JID, manifest_sha256=H,
+                                         method_version='v1')
+    assert rec.candidate_sha256 == candidate.candidate_sha256
+    assert rec.claim_scope == 'screening_only' and rec.verdict == 'verified' and rec.bindings == ()
+    checks = _by_id(rec)
+    assert {f'screening.{c.check_id}' for c in evaluation['checks']} <= set(checks)
+    assert checks['screening.mass_closure'].state == 'passed'
+    measured = [c for c in rec.checks if c.measurements]
+    assert measured
+    declared = {r.name: r.value for r in GLIDER.numerical}
+    for c in measured:
+        assert c.representation == 'mesh' and c.error_bound is not None
+        for m in c.measurements:
+            assert m.representation == 'mesh'
+            assert m.limit.source.startswith('policy:glider.')
+            assert m.limit.value == declared[m.limit.source.split('.', 1)[1]]
+    for c in rec.checks:
+        if c.category == 'geometry' and not c.measurements:
+            assert c.state != 'passed'
+    _assert_not_evaluated_trio(rec)
+    _assert_no_beam_labels(rec)
+    assert DeliveredEvidence.model_validate_json(rec.model_dump_json()) == rec
+
+
+def test_glider_failed_check_fails_the_record_and_nothing_is_dropped():
+    from tests.test_engineering_glider_adapter import assembled
+    _, evaluation = assembled()
+    checks = list(evaluation['checks'])
+    # a failed check without a declared-ref measurement still fails the record
+    bad = _NS(check_id='closure', state='failed', measurements=(), limits=())
+    swapped = [bad if c.check_id == 'closure' else c for c in checks]
+    rec = evidence_from_glider_screening(dict(evaluation, checks=swapped), revision_id=RID, job_id=JID,
+                                         manifest_sha256=H, method_version='v1')
+    assert rec.verdict == 'failed' and _by_id(rec)['screening.closure'].state == 'failed'
+    # a passed glider check whose declared-ref measurement misses its limit is failed too
+    mass = next(c for c in checks if c.check_id == 'mass_closure')
+    off = _NS(check_id='mass_closure', state=mass.state,
+              measurements=tuple(_NS(name=m.name, unit=m.unit, value=0.9) for m in mass.measurements),
+              limits=mass.limits)
+    swapped = [off if c.check_id == 'mass_closure' else c for c in checks]
+    rec = evidence_from_glider_screening(dict(evaluation, checks=swapped), revision_id=RID, job_id=JID,
+                                         manifest_sha256=H, method_version='v1')
+    assert rec.verdict == 'failed' and _by_id(rec)['screening.mass_closure'].state == 'failed'
+
+
+def test_glider_mapping_refuses_empty_or_unidentified_input():
+    from tests.test_engineering_glider_adapter import assembled
+    _, evaluation = assembled()
+    with pytest.raises(ValueError):
+        evidence_from_glider_screening(dict(evaluation, checks=()), revision_id=RID, job_id=JID,
+                                       manifest_sha256=H, method_version='v1')
+    with pytest.raises(ValueError):
+        evidence_from_glider_screening(dict(evaluation, candidate=None), revision_id=RID, job_id=JID,
+                                       manifest_sha256=H, method_version='v1')
+
+
+def test_declared_ref_limits_must_equal_the_declared_value():
+    declared = {r.name: r.value for r in REGEN.numerical}
+    ok = CheckLimit(name='v', value=declared['VOLUME_TOLERANCE'], unit='ratio', comparison='le',
+                    source='policy:regen.VOLUME_TOLERANCE')
+    assert ok.source == 'policy:regen.VOLUME_TOLERANCE'
+    for bad in (dict(value=declared['VOLUME_TOLERANCE'] * 2), dict(scale_refs=('reviewed:beam.width',)),
+                dict(source='policy:regen.NOPE'), dict(source='policy:glider.NOPE'),
+                dict(source='policy:regen.volume_tolerance')):
+        data = dict(name='v', value=declared['VOLUME_TOLERANCE'], unit='ratio', comparison='le',
+                    source='policy:regen.VOLUME_TOLERANCE')
+        data.update(bad)
+        with pytest.raises(ValidationError):
+            CheckLimit(**data)
+
+
+def _scope_records():
+    from tests.test_engineering_glider_adapter import assembled
+    _, evaluation = assembled()
+    return {'geometry_checks_only': _picogk(_inspect()),
+            'screening_only': evidence_from_glider_screening(
+                evaluation, revision_id=RID, job_id=JID, manifest_sha256=H, method_version='v1')}
+
+
+def _mutated(rec, mutate):
+    data = _copy.deepcopy(rec.model_dump(mode='json'))
+    mutate(data)
+    return DeliveredEvidence.model_validate_json(json.dumps(data))
+
+
+def _first_measured(data):
+    return next(c for c in data['checks'] if c['measurements'])
+
+
+def _set(key, value):
+    return lambda data: _first_measured(data).__setitem__(key, value)
+
+
+def _beam_binding(data):
+    data['bindings'] = [{'feature': 'beam.solid', 'state': 'bound', 'match_count': 1, 'signature': None}]
+
+
+def _physics_passed(data):
+    data['checks'] = [c for c in data['checks'] if c['category'] != 'physics'] + [
+        physics().model_dump(mode='json')]
+
+
+def _forced(category, **fields):
+    def mutate(data):
+        next(c for c in data['checks'] if c['category'] == category).update(fields)
+    return mutate
+
+
+def _drop_bound(data):
+    _first_measured(data)['error_bound'] = None
+
+
+_FORBIDDEN_MUTATIONS = {
+    'beam_binding': _beam_binding,
+    'beam_check_id': _set('check_id', 'beam.length_check'),
+    'delivered_check_id': _set('check_id', 'delivered.length'),
+    'beam_in_method': _set('method', 'beam.solid'),
+    'physics_passed': _physics_passed,
+    'physics_failed': _forced('physics', state='failed', reason='out_of_scope'),
+    'physics_measured': _forced('physics', coverage='measured'),
+    'manufacturing_unavailable': _forced('manufacturing', state='unavailable'),
+    'standards_failed': _forced('standards', state='failed'),
+    'checked_design': _set('method', 'checked_design'),
+    'checked_design_spaced': _set('method', 'Checked  Design'),
+    'accepted_lower': _set('method', 'accepted for manufacture'),
+    'accepted_title': _set('method', 'Accepted For Manufacture'),
+    'accepted_upper_underscore': _set('method', 'ACCEPTED_FOR_MANUFACTURE'),
+    'accepted_double_space': _set('method', 'accepted  for   manufacture'),
+    'accepted_hyphen': _set('method', 'Accepted-for-Manufacture'),
+    'accepted_tab': _set('method', 'accepted\tfor\tmanufacture'),
+    'accepted_squashed': _set('method', 'acceptedformanufacture'),
+    'manufacturing_accepted': _set('method', 'Manufacturing  Accepted'),
+    'approved_for_manufacture': _set('method', 'approved for manufacture'),
+    'no_error_bound': _drop_bound,
+}
+
+
+@pytest.mark.parametrize('scope', ['geometry_checks_only', 'screening_only'])
+def test_mapped_records_reject_every_forbidden_label_mutation(scope):
+    rec = _scope_records()[scope]
+    assert _mutated(rec, lambda data: None) == rec     # the unmutated round trip is valid
+    for name, mutate in _FORBIDDEN_MUTATIONS.items():
+        try:
+            _mutated(rec, mutate)
+        except ValidationError:
+            continue
+        pytest.fail(f'{scope}: mutation {name} was accepted')
+
+
+@pytest.mark.parametrize('scope', ['geometry_checks_only', 'screening_only'])
+def test_mapped_records_cannot_be_relabelled_as_checked_design(scope):
+    rec = _scope_records()[scope]
+    # verified beam evidence needs all three features bound and a STEP; these records have neither
+    with pytest.raises(ValidationError):
+        _mutated(rec, lambda data: data.__setitem__('claim_scope', 'checked_design'))
