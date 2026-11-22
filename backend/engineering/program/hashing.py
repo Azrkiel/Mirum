@@ -109,6 +109,11 @@ def execution_lock_sha256(lock_or_ir: ExecutionLock | ProgramIR) -> str:
     return _sha(canonical_json(lock))
 
 
+def execution_lock_v0_2_sha256(lock) -> str:
+    """sha256 of the canonical JSON of an ExecutionLockV0_2 (same scheme as the v0_1 lock hash)."""
+    return _sha(canonical_json(lock))
+
+
 def artifact_sha256(data: bytes) -> str:
     """Reserved: hash of produced artifact bytes. Bytes only."""
     if not isinstance(data, (bytes, bytearray)):

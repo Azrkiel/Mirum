@@ -15,7 +15,7 @@ from pydantic import Field, StringConstraints, model_validator
 from engineering.contracts import CandidateSpec, GeneratorCandidate
 
 from .errors import IRModel, ProgramError, SourceSpan, Str240
-from .ir import MAX_LIST, Name64, Name128, SemanticId
+from .ir import MAX_LIST, Backend, ExportFormat, Name64, Name128, SemanticId, _prepare_input
 from .registry import (
     DEFAULT_REGISTRY, ArtifactGraph, OpStream, OpStreamEntry, Representation, validate_op_stream,
 )
@@ -28,7 +28,7 @@ __all__ = [
     'SupportDecision', 'ExecutionContext', 'BuildPlan', 'ArtifactRef', 'Measurement', 'BuildResult',
     'InspectResult', 'ExportResult', 'BackendLock', 'Artifact', 'Built', 'KernelAdapter',
     'OCCT_DECLARATION', 'PICOGK_DECLARATION', 'make_description', 'plan_for', 'check_plan',
-    'backend_lock', 'canonical_entries',
+    'backend_lock', 'canonical_entries', 'ExecutionLockV0_2',
 ]
 
 KERNEL_RECORDS_VERSION = 'mirum_kernel_v0_1'
@@ -292,6 +292,42 @@ def backend_lock(description: BackendDescription, probe: ProbeResult) -> Backend
         mode=description.mode, native_versions=probe.native_versions,
         representations=description.representations, export_formats=description.export_formats,
         tolerances=description.tolerances)
+
+
+class ExecutionLockV0_2(IRModel):
+    """F05 execution lock: the v0_1 fields plus language/compiler versions and the F03 BackendLock.
+
+    Lives here (not ir.py) because it embeds BackendLock and kernel imports ir; ir.load_execution_lock_json
+    imports it lazily."""
+    schema_version: Literal['mirum_execution_lock_v0_2']
+    program_ir_version: Name128
+    semantics_version: Name128
+    registry_version: Name128
+    capability_id: Name128
+    capability_version: Name128
+    numerical_policy_version: Name128
+    resource_policy_version: Name128
+    backend: Backend
+    exports: Annotated[tuple[ExportFormat, ...], Field(max_length=32)]
+    language_version: Name128
+    compiler_version: Name128
+    backend_lock: BackendLock
+
+    @model_validator(mode='before')
+    @classmethod
+    def _budgets(cls, data):
+        return _prepare_input(data)
+
+    @model_validator(mode='after')
+    def _consistent(self):
+        if self.backend_lock.mode != 'native':
+            _bad('a mock backend lock can never be part of an execution lock', 'backend_lock.mode')
+        if self.backend_lock.backend != self.backend:
+            _bad('backend_lock.backend must equal backend', 'backend_lock.backend')
+        for i, e in enumerate(self.exports):
+            if e not in self.backend_lock.export_formats:
+                _bad(f'export {e!r} is not in backend_lock.export_formats', f'exports.{i}')
+        return self
 
 
 # ------------------------------------------------------------------ carriers

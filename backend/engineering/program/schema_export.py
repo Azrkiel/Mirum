@@ -13,23 +13,27 @@ from pathlib import Path
 
 from .errors import Diagnostic
 from .ir import ExecutionLock, ProgramIR
-from .registry import DEFAULT_REGISTRY, ArtifactGraph, OperationDescriptor, OpStream
-from .versions import REGISTRY_VERSION
+from .kernel import ExecutionLockV0_2
+from .registry import DEFAULT_REGISTRY, REGISTRY_V0_1, ArtifactGraph, OperationDescriptor, OpStream
+from .versions import REGISTRY_VERSION, REGISTRY_VERSION_V0_1
 
-__all__ = ['SCHEMA_DIR', 'SCHEMA_MODELS', 'REGISTRY_EXPORT_NAME', 'generated', 'write', 'check', 'main']
+__all__ = ['SCHEMA_DIR', 'SCHEMA_MODELS', 'REGISTRY_EXPORT_NAME_V0_1', 'REGISTRY_EXPORT_NAME_V0_2',
+           'generated', 'write', 'check', 'main']
 
 SCHEMA_DIR = Path(__file__).with_name('schemas')
 
 SCHEMA_MODELS = {
     'mirum_program_ir_v0_1.schema.json': ProgramIR,
     'mirum_execution_lock_v0_1.schema.json': ExecutionLock,
+    'mirum_execution_lock_v0_2.schema.json': ExecutionLockV0_2,
     'mirum_operation_descriptor_v0_1.schema.json': OperationDescriptor,
     'mirum_op_stream_v0_1.schema.json': OpStream,
     'mirum_artifact_graph_v0_1.schema.json': ArtifactGraph,
     'mirum_program_diagnostic_v0_1.schema.json': Diagnostic,
 }
 
-REGISTRY_EXPORT_NAME = 'mirum_operation_registry_v0_1.json'
+REGISTRY_EXPORT_NAME_V0_1 = 'mirum_operation_registry_v0_1.json'
+REGISTRY_EXPORT_NAME_V0_2 = 'mirum_operation_registry_v0_2.json'
 
 
 def _dump(obj) -> str:
@@ -40,7 +44,12 @@ def generated() -> dict[str, str]:
     """File name -> exact file text."""
     out = {name: _dump(model.model_json_schema(mode='validation'))
            for name, model in SCHEMA_MODELS.items()}
-    out[REGISTRY_EXPORT_NAME] = _dump({
+    # v0_1 stays byte-identical to the pre-F03 export (K35); v0_2 is the registry the planner uses.
+    out[REGISTRY_EXPORT_NAME_V0_1] = _dump({
+        'registry_version': REGISTRY_VERSION_V0_1,
+        'operations': [d.model_dump(mode='json') for d in REGISTRY_V0_1.descriptors()],
+    })
+    out[REGISTRY_EXPORT_NAME_V0_2] = _dump({
         'registry_version': REGISTRY_VERSION,
         'operations': [d.model_dump(mode='json') for d in DEFAULT_REGISTRY.descriptors()],
     })
