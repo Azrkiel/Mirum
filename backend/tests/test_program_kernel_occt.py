@@ -355,6 +355,26 @@ def test_inspect_malformed_report_is_native_failed(worker, report):
     assert (r.outcome, r.reasons) == ('unavailable', ('native_failed',))
 
 
+def test_inspect_report_symlink_is_native_failed(worker, monkeypatch, tmp_path):
+    # Review fix: the child-written report is read with lstat + O_NOFOLLOW, never through a link.
+    from process_runner import ProcessRunner
+    target = tmp_path / 'elsewhere.json'
+    target.write_text(json.dumps(reread()), encoding='utf-8')
+
+    async def run(self, command, *, input=b'', cwd=None, env=None):
+        Path(command[-1]).symlink_to(target)
+        return worker['outcome']
+
+    probe_link = tmp_path / 'probe-link'
+    try:
+        probe_link.symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip('symlinks not permitted on this host')
+    monkeypatch.setattr(ProcessRunner, 'run', run)
+    r = asyncio.run(OcctAdapter().inspect(_artifact(), plan()))
+    assert (r.outcome, r.reasons) == ('unavailable', ('native_failed',))
+
+
 def test_inspect_only_step_of_a_supported_plan(worker):
     r = asyncio.run(OcctAdapter().inspect(_artifact('glb'), plan()))
     assert (r.outcome, r.reasons) == ('unsupported', ('operation_not_supported',))

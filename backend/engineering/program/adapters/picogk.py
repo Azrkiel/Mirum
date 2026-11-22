@@ -41,6 +41,8 @@ _HEX64_TOKEN = re.compile(r'(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])')
 # the builder's directory (/opt/regen/app/builder). The Dockerfile reads only its first field.
 _MANIFEST_NAME = 'picogk-runtime.sha256'
 _MANIFEST_BUDGET_BYTES = 4096
+# STL reread deadline: the capability's overall time budget.
+_INSPECT_DEADLINE_S = float(REGEN.resources.overall_seconds)
 
 _NODE_ID = 'regen.chamber'
 # regen_adapter.UNITS value -> kernel Measurement unit literal. 'ratio' has no mapping and is skipped.
@@ -321,7 +323,11 @@ class PicogkAdapter:
         try:
             spec = regen_adapter.revalidate(plan.candidate.content.specification)
             tolerance = float(_pinned()['BBOX_TOLERANCE_VOXELS']) * spec.voxel_size_mm
-            mesh = await asyncio.to_thread(_reread_mesh, artifact.data)
+            # The reread thread cannot be cancelled, but the caller gets a bounded answer.
+            mesh = await asyncio.wait_for(asyncio.to_thread(_reread_mesh, artifact.data),
+                                          _INSPECT_DEADLINE_S)
+        except (asyncio.TimeoutError, TimeoutError):
+            return refuse('unavailable', 'deadline_exceeded')
         except (UnsupportedCapability, ValueError, OSError):
             return refuse('unavailable', 'evidence_invalid')
         return compare_reread(report, mesh, sha, bbox_tolerance_mm=tolerance)

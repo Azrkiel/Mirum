@@ -320,12 +320,12 @@ class OcctAdapter:
                 await runner.close()
             if not isinstance(outcome, Mapping) or outcome.get('code') or outcome.get('returncode') != 0:
                 return refuse('unavailable', 'native_failed')
+            # Regular file only (lstat + O_NOFOLLOW + fstat), at most _REPORT_CAP_BYTES.
+            from engineering.regen_adapter import RegenUnavailable, read_bounded
             try:
-                if report_path.stat().st_size > _REPORT_CAP_BYTES:
-                    raise ValueError('report budget')
-                report = json.loads(report_path.read_text(encoding='utf-8'),
-                                    parse_constant=_reject_constant)
-            except (OSError, ValueError):
+                raw = read_bounded(report_path, _REPORT_CAP_BYTES)
+                report = json.loads(raw.decode('utf-8'), parse_constant=_reject_constant)
+            except (RegenUnavailable, OSError, ValueError):
                 return refuse('unavailable', 'native_failed')
         if not isinstance(report, dict):
             return refuse('unavailable', 'native_failed')

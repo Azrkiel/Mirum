@@ -490,6 +490,18 @@ def test_inspect_byte_budget(monkeypatch):
     assert (r.outcome, r.reasons) == ('unavailable', ('budget_exceeded',))
 
 
+def test_inspect_reread_deadline(monkeypatch):
+    # Review fix: the STL reread is time-bounded; a slow reread gives deadline_exceeded.
+    import time
+    data = cube_stl()
+    monkeypatch.setattr(picogk_module, '_INSPECT_DEADLINE_S', 0.05)
+    monkeypatch.setattr(picogk_module, '_reread_mesh', lambda _data: time.sleep(0.5))
+    r = inspect(PicogkAdapter(), artifact(data), report=reread_report(data))
+    assert (r.outcome, r.reasons) == ('unavailable', ('deadline_exceeded',))
+    assert picogk_module._INSPECT_DEADLINE_S == 0.05
+    assert float(REGEN.resources.overall_seconds) > 0
+
+
 def test_inspect_unsupported_for_other_formats_and_plans():
     data = b'step bytes'
     step = Artifact(ArtifactRef(name='model.step', format='step', representation='brep',
