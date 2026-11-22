@@ -1,0 +1,18 @@
+{
+  "checks": {
+    "bbox": {
+      "state": "pass",
+      "max_error_mm": 0.1,
+      "tolerance_mm": 0.8,
+      "measured_min": [0.0, 0.0, 0.0],
+      "measured_max": [10.0, 10.0, 10.0]
+    },
+    "volume": {
+      "state": "pass",
+      "measured_mm3": 1000.0,
+      "analytic_mm3": 1000.0,
+      "relative_error": 0.0,
+      "tolerance": 0.02
+    }
+  }
+}
