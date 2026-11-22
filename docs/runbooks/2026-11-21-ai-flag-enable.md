@@ -51,8 +51,10 @@ With the flag off no provider object is built and no key is read for this featur
 
 Gaps (proposed follow-ups; NOT implemented):
 
-1. No per-client AI call cap: one visitor can use the whole daily budget (per-client caps cover drafts, not
-   provider calls). Lead recommendation: add a per-client daily AI call cap before enabling publicly.
+1. Per-client AI request cap: implemented in PR #136 (`store.ClientAiRequestCap`, env
+   `MIRUM_ENGINEERING_AI_REQUESTS_PER_CLIENT_DAY`, rolling 24 h, SQL-derived so it survives restart; unset
+   or empty = disabled, invalid = 0 = fail closed). Counts AI draft requests (one request can cost up to 2
+   provider calls), never refunded.
 2. The budget is per process. One backend machine today; a second machine would double the effective cap.
    Keep one machine while the flag is on, or move the budget to the shared store.
 3. No cost cap in currency, only call counts. Pick the daily call cap from the provider price.
@@ -81,8 +83,8 @@ Gaps (proposed follow-ups; NOT implemented):
 
 1. Owner yes for this step, with the chosen caps.
 2. Set the caps on `mirum-api` (environment, not secrets): `MIRUM_ENGINEERING_AI_DAILY_CALLS`,
-   `MIRUM_ENGINEERING_AI_CONCURRENCY` (lead recommends starting at 20 and 1), plus the per-client cap once
-   follow-up 1 exists. Setting them in `deploy/fly/backend.fly.toml` `[env]` needs a reviewed PR.
+   `MIRUM_ENGINEERING_AI_CONCURRENCY` (prod caps decided 2026-11-22: 20 and 1), plus
+   `MIRUM_ENGINEERING_AI_REQUESTS_PER_CLIENT_DAY` (decided prod value: 5 requests per client per day). Setting them in `deploy/fly/backend.fly.toml` `[env]` needs a reviewed PR.
 3. Add `MIRUM_ENGINEERING_AI_DRAFTS = "1"` to the same `[env]` block in that PR (an env value, not a secret).
 4. Deploy the SAME backend digest with the new config:
    `fly deploy -a mirum-api -c deploy/fly/backend.fly.toml --image <current digest> --no-public-ips`.

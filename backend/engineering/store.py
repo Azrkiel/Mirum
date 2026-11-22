@@ -68,6 +68,9 @@ class SQLiteStore:
             CREATE TABLE IF NOT EXISTS retention(kind TEXT, id TEXT, created REAL NOT NULL, PRIMARY KEY(kind,id));
             CREATE TABLE IF NOT EXISTS generator_spend(id TEXT PRIMARY KEY, capability TEXT NOT NULL,
                 request_sha256 TEXT NOT NULL, created REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS ai_client_requests(client TEXT NOT NULL, created REAL NOT NULL);
+            CREATE INDEX IF NOT EXISTS ai_client_requests_client ON ai_client_requests(client, created);
+            CREATE INDEX IF NOT EXISTS ai_client_requests_created ON ai_client_requests(created);
             PRAGMA user_version=1;
         ''')
 
@@ -372,3 +375,49 @@ class GeneratorSpendBudget:
 
     def used(self):
         return self.inner.used()
+
+
+AI_CLIENT_CAP_ENV = 'MIRUM_ENGINEERING_AI_REQUESTS_PER_CLIENT_DAY'
+AI_CLIENT_CAP_WINDOW_SECONDS = 86400.0
+AI_CLIENT_CAP_REASON = 'AI request limit reached for this client; typed form remains available'
+
+
+def parse_ai_client_cap(raw):
+    """Env text -> cap. Unset or empty -> None (disabled). A digit string -> that integer (0 = refuse all).
+    Anything else (negative, non-integer, oversized) fails closed to 0."""
+    if raw is None or not str(raw).strip():
+        return None
+    text = str(raw).strip()
+    if not (text.isascii() and text.isdigit()) or len(text) > 9:
+        return 0
+    return int(text)
+
+
+class ClientAiRequestCap:
+    """Per-client rolling-24 h cap on AI draft requests admitted to the provider stage.
+
+    SQL-derived (client key and timestamp only, never the prompt), so it survives restart. Admission and
+    insert share one transaction. An admitted request is never refunded: its provider call may be billed.
+    ``limit`` None disables the cap: no read, no write.
+    """
+    def __init__(self, store, limit, *, window_seconds=AI_CLIENT_CAP_WINDOW_SECONDS):
+        self.store, self.limit, self.window = store, limit, window_seconds
+
+    @classmethod
+    def from_env(cls, store):
+        return cls(store, parse_ai_client_cap(os.environ.get(AI_CLIENT_CAP_ENV)))
+
+    def admit(self, client, now=None):
+        """True and counted if the client is under the cap; False and nothing written otherwise."""
+        if self.limit is None:
+            return True
+        now = time.time() if now is None else now
+        with self.store.transaction() as db:
+            db.execute('DELETE FROM ai_client_requests WHERE created<=?', (now - self.window,))
+            if self.limit <= 0:
+                return False
+            used = db.execute('SELECT COUNT(*) FROM ai_client_requests WHERE client=?', (str(client),)).fetchone()[0]
+            if used >= self.limit:
+                return False
+            db.execute('INSERT INTO ai_client_requests VALUES (?,?)', (str(client), now))
+            return True
