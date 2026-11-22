@@ -15,3 +15,7 @@ ARTIFACT_GRAPH_VERSION = 'mirum_artifact_graph_v0_1'
 # MEL (F05): language version and compiler version recorded by the MEL semantic compiler.
 MEL_LANGUAGE_VERSION = '0.1'
 MEL_COMPILER_VERSION = 'mirum_mel_compiler_v0_1'
+# F06: transactional program revisions, journal and compare records.
+PROGRAM_REVISION_VERSION = 'mirum_program_revision_v0_1'
+PROGRAM_JOURNAL_VERSION = 'mirum_program_journal_v0_1'
+REVISION_DIFF_VERSION = 'mirum_revision_diff_v0_1'

@@ -1,0 +1,612 @@
+{
+  "$defs": {
+    "ArtifactIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "path": {
+          "enum": [
+            "brief.json",
+            "selected_spec.json",
+            "model.py",
+            "model.step",
+            "preview.glb",
+            "attempts.json",
+            "report.json",
+            "report.md",
+            "manifest.json",
+            "generator-spec.json",
+            "generator-report.json",
+            "generator-body.step",
+            "generator-preview.glb",
+            "generator-cleaned.stl",
+            "generator-spec.canonical.json",
+            "generator-bundle.zip",
+            "generator-result.json"
+          ],
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "bytes"
+      ],
+      "title": "ArtifactIdentity",
+      "type": "object"
+    },
+    "BackendLock": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Adapter Version",
+          "type": "string"
+        },
+        "backend": {
+          "enum": [
+            "occt",
+            "picogk"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "export_formats": {
+          "items": {
+            "enum": [
+              "step",
+              "glb",
+              "stl"
+            ],
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Export Formats",
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "native",
+            "mock"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "native_versions": {
+          "items": {
+            "$ref": "#/$defs/NativeVersion"
+          },
+          "maxItems": 256,
+          "title": "Native Versions",
+          "type": "array"
+        },
+        "representations": {
+          "items": {
+            "enum": [
+              "brep",
+              "mesh",
+              "voxel",
+              "report",
+              "file"
+            ],
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Representations",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "mirum_kernel_v0_1",
+          "default": "mirum_kernel_v0_1",
+          "enum": [
+            "mirum_kernel_v0_1"
+          ],
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "tolerances": {
+          "items": {
+            "$ref": "#/$defs/ToleranceConvention"
+          },
+          "maxItems": 256,
+          "title": "Tolerances",
+          "type": "array"
+        }
+      },
+      "required": [
+        "backend",
+        "adapter_version",
+        "mode",
+        "native_versions",
+        "representations",
+        "export_formats",
+        "tolerances"
+      ],
+      "title": "BackendLock",
+      "type": "object"
+    },
+    "BundleIdentity": {
+      "additionalProperties": false,
+      "description": "External delivery envelope; no circular manifest/ZIP self-hashes.",
+      "properties": {
+        "manifest_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Manifest Bytes",
+          "type": "integer"
+        },
+        "manifest_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Sha256",
+          "type": "string"
+        },
+        "payloads": {
+          "items": {
+            "$ref": "#/$defs/ArtifactIdentity"
+          },
+          "title": "Payloads",
+          "type": "array"
+        },
+        "stored_bytes": {
+          "exclusiveMinimum": 0,
+          "maximum": 268435456,
+          "title": "Stored Bytes",
+          "type": "integer"
+        },
+        "zip_bytes": {
+          "exclusiveMinimum": 0,
+          "maximum": 268435456,
+          "title": "Zip Bytes",
+          "type": "integer"
+        },
+        "zip_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Zip Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "payloads",
+        "manifest_sha256",
+        "manifest_bytes",
+        "zip_sha256",
+        "zip_bytes",
+        "stored_bytes"
+      ],
+      "title": "BundleIdentity",
+      "type": "object"
+    },
+    "ExecutionLockV0_2": {
+      "additionalProperties": false,
+      "description": "F05 execution lock: the v0_1 fields plus language/compiler versions and the F03 BackendLock.\n\nLives here (not ir.py) because it embeds BackendLock and kernel imports ir; ir.load_execution_lock_json\nimports it lazily.",
+      "properties": {
+        "backend": {
+          "enum": [
+            "occt",
+            "picogk"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "backend_lock": {
+          "$ref": "#/$defs/BackendLock"
+        },
+        "capability_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "capability_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Capability Version",
+          "type": "string"
+        },
+        "compiler_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Compiler Version",
+          "type": "string"
+        },
+        "exports": {
+          "items": {
+            "enum": [
+              "step",
+              "glb",
+              "source",
+              "brief",
+              "specification",
+              "attempts",
+              "report_json",
+              "report_markdown",
+              "manifest",
+              "zip"
+            ],
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Exports",
+          "type": "array"
+        },
+        "language_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Language Version",
+          "type": "string"
+        },
+        "numerical_policy_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Numerical Policy Version",
+          "type": "string"
+        },
+        "program_ir_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Program Ir Version",
+          "type": "string"
+        },
+        "registry_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Registry Version",
+          "type": "string"
+        },
+        "resource_policy_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Resource Policy Version",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "mirum_execution_lock_v0_2",
+          "enum": [
+            "mirum_execution_lock_v0_2"
+          ],
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "semantics_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Semantics Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "program_ir_version",
+        "semantics_version",
+        "registry_version",
+        "capability_id",
+        "capability_version",
+        "numerical_policy_version",
+        "resource_policy_version",
+        "backend",
+        "exports",
+        "language_version",
+        "compiler_version",
+        "backend_lock"
+      ],
+      "title": "ExecutionLockV0_2",
+      "type": "object"
+    },
+    "NativeVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 240,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "NativeVersion",
+      "type": "object"
+    },
+    "ToleranceConvention": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 240,
+          "title": "Source",
+          "type": "string"
+        },
+        "unit": {
+          "enum": [
+            "mm",
+            "mm3",
+            "relative",
+            "count"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "minimum": 0.0,
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "unit",
+        "source"
+      ],
+      "title": "ToleranceConvention",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "brief_id": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Brief Id"
+    },
+    "brief_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Brief Sha256",
+      "type": "string"
+    },
+    "bundle": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BundleIdentity"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "derived_from": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Derived From"
+    },
+    "draft_id": {
+      "maxLength": 32,
+      "minLength": 32,
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Draft Id",
+      "type": "string"
+    },
+    "draft_revision": {
+      "maximum": 9007199254740992,
+      "minimum": 1,
+      "title": "Draft Revision",
+      "type": "integer"
+    },
+    "evidence_revision_id": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Revision Id"
+    },
+    "fixed_requirements_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Fixed Requirements Sha256",
+      "type": "string"
+    },
+    "job_id": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Job Id"
+    },
+    "kind": {
+      "enum": [
+        "edit",
+        "restore",
+        "rebuild"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "lock": {
+      "$ref": "#/$defs/ExecutionLockV0_2"
+    },
+    "lock_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Lock Sha256",
+      "type": "string"
+    },
+    "parent": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent"
+    },
+    "program_id": {
+      "maxLength": 32,
+      "minLength": 32,
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Program Id",
+      "type": "string"
+    },
+    "published_seq": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740992,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Published Seq"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "revision_id": {
+      "maxLength": 32,
+      "minLength": 32,
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Revision Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "mirum_program_revision_v0_1",
+      "default": "mirum_program_revision_v0_1",
+      "enum": [
+        "mirum_program_revision_v0_1"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantic_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Semantic Sha256",
+      "type": "string"
+    },
+    "source_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Sha256",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "staged",
+        "running",
+        "published",
+        "rejected",
+        "failed",
+        "cancelled",
+        "conflict"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "revision_id",
+    "program_id",
+    "kind",
+    "state",
+    "source_sha256",
+    "semantic_sha256",
+    "brief_sha256",
+    "fixed_requirements_sha256",
+    "lock_sha256",
+    "lock",
+    "draft_id",
+    "draft_revision",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "ProgramRevision",
+  "type": "object"
+}
