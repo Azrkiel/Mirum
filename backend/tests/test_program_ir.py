@@ -13,6 +13,7 @@ from engineering.program import (
     ARTIFACT_GRAPH_VERSION, CONSTRUCTION_GRAPH_VERSION, EXECUTION_LOCK_VERSION,
     OP_STREAM_VERSION, PROGRAM_IR_VERSION, REGISTRY_VERSION, SEMANTICS_VERSION,
 )
+from engineering.program.versions import REGISTRY_VERSION_V0_1
 from engineering.program.errors import Diagnostic, ProgramError
 from engineering.program.ir import (
     CapabilityRef, CandidateParameter, CandidateSpace, ConstructionGraph,
@@ -61,7 +62,8 @@ def load_err(obj_or_text) -> ProgramError:
 def test_versions():
     assert PROGRAM_IR_VERSION == 'mirum_program_ir_v0_1'
     assert SEMANTICS_VERSION == 'mirum_semantics_v0_1'
-    assert REGISTRY_VERSION == 'mirum_operation_registry_v0_1'
+    assert REGISTRY_VERSION == 'mirum_operation_registry_v0_2'
+    assert REGISTRY_VERSION_V0_1 == 'mirum_operation_registry_v0_1'
     assert EXECUTION_LOCK_VERSION == 'mirum_execution_lock_v0_1'
     assert CONSTRUCTION_GRAPH_VERSION == 'mirum_construction_graph_v0_1'
     assert OP_STREAM_VERSION == 'mirum_op_stream_v0_1'

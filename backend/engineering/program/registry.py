@@ -15,10 +15,13 @@ from .ir import (
     _parse_json_bounded, _prepare_input, _validate_record,
 )
 from .units import Dimension
-from .versions import ARTIFACT_GRAPH_VERSION, OP_STREAM_VERSION, REGISTRY_VERSION
+from .versions import (
+    ARTIFACT_GRAPH_VERSION, OP_STREAM_VERSION, REGISTRY_VERSION, REGISTRY_VERSION_V0_1,
+)
 
 __all__ = [
     'ArgSpec', 'OutputSpec', 'OperationDescriptor', 'OperationRegistry', 'DEFAULT_REGISTRY',
+    'REGISTRY_V0_1',
     'OpStreamEntry', 'OpStream', 'ArtifactNode', 'ArtifactGraph', 'validate_op_stream',
     'load_artifact_graph_json',
 ]
@@ -74,7 +77,8 @@ def _path(base: str | None, tail: str) -> str:
 class OperationRegistry:
     version = REGISTRY_VERSION
 
-    def __init__(self, descriptors):
+    def __init__(self, descriptors, version: str = REGISTRY_VERSION):
+        self.version = version
         self._by_key: dict[tuple[str, str], OperationDescriptor] = {}
         for d in descriptors:
             key = (d.id, d.version)
@@ -231,7 +235,32 @@ _DESCRIPTORS = (
          ('two solids are available',), _SOLID),
 )
 
-DEFAULT_REGISTRY = OperationRegistry(_DESCRIPTORS)
+_REGEN_CAP = ('regen_chamber@1.0.0',)
+
+
+def _regen(op: str, summary: str, args, pre, out, rep) -> OperationDescriptor:
+    return OperationDescriptor(
+        id=f'capability.{op}', version='0.2.0', summary=summary, args=args, preconditions=pre,
+        outputs=out, representations=rep, backend_requirements=('capability_runtime',),
+        capability_versions=_REGEN_CAP, executable=True)
+
+
+_REGEN_DESCRIPTORS = (
+    _regen('build', 'Build the geometry of a validated regen chamber design (geometry-only path).', (),
+           ('program validated against the capability', 'regen path is geometry-only'),
+           (OutputSpec(name='geometry', type='solid'),), ('voxel', 'mesh')),
+    _regen('inspect', 'Inspect built regen chamber geometry and report measurements (geometry-only).', (),
+           ('capability.build completed', 'regen path is geometry-only'),
+           (OutputSpec(name='measurements', type='measurement'),), ('report',)),
+    _regen('export', 'Export built regen chamber geometry to STL (geometry-only).',
+           (ArgSpec(name='format', kind='text', allowed=('stl',)),),
+           ('capability.build completed', 'regen path is geometry-only'),
+           (OutputSpec(name='file', type='file'),), ('file',)),
+)
+
+# v0.1 content stays byte-identical; DEFAULT_REGISTRY (v0.2) adds the regen capability operations.
+REGISTRY_V0_1 = OperationRegistry(_DESCRIPTORS, version=REGISTRY_VERSION_V0_1)
+DEFAULT_REGISTRY = OperationRegistry(_DESCRIPTORS + _REGEN_DESCRIPTORS)
 
 
 # ------------------------------------------------------------------ D7 records

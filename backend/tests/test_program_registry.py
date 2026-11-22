@@ -9,13 +9,14 @@ from pydantic import ValidationError
 from engineering.program.errors import ProgramError, SourceSpan
 from engineering.program.ir import ConstructionGraph, ConstructionStep, TextValue
 from engineering.program.registry import (
-    DEFAULT_REGISTRY, ArgSpec, ArtifactGraph, ArtifactNode, OpStream, OpStreamEntry,
+    DEFAULT_REGISTRY, REGISTRY_V0_1, ArgSpec, ArtifactGraph, ArtifactNode, OpStream, OpStreamEntry,
     OperationDescriptor, OperationRegistry, OutputSpec, load_artifact_graph_json,
     validate_op_stream,
 )
 from engineering.program.units import normalize
 from engineering.program.versions import (
     ARTIFACT_GRAPH_VERSION, CONSTRUCTION_GRAPH_VERSION, OP_STREAM_VERSION, REGISTRY_VERSION,
+    REGISTRY_VERSION_V0_1,
 )
 
 EXPECTED_IDS = {
@@ -74,10 +75,16 @@ def code_of(fn, *a, **k):
 # ------------------------------------------------------------ contents
 
 def test_registry_contents():
-    descs = DEFAULT_REGISTRY.descriptors()
+    descs = REGISTRY_V0_1.descriptors()
     assert {d.id for d in descs} == EXPECTED_IDS
     assert len(descs) == 14
+    assert REGISTRY_V0_1.version == REGISTRY_VERSION_V0_1
     assert DEFAULT_REGISTRY.version == REGISTRY_VERSION
+    regen = {(d.id, d.version) for d in DEFAULT_REGISTRY.descriptors()} - {(d.id, d.version) for d in descs}
+    assert regen == {('capability.build', '0.2.0'), ('capability.inspect', '0.2.0'),
+                     ('capability.export', '0.2.0')}
+    assert len(DEFAULT_REGISTRY.descriptors()) == 17
+    assert all(d in DEFAULT_REGISTRY.descriptors() for d in descs)
     for d in descs:
         assert d.version == '0.1.0'
         if d.id.startswith('capability.'):

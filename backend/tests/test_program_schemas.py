@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 from engineering.program import PROGRAM_IR_VERSION, schema_export as se
+from engineering.program.versions import REGISTRY_VERSION
 
 
 def test_committed_files_equal_generated_byte_for_byte():
@@ -32,13 +33,19 @@ def test_program_ir_schema_is_closed_and_pins_version():
     assert prop.get('const', None) == PROGRAM_IR_VERSION or prop.get('enum') == [PROGRAM_IR_VERSION]
 
 
-def test_registry_export_lists_fourteen_operations():
+def test_registry_export_lists_v0_1_operations_plus_regen():
     data = json.loads((se.SCHEMA_DIR / se.REGISTRY_EXPORT_NAME).read_text(encoding='utf-8'))
+    assert data['registry_version'] == REGISTRY_VERSION
     ops = data['operations']
-    assert len(ops) == 14
-    executable = {o['id'] for o in ops if o['executable']}
+    v01 = [o for o in ops if o['version'] == '0.1.0']
+    regen = [o for o in ops if o['version'] == '0.2.0']
+    assert len(v01) == 14
+    executable = {o['id'] for o in v01 if o['executable']}
     assert executable == {'capability.build', 'capability.inspect', 'capability.analyze', 'capability.export'}
-    assert all(o['id'].startswith('construct.') for o in ops if not o['executable'])
+    assert all(o['id'].startswith('construct.') for o in v01 if not o['executable'])
+    assert len(ops) == 17
+    assert {o['id'] for o in regen} == {'capability.build', 'capability.inspect', 'capability.export'}
+    assert all(o['executable'] and o['capability_versions'] == ['regen_chamber@1.0.0'] for o in regen)
 
 
 def test_files_have_no_cr_bytes_and_end_with_newline():
