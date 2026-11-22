@@ -46,6 +46,7 @@ async def open_world(root, adapter, occt):
     from engineering.briefs import BriefService
     from engineering.bundles import BundlePublisher
     from engineering.jobs import JobController
+    from engineering.program.transactions import RevisionService
     from engineering.store import SQLiteBriefRepository, SQLiteStore
     w = World()
     w.store = SQLiteStore(root)
