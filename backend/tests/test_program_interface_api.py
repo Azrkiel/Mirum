@@ -1462,8 +1462,10 @@ def test_http_new_routes_are_rate_limited_per_client(http, monkeypatch):
     monkeypatch.setattr(main.limiter, 'enabled', True)
     main.app.state.limiter.reset()
     try:
-        codes = [post_mel(http, '/mel/validate').status_code for _ in range(31)]
-        assert codes[:30] == [200] * 30 and codes[30] == 429
+        responses = [post_mel(http, '/mel/validate') for _ in range(31)]
+        assert [r.status_code for r in responses[:30]] == [200] * 30
+        limited = responses[30]
+        assert limited.status_code == 429 and limited.json()['kind'] == 'busy'
         # another client is unaffected
         assert post_mel(http, '/mel/validate', who=BOB).status_code == 200
         created = [http.c.post(V1 + '/programs', headers=hdr()).status_code for _ in range(9)]
@@ -1471,13 +1473,13 @@ def test_http_new_routes_are_rate_limited_per_client(http, monkeypatch):
     finally:
         main.app.state.limiter.reset()
     # every registered program route has a limit attached
-    limited = {name for name in main.limiter._route_limits}
+    limited_names = {name for name in main.limiter._route_limits}
     prefixes = tuple(V1 + p for p in ('/mel/', '/programs', '/revisions/'))
     handlers = [r.endpoint for r in main.app.routes if getattr(r, 'path', '').startswith(prefixes)]
     assert len(handlers) == len(api_programs_routes())
     for endpoint in handlers:
         name = '%s.%s' % (endpoint.__module__, endpoint.__name__)
-        assert name in limited, name
+        assert name in limited_names, name
 
 
 def api_programs_routes():

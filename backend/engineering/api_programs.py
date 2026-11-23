@@ -20,8 +20,11 @@ Nothing here logs an exception text, a path or an id.
 import logging
 import os
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
+# slowapi's RateLimitExceeded subclasses starlette's HTTPException (fastapi's is a subclass of it too): catch the base
+# so a 429 from the limiter becomes a busy envelope, not the catch-all 503.
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .api_v1 import CheckedRoute
 from .program import interface as api
@@ -68,7 +71,7 @@ def _error_response(err) -> JSONResponse:
     return JSONResponse(status_code=api.http_status(err), content=err.model_dump(mode='json'), headers=headers)
 
 
-def _http_error(exc: HTTPException) -> JSONResponse:
+def _http_error(exc: StarletteHTTPException) -> JSONResponse:
     """An HTTPException raised by limit_body or the v1 CheckedRoute becomes an interface envelope."""
     status = exc.status_code
     if status == 413:
@@ -101,7 +104,7 @@ class ProgramRoute(CheckedRoute):
         async def guarded(request):
             try:
                 return await inner(request)
-            except HTTPException as exc:
+            except StarletteHTTPException as exc:
                 return _http_error(exc)
             except Exception:  # noqa: BLE001 - nothing escapes as a framework error page
                 return _error_response(api.unavailable())
