@@ -307,6 +307,25 @@ def attach_program_routes(app, limiter):
         ('POST', '/revisions/{rid}/compare'): revision_compare,
         ('GET', '/revisions/{rid}/artifacts/{fmt}'): revision_export,
     }
+    # Per-client rate limits, same scale as the v1 routes (security review of PR #143): reads 120/minute like the
+    # v1 job read and download; stateless MEL work and light actions 30/minute; anything that creates a program,
+    # stages, runs, restores or rebuilds 10/minute like v1 job creation. A route without a rate is a startup error.
+    rates = {
+        ('GET', '/mel/meta'): '120/minute', ('POST', '/mel/validate'): '30/minute',
+        ('POST', '/mel/format'): '30/minute', ('POST', '/mel/plan'): '30/minute',
+        ('POST', '/programs'): '10/minute', ('GET', '/programs/{pid}'): '120/minute',
+        ('GET', '/programs/{pid}/history'): '120/minute', ('GET', '/programs/{pid}/journal'): '120/minute',
+        ('POST', '/programs/{pid}/revisions'): '10/minute',
+        ('GET', '/revisions/{rid}'): '120/minute', ('GET', '/revisions/{rid}/evidence'): '120/minute',
+        ('POST', '/revisions/{rid}/review'): '30/minute', ('POST', '/revisions/{rid}/run'): '10/minute',
+        ('POST', '/revisions/{rid}/cancel'): '30/minute',
+        ('POST', '/revisions/{rid}/restore'): '10/minute',
+        ('POST', '/revisions/{rid}/rebuild'): '10/minute',
+        ('POST', '/revisions/{rid}/compare'): '30/minute',
+        ('GET', '/revisions/{rid}/artifacts/{fmt}'): '120/minute',
+    }
+    if set(rates) != set(handlers):
+        raise RuntimeError('Program route rate table is incomplete')
     # The registry decides which routes exist; a route the table cannot serve is a startup error.
     seen = set()
     for spec in api.OPERATIONS:
@@ -315,5 +334,6 @@ def attach_program_routes(app, limiter):
             if key in seen:
                 continue
             seen.add(key)
-            router.add_api_route(route.path, handlers[key], methods=[route.method], response_model=None)
+            endpoint = limiter.limit(rates[key])(handlers[key])
+            router.add_api_route(route.path, endpoint, methods=[route.method], response_model=None)
     app.include_router(router)

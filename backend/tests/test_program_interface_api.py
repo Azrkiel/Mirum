@@ -1454,3 +1454,32 @@ def test_http_429_stage_slot_and_stateless_semaphore(http):
         face._stateless.release()
         face._stateless.release()
     assert post_mel(http, '/mel/validate').status_code == 200
+
+
+def test_http_new_routes_are_rate_limited_per_client(http, monkeypatch):
+    """Security review of PR #143: every program/MEL route carries a per-client slowapi limit."""
+    import main
+    monkeypatch.setattr(main.limiter, 'enabled', True)
+    main.app.state.limiter.reset()
+    try:
+        codes = [post_mel(http, '/mel/validate').status_code for _ in range(31)]
+        assert codes[:30] == [200] * 30 and codes[30] == 429
+        # another client is unaffected
+        assert post_mel(http, '/mel/validate', who=BOB).status_code == 200
+        created = [http.c.post(V1 + '/programs', headers=hdr()).status_code for _ in range(9)]
+        assert 429 not in created[:8]
+    finally:
+        main.app.state.limiter.reset()
+    # every registered program route has a limit attached
+    limited = {name for name in main.limiter._route_limits}
+    prefixes = tuple(V1 + p for p in ('/mel/', '/programs', '/revisions/'))
+    handlers = [r.endpoint for r in main.app.routes if getattr(r, 'path', '').startswith(prefixes)]
+    assert len(handlers) == len(api_programs_routes())
+    for endpoint in handlers:
+        name = '%s.%s' % (endpoint.__module__, endpoint.__name__)
+        assert name in limited, name
+
+
+def api_programs_routes():
+    from engineering.program import interface as api
+    return {(r.method, r.path) for op in api.OPERATIONS for r in op.routes}
