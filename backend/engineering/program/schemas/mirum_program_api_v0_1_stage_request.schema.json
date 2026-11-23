@@ -1,0 +1,73 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "mirum_program_api_v0_1",
+      "default": "mirum_program_api_v0_1",
+      "enum": [
+        "mirum_program_api_v0_1"
+      ],
+      "title": "Api Version",
+      "type": "string"
+    },
+    "expected_parent": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Head revision the edit is based on; null for a program with no head.",
+      "title": "Expected Parent"
+    },
+    "program_id": {
+      "maxLength": 32,
+      "minLength": 32,
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Program Id",
+      "type": "string"
+    },
+    "require_requirements_sha256": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Refuse when the head fixed requirements hash differs.",
+      "title": "Require Requirements Sha256"
+    },
+    "source_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Label for the source in diagnostics.",
+      "title": "Source Id"
+    }
+  },
+  "required": [
+    "program_id"
+  ],
+  "title": "StageRequest",
+  "type": "object"
+}

@@ -1,0 +1,360 @@
+{
+  "$defs": {
+    "BundleDigests": {
+      "additionalProperties": false,
+      "properties": {
+        "manifest_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Sha256",
+          "type": "string"
+        },
+        "payloads": {
+          "items": {
+            "$ref": "#/$defs/PayloadDigest"
+          },
+          "maxItems": 64,
+          "title": "Payloads",
+          "type": "array"
+        },
+        "zip_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Zip Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "manifest_sha256",
+        "zip_sha256",
+        "payloads"
+      ],
+      "title": "BundleDigests",
+      "type": "object"
+    },
+    "PayloadDigest": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "title": "PayloadDigest",
+      "type": "object"
+    },
+    "RevisionStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "const": "mirum_program_api_v0_1",
+          "default": "mirum_program_api_v0_1",
+          "enum": [
+            "mirum_program_api_v0_1"
+          ],
+          "title": "Api Version",
+          "type": "string"
+        },
+        "artifacts": {
+          "enum": [
+            "available",
+            "expired",
+            "missing",
+            "none"
+          ],
+          "title": "Artifacts",
+          "type": "string"
+        },
+        "brief_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Brief Sha256",
+          "type": "string"
+        },
+        "bundle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BundleDigests"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "created_at": {
+          "maxLength": 32,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$",
+          "title": "Created At",
+          "type": "string"
+        },
+        "derived_from": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "minLength": 32,
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Derived From"
+        },
+        "evidence_revision_id": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "minLength": 32,
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Revision Id"
+        },
+        "fixed_requirements_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Fixed Requirements Sha256",
+          "type": "string"
+        },
+        "is_current": {
+          "title": "Is Current",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "edit",
+            "restore",
+            "rebuild"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "lock_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Lock Sha256",
+          "type": "string"
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "minLength": 32,
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent"
+        },
+        "program_id": {
+          "maxLength": 32,
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Program Id",
+          "type": "string"
+        },
+        "published_seq": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740992,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Published Seq"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[a-z0-9_]{1,64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "result_kind": {
+          "enum": [
+            "published",
+            "rejected",
+            "unavailable",
+            "verification_failed",
+            "pending",
+            "failed",
+            "cancelled",
+            "conflict"
+          ],
+          "title": "Result Kind",
+          "type": "string"
+        },
+        "revision_id": {
+          "maxLength": 32,
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Revision Id",
+          "type": "string"
+        },
+        "semantic_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Semantic Sha256",
+          "type": "string"
+        },
+        "source_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "staged",
+            "running",
+            "published",
+            "rejected",
+            "failed",
+            "cancelled",
+            "conflict"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "updated_at": {
+          "maxLength": 32,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision_id",
+        "program_id",
+        "kind",
+        "state",
+        "result_kind",
+        "source_sha256",
+        "semantic_sha256",
+        "brief_sha256",
+        "fixed_requirements_sha256",
+        "lock_sha256",
+        "created_at",
+        "updated_at",
+        "artifacts",
+        "is_current"
+      ],
+      "title": "RevisionStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "mirum_program_api_v0_1",
+      "default": "mirum_program_api_v0_1",
+      "enum": [
+        "mirum_program_api_v0_1"
+      ],
+      "title": "Api Version",
+      "type": "string"
+    },
+    "created_at": {
+      "maxLength": 32,
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$",
+      "title": "Created At",
+      "type": "string"
+    },
+    "current": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RevisionStatus"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "head_revision_id": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Head Revision Id"
+    },
+    "head_seq": {
+      "maximum": 9007199254740992,
+      "minimum": 0,
+      "title": "Head Seq",
+      "type": "integer"
+    },
+    "program_id": {
+      "maxLength": 32,
+      "minLength": 32,
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Program Id",
+      "type": "string"
+    },
+    "updated_at": {
+      "maxLength": 32,
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "program_id",
+    "head_seq",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "ProgramView",
+  "type": "object"
+}

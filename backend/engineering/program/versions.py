@@ -22,3 +22,6 @@ REVISION_DIFF_VERSION = 'mirum_revision_diff_v0_1'
 # F07: delivered-geometry evidence.
 CHECK_PLAN_VERSION = 'mirum_check_plan_v0_1'
 DELIVERED_EVIDENCE_VERSION = 'mirum_delivered_evidence_v0_1'
+# F08: one runtime through Python, CLI, HTTP and MCP.
+PROGRAM_API_VERSION = 'mirum_program_api_v0_1'
+INTERFACE_ERROR_VERSION = 'mirum_interface_error_v0_1'

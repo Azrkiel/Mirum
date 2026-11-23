@@ -1,0 +1,68 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "created_at": {
+      "maxLength": 32,
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$",
+      "title": "Created At",
+      "type": "string"
+    },
+    "detail": {
+      "patternProperties": {
+        "^[a-z_]{1,32}$": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "title": "Detail",
+      "type": "object"
+    },
+    "event": {
+      "maxLength": 32,
+      "pattern": "^[a-z_]{1,32}$",
+      "title": "Event",
+      "type": "string"
+    },
+    "revision_id": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision Id"
+    },
+    "seq": {
+      "maximum": 9007199254740992,
+      "minimum": 1,
+      "title": "Seq",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "seq",
+    "event",
+    "detail",
+    "created_at"
+  ],
+  "title": "JournalLine",
+  "type": "object"
+}

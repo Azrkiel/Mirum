@@ -1,0 +1,16 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "mirum_program_api_v0_1",
+      "default": "mirum_program_api_v0_1",
+      "enum": [
+        "mirum_program_api_v0_1"
+      ],
+      "title": "Api Version",
+      "type": "string"
+    }
+  },
+  "title": "ProgramCreateRequest",
+  "type": "object"
+}

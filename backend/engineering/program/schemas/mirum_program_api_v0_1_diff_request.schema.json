@@ -1,0 +1,34 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "mirum_program_api_v0_1",
+      "default": "mirum_program_api_v0_1",
+      "enum": [
+        "mirum_program_api_v0_1"
+      ],
+      "title": "Api Version",
+      "type": "string"
+    },
+    "other_revision_id": {
+      "maxLength": 32,
+      "minLength": 32,
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Other Revision Id",
+      "type": "string"
+    },
+    "revision_id": {
+      "maxLength": 32,
+      "minLength": 32,
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Revision Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "revision_id",
+    "other_revision_id"
+  ],
+  "title": "DiffRequest",
+  "type": "object"
+}
