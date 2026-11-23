@@ -308,7 +308,7 @@ def attach_program_routes(app, limiter):
         ('GET', '/revisions/{rid}/artifacts/{fmt}'): revision_export,
     }
     # Per-client rate limits, same scale as the v1 routes (security review of PR #143): reads 120/minute like the
-    # v1 job read and download; stateless MEL work and light actions 30/minute; anything that creates a program,
+    # v1 job read (exports 60/minute like the v1 download); stateless MEL work and light actions 30/minute; anything that creates a program,
     # stages, runs, restores or rebuilds 10/minute like v1 job creation. A route without a rate is a startup error.
     rates = {
         ('GET', '/mel/meta'): '120/minute', ('POST', '/mel/validate'): '30/minute',
@@ -322,7 +322,7 @@ def attach_program_routes(app, limiter):
         ('POST', '/revisions/{rid}/restore'): '10/minute',
         ('POST', '/revisions/{rid}/rebuild'): '10/minute',
         ('POST', '/revisions/{rid}/compare'): '30/minute',
-        ('GET', '/revisions/{rid}/artifacts/{fmt}'): '120/minute',
+        ('GET', '/revisions/{rid}/artifacts/{fmt}'): '60/minute',
     }
     if set(rates) != set(handlers):
         raise RuntimeError('Program route rate table is incomplete')
