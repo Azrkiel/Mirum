@@ -1,0 +1,48 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "mirum_program_api_v0_1",
+      "default": "mirum_program_api_v0_1",
+      "enum": [
+        "mirum_program_api_v0_1"
+      ],
+      "title": "Api Version",
+      "type": "string"
+    },
+    "compiler_version": {
+      "maxLength": 64,
+      "title": "Compiler Version",
+      "type": "string"
+    },
+    "language_version": {
+      "maxLength": 16,
+      "title": "Language Version",
+      "type": "string"
+    },
+    "max_source_bytes": {
+      "const": 65536,
+      "default": 65536,
+      "enum": [
+        65536
+      ],
+      "title": "Max Source Bytes",
+      "type": "integer"
+    },
+    "media_type": {
+      "const": "application/vnd.mirum.mel",
+      "default": "application/vnd.mirum.mel",
+      "enum": [
+        "application/vnd.mirum.mel"
+      ],
+      "title": "Media Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "language_version",
+    "compiler_version"
+  ],
+  "title": "MelMeta",
+  "type": "object"
+}

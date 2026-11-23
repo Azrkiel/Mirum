@@ -1,0 +1,21 @@
+{
+  "base": "beam.mir",
+  "cases": [
+    {"id": "python-import", "source": "import os\n", "source_id": "a.mir", "code": "MEL-P002", "kind": "invalid_source",
+     "span": [1, 1, 1, 6], "field": null},
+    {"id": "python-dunder-import", "source": "__import__('os')\n", "source_id": "a.mir", "code": "MEL-L005",
+     "kind": "invalid_source", "span": [1, 11, 1, 11], "field": null},
+    {"id": "python-exec", "source": "exec('1')\n", "source_id": "a.mir", "code": "MEL-L005", "kind": "invalid_source",
+     "span": [1, 5, 1, 5], "field": null},
+    {"id": "python-def", "source": "def f(): pass\n", "source_id": "a.mir", "code": "MEL-L005", "kind": "invalid_source",
+     "span": [1, 6, 1, 6], "field": null},
+    {"id": "s011-unsupported-capability", "edits": [["\"rectangular_cantilever\"", "\"other_thing\""]],
+     "source_id": "a.mir", "code": "MEL-S011", "kind": "unsupported", "span": [5, 3, 5, 29], "field": "capability"},
+    {"id": "s012-unsupported-backend", "edits": [["backend = \"occt\"", "backend = \"picogk\""]],
+     "source_id": "a.mir", "code": "MEL-S012", "kind": "unsupported", "span": [7, 13, 7, 20], "field": "backend"},
+    {"id": "s013-unsupported-export", "edits": [["[\"step\", \"glb\"]", "[\"step\"]"]],
+     "source_id": "a.mir", "code": "MEL-S013", "kind": "unsupported", "span": [22, 13, 22, 20], "field": "exports"},
+    {"id": "source-id-traversal", "edits": [], "source_id": "../x", "code": "MEL-S016", "kind": "invalid_source",
+     "span": [1, 1, 1, 1], "field": "source_id"}
+  ]
+}

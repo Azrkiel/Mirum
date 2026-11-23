@@ -1,0 +1,58 @@
+{
+  "additionalProperties": false,
+  "description": "MCP-only stage. The guard hash is added by the MCP server from the program head (D12).",
+  "properties": {
+    "api_version": {
+      "const": "mirum_program_api_v0_1",
+      "default": "mirum_program_api_v0_1",
+      "enum": [
+        "mirum_program_api_v0_1"
+      ],
+      "title": "Api Version",
+      "type": "string"
+    },
+    "expected_parent": {
+      "anyOf": [
+        {
+          "maxLength": 32,
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Head revision the edit is based on; the program must have a head.",
+      "title": "Expected Parent"
+    },
+    "program_id": {
+      "maxLength": 32,
+      "minLength": 32,
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Program Id",
+      "type": "string"
+    },
+    "source_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Label for the source in diagnostics.",
+      "title": "Source Id"
+    }
+  },
+  "required": [
+    "program_id"
+  ],
+  "title": "ProposeRequest",
+  "type": "object"
+}

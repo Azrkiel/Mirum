@@ -1,0 +1,414 @@
+{
+  "$defs": {
+    "AttemptSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Candidate Sha256",
+          "type": "string"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/CheckSummary"
+          },
+          "maxItems": 64,
+          "title": "Checks",
+          "type": "array"
+        },
+        "failure_count": {
+          "maximum": 9007199254740992,
+          "minimum": 0,
+          "title": "Failure Count",
+          "type": "integer"
+        },
+        "ordinal": {
+          "exclusiveMaximum": 4,
+          "minimum": 0,
+          "title": "Ordinal",
+          "type": "integer"
+        },
+        "outcome": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Outcome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ordinal",
+        "candidate_sha256",
+        "outcome",
+        "failure_count",
+        "checks"
+      ],
+      "title": "AttemptSummary",
+      "type": "object"
+    },
+    "BundleDigests": {
+      "additionalProperties": false,
+      "properties": {
+        "manifest_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Sha256",
+          "type": "string"
+        },
+        "payloads": {
+          "items": {
+            "$ref": "#/$defs/PayloadDigest"
+          },
+          "maxItems": 64,
+          "title": "Payloads",
+          "type": "array"
+        },
+        "zip_sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Zip Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "manifest_sha256",
+        "zip_sha256",
+        "payloads"
+      ],
+      "title": "BundleDigests",
+      "type": "object"
+    },
+    "CheckSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "check_id": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Check Id",
+          "type": "string"
+        },
+        "state": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "state"
+      ],
+      "title": "CheckSummary",
+      "type": "object"
+    },
+    "DiffEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After"
+        },
+        "before": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before"
+        },
+        "field": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "key": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "section": {
+          "enum": [
+            "requirements",
+            "candidates",
+            "analysis",
+            "evidence",
+            "execution",
+            "lock",
+            "backend_lock"
+          ],
+          "title": "Section",
+          "type": "string"
+        }
+      },
+      "required": [
+        "section",
+        "key",
+        "field"
+      ],
+      "title": "DiffEntry",
+      "type": "object"
+    },
+    "EvidenceSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "items": {
+            "$ref": "#/$defs/AttemptSummary"
+          },
+          "maxItems": 4,
+          "title": "Attempts",
+          "type": "array"
+        },
+        "bundle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BundleDigests"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "expired": {
+          "default": false,
+          "title": "Expired",
+          "type": "boolean"
+        },
+        "lifecycle": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Lifecycle",
+          "type": "string"
+        },
+        "outcome": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Outcome",
+          "type": "string"
+        },
+        "selected_candidate_sha256": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 64,
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected Candidate Sha256"
+        }
+      },
+      "required": [
+        "lifecycle",
+        "outcome",
+        "attempts"
+      ],
+      "title": "EvidenceSummary",
+      "type": "object"
+    },
+    "HashEquality": {
+      "additionalProperties": false,
+      "properties": {
+        "brief": {
+          "title": "Brief",
+          "type": "boolean"
+        },
+        "fixed_requirements": {
+          "title": "Fixed Requirements",
+          "type": "boolean"
+        },
+        "lock": {
+          "title": "Lock",
+          "type": "boolean"
+        },
+        "semantic": {
+          "title": "Semantic",
+          "type": "boolean"
+        },
+        "source": {
+          "title": "Source",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source",
+        "semantic",
+        "brief",
+        "fixed_requirements",
+        "lock"
+      ],
+      "title": "HashEquality",
+      "type": "object"
+    },
+    "PayloadDigest": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "title": "PayloadDigest",
+      "type": "object"
+    },
+    "RevisionDiff": {
+      "additionalProperties": false,
+      "properties": {
+        "a": {
+          "maxLength": 32,
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "A",
+          "type": "string"
+        },
+        "b": {
+          "maxLength": 32,
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "B",
+          "type": "string"
+        },
+        "change_count": {
+          "default": 0,
+          "maximum": 9007199254740992,
+          "minimum": 0,
+          "title": "Change Count",
+          "type": "integer"
+        },
+        "changes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/DiffEntry"
+          },
+          "maxItems": 512,
+          "title": "Changes",
+          "type": "array"
+        },
+        "changes_truncated": {
+          "default": false,
+          "title": "Changes Truncated",
+          "type": "boolean"
+        },
+        "detail_unavailable": {
+          "anyOf": [
+            {
+              "const": "history_expired",
+              "enum": [
+                "history_expired"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail Unavailable"
+        },
+        "evidence_a": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "evidence_b": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "hashes": {
+          "$ref": "#/$defs/HashEquality"
+        },
+        "requirements_changed": {
+          "title": "Requirements Changed",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "mirum_revision_diff_v0_1",
+          "default": "mirum_revision_diff_v0_1",
+          "enum": [
+            "mirum_revision_diff_v0_1"
+          ],
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "a",
+        "b",
+        "hashes",
+        "requirements_changed"
+      ],
+      "title": "RevisionDiff",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "mirum_program_api_v0_1",
+      "default": "mirum_program_api_v0_1",
+      "enum": [
+        "mirum_program_api_v0_1"
+      ],
+      "title": "Api Version",
+      "type": "string"
+    },
+    "diff": {
+      "$ref": "#/$defs/RevisionDiff"
+    }
+  },
+  "required": [
+    "diff"
+  ],
+  "title": "DiffResponse",
+  "type": "object"
+}

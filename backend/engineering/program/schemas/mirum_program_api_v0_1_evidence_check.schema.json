@@ -1,0 +1,62 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "category": {
+      "maxLength": 32,
+      "title": "Category",
+      "type": "string"
+    },
+    "check_id": {
+      "maxLength": 240,
+      "title": "Check Id",
+      "type": "string"
+    },
+    "coverage": {
+      "enum": [
+        "measured",
+        "policy_report",
+        "identity_only",
+        "not_evaluated"
+      ],
+      "title": "Coverage",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "pattern": "^[a-z_]{1,64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "required": {
+      "title": "Required",
+      "type": "boolean"
+    },
+    "state": {
+      "enum": [
+        "passed",
+        "failed",
+        "not_evaluated",
+        "unavailable"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "check_id",
+    "category",
+    "required",
+    "state",
+    "coverage"
+  ],
+  "title": "EvidenceCheck",
+  "type": "object"
+}

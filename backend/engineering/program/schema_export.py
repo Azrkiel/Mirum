@@ -15,6 +15,7 @@ from .errors import Diagnostic
 from .evidence import CheckPlan, DeliveredEvidence
 from .ir import ExecutionLock, ProgramIR
 from .kernel import ExecutionLockV0_2
+from .interface import API_SCHEMA_MODELS
 from .revisions import JournalEntry, ProgramRevision, RevisionDiff
 from .registry import DEFAULT_REGISTRY, REGISTRY_V0_1, ArtifactGraph, OperationDescriptor, OpStream
 from .versions import REGISTRY_VERSION, REGISTRY_VERSION_V0_1
@@ -37,6 +38,8 @@ SCHEMA_MODELS = {
     'mirum_revision_diff_v0_1.schema.json': RevisionDiff,
     'mirum_check_plan_v0_1.schema.json': CheckPlan,
     'mirum_delivered_evidence_v0_1.schema.json': DeliveredEvidence,
+    # F08: program API request/response models and the interface error envelope.
+    **API_SCHEMA_MODELS,
 }
 
 REGISTRY_EXPORT_NAME_V0_1 = 'mirum_operation_registry_v0_1.json'

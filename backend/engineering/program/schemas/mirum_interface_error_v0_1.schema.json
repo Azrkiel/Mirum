@@ -1,0 +1,228 @@
+{
+  "$defs": {
+    "ErrorSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "maximum": 1000000000,
+          "minimum": 1,
+          "title": "Column",
+          "type": "integer"
+        },
+        "end_column": {
+          "maximum": 1000000000,
+          "minimum": 1,
+          "title": "End Column",
+          "type": "integer"
+        },
+        "end_line": {
+          "maximum": 1000000000,
+          "minimum": 1,
+          "title": "End Line",
+          "type": "integer"
+        },
+        "line": {
+          "maximum": 1000000000,
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        }
+      },
+      "required": [
+        "line",
+        "column",
+        "end_line",
+        "end_column"
+      ],
+      "title": "ErrorSpan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "mirum_interface_error_v0_1",
+      "default": "mirum_interface_error_v0_1",
+      "enum": [
+        "mirum_interface_error_v0_1"
+      ],
+      "title": "Api Version",
+      "type": "string"
+    },
+    "category": {
+      "enum": [
+        "lexical",
+        "syntax",
+        "semantic",
+        "resource",
+        "plan",
+        "revision",
+        "capacity",
+        "request",
+        "service"
+      ],
+      "title": "Category",
+      "type": "string"
+    },
+    "changed": {
+      "default": "nothing_written",
+      "enum": [
+        "nothing_written",
+        "revision_staged",
+        "job_admitted"
+      ],
+      "title": "Changed",
+      "type": "string"
+    },
+    "code": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+      "title": "Code",
+      "type": "string"
+    },
+    "field": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z_][a-z0-9_]{0,63}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Field"
+    },
+    "hint": {
+      "anyOf": [
+        {
+          "maxLength": 240,
+          "pattern": "^[ -~]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Hint"
+    },
+    "kind": {
+      "enum": [
+        "invalid_source",
+        "unsupported",
+        "unavailable",
+        "refused",
+        "conflict",
+        "expired",
+        "integrity",
+        "busy",
+        "not_found",
+        "too_large",
+        "programs_disabled",
+        "unauthorized",
+        "invalid_request"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 240,
+      "pattern": "^[ -~]*$",
+      "title": "Message",
+      "type": "string"
+    },
+    "next_action": {
+      "enum": [
+        "none",
+        "fix_source",
+        "fix_request",
+        "refresh_and_rebase",
+        "re_review",
+        "retry_later",
+        "restage",
+        "use_supported_capability",
+        "contact_operator",
+        "authenticate"
+      ],
+      "title": "Next Action",
+      "type": "string"
+    },
+    "operation_ids": {
+      "default": [],
+      "items": {
+        "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Operation Ids",
+      "type": "array"
+    },
+    "requirement_ids": {
+      "default": [],
+      "items": {
+        "pattern": "^[A-Za-z0-9_.:-]{1,64}$",
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Requirement Ids",
+      "type": "array"
+    },
+    "retry_after": {
+      "anyOf": [
+        {
+          "maximum": 86400,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Retry After"
+    },
+    "retryable": {
+      "title": "Retryable",
+      "type": "boolean"
+    },
+    "span": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ErrorSpan"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "kind",
+    "code",
+    "category",
+    "message",
+    "retryable",
+    "next_action"
+  ],
+  "title": "InterfaceError",
+  "type": "object"
+}

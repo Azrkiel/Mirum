@@ -1,0 +1,69 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "mirum_program_api_v0_1",
+      "default": "mirum_program_api_v0_1",
+      "enum": [
+        "mirum_program_api_v0_1"
+      ],
+      "title": "Api Version",
+      "type": "string"
+    },
+    "compiler_version": {
+      "maxLength": 64,
+      "title": "Compiler Version",
+      "type": "string"
+    },
+    "language_version": {
+      "maxLength": 16,
+      "title": "Language Version",
+      "type": "string"
+    },
+    "ok": {
+      "const": true,
+      "default": true,
+      "enum": [
+        true
+      ],
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "semantic_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Semantic Sha256",
+      "type": "string"
+    },
+    "source_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Id"
+    },
+    "source_sha256": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Sha256",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_sha256",
+    "semantic_sha256",
+    "language_version",
+    "compiler_version"
+  ],
+  "title": "ValidateResult",
+  "type": "object"
+}

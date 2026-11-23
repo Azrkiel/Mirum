@@ -177,12 +177,19 @@ async def _lifespan(application: FastAPI):
     cleanup_tmp_parts()
     logger.info("Startup: cleared stale tmp_parts")
     from engineering.regen_web import regen_lifespan
+    from engineering.api_programs import create_program_runtime
+    application.state.programs = create_program_runtime(application.state.engineering)
     async with regen_lifespan(application):
         try:
             yield
         finally:
             try:
-                await application.state.engineering.jobs.close()
+                try:
+                    if application.state.programs is not None:
+                        await application.state.programs.service.close()
+                        application.state.programs = None
+                finally:
+                    await application.state.engineering.jobs.close()
             finally:
                 application.state.engineering.store.close()
                 application.state.engineering = None
@@ -211,7 +218,7 @@ app.add_middleware(
 )
 
 
-_ENGINEERING_ID_SEGMENT = re.compile(r"^(/engineering/v1/(?:drafts|briefs|jobs))/[^/?]+")
+_ENGINEERING_ID_SEGMENT = re.compile(r"^(/engineering/v1/(?:drafts|briefs|jobs|programs|revisions|mel))/[^/?]+")
 _ID_MASK = lambda m: m.group(1) + "/{id}"
 
 
@@ -1788,6 +1795,8 @@ from engineering.api import attach_engineering_routes
 attach_engineering_routes(app, limiter)
 from engineering.api_v1 import attach_v1_routes
 attach_v1_routes(app, limiter)
+from engineering.api_programs import attach_program_routes
+attach_program_routes(app, limiter)
 from gliders.api import attach_glider_routes
 attach_glider_routes(app, limiter)
 from cem.api import attach_cem_routes
