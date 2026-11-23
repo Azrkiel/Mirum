@@ -56,7 +56,7 @@ __all__ = [
     'RESULT_KIND_EXIT_CODE', 'EXIT_OK', 'EXIT_TRANSPORT', 'EXIT_INVALID', 'EXIT_UNAVAILABLE',
     'EXIT_CONFLICT', 'ErrorEntry', 'ERROR_TABLE', 'InterfaceError', 'http_status', 'exit_code',
     'result_exit_code', 'error', 'from_mel', 'from_plan_refusal', 'from_revision_refusal',
-    'from_validation_error', 'busy', 'not_found', 'too_large', 'unavailable', 'programs_disabled',
+    'from_validation_error', 'InterfaceFailure', 'busy', 'not_found', 'too_large', 'unavailable', 'programs_disabled',
     'unauthorized', 'invalid_request',
 ]
 
@@ -180,6 +180,8 @@ Sha256 = Annotated[str, StringConstraints(min_length=64, max_length=64, pattern=
 SourceId = Annotated[str, StringConstraints(min_length=1, max_length=128)]
 Code = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r'^[A-Za-z0-9_.-]{1,64}$')]
 Name64 = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r'^[a-z_][a-z0-9_]{0,63}$')]
+# Review field names include the dotted material leaves of REVIEW_FIELDS (material.youngs_modulus_mpa).
+ReviewField = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r'^[a-z_][a-z0-9_.]{0,63}$')]
 Text240 = Annotated[str, StringConstraints(max_length=240, pattern=r'^[ -~]*$')]
 Stamp = Annotated[str, StringConstraints(pattern=_ISO_RE, max_length=32)]
 _API = Literal['mirum_program_api_v0_1']
@@ -229,7 +231,7 @@ class ProposeRequest(_Request):
 class ReviewRequest(_Request):
     revision_id: Id32
     brief_sha256: Sha256
-    acknowledged_fields: Annotated[tuple[Name64, ...], Field(max_length=32)]
+    acknowledged_fields: Annotated[tuple[ReviewField, ...], Field(max_length=32)]
     reviewed_by: Annotated[str, StringConstraints(min_length=1, max_length=120, pattern=r'^[ -~]{1,120}$')]
 
 
@@ -391,7 +393,7 @@ class RevisionResponse(_Response):
 
 
 class StageResponse(RevisionResponse):
-    review_fields: Annotated[tuple[Name64, ...], Field(max_length=32)] = ()
+    review_fields: Annotated[tuple[ReviewField, ...], Field(max_length=32)] = ()
 
 
 class JournalLine(_Model):
@@ -518,6 +520,15 @@ class InterfaceError(_Model):
     def model_post_init(self, __context) -> None:
         if self.kind == 'busy' and (self.retry_after is None or not self.retryable):
             raise ValueError('busy needs retry_after and retryable')
+
+
+class InterfaceFailure(Exception):
+    """The one exception type of the in-process interface and the offline functions. Carries an
+    InterfaceError; its text is the fixed code only (never source text or an inner exception message)."""
+
+    def __init__(self, err: InterfaceError):
+        super().__init__(err.code)
+        self.error = err
 
 
 def http_status(err_or_kind) -> int:

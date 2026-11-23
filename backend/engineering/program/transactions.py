@@ -20,7 +20,7 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from engineering.jobs import TERMINAL, parse_run
-from engineering.store import ArtifactExpired
+from engineering.store import TOMBSTONE, ArtifactExpired
 from engineering.language.semantic import compile_source
 from engineering.language.diagnostics import MelError
 
@@ -173,6 +173,45 @@ class RevisionService:
         with self.store.transaction() as db:
             return self.revision_store.create_program(db, client)
 
+    def expire_staged(self, now, *, ttl_seconds=None) -> int:
+        """F08 D10 (K47): fail every staged revision whose review can no longer be finalized or run.
+
+        A staged row moves to failed (reason 'review_expired', journal event 'failed') in one
+        transaction when its draft is missing or tombstoned, or when its age is at least the draft
+        retention (``ttl_seconds``; the configured draft TTL by default). Rows being admitted by a
+        run() in flight (``_admitting``) are skipped. Never probes, admits or touches a job. Returns the
+        number of rows failed."""
+        if ttl_seconds is None:
+            import config
+            ttl_seconds = config.ENGINEERING_DRAFT_TTL_SECONDS
+        rs = self.revision_store
+        failed_count = 0
+        with self.store.transaction() as db:
+            rows = db.execute("SELECT id, created FROM program_revisions WHERE state='staged' "
+                              'ORDER BY created, id').fetchall()
+            for row in rows:
+                revision_id = row['id']
+                with self._admit_lock:
+                    in_flight = self._admitting.get(revision_id, 0) > 0
+                if in_flight:
+                    continue
+                try:
+                    got = rs.get(db, revision_id)
+                except RuntimeError:
+                    continue  # an altered row is reported by the reads that touch it, not here
+                if got is None or got[0].state != 'staged':
+                    continue
+                rev = got[0]
+                if row['created'] + ttl_seconds > now:
+                    draft = db.execute('SELECT record FROM drafts WHERE id=?', (rev.draft_id,)).fetchone()
+                    if draft is not None and draft[0] != TOMBSTONE:
+                        continue
+                failed = self._evolve(rev, state='failed', reason='review_expired')
+                if rs.transition(db, failed, expected_state='staged', event='failed',
+                                 detail={'reason': 'review_expired'}):
+                    failed_count += 1
+        return failed_count
+
     async def stage(self, program_id, source, *, source_id, expected_parent, client):
         """Compile, plan, lock and open a review, then stage one revision.
 
@@ -197,7 +236,7 @@ class RevisionService:
             refusal = rs._capacity(db, program_id, staged=True, payload_bytes=0)
             if refusal is not None:
                 return refusal
-        compiled = compile_source(source, source_id=source_id)
+        compiled = await asyncio.to_thread(compile_source, source, source_id=source_id)
         text = source if isinstance(source, str) else bytes(source).decode('utf-8')
         backend = compiled.ir.execution.backend
         adapter = self.adapter_factory(backend, mode='native')
@@ -246,7 +285,7 @@ class RevisionService:
         except KeyError:
             pass  # an unknown brief id is reported by authorize_run as not_finalized
         try:
-            compiled = compile_source(payload.source, source_id=payload.source_id)
+            compiled = await asyncio.to_thread(compile_source, payload.source, source_id=payload.source_id)
         except MelError:
             return RevisionRefusal(('record_altered',))
         if compiled.source_sha256 != rev.source_sha256 or compiled.semantic_sha256 != rev.semantic_sha256:
@@ -574,6 +613,22 @@ class RevisionService:
         if rev.state != 'published' or rev.job_id is None or rev.bundle is None:
             raise KeyError('Revision has no published artifacts')
         return self.publisher.open_lease(rev.job_id, fmt, envelope=rev.bundle)
+
+    def source(self, revision_id, *, client):
+        """F08 D11: the stored RevisionPayload of this revision's evidence revision (source text, IR and
+        lock JSON), client-checked exactly like view() (KeyError for an unknown or foreign revision).
+
+        None when the evidence revision is missing; RevisionRefusal(('history_expired',)) when its payload
+        was compacted. Reads only (retention compaction aside, as in restore and rebuild)."""
+        with self.store.transaction() as db:
+            self.revision_store.compact(db, now=self.clock())
+            rev = self._load(db, revision_id, client)[0]
+            evidence = self._evidence_row(db, rev)
+        if evidence is None:
+            return None
+        if evidence[2] is None:
+            return RevisionRefusal(('history_expired',))
+        return evidence[2]
 
     # ------------------------------------------------------------------ restore, rebuild, compare
 
