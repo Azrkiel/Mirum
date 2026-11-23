@@ -479,6 +479,12 @@ class ProgramInterface:
         return api.InspectBundle(revision=revision_status(view), evidence=_evidence_view(evidence),
                                  journal=lines)
 
+    @_guarded
+    async def journal(self, request: api.HistoryRequest, *, client):
+        """GET /programs/{pid}/journal: the program journal lines (ids of bearer routes stripped)."""
+        entries = self.service.journal(request.program_id, client=client)
+        return tuple(_journal_line(e) for e in entries)[-1024:]
+
     def _program_row(self, program_id, client):
         with self.service.store.transaction() as db:
             row = self.service.revision_store.program(db, program_id) if type(program_id) is str else None

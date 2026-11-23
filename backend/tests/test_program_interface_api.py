@@ -822,3 +822,635 @@ def test_native_propose_guard_against_the_head(tmp_path, evals, occt):
                                     require_requirements_sha256=head.fixed_requirements_sha256)
             assert ok.revision.state == 'staged' and ok.revision.parent == rid
     asyncio.run(scenario())
+
+
+# ============================================================================== HTTP transport (task 3)
+# api_programs.py over the real app (main.app, lifespan, middleware). fastapi and httpx are imported lazily
+# inside the fixture (importorskip), so every test above still runs on a host without them. The app needs
+# the posix SQLiteStore, so these run in the CI shards (Linux) and skip on the Windows laptop. No native
+# kernel: the adapter is the task 2 StubAdapter and the job controller is spied.
+
+import contextlib  # noqa: E402
+import hashlib  # noqa: E402
+
+V1 = '/engineering/v1'
+MEL = 'application/vnd.mirum.mel'
+JOB_ID = '1' * 32
+V1_EXPECTED = {
+    ('GET', '/capabilities'), ('POST', '/drafts'), ('GET', '/drafts/{draft_id}'), ('PATCH', '/drafts/{draft_id}'),
+    ('POST', '/briefs'), ('GET', '/briefs/{brief_id}'), ('POST', '/jobs'), ('GET', '/jobs/{job_id}'),
+    ('POST', '/jobs/{job_id}/cancel'), ('GET', '/jobs/{job_id}/artifacts/{format}'),
+}
+D5_EXPECTED = {
+    ('GET', '/mel/meta'), ('POST', '/mel/validate'), ('POST', '/mel/format'), ('POST', '/mel/plan'),
+    ('POST', '/programs'), ('GET', '/programs/{pid}'), ('GET', '/programs/{pid}/history'),
+    ('GET', '/programs/{pid}/journal'), ('POST', '/programs/{pid}/revisions'),
+    ('GET', '/revisions/{rid}'), ('GET', '/revisions/{rid}/evidence'),
+    ('POST', '/revisions/{rid}/review'), ('POST', '/revisions/{rid}/run'), ('POST', '/revisions/{rid}/cancel'),
+    ('POST', '/revisions/{rid}/restore'), ('POST', '/revisions/{rid}/rebuild'),
+    ('POST', '/revisions/{rid}/compare'), ('GET', '/revisions/{rid}/artifacts/{fmt}'),
+}
+MEL_CASES = json.loads((F08 / 'mel_cases.json').read_text(encoding='utf-8'))['cases']
+
+
+def _case_source(case) -> bytes:
+    if 'source' in case:
+        return case['source'].encode('utf-8')
+    text = BEAM.decode('utf-8')
+    for old, new in case['edits']:
+        text = text.replace(old, new)
+    return text.encode('utf-8')
+
+
+def test_registry_routes_equal_the_d5_list():
+    registry = {(r.method, r.path) for op in api.OPERATIONS for r in op.routes}
+    assert registry == D5_EXPECTED and len(D5_EXPECTED) == 18
+
+
+class Http:
+    pass
+
+
+class CountingStub(StubAdapter):
+    def __init__(self):
+        self.probes = 0
+        self.factory_calls = 0
+
+    async def probe(self):
+        self.probes += 1
+        return await super().probe()
+
+
+class VerifierSpy:
+    """Counts measurements; forwards to the real F07 verifier built by create_program_runtime."""
+
+    def __init__(self, real):
+        self.real = real
+        self.evidence = real.evidence
+        self.calls = 0
+
+    async def verify(self, revision, ir):
+        self.calls += 1
+        return await self.real.verify(revision, ir)
+
+
+@contextlib.contextmanager
+def _http_app(tmp_path, monkeypatch, flag='1', recover_fails=False):
+    pytest.importorskip('fastapi')
+    pytest.importorskip('httpx')
+    if os.name != 'posix':
+        pytest.skip('the app uses the posix SQLiteStore')
+    import importlib
+    os.environ.setdefault('GEMINI_API_KEY_HEAVY', 'offline-fixture-never-sent')
+    main = importlib.import_module('main')
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv('MIRUM_ENGINEERING_DATA_DIR', str(tmp_path / 'engineering'))
+    if flag is None:
+        monkeypatch.delenv('MIRUM_ENGINEERING_PROGRAMS', raising=False)
+    else:
+        monkeypatch.setenv('MIRUM_ENGINEERING_PROGRAMS', flag)
+    if recover_fails:
+        def boom(self):
+            raise RuntimeError('secret-recover-detail')
+        monkeypatch.setattr(RevisionService, 'recover', boom)
+    monkeypatch.setattr(main.limiter, 'enabled', False)
+    # The client identity is a test header: the routes call limiter._key_func exactly like the v1 routes.
+    monkeypatch.setattr(main.limiter, '_key_func', lambda request: request.headers.get('x-test-client', ALICE))
+    with TestClient(main.app) as client:
+        main.app.state.limiter.reset()
+        w = Http()
+        w.c, w.main, w.face = client, main, main.app.state.programs
+        w.engineering = main.app.state.engineering
+        w.stub, w.verifier = CountingStub(), None
+        w.admits, w.starts = [], []
+        if w.face is not None:
+            def factory(backend, mode='native'):
+                w.stub.factory_calls += 1
+                return w.stub
+            w.face.service.adapter_factory = factory
+            w.verifier = VerifierSpy(w.face.service.verifier)
+            w.face.service.verifier = w.verifier
+            jobs = w.face.service.jobs
+
+            def admit(brief_id, key, who):
+                w.admits.append((key, who))
+                return SimpleNamespace(job=SimpleNamespace(job_id=JOB_ID), owner=None)
+
+            async def wait(job_id):
+                await asyncio.Event().wait()
+            monkeypatch.setattr(jobs, 'admit', admit)
+            monkeypatch.setattr(jobs, 'start', lambda admitted: w.starts.append(1))
+            monkeypatch.setattr(jobs, 'wait', wait)
+            monkeypatch.setattr(jobs, 'cancel', lambda job_id: None)
+        yield w
+
+
+@pytest.fixture
+def http(tmp_path, monkeypatch):
+    with _http_app(tmp_path, monkeypatch) as w:
+        yield w
+
+
+def hdr(who=ALICE, **extra):
+    return {'x-test-client': who, **extra}
+
+
+def post_mel(w, path, body=BEAM, who=ALICE, **extra):
+    return w.c.post(V1 + path, content=body, headers=hdr(who, **{'Content-Type': MEL}, **extra))
+
+
+def make_program(w, who=ALICE):
+    response = w.c.post(V1 + '/programs', headers=hdr(who))
+    assert response.status_code == 201, response.text
+    return response.json()['program_id']
+
+
+def stage_http(w, pid, who=ALICE, **extra):
+    extra.setdefault('X-Mirum-Source-Id', 'beam.mir')
+    response = post_mel(w, f'/programs/{pid}/revisions', BEAM, who, **extra)
+    assert response.status_code == 201, response.text
+    return response.json()['revision']
+
+
+def review_body(rev):
+    return {'brief_sha256': rev['brief_sha256'], 'acknowledged_fields': list(REVIEW_FIELDS), 'reviewed_by': 'Ann'}
+
+
+def review_http(w, rev, who=ALICE):
+    response = w.c.post(f"{V1}/revisions/{rev['revision_id']}/review", json=review_body(rev), headers=hdr(who))
+    assert response.status_code == 200, response.text
+    return response.json()['revision']
+
+
+def fill(path, pid='0' * 32, rid='0' * 32, fmt='zip'):
+    return path.replace('{pid}', pid).replace('{rid}', rid).replace('{fmt}', fmt)
+
+
+def db_counts(w):
+    with w.face.service.store.transaction() as db:
+        return tuple(db.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0]
+                     for t in ('programs', 'program_revisions', 'program_journal', 'drafts', 'briefs', 'jobs'))
+
+
+# ------------------------------------------------------------------------------------- routes, auth
+
+def test_http_route_snapshot(http):
+    routes = {}
+    for route in http.main.app.routes:
+        path, methods = getattr(route, 'path', ''), getattr(route, 'methods', None)
+        if path.startswith(V1) and methods:
+            for method in methods:
+                if method not in ('HEAD', 'OPTIONS'):
+                    routes[(method, path[len(V1):])] = route
+    found = set(routes)
+    assert V1_EXPECTED <= found, 'the existing /engineering/v1 route set must be unchanged'
+    assert found - V1_EXPECTED == D5_EXPECTED
+    assert found == V1_EXPECTED | D5_EXPECTED
+
+
+def test_http_401_without_the_access_token_on_every_new_route(http, monkeypatch):
+    pid = make_program(http)
+    monkeypatch.setenv('MIRUM_ACCESS_TOKEN', 'fixture-token')
+    for method, template in sorted(D5_EXPECTED):
+        url = V1 + fill(template, pid, pid)
+        denied = http.c.request(method, url)
+        assert denied.status_code == 401, (method, template)
+        assert denied.json() == {'detail': 'Access token required.'}
+        wrong = http.c.request(method, url, headers={'X-Mirum-Access-Token': 'nope'})
+        assert wrong.status_code == 401, (method, template)
+    allowed = http.c.get(V1 + '/mel/meta', headers={'X-Mirum-Access-Token': 'fixture-token'})
+    assert allowed.status_code == 200 and allowed.json()['media_type'] == MEL
+
+
+def test_http_meta_is_versioned(http):
+    body = http.c.get(V1 + '/mel/meta', headers=hdr()).json()
+    assert body['api_version'] == 'mirum_program_api_v0_1' and body['max_source_bytes'] == 65536
+    assert http.c.get(V1 + '/mel/meta', headers=hdr()).headers['cache-control'] == 'no-store'
+
+
+# ------------------------------------------------------------------------------------ flag and wiring
+
+def test_http_flag_off_returns_503_everywhere_and_creates_no_tables(tmp_path, monkeypatch):
+    with _http_app(tmp_path, monkeypatch, flag=None) as w:
+        assert w.main.app.state.programs is None and w.face is None
+        for method, template in sorted(D5_EXPECTED):
+            kwargs = {'content': BEAM, 'headers': {'Content-Type': MEL}} if method == 'POST' else {}
+            response = w.c.request(method, V1 + fill(template), **kwargs)
+            assert response.status_code == 503, (method, template)
+            body = response.json()
+            assert (body['kind'], body['code'], body['next_action']) == (
+                'programs_disabled', 'programs_disabled', 'contact_operator')
+            assert response.headers['cache-control'] == 'no-store'
+        tables = w.engineering.store.db.execute(
+            "SELECT name FROM sqlite_master WHERE name LIKE 'program%'").fetchall()
+        assert tables == []
+        assert w.c.get(V1 + '/capabilities').status_code == 200
+
+
+@pytest.mark.parametrize('flag', ['0', 'off', ''])
+def test_http_flag_values_other_than_on_stay_off(tmp_path, monkeypatch, flag):
+    with _http_app(tmp_path, monkeypatch, flag=flag) as w:
+        assert w.main.app.state.programs is None
+        assert w.c.get(V1 + '/mel/meta').status_code == 503
+
+
+def test_http_construction_failure_leaves_v1_routes_working(tmp_path, monkeypatch, caplog):
+    with caplog.at_level(logging.INFO):
+        with _http_app(tmp_path, monkeypatch, recover_fails=True) as w:
+            assert w.main.app.state.programs is None
+            assert w.c.get(V1 + '/mel/meta').json()['code'] == 'programs_disabled'
+            assert w.c.get(V1 + '/capabilities').status_code == 200
+    assert 'construction_failed' in caplog.text and 'secret-recover-detail' not in caplog.text
+
+
+def test_create_program_runtime_off_builds_nothing(monkeypatch):
+    pytest.importorskip('fastapi')
+    from engineering.api_programs import create_program_runtime, programs_enabled
+    monkeypatch.delenv('MIRUM_ENGINEERING_PROGRAMS', raising=False)
+    assert programs_enabled() is False
+    exploding = SimpleNamespace()  # any attribute access would raise AttributeError
+    assert create_program_runtime(exploding) is None
+    assert create_program_runtime(None) is None
+
+
+def test_http_runtime_is_built_over_the_apis_own_services(http):
+    face, engineering = http.face, http.engineering
+    assert isinstance(face, ProgramInterface)
+    assert face.service.store is engineering.store and face.service.jobs is engineering.jobs
+    assert face.service.publisher is engineering.publisher and face.briefs is engineering.briefs
+    assert face.preparation_quota is engineering.quota and isinstance(face.program_quota, ProgramQuota)
+    assert type(http.verifier.real).__name__ == 'DeliveredVerifier'  # the default F07 verifier
+
+
+# ---------------------------------------------------------------------------------- MEL bodies and caps
+
+def test_http_validate_format_plan_on_the_beam(http):
+    ok = post_mel(http, '/mel/validate', BEAM, **{'X-Mirum-Source-Id': 'beam.mir'})
+    assert ok.status_code == 200 and ok.json()['ok'] is True and ok.json()['source_id'] == 'beam.mir'
+    assert ok.json() == json.loads(offline.validate_source(BEAM, 'beam.mir').model_dump_json())
+    fmt = post_mel(http, '/mel/format')
+    assert fmt.status_code == 200 and fmt.json()['formatted_source']
+    plan = post_mel(http, '/mel/plan')
+    assert plan.status_code == 200 and plan.json()['mode'] == 'native' and plan.json()['candidate_count'] >= 1
+
+
+def test_http_413_at_64_kib_plus_one_and_exactly_64_kib_reaches_the_compiler(http, monkeypatch):
+    seen = []
+    original = offline.compile_source
+
+    def spy(source, **kwargs):
+        seen.append(len(source))
+        return original(source, **kwargs)
+    monkeypatch.setattr(offline, 'compile_source', spy)
+    too_big = post_mel(http, '/mel/validate', b' ' * 65537)
+    assert too_big.status_code == 413 and seen == []
+    body = too_big.json()
+    assert (body['kind'], body['code']) == ('too_large', 'body_too_large')
+    assert too_big.headers['cache-control'] == 'no-store'
+    exact = post_mel(http, '/mel/validate', b' ' * 65536)
+    assert exact.status_code == 422 and seen == [65536]
+    assert exact.json()['kind'] == 'invalid_source' and exact.json()['code'] != 'MEL-L022'
+    for path in ('/mel/format', '/mel/plan'):
+        assert post_mel(http, path, b' ' * 65537).status_code == 413
+    pid = make_program(http)
+    assert post_mel(http, f'/programs/{pid}/revisions', b' ' * 65537).status_code == 413
+
+
+@pytest.mark.parametrize('source,code', [
+    (b'\xff\xfe', 'MEL-L001'), (b'\xef\xbb\xbfdesign x {}', 'MEL-L002'), (b'a\x00b', 'MEL-L003')])
+def test_http_invalid_utf8_bom_and_nul_are_mel_diagnostics(http, source, code):
+    for path in ('/mel/validate', '/mel/plan'):
+        response = post_mel(http, path, source)
+        assert response.status_code == 422, path
+        body = response.json()
+        assert (body['kind'], body['code'], body['category']) == ('invalid_source', code, 'lexical')
+        assert body['changed'] == 'nothing_written' and body['next_action'] == 'fix_source'
+
+
+@pytest.mark.parametrize('case', MEL_CASES, ids=[c['id'] for c in MEL_CASES])
+def test_http_mel_error_corpus(http, case):
+    response = post_mel(http, '/mel/validate', _case_source(case), **{'X-Mirum-Source-Id': case['source_id']})
+    assert response.status_code == 422
+    body = response.json()
+    assert (body['kind'], body['code']) == (case['kind'], case['code'])
+    span = body['span']
+    assert [span['line'], span['column'], span['end_line'], span['end_column']] == case['span']
+    assert body['field'] == case['field']
+    assert case['source_id'] != '../x' or '../x' not in response.text
+
+
+def test_http_traversal_source_id_is_s016_and_never_opened(http):
+    for path in ('/mel/validate', '/mel/format', '/mel/plan'):
+        response = post_mel(http, path, BEAM, **{'X-Mirum-Source-Id': '../x'})
+        assert response.status_code == 422 and response.json()['code'] == 'MEL-S016'
+        assert '../x' not in response.text
+    pid = make_program(http)
+    staged = post_mel(http, f'/programs/{pid}/revisions', BEAM, **{'X-Mirum-Source-Id': '../x'})
+    assert staged.status_code == 422 and staged.json()['code'] == 'MEL-S016'
+    assert db_counts(http)[1] == 0
+
+
+def test_http_header_and_media_type_validation(http):
+    pid = make_program(http)
+    long_id = post_mel(http, '/mel/validate', BEAM, **{'X-Mirum-Source-Id': 'a' * 129})
+    assert long_id.status_code == 413 and long_id.json()['code'] == 'header_too_large'
+    bad_parent = post_mel(http, f'/programs/{pid}/revisions', BEAM, **{'X-Mirum-Expected-Parent': 'zz'})
+    assert bad_parent.status_code == 422 and bad_parent.json()['code'] == 'invalid_header'
+    bad_guard = post_mel(http, f'/programs/{pid}/revisions', BEAM, **{'X-Mirum-Require-Requirements': 'abc'})
+    assert bad_guard.status_code == 422 and bad_guard.json()['code'] == 'invalid_header'
+    wrong = http.c.post(V1 + '/mel/validate', content=BEAM, headers=hdr(**{'Content-Type': 'text/plain'}))
+    assert wrong.status_code == 422 and wrong.json()['code'] == 'wrong_media_type'
+    assert db_counts(http)[1] == 0
+
+
+def test_http_small_json_bodies_are_bounded(http):
+    pid = make_program(http)
+    rev = stage_http(http, pid)
+    url = f"{V1}/revisions/{rev['revision_id']}/review"
+    assert http.c.post(url, content=b'{not json', headers=hdr(**{'Content-Type': 'application/json'})
+                       ).json()['code'] == 'malformed_json'
+    assert http.c.post(url, content=b'[]', headers=hdr(**{'Content-Type': 'application/json'})
+                       ).json()['code'] == 'malformed_json'
+    assert http.c.post(url, content=b'{"a":' * 12 + b'1' + b'}' * 12,
+                       headers=hdr(**{'Content-Type': 'application/json'})).json()['code'] == 'json_too_deep'
+    big = http.c.post(url, content=b'{"reviewed_by":"' + b'x' * 65536 + b'"}',
+                      headers=hdr(**{'Content-Type': 'application/json'}))
+    assert big.status_code == 413 and big.json()['kind'] == 'too_large'
+    with_id = http.c.post(url, json=dict(review_body(rev), revision_id=rev['revision_id']), headers=hdr())
+    assert with_id.status_code == 422 and with_id.json()['field'] == 'revision_id'
+    bad = http.c.post(url, json={'brief_sha256': 'nope', 'acknowledged_fields': [], 'reviewed_by': 'x'},
+                      headers=hdr())
+    assert bad.status_code == 422 and bad.json()['code'] == 'invalid_field'
+    assert http.face.service.view(rev['revision_id'], client=ALICE).revision.state == 'staged'
+
+
+# -------------------------------------------------------------------------- stage, review, run, polls
+
+def test_http_stage_review_run_status_flow(http):
+    pid = make_program(http)
+    program = http.c.get(f'{V1}/programs/{pid}', headers=hdr()).json()
+    assert program['program_id'] == pid and program['head_revision_id'] is None and program['current'] is None
+    staged = http.c.post(f'{V1}/programs/{pid}/revisions', content=BEAM,
+                         headers=hdr(**{'Content-Type': MEL, 'X-Mirum-Source-Id': 'beam.mir'}))
+    assert staged.status_code == 201 and staged.headers['cache-control'] == 'no-store'
+    body = staged.json()
+    rev = body['revision']
+    assert rev['state'] == 'staged' and rev['result_kind'] == 'pending' and body['review_fields']
+    reviewed = review_http(http, rev)
+    assert reviewed['state'] == 'staged'
+    run_now = http.c.post(f"{V1}/revisions/{rev['revision_id']}/run", headers=hdr())
+    assert run_now.status_code == 200 and run_now.json()['revision']['state'] == 'running'
+    status = http.c.get(f"{V1}/revisions/{rev['revision_id']}", headers=hdr())
+    assert status.status_code == 200 and status.json()['revision']['revision_id'] == rev['revision_id']
+    history = http.c.get(f'{V1}/programs/{pid}/history', headers=hdr()).json()
+    assert [r['revision_id'] for r in history['revisions']] == [rev['revision_id']]
+
+
+def test_http_run_without_review_is_refused_409(http):
+    rev = stage_http(http, make_program(http))
+    response = http.c.post(f"{V1}/revisions/{rev['revision_id']}/run", headers=hdr())
+    assert response.status_code == 409
+    body = response.json()
+    assert (body['kind'], body['code'], body['next_action']) == ('refused', 'not_finalized', 're_review')
+    assert http.admits == []
+
+
+def test_http_same_revision_run_twice_admits_one_job(http):
+    rev = stage_http(http, make_program(http))
+    review_http(http, rev)
+    url = f"{V1}/revisions/{rev['revision_id']}/run"
+    first, second = http.c.post(url, headers=hdr()), http.c.post(url, headers=hdr())
+    assert first.status_code == second.status_code == 200
+    assert first.json()['revision']['state'] == second.json()['revision']['state'] == 'running'
+    assert http.admits == [('program-revision:' + rev['revision_id'], ALICE)] and http.starts == [1]
+
+
+def test_http_stage_with_requirements_guard_header(http):
+    pid = make_program(http)
+    refused = post_mel(http, f'/programs/{pid}/revisions', BEAM, **{'X-Mirum-Require-Requirements': 'a' * 64})
+    assert refused.status_code == 409
+    assert (refused.json()['kind'], refused.json()['code']) == ('refused', 'requirements_changed')
+    assert db_counts(http)[1] == 0
+
+
+def test_http_cancel_and_compare_and_export(http):
+    pid = make_program(http)
+    rev = stage_http(http, pid)
+    rid = rev['revision_id']
+    diff = http.c.post(f'{V1}/revisions/{rid}/compare', json={'other_revision_id': rid}, headers=hdr())
+    assert diff.status_code == 200 and 'diff' in diff.json()
+    got = http.c.get(f'{V1}/revisions/{rid}/artifacts/program-source', headers=hdr())
+    assert got.status_code == 200 and got.content == BEAM
+    assert got.headers['x-content-sha256'] == hashlib.sha256(BEAM).hexdigest()
+    assert 'filename="program.mir"' in got.headers['content-disposition']
+    assert got.headers['cache-control'] == 'no-store' and got.headers['content-type'].startswith(MEL)
+    cancelled = http.c.post(f'{V1}/revisions/{rid}/cancel', headers=hdr())
+    assert cancelled.status_code == 200 and cancelled.json()['revision']['state'] == 'cancelled'
+
+
+def test_http_export_unknown_format_is_404(http):
+    rid = stage_http(http, make_program(http))['revision_id']
+    odd = http.c.get(f'{V1}/revisions/{rid}/artifacts/nope', headers=hdr())
+    assert odd.status_code == 404 and odd.json()['kind'] == 'not_found'
+    assert http.c.get(f'{V1}/revisions/{rid}/artifacts/..%2Fx', headers=hdr()).status_code == 404
+    assert http.c.get(f'{V1}/revisions/{rid}/artifacts/..%2F..%2Fetc%2Fpasswd', headers=hdr()).status_code == 404
+    assert http.c.get(f'{V1}/revisions/{rid}/artifacts/' + 'a' * 100, headers=hdr()).status_code == 404
+    # A bundle format of a staged revision has nothing to serve.
+    assert http.c.get(f'{V1}/revisions/{rid}/artifacts/step', headers=hdr()).status_code == 404
+
+
+def test_http_50_polls_never_admit_probe_build_or_measure(http):
+    pid = make_program(http)
+    rev = stage_http(http, pid)
+    rid = rev['revision_id']
+    review_http(http, rev)
+    before = (db_counts(http), len(http.admits), len(http.starts), http.stub.probes, http.stub.factory_calls,
+              http.verifier.calls)
+    assert http.stub.probes > 0  # staging did probe: the counters are live
+    calls = [
+        lambda: http.c.get(f'{V1}/revisions/{rid}', headers=hdr()),
+        lambda: http.c.get(f'{V1}/revisions/{rid}/evidence', headers=hdr()),
+        lambda: http.c.get(f'{V1}/programs/{pid}/journal', headers=hdr()),
+        lambda: http.c.get(f'{V1}/programs/{pid}/history', headers=hdr()),
+        lambda: http.c.get(f'{V1}/programs/{pid}', headers=hdr()),
+        lambda: http.c.get(f'{V1}/revisions/{rid}/artifacts/program-source', headers=hdr()),
+        lambda: http.c.post(f'{V1}/revisions/{rid}/compare', json={'other_revision_id': rid}, headers=hdr()),
+    ]
+    for _ in range(50):
+        for call in calls:
+            assert call().status_code == 200
+    after = (db_counts(http), len(http.admits), len(http.starts), http.stub.probes, http.stub.factory_calls,
+             http.verifier.calls)
+    assert after == before
+
+
+# ------------------------------------------------------------------------------ foreign client, ids
+
+def test_http_foreign_client_is_404_identical_to_an_unknown_id_on_every_route(http):
+    pid = make_program(http)
+    rev = stage_http(http, pid)
+    rid = rev['revision_id']
+    review_http(http, rev)
+    bad = '0' * 32
+    review = {'brief_sha256': 'a' * 64, 'acknowledged_fields': [], 'reviewed_by': 'x'}
+    jsonh = hdr('bob', **{'Content-Type': 'application/json'})
+    cases = [
+        ('GET', '/programs/{pid}', {}), ('GET', '/programs/{pid}/history', {}),
+        ('GET', '/programs/{pid}/journal', {}), ('POST', '/programs/{pid}/revisions', {'content': BEAM}),
+        ('GET', '/revisions/{rid}', {}), ('GET', '/revisions/{rid}/evidence', {}),
+        ('POST', '/revisions/{rid}/review', {'json': review}), ('POST', '/revisions/{rid}/run', {}),
+        ('POST', '/revisions/{rid}/cancel', {}), ('POST', '/revisions/{rid}/restore', {}),
+        ('POST', '/revisions/{rid}/rebuild', {}),
+        ('POST', '/revisions/{rid}/compare', {'json': {'other_revision_id': rid}}),
+        ('GET', '/revisions/{rid}/artifacts/program-source', {}),
+    ]
+    assert len(cases) == 13
+    for method, template, kwargs in cases:
+        kwargs = dict(kwargs)
+        headers = dict(jsonh)
+        if 'content' in kwargs:
+            headers['Content-Type'] = MEL
+        foreign = http.c.request(method, V1 + fill(template, pid, rid, 'program-source'), headers=headers, **kwargs)
+        unknown = http.c.request(method, V1 + fill(template, bad, bad, 'program-source'), headers=headers, **kwargs)
+        assert foreign.status_code == unknown.status_code == 404, (method, template)
+        assert foreign.json() == unknown.json() and foreign.json()['kind'] == 'not_found', (method, template)
+        assert pid not in foreign.text and rid not in foreign.text
+    # A foreign client changed nothing.
+    assert http.face.service.view(rid, client=ALICE).revision.state == 'staged'
+    assert http.admits == []
+
+
+def test_http_malformed_ids_are_not_found(http):
+    for template in ('/revisions/{rid}', '/programs/{pid}/history', '/revisions/{rid}/evidence'):
+        response = http.c.get(V1 + fill(template, 'not-an-id', 'not-an-id'), headers=hdr())
+        assert response.status_code == 404 and response.json()['kind'] == 'not_found'
+
+
+def test_http_no_draft_brief_or_job_id_in_any_response(http):
+    pid = make_program(http)
+    rev = stage_http(http, pid)
+    rid = rev['revision_id']
+    reviewed = review_http(http, rev)
+    full = http.face.service.view(rid, client=ALICE).revision
+    http.c.post(f'{V1}/revisions/{rid}/run', headers=hdr())
+    with http.face.service.store.transaction() as db:
+        brief_id = db.execute('SELECT id FROM briefs').fetchone()[0]
+    bodies = [
+        http.c.post(f'{V1}/programs', headers=hdr()),
+        http.c.get(f'{V1}/programs/{pid}', headers=hdr()), http.c.get(f'{V1}/programs/{pid}/history', headers=hdr()),
+        http.c.get(f'{V1}/programs/{pid}/journal', headers=hdr()),
+        http.c.get(f'{V1}/revisions/{rid}', headers=hdr()), http.c.get(f'{V1}/revisions/{rid}/evidence', headers=hdr()),
+        http.c.post(f'{V1}/revisions/{rid}/compare', json={'other_revision_id': rid}, headers=hdr()),
+        http.c.post(f'{V1}/revisions/{rid}/run', headers=hdr()),
+        http.c.get(f'{V1}/revisions/{rid}/artifacts/program-ir', headers=hdr()),
+        http.c.get(f'{V1}/revisions/{rid}/artifacts/execution-lock', headers=hdr()),
+    ]
+    texts = [json.dumps(reviewed)] + [b.text for b in bodies]
+    journal = bodies[3].json()['journal']
+    assert [line['event'] for line in journal][:1] == ['staged'] and any(l['event'] == 'linked' for l in journal)
+    for text in texts:
+        for needle in ('draft_id', 'brief_id', 'job_id', full.draft_id, brief_id, JOB_ID):
+            assert needle not in text, needle
+
+
+def test_http_request_log_masks_program_revision_and_mel_ids(http, caplog):
+    pid = make_program(http)
+    rid = stage_http(http, pid)['revision_id']
+    with caplog.at_level(logging.INFO, logger='mirum.api'):
+        assert http.c.get(f'{V1}/programs/{pid}/history', headers=hdr()).status_code == 200
+        assert http.c.get(f'{V1}/revisions/{rid}', headers=hdr()).status_code == 200
+        assert http.c.get(f'{V1}/revisions/{rid}/artifacts/program-source', headers=hdr()).status_code == 200
+        assert http.c.get(f'{V1}/revisions/{rid}/artifacts/nope', headers=hdr()).status_code == 404
+        assert post_mel(http, '/mel/validate').status_code == 200
+        http.c.get(f'{V1}/revisions/{"f" * 32}/artifacts/zip', headers=hdr())
+    assert pid not in caplog.text and rid not in caplog.text and 'f' * 32 not in caplog.text
+    assert '/engineering/v1/programs/{pid}/history' in caplog.text
+    assert '/engineering/v1/revisions/{rid}' in caplog.text and '/engineering/v1/mel/validate' in caplog.text
+
+
+def test_uvicorn_access_log_mask_covers_programs_revisions_and_mel(http):
+    main = http.main
+    secret = 'd' * 32
+    for kind in ('programs', 'revisions', 'mel'):
+        record = logging.LogRecord('uvicorn.access', logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d',
+                                   ('1.2.3.4:5', 'GET', f'{V1}/{kind}/{secret}/history?x=1', '1.1', 200), None)
+        assert main._MaskEngineeringIds().filter(record) is True
+        assert secret not in record.getMessage() and f'{V1}/{kind}/{{id}}/history?x=1' in record.getMessage()
+
+
+# ------------------------------------------------------------------------------- quotas and slots (429)
+
+def tighten(w, monkeypatch, **limits):
+    for name, value in limits.items():
+        monkeypatch.setenv(PROGRAM_QUOTA_ENV[name], str(value))
+    w.face.program_quota = ProgramQuota.from_env(w.face.service.store)
+
+
+def assert_busy(response, code):
+    assert response.status_code == 429, response.text
+    body = response.json()
+    assert (body['kind'], body['code'], body['retryable']) == ('busy', code, True)
+    assert response.headers['retry-after'] == str(body['retry_after'])
+    assert body['changed'] == 'nothing_written' and body['next_action'] == 'retry_later'
+
+
+def test_http_429_program_quota(http, monkeypatch):
+    tighten(http, monkeypatch, programs=1)
+    make_program(http)
+    assert_busy(http.c.post(V1 + '/programs', headers=hdr()), 'quota_programs')
+    assert http.c.post(V1 + '/programs', headers=hdr('bob')).status_code == 201  # per client
+    assert db_counts(http)[0] == 2
+
+
+def test_http_429_staged_quota(http, monkeypatch):
+    tighten(http, monkeypatch, staged=1)
+    pid = make_program(http)
+    stage_http(http, pid)
+    assert_busy(post_mel(http, f'/programs/{pid}/revisions'), 'quota_staged')
+    assert db_counts(http)[1] == 1
+
+
+def test_http_429_operations_quota(http, monkeypatch):
+    tighten(http, monkeypatch, operations=1)
+    pid = make_program(http)
+    rid = stage_http(http, pid)['revision_id']
+    assert http.c.post(f'{V1}/revisions/{rid}/cancel', headers=hdr()).status_code == 200
+    assert_busy(post_mel(http, f'/programs/{pid}/revisions'), 'quota_operations')
+
+
+def test_http_429_payload_bytes_quota(http, monkeypatch):
+    tighten(http, monkeypatch, payload_bytes=len(BEAM) + 1)
+    pid = make_program(http)
+    stage_http(http, pid)
+    assert_busy(post_mel(http, f'/programs/{pid}/revisions'), 'quota_bytes')
+
+
+def test_http_quota_env_cannot_loosen(http, monkeypatch):
+    tighten(http, monkeypatch, programs=999)
+    assert http.face.program_quota.limits['programs'] == PROGRAM_QUOTA_DEFAULTS['programs'] == 8
+
+
+def test_http_429_stage_slot_and_stateless_semaphore(http):
+    pid = make_program(http)
+    face = http.face
+    asyncio.run(face._slot.acquire())
+    try:
+        busy = post_mel(http, f'/programs/{pid}/revisions')
+        assert_busy(busy, 'slot_busy')
+        assert busy.headers['retry-after'] == '2'
+        rebuild = http.c.post(f'{V1}/revisions/{"0" * 32}/rebuild', headers=hdr())
+        assert rebuild.status_code in (404, 429)
+    finally:
+        face._slot.release()
+    assert db_counts(http)[1] == 0
+    assert post_mel(http, f'/programs/{pid}/revisions').status_code == 201
+    asyncio.run(face._stateless.acquire())
+    asyncio.run(face._stateless.acquire())
+    try:
+        for path in ('/mel/validate', '/mel/format', '/mel/plan'):
+            assert_busy(post_mel(http, path), 'slot_busy')
+        assert http.c.get(V1 + '/mel/meta', headers=hdr()).status_code == 200  # meta needs no slot
+    finally:
+        face._stateless.release()
+        face._stateless.release()
+    assert post_mel(http, '/mel/validate').status_code == 200
