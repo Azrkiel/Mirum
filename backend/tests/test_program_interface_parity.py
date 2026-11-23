@@ -686,3 +686,449 @@ def test_cli_runs_as_module_offline():
                           capture_output=True, text=True, timeout=120, env=env, cwd=str(ROOT))
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert json.loads(proc.stdout)['ok'] is True
+
+
+# ================================================================================ MCP server (task 5)
+
+from engineering.program import mcp as M  # noqa: E402
+
+
+def offline_server_handler(method, url, headers, body):
+    """Fake API: the stateless MEL routes run the very offline functions the server runs."""
+    for name, fn in (('validate', offline.validate_source), ('format', offline.format_source),
+                     ('plan', offline.plan_source)):
+        if url.endswith('/mel/' + name):
+            sid = headers.get('X-Mirum-Source-Id')
+            try:
+                return 200, {'content-type': 'application/json'}, body_of(fn(body, sid))
+            except api.InterfaceFailure as exc:
+                return api.http_status(exc.error), {'content-type': 'application/json'}, body_of(exc.error)
+    raise AssertionError('unexpected route ' + url)
+
+
+def rpc(server, method, params=None, rid=1):
+    msg = {'jsonrpc': '2.0', 'id': rid, 'method': method}
+    if params is not None:
+        msg['params'] = params
+    return server.handle(msg)
+
+
+def call(server, name, arguments):
+    resp = rpc(server, 'tools/call', {'name': name, 'arguments': arguments})
+    result = resp['result']
+    assert result['content'][0]['type'] == 'text'
+    assert json.loads(result['content'][0]['text']) == result['structuredContent']
+    return result['structuredContent'], result['isError']
+
+
+def make_server(handler, token=None):
+    fake = Fake(handler)
+    return M.McpServer(C.ProgramClient(URL, token=token, transport=fake)), fake
+
+
+def mcp_server(handler=no_network, token=None):
+    return make_server(handler, token)[0]
+
+
+# ------------------------------------------------------------------------------------------ protocol
+
+def test_initialize_echoes_supported_version():
+    resp = rpc(mcp_server(), 'initialize', {'protocolVersion': '2025-03-26', 'capabilities': {}})
+    assert resp['id'] == 1 and resp['result']['protocolVersion'] == '2025-03-26'
+    assert resp['result']['capabilities'] == {'tools': {}}
+    assert resp['result']['serverInfo']['name'] == M.SERVER_NAME
+    resp = rpc(mcp_server(), 'initialize', {'protocolVersion': '1999-01-01'})
+    assert resp['result']['protocolVersion'] in M.SUPPORTED_PROTOCOL_VERSIONS
+
+
+def test_ping_and_notifications():
+    server = mcp_server()
+    assert rpc(server, 'ping')['result'] == {}
+    assert server.handle({'jsonrpc': '2.0', 'method': 'notifications/initialized'}) is None
+    assert server.handle({'jsonrpc': '2.0', 'method': 'no/such'}) is None
+    assert server.handle({'jsonrpc': '2.0', 'id': 4, 'result': {}}) is None
+
+
+def test_unknown_method_and_malformed():
+    server = mcp_server()
+    assert rpc(server, 'no/such')['error']['code'] == -32601
+    assert server.handle(b'{not json')['error']['code'] == -32700
+    assert server.handle(b'\xff\xfe')['error']['code'] == -32700
+    for bad in ([], [{'jsonrpc': '2.0', 'id': 1, 'method': 'ping'}], 5, {'id': 1},
+                {'jsonrpc': '1.0', 'id': 1, 'method': 'ping'}, {'jsonrpc': '2.0', 'id': True, 'method': 'ping'},
+                {'jsonrpc': '2.0', 'id': 1, 'method': 7}):
+        assert server.handle(bad)['error']['code'] == -32600, bad
+    assert server.handle({'jsonrpc': '2.0', 'id': 1, 'method': 'ping', 'params': 3})['error']['code'] == -32602
+
+
+def test_deep_json_is_refused():
+    deep = b'{"jsonrpc":"2.0","id":1,"method":"ping","params":' + b'[' * 50 + b']' * 50 + b'}'
+    assert mcp_server().handle(deep)['error']['code'] == -32600
+    assert mcp_server().handle(b'[' * 100000)['error']['code'] in (-32700, -32600)
+
+
+def test_oversize_message_is_refused():
+    big = b'{"jsonrpc":"2.0","id":1,"method":"ping","params":{"x":"' + b'a' * api.MAX_MCP_MESSAGE_BYTES + b'"}}'
+    assert mcp_server().handle(big)['error']['code'] == -32600
+
+
+# ------------------------------------------------------------------------------------------ tool set
+
+def tool_list():
+    return rpc(mcp_server(), 'tools/list')['result']['tools']
+
+
+def test_tool_set_is_exactly_d12():
+    expected = ['validate', 'format', 'plan', 'propose', 'status', 'inspect', 'history', 'diff', 'run', 'cancel']
+    assert sorted(t['name'] for t in tool_list()) == sorted(expected)
+    assert set(M.tool_names()) == set(api.MCP_TOOL_NAMES) == set(expected)
+    names = {t['name'] for t in tool_list()}
+    assert not names & {'create', 'program_create', 'stage', 'review', 'restore', 'rebuild', 'export'}
+
+
+@pytest.mark.parametrize('name', ['create', 'program_create', 'stage', 'review', 'restore', 'rebuild', 'export',
+                                  'nope', '', 5, None])
+def test_non_exposed_tools_are_refused_without_a_request(name):
+    resp = rpc(mcp_server(), 'tools/call', {'name': name, 'arguments': {}})
+    assert resp['error']['code'] == -32602 and 'result' not in resp
+
+
+def test_input_schemas_match_models_and_registry():
+    for tool in tool_list():
+        spec = api.OPERATIONS_BY_NAME[tool['name']]
+        schema = tool['inputSchema']
+        fields = {n for n in spec.input_model.model_fields if n != 'api_version'}
+        if spec.body == 'mel':
+            fields.add('source')
+        assert set(schema['properties']) == fields, tool['name']
+        assert schema['additionalProperties'] is False
+        assert schema == api.mcp_input_schema(tool['name'])
+        assert tool['annotations']['readOnlyHint'] is (not spec.mutating)
+
+
+def test_schema_scan_no_path_url_dir_arguments():
+    import re
+    bad = re.compile(r'path|url|uri|file|dir|directory|host', re.I)
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == 'properties':
+                    for prop, sub in value.items():
+                        assert not bad.search(prop), prop
+                        assert not bad.search(str(sub.get('description', ''))), prop
+                if key == 'description':
+                    assert not bad.search(str(value)), value
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+    walk(tool_list())
+
+
+# ---------------------------------------------------------------------------- argument validation
+
+@pytest.mark.parametrize('name,args', [
+    ('validate', {}), ('validate', {'source': 5}), ('validate', {'source': 'x', 'extra': 1}),
+    ('validate', {'source': 'x', 'source_id': ''}), ('validate', {'source': 'x', 'path': '/etc/passwd'}),
+    ('status', {}), ('status', {'revision_id': 'zz'}), ('status', {'revision_id': RID, 'url': 'http://x'}),
+    ('diff', {'revision_id': RID}), ('history', {'program_id': 5}), ('propose', {'program_id': PID}),
+    ('propose', {'source': 'x'}), ('run', {'revision_id': RID, 'job_id': 'x'}),
+])
+def test_invalid_arguments_never_reach_the_api(name, args):
+    payload, is_error = call(mcp_server(), name, args)
+    assert is_error and payload['kind'] in ('invalid_request', 'not_found') and payload['changed'] == 'nothing_written'
+
+
+def test_lone_surrogate_source_is_invalid_field():
+    payload, is_error = call(mcp_server(), 'validate', {'source': chr(0xd800)})
+    assert is_error and payload['code'] == 'invalid_field' and payload['field'] == 'source'
+
+
+def test_source_cap_is_in_utf8_bytes():
+    ok = 'a' * api.MAX_MEL_BODY_BYTES
+    server, fake = make_server(const(api.FormatResult(formatted_source='x', formatted_sha256=SHA, unchanged=True)))
+    payload, is_error = call(server, 'format', {'source': ok})
+    assert not is_error and len(fake.calls[0][3]) == api.MAX_MEL_BODY_BYTES
+    two_byte = chr(0xe9) * (api.MAX_MEL_BODY_BYTES // 2 + 1)
+    assert len(two_byte) <= api.MAX_MEL_BODY_BYTES
+    payload, is_error = call(mcp_server(), 'format', {'source': two_byte})
+    assert is_error and payload['kind'] == 'too_large' and payload['code'] == 'body_too_large'
+    payload, is_error = call(mcp_server(), 'validate', {'source': ok + 'a'})
+    assert is_error and payload['kind'] == 'too_large'
+
+
+# ------------------------------------------------------------------- offline parity (same functions)
+
+def test_validate_format_plan_equal_offline_outputs():
+    server = mcp_server(offline_server_handler)
+    source = BEAM.read_bytes()
+    text = source.decode('ascii')
+    for name, fn in (('validate', offline.validate_source), ('format', offline.format_source),
+                     ('plan', offline.plan_source)):
+        payload, is_error = call(server, name, {'source': text, 'source_id': 'beam.mir'})
+        assert not is_error
+        assert payload == json.loads(fn(source, 'beam.mir').model_dump_json()), name
+        code, out, _err = run_cli(['--offline', name, str(BEAM), '--source-id', 'beam.mir'])
+        assert code == 0 and json.loads(out) == payload, name
+
+
+@pytest.mark.parametrize('case,source', mel_cases(), ids=[c['id'] for c, _ in mel_cases()])
+def test_mel_codes_through_mcp_match_fixture(case, source):
+    payload, is_error = call(mcp_server(offline_server_handler), 'validate',
+                             {'source': source, 'source_id': case['source_id']})
+    assert is_error
+    assert payload['code'] == case['code'] and payload['kind'] == case['kind'] and payload['field'] == case['field']
+    if case['kind'] == 'unsupported':
+        assert payload['next_action'] == 'use_supported_capability'
+    if payload.get('span'):
+        line, column, end_line, end_column = case['span']
+        assert (payload['span']['line'], payload['span']['column'], payload['span']['end_line'],
+                payload['span']['end_column']) == (line, column, end_line, end_column)
+
+
+def test_python_like_source_never_executes(tmp_path):
+    marker = tmp_path / 'ran'
+    src = f"import os\nopen({str(marker)!r}, 'w')\n"
+    payload, is_error = call(mcp_server(offline_server_handler), 'validate', {'source': src})
+    assert is_error and payload['kind'] == 'invalid_source' and not marker.exists()
+
+
+# ---------------------------------------------------------------------------------------------- propose
+
+def head_view(head=RID, fixed='b' * 64):
+    revs = (rev(revision_id=head, fixed_requirements_sha256=fixed),) if head else ()
+    return api.HistoryView(program_id=PID, head_revision_id=head, revisions=revs)
+
+
+def propose_handler(history, stage_response=None):
+    def handler(method, url, headers, body):
+        if url.endswith('/history'):
+            return 200, {}, body_of(history)
+        if url.endswith('/revisions') and method == 'POST':
+            return 201, {}, body_of(stage_response or api.StageResponse(revision=rev()))
+        raise AssertionError(url)
+    return handler
+
+
+def test_propose_sends_guard_header_from_head():
+    server, fake = make_server(propose_handler(head_view(fixed='c' * 64)), token=TOKEN)
+    payload, is_error = call(server, 'propose', {'program_id': PID, 'source': 'x\n', 'source_id': 'a.mir',
+                                                 'expected_parent': RID})
+    assert not is_error and payload['revision']['state'] == 'staged'
+    stage = [c for c in fake.calls if c[0] == 'POST'][0]
+    assert stage[1].endswith(f'/programs/{PID}/revisions')
+    assert stage[2]['X-Mirum-Require-Requirements'] == 'c' * 64
+    assert stage[2]['X-Mirum-Expected-Parent'] == RID and stage[3] == b'x\n'
+    assert not any('/review' in c[1] or '/run' in c[1] for c in fake.calls)
+
+
+def test_propose_without_head_never_stages():
+    server, fake = make_server(propose_handler(head_view(head=None)))
+    payload, is_error = call(server, 'propose', {'program_id': PID, 'source': 'x\n'})
+    assert is_error and payload['kind'] == 'refused' and payload['code'] == 'requirements_changed'
+    assert payload['changed'] == 'nothing_written'
+    assert [c[0] for c in fake.calls] == ['GET']
+
+
+def test_propose_server_refusal_passes_through():
+    err = api.error('requirements_changed')
+    server = mcp_server(lambda m, u, h, b: (200, {}, body_of(head_view())) if u.endswith('/history')
+                        else (api.http_status(err), {}, body_of(err)))
+    payload, is_error = call(server, 'propose', {'program_id': PID, 'source': 'x'})
+    assert is_error and payload == json.loads(body_of(err))
+
+
+# --------------------------------------------------------------------------------- error passthrough
+
+@pytest.mark.parametrize('err', [
+    api.error('stale_parent'), api.error('capacity'), api.unavailable(), api.error('mock_backend'),
+    api.error('lock_mismatch'), api.not_found(), api.too_large(),
+], ids=lambda e: e.code)
+def test_envelopes_pass_through_unchanged(err):
+    payload, is_error = call(mcp_server(err_handler(err)), 'status', {'revision_id': RID})
+    assert is_error is True
+    assert payload == json.loads(body_of(err))
+    for key in ('kind', 'code', 'retryable', 'next_action'):
+        assert payload[key] == getattr(err, key)
+
+
+def test_busy_keeps_retry_after():
+    err = api.busy('admission_busy', retry_after=17)
+    payload, is_error = call(mcp_server(err_handler(err)), 'run', {'revision_id': RID})
+    assert is_error and payload['kind'] == 'busy' and payload['retry_after'] == 17 and payload['retryable'] is True
+
+
+def test_invalid_source_and_unsupported_stay_distinct():
+    server = mcp_server(offline_server_handler)
+    inv, _ = call(server, 'validate', {'source': 'import os\n'})
+    uns_src = BEAM.read_text('ascii').replace('"rectangular_cantilever"', '"other_thing"')
+    uns, _ = call(server, 'validate', {'source': uns_src})
+    assert inv['kind'] == 'invalid_source' and uns['kind'] == 'unsupported' and uns['code'] == 'MEL-S011'
+    assert uns['next_action'] == 'use_supported_capability'
+
+
+def test_rejected_run_is_a_result_not_an_error():
+    resp = api.RevisionResponse(revision=rev(state='rejected', result_kind='rejected', reason='policy_rejected'))
+    payload, is_error = call(mcp_server(const(resp)), 'run', {'revision_id': RID})
+    assert is_error is False and payload['revision']['result_kind'] == 'rejected'
+
+
+def test_transport_failures_use_fixed_envelope():
+    def boom(*_a):
+        raise RuntimeError('secret detail ' + TOKEN)
+    payload, is_error = call(mcp_server(boom, token=TOKEN), 'status', {'revision_id': RID})
+    assert is_error and payload == {'kind': 'transport_error', 'code': 'internal_error'}
+
+    def refuse(*_a):
+        raise C.TransportError('connection_failed')
+    payload, is_error = call(mcp_server(refuse), 'status', {'revision_id': RID})
+    assert is_error and payload == {'kind': 'transport_error', 'code': 'connection_failed'}
+    payload, is_error = call(mcp_server(lambda *a: (500, {}, b'junk')), 'status', {'revision_id': RID})
+    assert is_error and payload['kind'] == 'transport_error'
+
+
+def test_token_never_in_output():
+    server, fake = make_server(lambda *a: (500, {}, TOKEN.encode()), token=TOKEN)
+    outputs = [rpc(server, 'tools/list'), rpc(server, 'initialize', {})]
+    outputs.append(call(server, 'status', {'revision_id': RID}))
+    outputs.append(call(server, 'status', {'revision_id': RID, 'token': TOKEN}))
+    outputs.append(rpc(server, 'tools/call', {'name': TOKEN, 'arguments': {}}))
+    assert TOKEN not in json.dumps(outputs)
+    assert fake.calls[0][2]['X-Mirum-Access-Token'] == TOKEN
+    assert 'token' not in json.dumps(tool_list()).lower()
+
+
+def test_each_tool_reaches_its_route():
+    expected = {'status': ('GET', f'/revisions/{RID}'), 'run': ('POST', f'/revisions/{RID}/run'),
+                'cancel': ('POST', f'/revisions/{RID}/cancel'), 'inspect': ('GET', f'/revisions/{RID}/evidence'),
+                'history': ('GET', f'/programs/{PID}/history'), 'diff': ('POST', f'/revisions/{RID}/compare')}
+    args = {'status': {'revision_id': RID}, 'run': {'revision_id': RID}, 'cancel': {'revision_id': RID},
+            'inspect': {'revision_id': RID}, 'history': {'program_id': PID},
+            'diff': {'revision_id': RID, 'other_revision_id': RID2}}
+    models = {s[0]: s[5] for s in SHAPES}
+    for name, (method, path) in expected.items():
+        server, fake = make_server(const(models[name]))
+        payload, is_error = call(server, name, args[name])
+        assert not is_error, name
+        assert (fake.calls[0][0], fake.calls[0][1]) == (method, URL + api.API_PREFIX + path)
+
+
+# ------------------------------------------------------------------------------------------ stdio loop
+
+def run_loop(lines: bytes, server=None):
+    stdin, stdout, stderr = io.BytesIO(lines), io.BytesIO(), io.StringIO()
+    M.serve(server or mcp_server(), stdin, stdout, stderr)
+    return [json.loads(x) for x in stdout.getvalue().splitlines()], stderr.getvalue()
+
+
+def test_stdio_loop_roundtrip():
+    lines = (b'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}\n'
+             b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n'
+             b'\n'
+             b'{"jsonrpc":"2.0","id":2,"method":"tools/list"}\r\n'
+             b'garbage\n'
+             b'{"jsonrpc":"2.0","id":3,"method":"ping"}')
+    out, err = run_loop(lines)
+    assert [o.get('id') for o in out] == [1, 2, None, 3]
+    assert len(out[1]['result']['tools']) == 10 and out[2]['error']['code'] == -32700
+    assert err == 'mirum-mcp: started\nmirum-mcp: stopped\n'
+
+
+def test_stdio_oversize_line_is_discarded_and_loop_continues():
+    cap = api.MAX_MCP_MESSAGE_BYTES
+    big = b'x' * (cap * 2 + 7)
+    out, err = run_loop(b'{"jsonrpc":"2.0","id":1,"method":"ping"}\n' + big + b'\n{"jsonrpc":"2.0","id":2,"method":"ping"}\n')
+    assert [o.get('id') for o in out] == [1, None, 2]
+    assert out[1]['error']['code'] == -32600 and 'oversize' in err
+    assert 'x' * 10 not in err
+
+
+def test_stdio_line_exactly_at_cap_is_accepted():
+    cap = api.MAX_MCP_MESSAGE_BYTES
+    head = b'{"jsonrpc":"2.0","id":1,"method":"ping","params":{"p":"'
+    tail = b'"}}'
+    line = head + b'a' * (cap - len(head) - len(tail)) + tail
+    assert len(line) == cap
+    out, _err = run_loop(line + b'\n')
+    assert out[0]['result'] == {}
+    out, _err = run_loop(line + b'a\n')
+    assert out[0]['error']['code'] == -32600
+
+
+def test_stdio_reader_never_buffers_more_than_cap():
+    sizes = []
+
+    class Spy(io.BytesIO):
+        def readline(self, size=-1):
+            sizes.append(size)
+            return super().readline(size)
+    M.serve(mcp_server(), Spy(b'y' * (api.MAX_MCP_MESSAGE_BYTES * 3) + b'\n'), io.BytesIO(), None)
+    assert sizes and all(s == api.MAX_MCP_MESSAGE_BYTES + 1 for s in sizes)
+
+
+def test_main_requires_url_and_hides_token():
+    err = io.StringIO()
+    assert M.main(environ={}, stdin=io.BytesIO(b''), stdout=io.BytesIO(), stderr=err) == 1
+    err = io.StringIO()
+    assert M.main(environ={'MIRUM_API_URL': 'ftp://x', 'MIRUM_ACCESS_TOKEN': TOKEN}, stdin=io.BytesIO(b''),
+                  stdout=io.BytesIO(), stderr=err) == 1
+    assert TOKEN not in err.getvalue() and 'ftp' not in err.getvalue()
+    out = io.BytesIO()
+    err = io.StringIO()
+    code = M.main(environ={'MIRUM_API_URL': URL, 'MIRUM_ACCESS_TOKEN': TOKEN},
+                  stdin=io.BytesIO(b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n'), stdout=out, stderr=err,
+                  transport=no_network)
+    assert code == 0 and TOKEN not in out.getvalue().decode() + err.getvalue()
+
+
+MCP_PIN = '''
+import sys
+sys.path[:0] = [{backend!r}, {root!r}]
+import engineering.program.mcp as mcp
+import io
+out = io.BytesIO()
+mcp.main(environ={{"MIRUM_API_URL": "http://api.test"}}, stdin=io.BytesIO(
+    b'{{"jsonrpc":"2.0","id":1,"method":"tools/list"}}\\n'), stdout=out, stderr=io.StringIO())
+assert b'"validate"' in out.getvalue()
+bad = sorted(m for m in sys.modules if m.split(".")[0] in {banned!r} or m in {banned_modules!r})
+print("BAD", bad)
+'''
+
+
+def test_mcp_import_pin_subprocess():
+    code = MCP_PIN.format(backend=str(BACKEND), root=str(ROOT), banned=BANNED_TOP,
+                          banned_modules=BANNED_MODULES + ('engineering.program.offline',))
+    proc = subprocess.run([sys.executable, '-I', '-c', code], capture_output=True, text=True, timeout=120,
+                          cwd=str(ROOT))
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    assert proc.stdout.strip().splitlines()[-1] == 'BAD []', proc.stdout
+
+
+def test_mcp_runs_as_module_over_pipes():
+    env = {k: v for k, v in os.environ.items() if not k.startswith('MIRUM_')}
+    env['PYTHONPATH'] = os.pathsep.join([str(BACKEND), str(ROOT)])
+    env['MIRUM_API_URL'] = URL
+    env['MIRUM_ACCESS_TOKEN'] = TOKEN
+    stdin = (b'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}\n'
+             b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n'
+             b'{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n')
+    proc = subprocess.run([sys.executable, '-m', 'engineering.program.mcp'], input=stdin, capture_output=True,
+                          timeout=120, env=env, cwd=str(ROOT))
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    lines = [json.loads(x) for x in proc.stdout.splitlines()]
+    assert [x['id'] for x in lines] == [1, 2]
+    assert {t['name'] for t in lines[1]['result']['tools']} == set(api.MCP_TOOL_NAMES)
+    assert TOKEN.encode() not in proc.stdout + proc.stderr
+
+
+# ------------------------------------------------------------------------------------------ no AI refs
+
+def test_program_modules_never_mention_ai_or_provider_names():
+    import re
+    names = ['mcp.py', 'client.py', 'cli.py', 'facade.py', 'offline.py', 'interface.py']
+    paths = [BACKEND / 'engineering' / 'program' / n for n in names] + [BACKEND / 'engineering' / 'api_programs.py']
+    pattern = re.compile(r'\bproposer\b|proposal_contract|AiCallBudget|genai|GEMINI')
+    for path in paths:
+        if path.exists():
+            assert not pattern.search(path.read_text('utf-8')), path.name
