@@ -1132,3 +1132,635 @@ def test_program_modules_never_mention_ai_or_provider_names():
     for path in paths:
         if path.exists():
             assert not pattern.search(path.read_text('utf-8')), path.name
+
+
+# ====================================================================== cross-transport parity (task 6)
+# One app (main.app, flag on, tmp data dir) per test; the same request goes through four paths:
+#   facade = the app's own ProgramInterface called on the app's event loop,
+#   http   = raw TestClient requests,
+#   cli    = cli.main(argv) with a transport that forwards to the same TestClient,
+#   mcp    = McpServer(ProgramClient(transport=same adapter)).handle(tools/call).
+# fastapi, httpx and posix are required: the apps are built lazily in fixtures (importorskip) and the tests
+# skip on the Windows laptop; they run in the Linux CI shards. The tests that need a native kernel
+# (cadquery) additionally run only in the native shards.
+
+import asyncio  # noqa: E402
+import contextlib  # noqa: E402
+import socket  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+import uuid  # noqa: E402
+from collections import namedtuple  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+from engineering.admission import AdmissionBusy  # noqa: E402
+from engineering.contracts import REVIEW_FIELDS  # noqa: E402
+from engineering.program.kernel import ProbeResult  # noqa: E402
+from engineering.program.planning import PlanRefusal  # noqa: E402
+from tests.test_program_interface_api import StubAdapter  # noqa: E402
+from tests.test_program_revisions import _replay, evals  # noqa: E402,F401  (evals: native fixture)
+
+BEAM_BYTES = BEAM.read_bytes()
+BEAM_5_10_BYTES = (FIXTURES / 'beam_5_10.mir').read_bytes()
+BASE = 'http://testserver'
+V1 = api.API_PREFIX
+PATHS = ('facade', 'http', 'cli', 'mcp')
+Outcome = namedtuple('Outcome', 'ok body signal headers')
+
+_DROP_KEYS = frozenset({'revision_id', 'program_id', 'parent', 'evidence_revision_id', 'derived_from',
+                        'head_revision_id', 'other_revision_id', 'created', 'updated', 'bundle'})
+
+
+def norm(value):
+    """Drop ids, timestamps (*_at, created, updated) and per-job bundle digests; keep everything else."""
+    if isinstance(value, dict):
+        return {k: norm(v) for k, v in value.items() if k not in _DROP_KEYS and not k.endswith('_at')}
+    if isinstance(value, list):
+        return [norm(v) for v in value]
+    return value
+
+
+def test_norm_drops_ids_and_timestamps_only():
+    body = {'revision': {'revision_id': RID, 'program_id': PID, 'parent': None, 'state': 'staged',
+                         'created_at': STAMP, 'updated_at': STAMP, 'source_id': 'a.mir',
+                         'source_sha256': SHA, 'bundle': {'manifest_sha256': SHA}},
+            'items': [{'revision_id': RID, 'seq': 3, 'created_at': STAMP}], 'span': {'source_id': 'a.mir'}}
+    assert norm(body) == {'revision': {'state': 'staged', 'source_id': 'a.mir', 'source_sha256': SHA},
+                          'items': [{'seq': 3}], 'span': {'source_id': 'a.mir'}}
+
+
+class ParityStub(StubAdapter):
+    """The api-test stub adapter with a switchable probe. ``mode`` may be set on the instance to 'mock'."""
+    available = True
+
+    async def probe(self):
+        if self.available:
+            return ProbeResult(backend='occt', mode='native', available=True)
+        return ProbeResult(backend='occt', mode='native', available=False, reasons=('probe_failed',))
+
+
+class PWorld:
+    def on_loop(self, coro):
+        """Run a coroutine on the app's own event loop (the one the service tasks live on)."""
+        async def _await(inner):
+            return await inner
+        return self.c.portal.call(_await, coro)
+
+
+@contextlib.contextmanager
+def parity_app(tmp_path, monkeypatch, mode='stub', *, evals=None, strict=False):
+    """mode: 'stub' = stub adapter + stubbed job controller (no native kernel, runs go to 'running');
+    'replay' = real adapters and verifier, jobs replay captured native evaluations; 'native' = all real."""
+    if strict:
+        import fastapi  # noqa: F401
+        import httpx  # noqa: F401
+    else:
+        pytest.importorskip('fastapi')
+        pytest.importorskip('httpx')
+    if os.name != 'posix':
+        pytest.skip('the app uses the posix SQLiteStore')
+    if mode != 'stub':
+        pytest.importorskip('cadquery')
+    import importlib
+    os.environ.setdefault('GEMINI_API_KEY_HEAVY', 'offline-fixture-never-sent')
+    main = importlib.import_module('main')
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv('MIRUM_ENGINEERING_DATA_DIR', str(Path(tmp_path) / 'engineering'))
+    monkeypatch.setenv('MIRUM_ENGINEERING_PROGRAMS', '1')
+    monkeypatch.setenv('MIRUM_ACCESS_TOKEN', TOKEN)
+    monkeypatch.setattr(main.limiter, 'enabled', False)
+    # The client identity is a test header, exactly the identity the routes read from the limiter key.
+    monkeypatch.setattr(main.limiter, '_key_func', lambda request: request.headers.get('x-test-client', 'parity'))
+    with TestClient(main.app) as client:
+        main.app.state.limiter.reset()
+        w = PWorld()
+        w.c, w.main = client, main
+        w.face = main.app.state.programs
+        assert w.face is not None
+        w.service = w.face.service
+        w.stub = ParityStub()
+        w.admitted = []
+        if mode == 'stub':
+            w.service.adapter_factory = lambda backend, mode='native': w.stub
+            jobs = w.service.jobs
+
+            def admit(brief_id, key, who):
+                w.admitted.append((key, who))
+                return SimpleNamespace(job=SimpleNamespace(job_id=uuid.uuid4().hex), owner=None)
+
+            async def wait(job_id):
+                await asyncio.Event().wait()
+            monkeypatch.setattr(jobs, 'admit', admit)
+            monkeypatch.setattr(jobs, 'start', lambda admitted: None)
+            monkeypatch.setattr(jobs, 'wait', wait)
+            monkeypatch.setattr(jobs, 'cancel', lambda job_id: None)
+        elif mode == 'replay':
+            w.service.jobs.adapter = _replay(evals)
+        yield w
+
+
+def http_headers(who, **extra):
+    return {'x-test-client': who, 'X-Mirum-Access-Token': TOKEN, **extra}
+
+
+def bridge(w, who):
+    """A ProgramClient / CLI transport that forwards (method, url, headers, body) to the app's TestClient."""
+    def transport(method, url, headers, body):
+        sent = dict(headers)
+        sent['x-test-client'] = who
+        response = w.c.request(method, url, headers=sent, content=body)
+        return response.status_code, {k.lower(): v for k, v in response.headers.items()}, response.content
+    return transport
+
+
+def setup_revision(w, who, source=None, *, review=True):
+    """Create a program, stage ``source`` and (by default) finalize the review, over raw HTTP."""
+    source = BEAM_BYTES if source is None else source
+    created = w.c.post(V1 + '/programs', headers=http_headers(who))
+    assert created.status_code == 201, created.text
+    pid = created.json()['program_id']
+    staged = w.c.post(f'{V1}/programs/{pid}/revisions', content=source, headers=http_headers(
+        who, **{'Content-Type': api.MEL_MEDIA_TYPE, api.HEADER_SOURCE_ID: 'beam.mir'}))
+    assert staged.status_code == 201, staged.text
+    body = staged.json()
+    rev = body['revision']
+    if review:
+        reviewed = w.c.post(f"{V1}/revisions/{rev['revision_id']}/review", headers=http_headers(who), json={
+            'brief_sha256': rev['brief_sha256'], 'acknowledged_fields': body['review_fields'],
+            'reviewed_by': 'Ann'})
+        assert reviewed.status_code == 200, reviewed.text
+    return SimpleNamespace(pid=pid, rid=rev['revision_id'], stage=body)
+
+
+class Paths:
+    """The four transports over one app. ``call(path, op, **args)`` -> Outcome(ok, body, signal, headers):
+    body is the response model or the error envelope as a JSON dict; signal is the transport's own
+    success/failure signal (facade and http: the HTTP status, cli: the exit code, mcp: isError)."""
+
+    STATELESS = ('validate', 'format', 'plan')
+
+    def __init__(self, w, tmp_path, who):
+        self.w, self.tmp, self.who, self.n = w, Path(tmp_path), who, 0
+        self.mcp = M.McpServer(C.ProgramClient(BASE, token=TOKEN, transport=bridge(w, who)))
+
+    def call(self, path, op, **args):
+        return getattr(self, 'via_' + path)(op, **args)
+
+    def all(self, op, **args):
+        return {path: self.call(path, op, **args) for path in PATHS}
+
+    def via_facade(self, op, **a):
+        face, who = self.w.face, self.who
+        if op in self.STATELESS:
+            model = {'validate': api.ValidateRequest, 'format': api.FormatRequest,
+                     'plan': api.PlanRequest}[op](source_id=a.get('source_id'))
+            coro = getattr(face, op)(a['source'], model, client=who)
+        else:
+            model = {'run': api.RunRequest, 'status': api.StatusRequest,
+                     'inspect': api.InspectRequest}[op](revision_id=a['revision_id'])
+            coro = getattr(face, op)(model, client=who)
+        try:
+            result = self.w.on_loop(coro)
+        except api.InterfaceFailure as failure:
+            return Outcome(False, json.loads(failure.error.model_dump_json()), api.http_status(failure.error), {})
+        return Outcome(True, json.loads(result.model_dump_json()), 200, {})
+
+    def via_http(self, op, **a):
+        w, h = self.w, http_headers(self.who)
+        if op in self.STATELESS:
+            h['Content-Type'] = api.MEL_MEDIA_TYPE
+            if a.get('source_id') is not None:
+                h[api.HEADER_SOURCE_ID] = a['source_id']
+            response = w.c.post(f'{V1}/mel/{op}', content=a['source'], headers=h)
+        elif op == 'run':
+            response = w.c.post(f"{V1}/revisions/{a['revision_id']}/run", headers=h)
+        elif op == 'status':
+            response = w.c.get(f"{V1}/revisions/{a['revision_id']}", headers=h)
+        else:
+            response = w.c.get(f"{V1}/revisions/{a['revision_id']}/evidence", headers=h)
+        return Outcome(response.status_code < 400, response.json(), response.status_code,
+                       {k.lower(): v for k, v in response.headers.items()})
+
+    def via_cli(self, op, **a):
+        if op in self.STATELESS:
+            self.n += 1
+            path = self.tmp / f'src{self.n}.mir'
+            path.write_bytes(a['source'])
+            argv = [op, str(path)]
+            if a.get('source_id') is not None:
+                argv += ['--source-id', a['source_id']]
+        else:
+            argv = [op, a['revision_id']]
+        out, err = io.StringIO(), io.StringIO()
+        code = K.main(argv, transport=bridge(self.w, self.who),
+                      environ={'MIRUM_API_URL': BASE, 'MIRUM_ACCESS_TOKEN': TOKEN}, stdout=out, stderr=err)
+        if err.getvalue():
+            assert out.getvalue() == ''
+            return Outcome(False, json.loads(err.getvalue()), code, {})
+        return Outcome(True, json.loads(out.getvalue()), code, {})
+
+    def via_mcp(self, op, **a):
+        if op in self.STATELESS:
+            arguments = {'source': a['source'].decode('utf-8')}
+            if a.get('source_id') is not None:
+                arguments['source_id'] = a['source_id']
+        else:
+            arguments = {'revision_id': a['revision_id']}
+        response = self.mcp.handle({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                                    'params': {'name': op, 'arguments': arguments}})
+        result = response['result']
+        assert json.loads(result['content'][0]['text']) == result['structuredContent']
+        return Outcome(not result['isError'], result['structuredContent'], result['isError'], {})
+
+
+def signal_ok(path, out, status, exit_code):
+    """The transport-specific success/failure signal of ``out``: HTTP status, CLI exit code, MCP isError."""
+    if path in ('facade', 'http'):
+        return out.signal == status
+    if path == 'cli':
+        return out.signal == exit_code
+    return out.signal is (status >= 400)
+
+
+def assert_identical(results, what):
+    first = norm(results['facade'].body)
+    for path, out in results.items():
+        assert norm(out.body) == first, (what, path)
+        assert out.ok == results['facade'].ok, (what, path)
+
+
+@pytest.fixture
+def pw(tmp_path, monkeypatch):
+    with parity_app(tmp_path, monkeypatch, 'stub') as w:
+        yield w
+
+
+# ------------------------------------------------------------------------- bullet 1: identical checks
+
+@pytest.mark.parametrize('name', ['beam', 'beam_5_10'])
+def test_p11_validate_format_plan_identical_on_every_path(pw, tmp_path, name):
+    source = {'beam': BEAM_BYTES, 'beam_5_10': BEAM_5_10_BYTES}[name]
+    paths = Paths(pw, tmp_path, 'parity')
+    for op, fn in (('validate', offline.validate_source), ('format', offline.format_source),
+                   ('plan', offline.plan_source)):
+        results = paths.all(op, source=source, source_id='beam.mir')
+        assert_identical(results, (name, op))
+        for path, out in results.items():
+            assert out.ok and signal_ok(path, out, 200, 0), (name, op, path, out.body)
+        assert results['facade'].body == json.loads(fn(source, 'beam.mir').model_dump_json()), (name, op)
+    plan = paths.call('http', 'plan', source=source, source_id='beam.mir').body
+    assert plan['mode'] == 'native' and plan['candidate_count'] == (3 if name == 'beam' else 2)
+
+
+def test_p11_mel_corpus_codes_identical_on_every_path(pw, tmp_path):
+    paths = Paths(pw, tmp_path, 'parity')
+    seen = set()
+    for case, text in mel_cases():
+        for op in ('validate', 'plan'):
+            results = paths.all(op, source=text.encode('utf-8'), source_id=case['source_id'])
+            assert_identical(results, (case['id'], op))
+            for path, out in results.items():
+                body = out.body
+                assert not out.ok and signal_ok(path, out, 422, 2), (case['id'], op, path)
+                assert (body['kind'], body['code'], body['field']) == (case['kind'], case['code'], case['field'])
+                if body.get('span'):
+                    line, column, end_line, end_column = case['span']
+                    assert (body['span']['line'], body['span']['column'], body['span']['end_line'],
+                            body['span']['end_column']) == (line, column, end_line, end_column)
+                if case['kind'] == 'unsupported':
+                    assert body['next_action'] == 'use_supported_capability' and body['retryable'] is False
+                assert case['source_id'] != '../x' or '../x' not in json.dumps(body)
+        seen.add(case['code'])
+    # Python/import-like sources are lexical or syntax errors; S011/S012/S013 are unsupported; S016 is the label.
+    assert {'MEL-P002', 'MEL-L005', 'MEL-S011', 'MEL-S012', 'MEL-S013', 'MEL-S016'} <= seen
+
+
+def test_p11_traversal_source_id_is_s016_on_every_path_and_operation(pw, tmp_path):
+    paths = Paths(pw, tmp_path, 'parity')
+    for op in Paths.STATELESS:
+        results = paths.all(op, source=BEAM_BYTES, source_id='../x')
+        assert_identical(results, op)
+        for path, out in results.items():
+            assert not out.ok and out.body['code'] == 'MEL-S016' and out.body['kind'] == 'invalid_source'
+            assert signal_ok(path, out, 422, 2) and '../x' not in json.dumps(out.body)
+
+
+def test_p11_status_and_inspect_identical_on_every_path(pw, tmp_path):
+    setup = setup_revision(pw, 'parity')
+    paths = Paths(pw, tmp_path, 'parity')
+    for op in ('status', 'inspect'):
+        results = paths.all(op, revision_id=setup.rid)
+        assert_identical(results, op)
+        for path, out in results.items():
+            assert out.ok and signal_ok(path, out, 200, 0), (op, path)
+            assert out.body['revision']['state'] == 'staged' and out.body['revision']['result_kind'] == 'pending'
+    text = json.dumps(results['facade'].body)
+    for needle in ('draft_id', 'brief_id', 'job_id'):
+        assert needle not in text
+    unknown = paths.all('status', revision_id='0' * 32)
+    assert_identical(unknown, 'unknown')
+    for path, out in unknown.items():
+        assert not out.ok and out.body['kind'] == 'not_found' and signal_ok(path, out, 404, 2)
+
+
+# ---------------------------------------------------------------- bullet 3: failure classes stay distinct
+
+def _row_source(edits):
+    text = BEAM_BYTES.decode('utf-8')
+    for old, new in edits:
+        assert old in text
+        text = text.replace(old, new)
+    return text.encode('utf-8')
+
+
+def _plan_refusal(compiled, mode='native', adapter_factory=None):
+    return PlanRefusal('unsupported', ('export_not_supported',))
+
+
+# id, op, args(setup) -> dict, expected: code, kind, http status, cli exit, retryable, next_action, retry_after
+ERROR_ROWS = [
+    ('invalid_source', 'validate', lambda s: dict(source=b'import os\n', source_id='a.mir'),
+     ('MEL-P002', 'invalid_source', 422, 2, False, 'fix_source', None)),
+    ('s011_unsupported', 'validate',
+     lambda s: dict(source=_row_source([('"rectangular_cantilever"', '"other_thing"')]), source_id='a.mir'),
+     ('MEL-S011', 'unsupported', 422, 2, False, 'use_supported_capability', None)),
+    ('s012_unsupported', 'validate',
+     lambda s: dict(source=_row_source([('backend = "occt"', 'backend = "picogk"')]), source_id='a.mir'),
+     ('MEL-S012', 'unsupported', 422, 2, False, 'use_supported_capability', None)),
+    ('plan_unsupported', 'plan', lambda s: dict(source=BEAM_BYTES, source_id='beam.mir'),
+     ('export_not_supported', 'unsupported', 422, 2, False, 'use_supported_capability', None)),
+    ('probe_unavailable', 'run', lambda s: dict(revision_id=s.rid),
+     ('probe_failed', 'unavailable', 503, 3, True, 'retry_later', 30)),
+    ('mock_backend', 'run', lambda s: dict(revision_id=s.rid),
+     ('mock_backend', 'unavailable', 503, 3, False, 'contact_operator', None)),
+    ('admission_busy', 'run', lambda s: dict(revision_id=s.rid),
+     ('admission_busy', 'busy', 429, 3, True, 'retry_later', 5)),
+]
+
+
+@contextlib.contextmanager
+def row_environment(w, monkeypatch, row_id):
+    """Put the app in the state that produces the row's failure; restore it afterwards."""
+    with monkeypatch.context() as mp:
+        if row_id == 'plan_unsupported':
+            mp.setattr(offline, 'plan_program', _plan_refusal)
+        elif row_id == 'probe_unavailable':
+            mp.setattr(w.stub, 'available', False)
+        elif row_id == 'mock_backend':
+            mp.setattr(w.stub, 'mode', 'mock')
+        elif row_id == 'admission_busy':
+            def busy(brief_id, key, who):
+                raise AdmissionBusy('capacity')
+            mp.setattr(w.service.jobs, 'admit', busy)
+        yield
+
+
+def install_spies(w, monkeypatch):
+    """Counters around the real functions: authorize_run (one per run), policy.assess (one per candidate the
+    search evaluates) and the delivered verifier (one per accepted revision)."""
+    import engineering.policy as policy
+    import engineering.program.transactions as transactions
+    spies = SimpleNamespace(authorize=0, assess=0, verify=0)
+    real_authorize, real_assess, verifier = transactions.authorize_run, policy.assess, w.service.verifier
+    real_verify = verifier.verify
+
+    async def authorize(*args, **kwargs):
+        spies.authorize += 1
+        return await real_authorize(*args, **kwargs)
+
+    def assess(*args, **kwargs):
+        spies.assess += 1
+        return real_assess(*args, **kwargs)
+
+    async def verify(revision, ir):
+        spies.verify += 1
+        return await real_verify(revision, ir)
+    monkeypatch.setattr(transactions, 'authorize_run', authorize)
+    monkeypatch.setattr(policy, 'assess', assess)
+    monkeypatch.setattr(verifier, 'verify', verify)
+    spies.snapshot = lambda: (spies.authorize, spies.assess, spies.verify)
+    return spies
+
+
+@pytest.mark.parametrize('row', ERROR_ROWS, ids=[r[0] for r in ERROR_ROWS])
+def test_bullet3_failure_classes_on_every_path(pw, tmp_path, monkeypatch, row):
+    row_id, op, make_args, (code, kind, status, exit_code, retryable, next_action, retry_after) = row
+    setup = setup_revision(pw, 'rows')
+    spies = install_spies(pw, monkeypatch)
+    paths = Paths(pw, tmp_path, 'rows')
+    args = make_args(setup)
+    with row_environment(pw, monkeypatch, row_id):
+        for path in PATHS:
+            before = spies.snapshot()
+            out = paths.call(path, op, **args)
+            body = out.body
+            assert not out.ok, (row_id, path, body)
+            assert (body['kind'], body['code'], body['retryable'], body['next_action']) == (
+                kind, code, retryable, next_action), (row_id, path)
+            assert body['retry_after'] == retry_after and body['changed'] == 'nothing_written', (row_id, path)
+            assert signal_ok(path, out, status, exit_code), (row_id, path, out.signal)
+            if path == 'http' and kind == 'busy':
+                assert out.headers['retry-after'] == str(retry_after)
+            if op == 'run':
+                assert spies.snapshot() == (before[0] + 1, before[1], before[2]), (row_id, path)
+        results = {path: paths.call(path, op, **args) for path in PATHS}
+    assert_identical(results, row_id)
+    # a failed run leaves the revision staged and admits nothing
+    assert pw.admitted == []
+    assert pw.c.get(f'{V1}/revisions/{setup.rid}', headers=http_headers('rows')).json()['revision']['state'] == 'staged'
+
+
+def _force_failed(w, rid, reason):
+    """Move a staged revision to failed with a delivered-gate reason (as the settle path would)."""
+    service = w.service
+    with service.store.transaction() as db:
+        rev = service.revision_store.get(db, rid)[0]
+        failed = service._evolve(rev, state='failed', reason=reason)
+        assert service.revision_store.transition(db, failed, expected_state='staged', event='failed',
+                                                 detail={'reason': reason})
+
+
+@pytest.mark.parametrize('reason,result_kind,exit_code', [
+    ('delivered_evidence_unavailable', 'unavailable', 3),
+    ('delivered_check_failed', 'verification_failed', 2),
+])
+def test_bullet3_verifier_outcomes_are_results_not_errors(pw, tmp_path, reason, result_kind, exit_code):
+    setup = setup_revision(pw, 'results', review=False)
+    _force_failed(pw, setup.rid, reason)
+    paths = Paths(pw, tmp_path, 'results')
+    results = paths.all('status', revision_id=setup.rid)
+    assert_identical(results, reason)
+    for path, out in results.items():
+        assert out.ok and out.body['revision']['state'] == 'failed', (reason, path)
+        assert out.body['revision']['result_kind'] == result_kind and out.body['revision']['reason'] == reason
+        assert signal_ok(path, out, 200, exit_code), (reason, path, out.signal)
+    assert api.result_exit_code(result_kind) == exit_code
+
+
+def test_one_authorize_run_per_run_and_no_search_or_verify_on_every_path(pw, tmp_path, monkeypatch):
+    spies = install_spies(pw, monkeypatch)
+    snapshots = {}
+    for path in PATHS:
+        setup = setup_revision(pw, path)
+        paths = Paths(pw, tmp_path, path)
+        before = spies.snapshot()
+        out = paths.call(path, 'run', revision_id=setup.rid)
+        assert out.ok and out.body['revision']['state'] == 'running' and signal_ok(path, out, 200, 0), path
+        again = paths.call(path, 'run', revision_id=setup.rid)  # idempotent: no second admission
+        assert again.ok and again.body['revision']['state'] == 'running'
+        after = spies.snapshot()
+        snapshots[path] = tuple(a - b for a, b in zip(after, before))
+    # The job controller is stubbed here, so no search and no verification happens; the counts of the real
+    # search and verifier are asserted in the replay test below.
+    assert set(snapshots.values()) == {(1, 0, 0)}, snapshots
+    assert len(pw.admitted) == 4 and len({key for key, _who in pw.admitted}) == 4
+
+
+# ----------------------------------------------- bullet 1 with real job runs (native shards: replay of real evaluations)
+
+def wait_terminal(paths, path, rid, timeout=420.0):
+    deadline = time.monotonic() + timeout
+    while True:
+        out = paths.call(path, 'status', revision_id=rid)
+        assert out.ok, out.body
+        if out.body['revision']['result_kind'] != 'pending':
+            return out
+        assert time.monotonic() < deadline, 'the revision did not settle'
+        time.sleep(0.5)
+
+
+REVISION_KEYS = ('kind', 'state', 'reason', 'result_kind', 'source_sha256', 'semantic_sha256', 'brief_sha256',
+                 'fixed_requirements_sha256', 'lock_sha256', 'artifacts', 'is_current', 'published_seq')
+
+
+def project(out):
+    return {key: out.body['revision'].get(key) for key in REVISION_KEYS}
+
+
+def test_p11_run_counts_and_results_identical_on_every_path(tmp_path, monkeypatch, evals):
+    with parity_app(tmp_path, monkeypatch, 'replay', evals=evals) as w:
+        spies = install_spies(w, monkeypatch)
+        per_path = {}
+        for path in PATHS:
+            paths = Paths(w, tmp_path, path)
+            seen = {}
+            for label, source in (('beam', BEAM_BYTES), ('beam_5_10', BEAM_5_10_BYTES)):
+                setup = setup_revision(w, path, source)
+                before = spies.snapshot()
+                first = paths.call(path, 'run', revision_id=setup.rid)
+                assert first.ok and first.body['revision']['state'] == 'running', (path, label, first.body)
+                final = wait_terminal(paths, path, setup.rid)
+                counts = tuple(a - b for a, b in zip(spies.snapshot(), before))
+                inspected = paths.call(path, 'inspect', revision_id=setup.rid)
+                assert inspected.ok, (path, label)
+                seen[label] = dict(
+                    final=project(final), counts=counts, evidence=inspected.body['evidence']['status'],
+                    verdict=inspected.body['evidence'].get('verdict'))
+                # the fixed requirements are exactly the staged ones, whatever the run decided
+                assert (final.body['revision']['fixed_requirements_sha256']
+                        == setup.stage['revision']['fixed_requirements_sha256']), (path, label)
+                if label == 'beam':
+                    assert signal_ok(path, final, 200, 0), (path, final.signal)
+                else:
+                    # a policy rejection is a result (HTTP 200, result_kind rejected), not an error
+                    assert signal_ok(path, final, 200, 2), (path, final.signal)
+            per_path[path] = seen
+        beam = per_path['facade']['beam']
+        batch = per_path['facade']['beam_5_10']
+        assert beam['final']['state'] == 'published' and beam['final']['result_kind'] == 'published'
+        assert beam['final']['artifacts'] == 'available' and beam['final']['is_current'] is True
+        assert (beam['evidence'], beam['verdict']) == ('present', 'verified')
+        assert batch['final']['state'] == 'rejected' and batch['final']['result_kind'] == 'rejected'
+        # one authorize_run per run, one policy.assess per evaluated candidate (5, 10, 15 / 5, 10), one verify
+        # per accepted revision and none for the rejected batch: identical on every path
+        assert beam['counts'] == (1, 3, 1) and batch['counts'] == (1, 2, 0), (beam['counts'], batch['counts'])
+        for path in PATHS:
+            for label in ('beam', 'beam_5_10'):
+                assert per_path[path][label]['final'] == per_path['facade'][label]['final'], (path, label)
+                assert per_path[path][label]['counts'] == per_path['facade'][label]['counts'], (path, label)
+
+
+# ------------------------------------------------------------------------------------- real socket
+
+def _free_port():
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', 0))
+        return sock.getsockname()[1]
+
+
+@pytest.fixture
+def live_server(tmp_path, monkeypatch):
+    pytest.importorskip('fastapi')
+    uvicorn = pytest.importorskip('uvicorn')
+    if os.name != 'posix':
+        pytest.skip('the app uses the posix SQLiteStore')
+    import importlib
+    os.environ.setdefault('GEMINI_API_KEY_HEAVY', 'offline-fixture-never-sent')
+    main = importlib.import_module('main')
+    monkeypatch.setenv('MIRUM_ENGINEERING_DATA_DIR', str(tmp_path / 'engineering'))
+    monkeypatch.setenv('MIRUM_ENGINEERING_PROGRAMS', '1')
+    monkeypatch.setenv('MIRUM_ACCESS_TOKEN', TOKEN)
+    port = _free_port()
+    server = uvicorn.Server(uvicorn.Config(main.app, host='127.0.0.1', port=port, lifespan='on',
+                                           log_level='warning', log_config=None))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 40.0
+        while not server.started and thread.is_alive() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert server.started, 'the server did not start'
+        face = main.app.state.programs
+        assert face is not None
+        stub = ParityStub()
+        face.service.adapter_factory = lambda backend, mode='native': stub  # no native kernel needed to stage
+        yield f'http://127.0.0.1:{port}'
+    finally:
+        server.should_exit = True
+        thread.join(40.0)
+        assert not thread.is_alive(), 'the server did not stop'
+
+
+def cli_process(url, *args, token=TOKEN):
+    env = {k: v for k, v in os.environ.items() if not k.startswith('MIRUM_')}
+    env['PYTHONPATH'] = os.pathsep.join([str(BACKEND), str(ROOT)])
+    if token is not None:
+        env['MIRUM_ACCESS_TOKEN'] = token
+    proc = subprocess.run([sys.executable, '-m', 'engineering.program.cli', '--url', url, *args],
+                          capture_output=True, text=True, timeout=55, env=env, cwd=str(ROOT))
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def test_real_socket_cli_subprocess_against_uvicorn(live_server, tmp_path):
+    url = live_server
+    for command, fn in (('validate', offline.validate_source), ('format', offline.format_source),
+                        ('plan', offline.plan_source)):
+        code, out, err = cli_process(url, command, str(BEAM))
+        assert code == 0 and err == '', (command, err)
+        assert json.loads(out) == json.loads(fn(BEAM_BYTES, None).model_dump_json()), command
+    bad = tmp_path / 'bad.mir'
+    bad.write_bytes(b'import os\n')
+    code, out, err = cli_process(url, 'validate', str(bad))
+    envelope = json.loads(err)
+    assert code == 2 and out == '' and envelope['code'] == 'MEL-P002' and envelope['kind'] == 'invalid_source'
+    # one mutating flow: create, stage, read back
+    code, out, err = cli_process(url, 'program-create')
+    assert code == 0 and err == ''
+    pid = json.loads(out)['program_id']
+    code, out, err = cli_process(url, 'stage', pid, str(BEAM), '--source-id', 'beam.mir')
+    assert code == 0 and err == '', err
+    staged = json.loads(out)
+    rid = staged['revision']['revision_id']
+    assert staged['revision']['state'] == 'staged' and staged['revision']['result_kind'] == 'pending'
+    assert staged['review_fields']
+    code, out, err = cli_process(url, 'status', rid)
+    assert code == 0 and json.loads(out)['revision']['revision_id'] == rid
+    code, out, err = cli_process(url, 'history', pid)
+    assert code == 0 and [r['revision_id'] for r in json.loads(out)['revisions']] == [rid]
+    code, out, err = cli_process(url, 'status', '0' * 32)
+    assert code == 2 and json.loads(err)['kind'] == 'not_found'
+    # the access token gate answers 401 outside the envelope: a transport error (exit 1), nothing leaked
+    code, out, err = cli_process(url, 'status', rid, token=None)
+    assert code == 1 and json.loads(err) == {'kind': 'transport_error', 'code': 'bad_error_body'}
+    code, out, err = cli_process(url, 'status', rid, token='wrong-token')
+    assert code == 1 and 'wrong-token' not in out + err
