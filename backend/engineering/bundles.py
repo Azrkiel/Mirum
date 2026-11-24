@@ -235,11 +235,14 @@ class BundlePublisher:
         # Heading and outcome line come from the capability claim, not the job outcome alone.
         screening=descriptor.claim=='screening_only'
         checked=descriptor.claim=='checked_design'
-        heading=f'# {"Screened" if screening else "Checked Design" if checked else "Geometry Checked"} {descriptor.label} result'
+        thermal=descriptor.claim=='thermal_benchmark'
+        label="Screened" if screening else "Checked Design" if checked else "Thermal Benchmark" if thermal else "Geometry Checked"
+        heading=f'# {label} {descriptor.label} result'
         outcome_line=outcome
         if outcome=='accepted':
             outcome_line=('screened; not accepted for manufacture; not engineering certified' if screening
                           else 'checked design: all checks passed; not engineering certified' if checked
+                          else 'thermal benchmark checks passed' if thermal
                           else 'geometry checks passed')
         rows=[heading,'',f'Job: {job_id}',f'Brief: {brief.brief_sha256}',
             f'Outcome: {outcome_line}','',

@@ -616,7 +616,8 @@ class RevisionService:
         with self.store.transaction() as db:
             rev = self._load(db, revision_id, client)[0]
         if rev.state == 'rejected' and rev.job_id is not None:
-            formats = ('generator-report', 'report', 'attempts') if rev.lock.capability_id in ('equipment_bay', 'editable_plate') else (
+            formats = ('generator-report', 'report', 'attempts') if rev.lock.capability_id in (
+                'equipment_bay', 'editable_plate', 'thermal_bar') else (
                 'report', 'attempts')
             if fmt in formats:
                 return self.publisher.open_lease(rev.job_id, fmt)

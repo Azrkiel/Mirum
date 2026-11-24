@@ -19,7 +19,9 @@ import unicodedata
 from dataclasses import dataclass
 
 from engineering.program.versions import MEL_COMPILER_VERSION, MEL_LANGUAGE_VERSION
+from engineering.thermal_bar import FIELDS as THERMAL_FIELDS, validate_references
 from vendor.mirum_kernel.structural import BoundaryError, MODEL, resolve_region
+from vendor.mirum_kernel.thermal import Diagnostic as ThermalDiagnostic
 
 from .diagnostics import MelError, Position, Span, make, snippet
 from .parser import parse
@@ -104,7 +106,16 @@ _EDITABLE_PLATE_FIELDS = {
     'datum_ref': ('string', ('specification', 'datum_ref'), None),
 }
 
+_THERMAL_FIELDS = {
+    **{name: FIELDS[name] for name in ('capability', 'capability_version', 'backend',
+                                      'numerical_policy', 'resource_policy', 'exports')},
+    **{name: ('quantity' if dimension else 'string', ('specification', key), dimension)
+       for name, (key, dimension) in THERMAL_FIELDS.items()},
+}
+
 CAPABILITY_SCHEMAS = {
+    ('thermal_bar', '1.0.0'): CapabilitySchema(
+        fields=_THERMAL_FIELDS, backends=('occt',), exports=('step',), max_candidates=1),
     ('editable_plate', '1.0.0'): CapabilitySchema(
         fields=_EDITABLE_PLATE_FIELDS, backends=('occt',), exports=('step',), max_candidates=1),
     ('regen_chamber', '1.0.0'): CapabilitySchema(
@@ -227,6 +238,9 @@ def _normalize(program: Program, schema: CapabilitySchema, guard: _Deadline) -> 
         if missing[0] in _REGION_FIELDS:
             raise _error('MEL-S023', f'boundary_missing: {missing[0]} is required',
                          program.design_span, missing[0])
+        if schema.fields is _THERMAL_FIELDS and (missing[0].endswith('_region') or missing[0] == 'field_reference'):
+            kind = 'field' if missing[0] == 'field_reference' else 'boundary'
+            raise _error('MEL-S023', f'{kind}_missing: {missing[0]} is required', program.design_span, missing[0])
         code = 'MEL-S001' if missing[0] == 'material_source_kind' else 'MEL-S003'
         raise _error(code, f'Missing required field {missing[0]!r} (no defaults)', program.design_span,
                      missing[0])
@@ -280,7 +294,7 @@ def _normalize(program: Program, schema: CapabilitySchema, guard: _Deadline) -> 
             payload.setdefault('__exports', tuple(converted))
         else:
             _set(payload, path, converted)
-    if schema.fields in (_BAY_FIELDS, _REGEN_FIELDS, _EDITABLE_PLATE_FIELDS):
+    if schema.fields in (_BAY_FIELDS, _REGEN_FIELDS, _EDITABLE_PLATE_FIELDS, _THERMAL_FIELDS):
         payload['schema_version'] = 'engineering_generator_brief_v1'
     else:
         payload['requirements']['units'] = 'mm_N_MPa'
@@ -338,18 +352,28 @@ def _compile_program(program: Program, data: bytes, source_id: str | None, guard
                                semantic_sha256=semantic_sha256(ir), brief_sha256=content.brief_sha256,
                                spans=spans)
 
-    if schema.fields is _BAY_FIELDS or schema.fields is _EDITABLE_PLATE_FIELDS:
+    if schema.fields in (_BAY_FIELDS, _EDITABLE_PLATE_FIELDS, _THERMAL_FIELDS):
         if schema.fields is _BAY_FIELDS:
             from engineering.program import bay_bridge as bridge
             label = 'equipment-bay'
-        else:
+        elif schema.fields is _EDITABLE_PLATE_FIELDS:
             from engineering.program import editable_plate_bridge as bridge
             label = 'editable plate'
+        else:
+            from engineering.program import thermal_bridge as bridge
+            label = 'thermal bar'
         if payload['capability'] != bridge.capability_reference().model_dump():
             raise _error('MEL-S015', f'{label} capability or policy version mismatch',
                          program.design_span, 'capability')
         try:
+            if schema.fields is _THERMAL_FIELDS:
+                validate_references(payload['specification'])
             content = bridge.content_for(payload['specification'])
+        except ThermalDiagnostic as exc:
+            name = next(name for name, (key, _) in THERMAL_FIELDS.items() if key == exc.field)
+            code = {'boundary_ambiguous': 'MEL-S022', 'field_ambiguous': 'MEL-S022',
+                    'boundary_missing': 'MEL-S023', 'field_missing': 'MEL-S023'}.get(exc.code, 'MEL-S015')
+            raise _error(code, str(exc)[:200], program.get(name).span, name) from None
         except ValidationError as exc:
             issue = exc.errors(include_input=False, include_url=False)[0]
             lookup = {path[-1]: name for name, (_, path, _) in schema.fields.items() if path}

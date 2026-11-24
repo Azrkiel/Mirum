@@ -17,7 +17,7 @@ from engineering.contracts import CandidateSpec, GeneratorCandidate
 from .errors import IRModel, ProgramError, SourceSpan, Str240
 from .ir import MAX_LIST, Backend, ExportFormat, Name64, Name128, SemanticId, _prepare_input
 from .registry import (
-    PLATE_OPERATION_VERSION, ArtifactGraph, OpStream, OpStreamEntry, Representation,
+    PLATE_OPERATION_VERSION, THERMAL_OPERATION_VERSION, ArtifactGraph, OpStream, OpStreamEntry, Representation,
     registry_for_capability, validate_op_stream,
 )
 
@@ -38,7 +38,7 @@ SchemaVersion = Literal['mirum_kernel_v0_1']
 BackendId = Literal['occt', 'picogk']
 Mode = Literal['native', 'mock']
 KernelFormat = Literal['step', 'glb', 'stl']
-ClaimScope = Literal['checked_design', 'geometry_checks_only', 'screening_only']
+ClaimScope = Literal['checked_design', 'geometry_checks_only', 'screening_only', 'thermal_benchmark']
 
 UNSUPPORTED_REASONS = ('capability_not_supported_by_backend', 'backend_mismatch',
                        'export_not_supported', 'operation_not_executable', 'operation_not_supported',
@@ -404,7 +404,7 @@ def make_description(backend: str, *, mode: Mode, adapter_version: str,
 # ------------------------------------------------------------------ plan helpers
 
 _OP_VERSION = {'rectangular_cantilever': '0.1.0', 'regen_chamber': '0.2.0', 'equipment_bay': '0.3.0',
-               'editable_plate': PLATE_OPERATION_VERSION}
+               'editable_plate': PLATE_OPERATION_VERSION, 'thermal_bar': THERMAL_OPERATION_VERSION}
 
 
 def canonical_entries(capability_id: str, exports: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
@@ -460,7 +460,7 @@ def check_plan(description: BackendDescription, plan: BuildPlan) -> SupportDecis
         return no('plan_invalid')
     c = plan.candidate
     try:
-        if plan.capability_id in ('regen_chamber', 'equipment_bay', 'editable_plate'):
+        if plan.capability_id in ('regen_chamber', 'equipment_bay', 'editable_plate', 'thermal_bar'):
             ok = (isinstance(c, GeneratorCandidate)
                   and (c.content.capability.id, c.content.capability.version)
                   == (plan.capability_id, plan.capability_version))

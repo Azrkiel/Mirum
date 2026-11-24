@@ -16,3 +16,10 @@ Azrkiel/mirum-kernel at `79f3517f3d447fceb27927427955390bfdd1a813`.
 The package initializer also comes from that revision and loads bay CAD
 dependencies only when the exchange or inspection API is called. Mirum’s
 reference beam entry point calls this same solver. [M3 verification](../../docs/plans/checked-engineering-v1/phase-3-framework-language/handoffs/structural-cantilever.md)
+
+The M3 thermal bar vendors the unmodified module
+`mirum_kernel/thermal.py` from kernel commit
+`35b158ff7a6d97231f87d1a25f404f19d31bd9bb`. It uses the existing
+`structural.py` canonical digest helper. Mirum normalizes the reviewed
+quantities, witnesses the as-built STEP, and recomputes the thermal evidence
+before promotion. [Thermal verification](../../docs/plans/checked-engineering-v1/phase-3-framework-language/handoffs/thermal-bar.md)

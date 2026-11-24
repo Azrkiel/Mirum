@@ -160,7 +160,7 @@ def generator_candidates(content):
 
 def adapter_for_program(factory, compiled, *, mode='native'):
     capability = compiled.ir.capability.id
-    options = {'capability': capability} if capability in (BAY_ID, PLATE_ID) else {}
+    options = {'capability': capability} if capability in (BAY_ID, PLATE_ID, 'thermal_bar') else {}
     return factory(compiled.ir.execution.backend, mode=mode, **options)
 
 
@@ -171,7 +171,7 @@ def _program_candidates(content):
 def _has_builder(compiled) -> bool:
     return (compiled.ir.capability.id == 'rectangular_cantilever'
             and isinstance(compiled.brief_content, BriefContent)) or (
-                compiled.ir.capability.id in (BAY_ID, PLATE_ID, 'regen_chamber')
+                compiled.ir.capability.id in (BAY_ID, PLATE_ID, 'regen_chamber', 'thermal_bar')
                 and isinstance(compiled.brief_content, GeneratorBriefContent))
 
 

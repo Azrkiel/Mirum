@@ -46,6 +46,8 @@ def test_canonical_units_table():
     assert CANONICAL_UNIT == {
         'length': 'mm', 'force': 'N', 'pressure': 'MPa', 'mass': 'kg',
         'time': 's', 'angle': 'rad', 'dimensionless': '1',
+        'temperature': 'K', 'temperature_difference': 'delta_K', 'power': 'W',
+        'conductivity': 'W_per_m_K', 'thermal_expansion': 'per_K',
     }
 
 

@@ -74,6 +74,8 @@ class QuantityValue(IRModel):
 
     @model_validator(mode='after')
     def _canonical(self):
+        if self.dimension == 'temperature' and self.value < 0:
+            raise ProgramError('IR007', 'absolute temperature is below absolute zero', 'value')
         if self.unit != CANONICAL_UNIT[self.dimension]:
             raise ProgramError(
                 'IR006', f'unit {self.unit!r} is not the canonical {self.dimension} unit '

@@ -1,0 +1,183 @@
+{
+  "archive_sha256": "75d04a9841a91a7e648e4f6d422f8c2344e4b757722133bd237bf5e8448e7a48",
+  "evidence": {
+    "candidate_sha256": "3ee35401da7d63e5433d66b873bbc0c1c81f9120b01e94a7d4fee02def23da77",
+    "check_plan_sha256": "597e226182301c8ee63e01f8c1b8ca2fe60788c16d672c7885f5798ddb41a720",
+    "checks": [
+      {
+        "category": "geometry",
+        "check_id": "thermal.bar_geometry",
+        "coverage": "measured",
+        "reason": null,
+        "required": true,
+        "state": "passed"
+      },
+      {
+        "category": "physics",
+        "check_id": "thermal.conduction",
+        "coverage": "policy_report",
+        "reason": null,
+        "required": true,
+        "state": "passed"
+      },
+      {
+        "category": "physics",
+        "check_id": "thermal.expansion",
+        "coverage": "policy_report",
+        "reason": null,
+        "required": true,
+        "state": "passed"
+      },
+      {
+        "category": "physics",
+        "check_id": "thermal.clearance",
+        "coverage": "policy_report",
+        "reason": null,
+        "required": true,
+        "state": "passed"
+      }
+    ],
+    "claim_scope": "thermal_benchmark",
+    "glb_sha256": null,
+    "manifest_sha256": "346b8fc070ab77416e0e659f51b2bef801d51ad4dc2ac7c1e4258b1359af07c4",
+    "method_version": "e74adb7ec3cbe8b3a79eb7c00ee6e5f9392271eecd36d20088312a2cba1140d8",
+    "reasons": [],
+    "run": null,
+    "status": "present",
+    "step_sha256": "2a3f1038dfc6e8dd9a24146d387beb27cec306bb1aff56ab202c68c250e180e0",
+    "verdict": "verified"
+  },
+  "rejected_clearance": {
+    "action": "computed",
+    "dependency_sha256": "6ec85d0b87449131e40f8b60bddd9765ca1141b8c933914f4add326f96df0bd5",
+    "inputs": {
+      "allowance_m": 2e-08,
+      "cold_gap_m": 5e-07,
+      "definition": "plane_x_minus_displaced_hot_end_x",
+      "expansion_dependency_sha256": "6f82a7279301e0deb997597a34dd42f9cb0aeb34055e60283ba5a5dd8637cee0",
+      "expansion_sha256": "58f7035040391f48cd481b9ca67c392180b68b8615cf0337d785662eb04ce3df",
+      "limit_absolute_error_m": 2e-08,
+      "plane": {
+        "frame": "bar_lower_corner_positive_x",
+        "normal": [
+          -1,
+          0,
+          0
+        ],
+        "stationary": true,
+        "x_m": 0.1000005
+      }
+    },
+    "prior_state": "absent",
+    "result": {
+      "absolute_error_m": 0.0,
+      "analytical_gap_m": -6.5e-07,
+      "expansion_m": 1.15e-06,
+      "gap_m": -6.5e-07,
+      "margin_m": -6.7e-07,
+      "state": "failed"
+    },
+    "result_sha256": "e08c6dbd8dbd1a42e9886cf70d0a1b3f7667a079400a4957d2e634ce812800b4"
+  },
+  "rejected_revision": "d00fe3bee49944888190776a41f2e3c3",
+  "replay": {
+    "check_plan_sha256": "597e226182301c8ee63e01f8c1b8ca2fe60788c16d672c7885f5798ddb41a720",
+    "lock_sha256": "a939f5fb7db0be46db315f3eded899f4206deef49da76c3a3efb0c008eb60e4e",
+    "native_reread": "consistent",
+    "revision_id": "14c654cda7294d889778520f1eb0ff82",
+    "schema_version": "mirum_program_replay_v0_1",
+    "semantic_sha256": "8aa711c656cea924ee2f175fd2fbb2e266c4b4fbe932422a7d5624feb43b8791",
+    "verified_files": [
+      "attempts.json",
+      "brief.json",
+      "generator-body.step",
+      "generator-report.json",
+      "report.json",
+      "report.md",
+      "selected_spec.json"
+    ]
+  },
+  "revision": {
+    "api_version": "mirum_program_api_v0_1",
+    "artifacts": "available",
+    "brief_sha256": "d157bf4ef05465920731b5932eb8c4668202a3c35ad990990bb5e665ec5b852d",
+    "bundle": {
+      "manifest_sha256": "346b8fc070ab77416e0e659f51b2bef801d51ad4dc2ac7c1e4258b1359af07c4",
+      "payloads": [
+        {
+          "path": "attempts.json",
+          "sha256": "3c60f8d22a16549836ef8b46363928d483bb33ab70836daf25a430edd8451b0d"
+        },
+        {
+          "path": "brief.json",
+          "sha256": "0e898fb8459ef88da99d2b16407c2c2429cad8a49af488d19b1cda0bebe5f9ea"
+        },
+        {
+          "path": "generator-body.step",
+          "sha256": "2a3f1038dfc6e8dd9a24146d387beb27cec306bb1aff56ab202c68c250e180e0"
+        },
+        {
+          "path": "generator-report.json",
+          "sha256": "3f85d2ea182a9a7f244442c7bba4de9db8d3bfa5da022e81e306886a0037b0a5"
+        },
+        {
+          "path": "report.json",
+          "sha256": "97c2ff9af57a2248188165360646f4df98794738ea693addb390b650b7f682ff"
+        },
+        {
+          "path": "report.md",
+          "sha256": "473c68859080bb3eaa77a31dc54ac52f3a8059fac4f5f830a2baedf042050cd5"
+        },
+        {
+          "path": "selected_spec.json",
+          "sha256": "579aca8a59ca6f234b5ff1d4cbc9b8af1a33d754e226586cb0521d25a7918da3"
+        }
+      ],
+      "zip_sha256": "9b5cc0a3a3e22361e220d0079fb048777f5cc323d3cbb1a1fb5f03b5d7d6894e"
+    },
+    "created_at": "2026-11-24T18:46:53.250537Z",
+    "derived_from": null,
+    "evidence_revision_id": "14c654cda7294d889778520f1eb0ff82",
+    "fixed_requirements_sha256": "d157bf4ef05465920731b5932eb8c4668202a3c35ad990990bb5e665ec5b852d",
+    "is_current": false,
+    "kind": "edit",
+    "lock_sha256": "a939f5fb7db0be46db315f3eded899f4206deef49da76c3a3efb0c008eb60e4e",
+    "parent": null,
+    "program_id": "de4e3e03b937453fa1be1b6bb679263c",
+    "published_seq": 1,
+    "reason": null,
+    "result_kind": "published",
+    "revision_id": "14c654cda7294d889778520f1eb0ff82",
+    "semantic_sha256": "8aa711c656cea924ee2f175fd2fbb2e266c4b4fbe932422a7d5624feb43b8791",
+    "source_sha256": "8eef767775cc5164da8ee11c238001b3680e04bc5800147d95a5672d53a4b6f3",
+    "state": "published",
+    "updated_at": "2026-11-24T18:47:01.864057Z"
+  },
+  "stale_evidence": {
+    "candidate_sha256": "164c9a6c667e68869e23e2020b1073e10bf96ed37505b8c2d73ebee445ed8d77",
+    "check_plan_sha256": "698369618ee28ffdeddb8930d2578c46b54192ec0439513ab99b0ea97b1d607b",
+    "checks": [
+      {
+        "category": "physics",
+        "check_id": "thermal.binding",
+        "coverage": "identity_only",
+        "reason": "report_mismatch",
+        "required": true,
+        "state": "failed"
+      }
+    ],
+    "claim_scope": "thermal_benchmark",
+    "glb_sha256": null,
+    "manifest_sha256": "248147027243c2127b36c5dadfd9fc681e4359a12ef3fb6129bb6f587b5537f7",
+    "method_version": "e74adb7ec3cbe8b3a79eb7c00ee6e5f9392271eecd36d20088312a2cba1140d8",
+    "reasons": [
+      "report_mismatch"
+    ],
+    "run": null,
+    "status": "present",
+    "step_sha256": "e783ba8e401a45555fad776dd775a1b49611b01dc50cf485e07bd331cae1b051",
+    "verdict": "failed"
+  },
+  "stale_revision": "397fbaa8d46c44ef815ef73eb09b18c1",
+  "subsequent_revision": "1fafec877df74cbb94de4b2bbe6f4a86"
+}

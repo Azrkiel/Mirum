@@ -74,9 +74,13 @@ _PROGRAM_DIR = Path(__file__).resolve().parent
 METHOD_SOURCES = (_PROGRAM_DIR / 'evidence.py', _PROGRAM_DIR / 'delivered.py',
                   _PROGRAM_DIR / 'adapters' / '_occt_measure.py', _PROGRAM_DIR / 'adapters' / 'occt.py',
                   _PROGRAM_DIR / 'adapters' / '_editable_plate_worker.py',
+                  _PROGRAM_DIR / 'adapters' / '_thermal_worker.py',
                   _PROGRAM_DIR.parent / 'editable_plate_adapter.py',
+                  _PROGRAM_DIR.parent / 'thermal_bar.py',
+                  _PROGRAM_DIR.parent / 'thermal_bar_adapter.py',
                   _PROGRAM_DIR.parent.parent / 'vendor' / 'mirum_editable_plate.py',
                   _PROGRAM_DIR.parent.parent / 'vendor' / 'mirum_kernel' / 'structural.py',
+                  _PROGRAM_DIR.parent.parent / 'vendor' / 'mirum_kernel' / 'thermal.py',
                   _PROGRAM_DIR.parent.parent / 'vendor' / 'mirum_kernel' / 'beam_fea.py')
 
 
@@ -254,6 +258,7 @@ class _Context:
         self.manifest_sha256: str | None = None
         self.step_sha256: str | None = None
         self.glb_sha256: str | None = None
+        self.generator_plan_sha256: str | None = None
 
 
 def _number(value) -> float:
@@ -285,6 +290,9 @@ class DeliveredVerifier:
     # ---- the flow
 
     async def _verify(self, revision, ir, ctx: _Context) -> DeliveredEvidence:
+        if ir.capability.id == 'thermal_bar':
+            ctx.claim_scope = 'thermal_benchmark'
+            return await self._verify_thermal(revision, ir, ctx)
         if ir.capability.id == 'editable_plate':
             ctx.claim_scope = 'geometry_checks_only'
             return await self._verify_editable_plate(revision, ir, ctx)
@@ -382,6 +390,86 @@ class DeliveredVerifier:
             method_version=method_version(), voxel_size_mm=spec.voxel_size_mm,
             report_volume_mm3=report['checks']['volume']['measured_mm3'],
             native_versions=revision.lock.backend_lock.native_versions)
+
+    async def _verify_thermal(self, revision, ir, ctx):
+        from engineering.capabilities import THERMAL_BAR
+        from engineering.thermal_bar import GEOMETRY_LIMIT_MM, KERNEL_REVISION
+        from engineering.thermal_bar_adapter import (
+            MAX_STEP_BYTES, METHOD, REPORT, STEP, bound_report, encode_report, measured_values,
+        )
+        from .bay_bridge import check_plan_record
+        from .evidence import _compare
+        from .hashing import execution_lock_v0_2_sha256, semantic_sha256
+        from .planning import generator_candidates
+        from .thermal_bridge import content_from_program
+
+        content = content_from_program(ir)
+        if (content.brief_sha256 != revision.brief_sha256
+                or content.fixed_requirements_sha256 != revision.fixed_requirements_sha256
+                or semantic_sha256(ir) != revision.semantic_sha256
+                or execution_lock_v0_2_sha256(revision.lock) != revision.lock_sha256
+                or revision.lock.backend_lock.adapter_version != KERNEL_REVISION):
+            raise _unavailable('lock_mismatch')
+        run = self._read_run(revision)
+        candidate, = generator_candidates(content)
+        if run.selected_candidate_sha256 != candidate.candidate_sha256 or run.attempts[-1].candidate != candidate:
+            raise _mismatch()
+        ctx.candidate_sha256 = candidate.candidate_sha256
+        ctx.manifest_sha256 = run.bundle.manifest_sha256
+        plan_record = check_plan_record(revision.semantic_sha256, revision.lock_sha256, candidate)
+        ctx.generator_plan_sha256 = hashlib.sha256(canonical_json(plan_record).encode()).hexdigest()
+        await asyncio.to_thread(self.publisher.validate, revision.job_id, run.bundle)
+        blobs = await asyncio.to_thread(self._lease_all, revision.job_id, run.bundle, (
+            ('generator-body-step', STEP, MAX_STEP_BYTES), ('generator-report', REPORT, MAX_JSON_BYTES)))
+        step = blobs[STEP]
+        ctx.step_sha256 = hashlib.sha256(step).hexdigest()
+        adapter = self.adapter_factory('occt', capability='thermal_bar')
+        if getattr(adapter, 'mode', None) != 'native':
+            raise _unavailable('mock_backend')
+        build_plan, = _plans(ir, (candidate,))
+        async with self._semaphore:
+            output = await adapter.measure_thermal(step, build_plan)
+        report = bound_report(output['report'], step, candidate)
+        if report['geometry']['native_versions'] != [
+                version.model_dump(mode='json') for version in revision.lock.backend_lock.native_versions]:
+            raise _unavailable('lock_mismatch')
+        if encode_report(report) != blobs[REPORT]:
+            raise _mismatch()
+        numerical = {'bar_geometry': {'bounds_error': 'bounds_mm', 'volume_error': 'volume_relative',
+                                      'face_mismatches': 'no_mismatch'},
+                     'conduction': {'stage_complete': 'complete', 'rise_error': 'rise_relative',
+                                    'refinement_change': 'refinement_inclusive', 'heat_imbalance': 'heat_imbalance'},
+                     'expansion': {'stage_complete': 'complete', 'expansion_error': 'expansion_relative',
+                                   'uniform_error': 'expansion_relative', 'refinement_change': 'refinement_inclusive',
+                                   'transfer_error': 'transfer_delta_k', 'coverage': 'complete'},
+                     'clearance': {'stage_complete': 'complete', 'absolute_error': 'clearance_mm'}}
+        values = measured_values(report)
+        checks = []
+        for name, limits in THERMAL_BAR.expected_limits(candidate.content.specification).items():
+            measurements = []
+            for limit in limits:
+                source = ('reviewed:thermal.clearance_allowance' if limit.name == 'remaining_gap' else
+                          f'policy:thermal.{numerical[name][limit.name]}')
+                limit = CheckLimit(name=limit.name, unit=limit.unit, value=limit.value,
+                                   comparison=limit.comparison, source=source)
+                value = values[name][limit.name]
+                measurements.append(Measurement(name=limit.name, unit=limit.unit, value=value, limit=limit,
+                                                satisfied=_compare(limit.comparison, value, limit.value),
+                                                representation='brep'))
+            passed = all(row.satisfied for row in measurements)
+            geometry = name == 'bar_geometry'
+            checks.append(CheckEvidence(
+                check_id=f'thermal.{name}', category='geometry' if geometry else 'physics', required=True,
+                method=METHOD, method_version=KERNEL_REVISION, coverage='measured' if geometry else 'policy_report',
+                state='passed' if passed else 'failed', representation='brep',
+                error_bound=ErrorBound(value=GEOMETRY_LIMIT_MM, unit='mm', source='thermal bounds') if geometry else None,
+                reason=None if passed else 'limit_exceeded', measurements=tuple(measurements)))
+        checks = tuple(checks)
+        return DeliveredEvidence(
+            revision_id=revision.revision_id, job_id=revision.job_id, candidate_sha256=ctx.candidate_sha256,
+            claim_scope='thermal_benchmark', manifest_sha256=ctx.manifest_sha256, step_sha256=ctx.step_sha256,
+            check_plan_sha256=ctx.generator_plan_sha256, method_version=method_version(),
+            native_versions=revision.lock.backend_lock.native_versions, checks=checks, verdict=derive_verdict(checks))
 
     async def _verify_editable_plate(self, revision, ir, ctx):
         from engineering.editable_plate import AMBIGUITY, KERNEL_REVISION
@@ -647,12 +735,18 @@ class DeliveredVerifier:
             cand = next((c for c in plan.candidates if c.candidate_sha256 == ctx.candidate_sha256),
                         plan.candidates[0])
             checks = tuple(self._problem_check(e, problem) for e in cand.entries)
+        elif ctx.claim_scope == 'thermal_benchmark' and problem.kind == 'failed':
+            checks = (CheckEvidence(check_id='thermal.binding', category='physics', required=True,
+                                    method='report_cross_check', method_version=method_version(),
+                                    representation='none', state='failed', coverage='identity_only',
+                                    reason=problem.reason),)
         return DeliveredEvidence(
             revision_id=revision.revision_id, job_id=revision.job_id or '0' * 32,
             candidate_sha256=ctx.candidate_sha256 or UNKNOWN_SHA256, claim_scope=ctx.claim_scope,
             manifest_sha256=ctx.manifest_sha256 or UNKNOWN_SHA256, step_sha256=ctx.step_sha256,
             glb_sha256=ctx.glb_sha256,
-            check_plan_sha256=check_plan_sha256(plan) if plan is not None else UNKNOWN_SHA256,
+            check_plan_sha256=(check_plan_sha256(plan) if plan is not None
+                               else ctx.generator_plan_sha256 or UNKNOWN_SHA256),
             method_version=method_version(), native_versions=revision.lock.backend_lock.native_versions,
             bindings=(), checks=checks, verdict=derive_verdict(checks), reasons=(problem.reason,))
 

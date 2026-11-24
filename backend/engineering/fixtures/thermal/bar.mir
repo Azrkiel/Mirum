@@ -1,0 +1,27 @@
+language mirum "0.1";
+design m3_thermal_bar {
+  capability = "thermal_bar";
+  capability_version = "1.0.0";
+  backend = "occt";
+  numerical_policy = "thermal_bar_numerical_v1";
+  resource_policy = "engineering_resources_v1";
+  length = 0.10 m;
+  width = 50 mm;
+  depth = 20 mm;
+  conductivity = 200 W_per_m_K;
+  heat_input = 2 W;
+  sink_temperature = 20 degC;
+  sink_region = "bar.cold_end";
+  heat_region = "bar.hot_end";
+  insulation_region = "bar.sides";
+  material_reference = "Illustrative bar properties m3-v1";
+  expansion_coefficient = 23 um_per_m_K;
+  stress_free_temperature = 293.15 K;
+  restraint = "cold_fixed_hot_free";
+  uniform_temperature_rise = 1 delta_degC;
+  field_reference = "conduction.temperature";
+  transfer_model = "common_x_linear_trapezoid_v1";
+  cold_gap = 5 um;
+  clearance_allowance = 0.02 um;
+  exports = ["step"];
+}
