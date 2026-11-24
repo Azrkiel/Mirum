@@ -4,7 +4,10 @@ import argparse
 import json
 from pathlib import Path
 import re
+import sqlite3
+import sys
 import time
+from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -28,6 +31,7 @@ def review(page):
     action(page, 'Record review')
     expect(page.get_by_text('Review recorded', exact=True)).to_be_visible(timeout=30_000)
     action(page, 'Run reviewed revision')
+    expect(page.get_by_text('Revision state: staged', exact=True)).not_to_be_visible(timeout=30_000)
 
 
 def settle(page, state):
@@ -40,7 +44,7 @@ def settle(page, state):
             raise AssertionError('revision failed before reaching the expected state')
         action(page, 'Refresh revision status')
         page.wait_for_timeout(1200)
-    raise AssertionError(f'revision did not reach {state}')
+    raise AssertionError(f'revision did not reach {state}: {page.get_by_text(re.compile("^Revision state:")).all_text_contents()}')
 
 
 def resume(page, key):
@@ -51,15 +55,35 @@ def resume(page, key):
     expect(page.get_by_text(f'Program ID {key}', exact=True)).to_be_visible(timeout=30_000)
 
 
-def beam_flow(page, url):
+def revision_control(page):
+    return page.get_by_test_id('stSelectbox').filter(has=page.get_by_text('Revision', exact=True))
+
+
+def select_revision(page, prefix):
+    control = revision_control(page)
+    control.locator('[role="combobox"]').click()
+    page.get_by_role('option', name=prefix, exact=True).click()
+    expect(control.get_by_text(prefix, exact=True)).to_be_visible()
+
+
+def expire_test_publication(database, program, prefix):
+    with sqlite3.connect(database.as_uri() + '?mode=rw', uri=True) as db:
+        rows = db.execute('SELECT job_id FROM program_revisions WHERE program_id=? AND id LIKE ? '
+                          "AND state='published' AND kind='edit'", (program, prefix + '%')).fetchall()
+        assert len(rows) == 1 and rows[0][0]
+        changed = db.execute('UPDATE publications SET expires=? WHERE job=?', (time.time() - 1, rows[0][0]))
+        assert changed.rowcount == 1
+
+
+def beam_flow(page, url, fixture_db):
     open_editor(page, url)
     action(page, 'Create program')
+    program = page.get_by_text(re.compile(r'^Program ID [a-f0-9]{32}$')).text_content().split()[-1]
     action(page, 'Stage source')
     expect(page.get_by_text('Revision state: staged', exact=True)).to_be_visible(timeout=30_000)
     review(page)
     settle(page, 'published')
-    selected = page.get_by_text(re.compile(r'^[a-f0-9]{12} · published$')).first
-    first = selected.text_content().split()[0]
+    first = revision_control(page).get_by_text(re.compile(r'^[a-f0-9]{12}$')).text_content()
     expect(page.locator('iframe').first.content_frame.locator('#renderCanvas')).to_be_visible(timeout=20_000)
 
     page.get_by_text('AI-assisted beam proposal', exact=True).click()
@@ -69,6 +93,7 @@ def beam_flow(page, url):
     action(page, 'Request AI draft')
     expect(page.get_by_text('Program request failed.', exact=True)).to_be_visible(timeout=30_000)
     action(page, 'Load selected revision source')
+    expect(page.get_by_role('button', name='Stage source')).to_be_enabled()
     source_field = page.get_by_role('textbox', name='MEL source')
     source_field.fill(source_field.input_value().replace('[5 mm, 10 mm, 15 mm]', '[20 mm]'))
     source_field.press('Tab')
@@ -78,13 +103,42 @@ def beam_flow(page, url):
     action(page, 'Stage source')
     review(page)
     settle(page, 'published')
+    second = revision_control(page).get_by_text(re.compile(r'^[a-f0-9]{12}$')).text_content()
+    assert first != second
+    select_revision(page, first)
+    comparison = page.get_by_test_id('stSelectbox').filter(has=page.get_by_text('Compare with revision', exact=True))
+    comparison.locator('[role="combobox"]').click()
+    page.get_by_role('option', name=second, exact=True).click()
+    action(page, 'Compare saved revisions')
+    expect(page.get_by_text('Saved revision comparison', exact=True)).to_be_visible()
 
-    page.get_by_role('combobox', name='Revision', exact=True).click()
-    page.get_by_text(re.compile(f'^{first} · published$')).last.click()
     page.get_by_text('Restore this saved revision as the accepted head.', exact=True).click()
     action(page, 'Restore selected revision')
-    expect(page.get_by_text('Revision state: published', exact=True)).to_be_visible(timeout=30_000)
+    expect(page.get_by_text('Accepted head', exact=True)).to_be_visible(timeout=30_000)
+    if fixture_db:
+        select_revision(page, second)
+        expect(page.get_by_text('Download preview.glb', exact=True)).to_be_visible()
+        expire_test_publication(fixture_db, program, second)
+        action(page, 'Refresh revision status')
+        expect(page.get_by_text('This revision’s package expired. Its evidence history is still available.',
+                                exact=True)).to_be_visible()
+        expect(page.get_by_text('Download preview.glb', exact=True)).not_to_be_visible()
+        expect(page.get_by_role('button', name='Restore selected revision')).not_to_be_visible()
 
+
+
+def form_flow(page, url):
+    page.goto(url)
+    page.get_by_text('Checked design', exact=True).first.click()
+    action(page, 'Save draft')
+    expect(page.get_by_text('2. Review the exact draft', exact=True)).to_be_visible(timeout=30_000)
+    page.get_by_text('I reviewed every value, the normalized thickness set, material source, '
+                     'ideal clamp, +Z end force and all assumptions.', exact=True).click()
+    action(page, 'Finalize reviewed brief')
+    action(page, 'Run reviewed beam checks')
+    expect(page.get_by_text(re.compile('Accepted under the declared digital beam model'))).to_be_visible(
+        timeout=120_000)
+    expect(page.get_by_text('Revision-bound downloads', exact=True)).to_be_visible()
 
 
 def main():
@@ -92,16 +146,26 @@ def main():
     parser.add_argument('--url', default='http://127.0.0.1:8528')
     parser.add_argument('--browser', default='/usr/bin/chromium')
     parser.add_argument('--screenshot', type=Path)
-    parser.add_argument('--beam', action='store_true', help='exercise captured GLB, unavailable AI, cancel and restore')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--beam', action='store_true', help='exercise captured GLB, unavailable AI, cancel and restore')
+    mode.add_argument('--form', action='store_true', help='run the existing checked form with the provider unavailable')
+    parser.add_argument('--local-fixture-db', type=Path, help='exercise expiry using a disposable local backend database')
     args = parser.parse_args()
+    if args.local_fixture_db and (not args.beam or urlsplit(args.url).hostname not in ('127.0.0.1', 'localhost')):
+        parser.error('--local-fixture-db requires --beam and a loopback frontend')
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=args.browser, args=['--no-sandbox'])
         page = browser.new_page()
         try:
+            if args.form:
+                form_flow(page, args.url)
+                print(json.dumps({'browser': browser.version, 'checked_form': 'accepted'}))
+                return
             if args.beam:
-                beam_flow(page, args.url)
+                beam_flow(page, args.url, args.local_fixture_db)
                 print(json.dumps({'browser': browser.version, 'preview': 'saved GLB',
-                                  'provider': 'unavailable', 'cancel': 'passed', 'restore': 'passed'}))
+                                  'provider': 'unavailable', 'cancel': 'passed', 'restore': 'passed',
+                                  'expired': 'passed' if args.local_fixture_db else 'not_run'}))
                 return
             open_editor(page, args.url)
             textarea = page.get_by_role('textbox', name='MEL source')
@@ -122,11 +186,13 @@ def main():
             expect(page.get_by_text('Revision state: staged', exact=True)).to_be_visible(timeout=30_000)
             review(page)
             settle(page, 'published')
+            print('nominal browser revision published', file=sys.stderr, flush=True)
             expect(page.get_by_text('Download generator-body.step', exact=True)).to_be_visible()
             action(other, 'Refresh revision status')
             expect(other.get_by_text(re.compile('The accepted head changed'))).to_be_visible(timeout=30_000)
             expect(other.get_by_role('button', name='Stage source')).to_be_disabled()
             action(page, 'Load selected revision source')
+            expect(page.get_by_role('button', name='Stage source')).to_be_enabled()
             # Two revisions here share the same fixed requirements.
             source = textarea.input_value()
             textarea.fill(source.replace('"nominal"', '"supplier-shifted"'))
@@ -134,9 +200,12 @@ def main():
             action(page, 'Stage source')
             review(page)
             settle(page, 'rejected')
+            print('substitution browser revision rejected', file=sys.stderr, flush=True)
             action(page, 'Read rejection report')
-            expect(page.get_by_text('Revision evidence', exact=True)).to_be_visible()
+            expect(page.get_by_text('Saved rejection report', exact=True)).to_be_visible()
+            expect(page.get_by_role('cell', name='module-01', exact=True)).to_have_count(4)
             action(page, 'Compare saved revisions')
+            expect(page.get_by_text('Saved revision comparison', exact=True)).to_be_visible()
 
             page.reload()
             open_editor(page, args.url)
@@ -146,6 +215,10 @@ def main():
                 page.screenshot(path=args.screenshot)
             print(json.dumps({'browser': browser.version, 'bay_nominal': 'published', 'substitution': 'rejected',
                               'diagnostic': 'MEL-P002', 'stale_tab_blocked': True, 'resume_after_reload': True}))
+        except Exception:
+            if args.screenshot:
+                page.screenshot(path=args.screenshot)
+            raise
         finally:
             browser.close()
 

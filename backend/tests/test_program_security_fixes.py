@@ -417,11 +417,13 @@ def test_unknown_export_is_rejected():
     assert err_of(program_from_dict, d).code == 'IR010'
 
 
-def test_export_allowlist_equals_the_beam_capability_exports():
+def test_export_allowlist_keeps_beam_formats_and_adds_picogk_stl():
     from typing import get_args
     from engineering.capabilities import CAPABILITY
     from engineering.program.ir import ExportFormat
-    assert get_args(ExportFormat) == CAPABILITY.exports
+    formats = get_args(ExportFormat)
+    assert tuple(fmt for fmt in formats if fmt in CAPABILITY.exports) == CAPABILITY.exports
+    assert set(formats) - set(CAPABILITY.exports) == {'stl'}
 
 
 def test_symbolic_backends_are_accepted():

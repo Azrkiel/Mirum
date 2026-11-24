@@ -198,6 +198,8 @@ def _review(client, revision, current_source):
 def _results(client, revision, preview):
     rid = revision['revision_id']
     st.write(f"Revision state: {revision['state']}")
+    if revision['is_current']:
+        st.caption('Accepted head')
     if revision['reason']:
         st.text(revision['reason'])
     if revision['state'] in ('staged', 'running') and st.button('Cancel revision'):
@@ -239,7 +241,17 @@ def _results(client, revision, preview):
     else:
         st.session_state.pop('mel_artifact_cache', None)
         if revision['state'] == 'rejected' and st.button('Read rejection report'):
-            st.json(json.loads(client.artifact(rid, 'report')), expanded=False)
+            capability = json.loads(client.artifact(rid, 'program-ir'))['capability']['id']
+            report_format = 'generator-report' if capability == 'equipment_bay' else 'report'
+            report = json.loads(client.artifact(rid, report_format))
+            st.subheader('Saved rejection report')
+            failures = [row for row in report.get('mounting', {}).get('correspondences', [])
+                        if row['outcome'] != 'pass']
+            if failures:
+                st.table([{field: row[field] for field in ('occurrence_id', 'module_hole_id',
+                                                          'offset_mm', 'tolerance_mm', 'outcome')}
+                          for row in failures])
+            st.json(report, expanded=False)
         elif revision['artifacts'] == 'expired':
             st.info('This revision’s package expired. Its evidence history is still available.')
 
@@ -291,6 +303,7 @@ def render_program(backend, headers, typed, preview=None):
             st.session_state['mel_program_id'] = client.request('POST', '/programs')['program_id']
             st.session_state['mel_base_parent'] = None
             st.session_state.pop('mel_selected_revision', None)
+            st.session_state['mel_revision_epoch'] = st.session_state.get('mel_revision_epoch', 0) + 1
             st.rerun()
         resume = st.text_input('Resume program ID', max_chars=32)
         if st.button('Open program', disabled=not _ID.fullmatch(resume)):
@@ -298,6 +311,7 @@ def render_program(backend, headers, typed, preview=None):
             st.session_state['mel_program_id'] = resume
             st.session_state['mel_base_parent'] = opened['head_revision_id']
             st.session_state.pop('mel_selected_revision', None)
+            st.session_state['mel_revision_epoch'] = st.session_state.get('mel_revision_epoch', 0) + 1
             st.rerun()
         program = st.session_state.get('mel_program_id')
         if not program:
@@ -323,13 +337,22 @@ def render_program(backend, headers, typed, preview=None):
             rid = staged['revision']['revision_id']
             st.session_state.setdefault('mel_review_fields', {})[rid] = staged['review_fields']
             st.session_state['mel_selected_revision'] = rid
+            st.session_state['mel_revision_epoch'] = st.session_state.get('mel_revision_epoch', 0) + 1
             st.rerun()
         revisions = {row['revision_id']: row for row in history['revisions']}
         if not revisions:
             return
-        rid = st.selectbox('Revision', list(revisions),
-                           format_func=lambda key: f"{key[:12]} · {revisions[key]['state']}",
-                           key='mel_selected_revision')
+        options = sorted(revisions)
+        selected = st.session_state.get('mel_selected_revision', history['head_revision_id'])
+
+        widget_id = f"mel_revision_widget_{st.session_state.get('mel_revision_epoch', 0)}"
+
+        def select_revision():
+            st.session_state['mel_selected_revision'] = st.session_state[widget_id]
+
+        st.selectbox('Revision', options, index=options.index(selected) if selected in options else 0,
+                     format_func=lambda key: key[:12], key=widget_id, on_change=select_revision)
+        rid = selected if selected in options else options[0]
         revision = revisions[rid]
         if st.button('Load selected revision source'):
             if revision['is_current']:
@@ -342,6 +365,7 @@ def render_program(backend, headers, typed, preview=None):
             other = st.selectbox('Compare with revision', others, format_func=lambda key: key[:12])
             if st.button('Compare saved revisions'):
                 comparison = client.request('POST', f'/revisions/{rid}/compare', body={'other_revision_id': other})
+                st.subheader('Saved revision comparison')
                 st.json(comparison['diff'], expanded=False)
                 before, after = _measured(client, revision), _measured(client, revisions[other])
                 deltas = [{'measurement': name, 'first': before[name], 'second': after[name],
@@ -350,10 +374,13 @@ def render_program(backend, headers, typed, preview=None):
                           if type(before[name]) in (int, float) and type(after[name]) in (int, float)]
                 if deltas:
                     st.table(deltas)
-        if revision['state'] == 'published' and not revision['is_current']:
+        if revision['state'] == 'published' and revision['artifacts'] == 'available' and not revision['is_current']:
             confirmed = st.checkbox('Restore this saved revision as the accepted head.')
             if st.button('Restore selected revision', disabled=not confirmed):
-                client.request('POST', f'/revisions/{rid}/restore', parent=history['head_revision_id'])
+                restored = client.request('POST', f'/revisions/{rid}/restore', parent=history['head_revision_id'])
+                st.session_state['mel_selected_revision'] = restored['revision']['revision_id']
+                st.session_state['mel_base_parent'] = restored['revision']['revision_id']
+                st.session_state['mel_revision_epoch'] = st.session_state.get('mel_revision_epoch', 0) + 1
                 st.rerun()
     except (WorkspaceError, APIError) as error:
         _show_error(error)

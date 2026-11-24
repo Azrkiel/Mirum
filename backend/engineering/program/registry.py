@@ -379,6 +379,6 @@ def load_artifact_graph_json(text: str | bytes, *, require_executable: bool = Tr
     unless the caller passes `require_executable=False` to load them as records. Unknown operations
     and versions are always rejected (by the model itself)."""
     graph = _validate_record(ArtifactGraph, _parse_json_bounded(text), ARTIFACT_GRAPH_VERSION)
-    validate_op_stream(graph.op_stream, DEFAULT_REGISTRY, require_executable=require_executable,
+    validate_op_stream(graph.op_stream, BAY_REGISTRY, require_executable=require_executable,
                        field_prefix='op_stream')
     return graph

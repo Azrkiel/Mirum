@@ -51,8 +51,8 @@ MAX_NODES = 2000
 MAX_LIST = 256
 MAX_ARGS = 64
 
-# Symbolic backend selectors (LANGUAGE.md: occt; FRAMEWORK.md: PicoGK) and the export formats the
-# beam capability produces (engineering.capabilities.CAPABILITY.exports; a test pins the equality).
+# Symbolic backend and export selectors. The compiler and reviewed plans apply the narrower
+# capability-specific format policies.
 Backend = Literal['occt', 'picogk']
 ExportFormat = Literal['step', 'glb', 'stl', 'source', 'brief', 'specification', 'attempts',
                        'report_json', 'report_markdown', 'manifest', 'zip']
