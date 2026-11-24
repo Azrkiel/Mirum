@@ -12,6 +12,9 @@ from engineering_ui import APIError
 _ID = re.compile(r'[a-f0-9]{32}\Z')
 _BASE = '/engineering/v1'
 _BEAM = 'rectangular_cantilever'
+_PICO = 'regen_chamber'
+_EXPORT_BYTES = 64 * 1024**2
+_PICO_STL_BYTES = 128 * 1024**2
 _EXAMPLE = '''
 language mirum "0.1";
 design reference_beam {
@@ -51,6 +54,18 @@ design equipment_bay {
   exports = ["step"];
 }
 '''.lstrip()
+_PICO_EXAMPLE = '''
+language mirum "0.1";
+design picogk_reference {
+  capability = "regen_chamber";
+  capability_version = "1.0.0";
+  backend = "picogk";
+  numerical_policy = "regen_chamber_numerical_v1";
+  resource_policy = "engineering_resources_v1";
+  preset = "reference";
+  exports = ["stl"];
+}
+'''.lstrip()
 
 
 class WorkspaceError(ValueError):
@@ -65,10 +80,12 @@ class WorkspaceClient:
         self.base = backend.rstrip('/') + _BASE
         self.headers = headers
 
-    def request(self, method, path, *, source=None, body=None, parent=None, guard=None, artifact=False):
+    def request(self, method, path, *, source=None, source_id=None, body=None, parent=None, guard=None, artifact_bytes=0):
         headers = self.headers()
         if source is not None:
             headers = {**headers, 'Content-Type': 'application/vnd.mirum.mel'}
+        if source_id is not None:
+            headers = {**headers, 'X-Mirum-Source-Id': source_id}
         if parent is not None:
             headers = {**headers, 'X-Mirum-Expected-Parent': parent}
         if guard is not None:
@@ -77,7 +94,7 @@ class WorkspaceClient:
             response = requests.request(method, self.base + path, headers=headers, data=source, json=body,
                                         allow_redirects=False, timeout=(5, 90), stream=True)
             with response:
-                limit = 64 * 1024**2 if artifact and response.ok else 1024**2
+                limit = artifact_bytes if artifact_bytes and response.ok else 1024**2
                 chunks, length = [], 0
                 for chunk in response.iter_content(65536):
                     length += len(chunk)
@@ -85,7 +102,7 @@ class WorkspaceClient:
                         raise WorkspaceError(502, {'message': 'Response exceeded the workspace size limit.'})
                     chunks.append(chunk)
                 data = b''.join(chunks)
-                if response.ok and artifact:
+                if response.ok and artifact_bytes:
                     if sha256(data).hexdigest() != response.headers.get('X-Content-SHA256'):
                         raise WorkspaceError(502, {'message': 'Downloaded bytes failed the fingerprint check.'})
                     return data
@@ -99,7 +116,8 @@ class WorkspaceClient:
             raise WorkspaceError(503, {'message': 'The program service could not be reached.'}) from None
 
     def artifact(self, revision, fmt):
-        return self.request('GET', f'/revisions/{revision}/artifacts/{fmt}', artifact=True)
+        limit = _PICO_STL_BYTES if fmt == 'generator-cleaned-stl' else _EXPORT_BYTES
+        return self.request('GET', f'/revisions/{revision}/artifacts/{fmt}', artifact_bytes=limit)
 
 
 def _source_from_beam(content):
@@ -173,6 +191,12 @@ def _review(client, revision, current_source):
         if ir['capability']['id'] == 'equipment_bay':
             fields = ['specification.' + name for name in
                       ('length_mm', 'module_count', 'preferred_angle_rad', 'supplier', 'width_mm')]
+        elif ir['capability']['id'] == _PICO:
+            fields = ['specification.' + name for name in (
+                'assumptions', 'chamber_length_mm', 'chamber_radius_mm', 'channel_count', 'channel_radius_mm',
+                'channel_twist_rad_per_mm', 'convergent_length_mm', 'divergent_length_mm', 'end_margin_mm',
+                'exit_radius_mm', 'family', 'manifold_radius_mm', 'throat_radius_mm', 'units', 'voxel_size_mm',
+                'wall_thickness_mm')]
         else:
             fields = ['length_mm', 'width_mm', 'dimensional_tolerance_mm', 'tip_force_n', 'max_tip_deflection_mm',
                       'material.youngs_modulus_mpa', 'material.allowable_stress_mpa', 'material.reference',
@@ -212,9 +236,9 @@ def _results(client, revision, preview):
     if inspected['evidence']['status'] == 'present' or inspected['evidence'].get('run'):
         st.subheader('Revision evidence')
         st.json(inspected['evidence'], expanded=False)
-    fmt_by_file = {'preview.glb': 'glb', 'generator-body.step': 'generator-body-step',
-                   'model.step': 'step', 'generator-cleaned.stl': 'generator-cleaned-stl',
+    fmt_by_file = {'preview.glb': 'glb', 'generator-body.step': 'generator-body-step', 'model.step': 'step',
                    'generator-bom.json': 'generator-bom', 'generator-report.json': 'generator-report',
+                   'generator-cleaned.stl': 'generator-cleaned-stl',
                    'report.json': 'report'}
     if revision['artifacts'] == 'available':
         identities = {row['path']: row['sha256'] for row in revision['bundle']['payloads']}
@@ -286,11 +310,13 @@ def render_program(backend, headers, typed, preview=None):
     st.subheader('MEL program')
     if 'mel_next_source' in st.session_state:
         st.session_state['mel_source'] = st.session_state.pop('mel_next_source')
-    beam, bay = st.columns(2)
+    beam, bay, pico = st.columns(3)
     if beam.button('Load beam example'):
         _replace_source(_EXAMPLE)
     if bay.button('Load equipment-bay example'):
         _replace_source(_BAY)
+    if pico.button('Load PicoGK example'):
+        _replace_source(_PICO_EXAMPLE)
     source = st.text_area('MEL source', value=_EXAMPLE, height=370, max_chars=65536, key='mel_source').encode('utf-8')
     try:
         if st.button('Validate and preview plan'):
@@ -328,12 +354,14 @@ def render_program(backend, headers, typed, preview=None):
                 st.session_state['mel_base_parent'] = history['head_revision_id']
                 st.rerun()
         head = next((rev for rev in history['revisions'] if rev['is_current']), None)
-        if head:
+        if head and head['bundle'] and any(row['path'] == 'model.step' for row in head['bundle']['payloads']):
             with st.expander('AI-assisted beam proposal'):
                 _proposal(client, typed, head)
         guard = st.session_state.get('mel_proposal_guard')
         if st.button('Stage source', disabled=stale):
-            staged = client.request('POST', program_path + '/revisions', source=source, parent=parent, guard=guard)
+            source_id = 'typed-ai-proposal.mir' if guard else None
+            staged = client.request('POST', program_path + '/revisions', source=source, source_id=source_id,
+                                    parent=parent, guard=guard)
             rid = staged['revision']['revision_id']
             st.session_state.setdefault('mel_review_fields', {})[rid] = staged['review_fields']
             st.session_state['mel_selected_revision'] = rid

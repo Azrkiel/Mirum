@@ -118,11 +118,22 @@ def test_bay_unit_equivalence_through_adapter(tmp_path, monkeypatch):
             staged = stage(w, program, SOURCE.replace(b'560 mm', value))
             assert staged.status_code == 201, staged.text
             rid = review(w, staged)
-            assert run(w, rid)['state'] == 'published'
+            published = run(w, rid)
+            assert published['state'] == 'published'
             report = json.loads(export(w, rid, 'generator-report'))
             assert report['envelope']['allowance_mm'][0] == 1000
             measured.append(report['envelope']['measured_mm'])
         assert measured == [[580, 210], [580, 210]]
+        rotated = SOURCE.replace(b'560 mm', b'1000 mm').replace(b'= 0 deg', b'= 90 deg')
+        guard = published['fixed_requirements_sha256']
+        candidate = stage(w, program, rotated, rid, guard)
+        assert candidate.status_code == 201, candidate.text
+        rotated_id = review(w, candidate)
+        new_head = run(w, rotated_id)
+        assert new_head['state'] == 'published' and new_head['is_current']
+        assert new_head['fixed_requirements_sha256'] == guard
+        new_report = json.loads(export(w, rotated_id, 'generator-report'))
+        assert new_report['envelope']['measured_mm'] == [480, 250]
 
 
 def test_bay_interrupted_link_recovers_and_retry_preserves_artifacts(tmp_path, monkeypatch):

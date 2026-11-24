@@ -34,9 +34,9 @@ def review(page):
     expect(page.get_by_text('Revision state: staged', exact=True)).not_to_be_visible(timeout=30_000)
 
 
-def settle(page, state):
+def settle(page, state, timeout=165):
     expected = page.get_by_text(f'Revision state: {state}', exact=True)
-    stop = time.monotonic() + 165
+    stop = time.monotonic() + timeout
     while time.monotonic() < stop:
         if expected.is_visible():
             return
@@ -141,6 +141,34 @@ def form_flow(page, url):
     expect(page.get_by_text('Revision-bound downloads', exact=True)).to_be_visible()
 
 
+def pico_flow(browser, page, url):
+    open_editor(page, url)
+    action(page, 'Load PicoGK example')
+    expect(page.get_by_role('textbox', name='MEL source')).to_have_value(re.compile('design picogk_reference'))
+    action(page, 'Create program')
+    program = page.get_by_text(re.compile(r'^Program ID [a-f0-9]{32}$')).text_content().split()[-1]
+    action(page, 'Stage source')
+    expect(page.get_by_text('Revision state: staged', exact=True)).to_be_visible()
+    other = browser.new_page()
+    open_editor(other, url)
+    resume(other, program)
+    action(other, 'Load selected revision source')
+    expect(other.get_by_text(re.compile(r'specification\.voxel_size_mm'))).to_be_visible()
+    review(other)
+    settle(other, 'published', timeout=420)
+    expect(other.get_by_text('Download generator-report.json', exact=True)).to_be_visible()
+    expect(other.get_by_text('AI-assisted beam proposal', exact=True)).not_to_be_visible()
+    artifacts = other.get_by_test_id('stSelectbox').filter(has=other.get_by_text('Revision artifact', exact=True))
+    artifacts.locator('[role="combobox"]').click()
+    other.get_by_role('option', name='generator-cleaned.stl', exact=True).click()
+    download_button = other.get_by_text('Download generator-cleaned.stl', exact=True)
+    expect(download_button).to_be_visible(timeout=90_000)
+    with other.expect_download(timeout=90_000) as download:
+        download_button.click()
+    assert download.value.suggested_filename == 'generator-cleaned.stl'
+    assert download.value.path().stat().st_size > 64 * 1024**2
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--url', default='http://127.0.0.1:8528')
@@ -149,6 +177,7 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--beam', action='store_true', help='exercise captured GLB, unavailable AI, cancel and restore')
     mode.add_argument('--form', action='store_true', help='run the existing checked form with the provider unavailable')
+    mode.add_argument('--pico', action='store_true', help='resume, review, and export the native PicoGK preset')
     parser.add_argument('--local-fixture-db', type=Path, help='exercise expiry using a disposable local backend database')
     args = parser.parse_args()
     if args.local_fixture_db and (not args.beam or urlsplit(args.url).hostname not in ('127.0.0.1', 'localhost')):
@@ -157,6 +186,10 @@ def main():
         browser = p.chromium.launch(executable_path=args.browser, args=['--no-sandbox'])
         page = browser.new_page()
         try:
+            if args.pico:
+                pico_flow(browser, page, args.url)
+                print(json.dumps({'browser': browser.version, 'picogk': 'published', 'stl': 'available'}))
+                return
             if args.form:
                 form_flow(page, args.url)
                 print(json.dumps({'browser': browser.version, 'checked_form': 'accepted'}))

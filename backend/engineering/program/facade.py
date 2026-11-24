@@ -52,7 +52,7 @@ __all__ = ['ProgramInterface', 'ProgramQuota', 'ExportResult', 'InterfaceFailure
 
 _LOG = logging.getLogger('mirum.program.interface')
 DEFAULT_SOURCE_ID = 'program.mir'
-MAX_EXPORT_BYTES = 64 * 1024 * 1024
+MAX_EXPORT_BYTES = api.MAX_EXPORT_BYTES
 _CHUNK = 1024 * 1024
 _STATELESS_SLOTS = 2
 _ID_KEYS = frozenset({'draft_id', 'brief_id', 'job_id'})
@@ -540,23 +540,24 @@ class ProgramInterface:
             return self._export(request.revision_id, fmt, filename, media, data)
         download = await asyncio.to_thread(self.service.open_artifact, request.revision_id, fmt, client=client)
         try:
-            if download.size > MAX_EXPORT_BYTES:
+            limit = api.export_byte_limit(fmt)
+            if download.size > limit:
                 raise _fail(api.too_large('response_too_large'))
-            data = await asyncio.to_thread(self._read_all, download)
+            data = await asyncio.to_thread(self._read_all, download, limit)
             return self._export(request.revision_id, fmt, download.filename, download.mime_type, data,
                                 sha256=download.sha256 or None)
         finally:
             download.close()
 
     @staticmethod
-    def _read_all(download) -> bytes:
+    def _read_all(download, limit) -> bytes:
         parts, total = [], 0
         while True:
             block = download.file.read(_CHUNK)
             if not block:
                 break
             total += len(block)
-            if total > MAX_EXPORT_BYTES:
+            if total > limit:
                 raise _fail(api.too_large('response_too_large'))
             parts.append(block)
         return b''.join(parts)

@@ -81,8 +81,14 @@ def main():
         require(inspected.verdict == 'verified' and inspected.claim_scope == 'geometry_checks_only'
                 and inspected.step_sha256 is None,
                 'PicoGK evidence must verify the STL within its geometry scope')
+        downloaded = client.export(pico.revision_id, 'generator-cleaned-stl')
+        stl_bytes = len(downloaded.data)
+        stl_sha256 = next(row.sha256 for row in pico.bundle.payloads if row.path == downloaded.filename)
+        require(downloaded.sha256 == stl_sha256, 'STL export differs from the published PicoGK bundle')
+        del downloaded
         pico_evidence = {'claim_scope': inspected.claim_scope, 'verdict': inspected.verdict,
                          'checks': [check.check_id for check in inspected.checks],
+                         'stl_bytes': stl_bytes,
                          'replay': asyncio.run(remeasure(capture(client, pico.revision_id)))}
     print(json.dumps({
         'native_versions': good['tool_versions'], 'nominal_envelope_mm': good['envelope']['measured_mm'],
