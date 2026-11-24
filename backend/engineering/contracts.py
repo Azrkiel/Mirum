@@ -229,11 +229,14 @@ class GeneratorBriefContent(ContractModel):
             from .equipment_bay import FIXED_FIELDS, catalog_digest
             meaning['specification'] = {name: self.specification[name] for name in FIXED_FIELDS}
             meaning['catalog_sha256'] = catalog_digest()
+        elif self.capability.id == 'editable_plate':
+            from .editable_plate import FIXED_FIELDS
+            meaning['specification'] = {name: self.specification[name] for name in FIXED_FIELDS}
         return digest(meaning)
 
     @property
     def brief_sha256(self) -> str:
-        if self.capability.id == 'equipment_bay':
+        if self.capability.id in ('equipment_bay', 'editable_plate'):
             return digest(dict(fixed_requirements_sha256=self.fixed_requirements_sha256,
                                specification=self.specification))
         return self.fixed_requirements_sha256

@@ -69,6 +69,8 @@ SEMANTIC = {
     'MEL-S017': 'Reviewed round trip mismatch',
     'MEL-S018': 'Compile deadline exceeded',
     'MEL-S019': 'Invalid program record',
+    'MEL-S020': 'Dangling authored reference',
+    'MEL-S021': 'Invalid plate dimension',
 }
 # MEL-S code -> F02 IR code (None: no IR equivalent).
 MEL_S_IR_CODES = MappingProxyType({
@@ -76,7 +78,7 @@ MEL_S_IR_CODES = MappingProxyType({
     'MEL-S005': 'IR006', 'MEL-S006': 'IR006', 'MEL-S007': 'IR007', 'MEL-S008': 'IR010',
     'MEL-S009': 'IR010', 'MEL-S010': 'IR010', 'MEL-S011': 'IR010', 'MEL-S012': 'IR010',
     'MEL-S013': 'IR010', 'MEL-S014': 'IR010', 'MEL-S015': 'IR010', 'MEL-S016': None,
-    'MEL-S017': 'IR010', 'MEL-S018': None, 'MEL-S019': 'IR010',
+    'MEL-S017': 'IR010', 'MEL-S018': None, 'MEL-S019': 'IR010', 'MEL-S020': 'IR004', 'MEL-S021': 'IR010',
 })
 
 HINTS = {
