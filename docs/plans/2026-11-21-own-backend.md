@@ -26,7 +26,8 @@ This study plugs into the existing Phase 3 plan
   Phase 3 order (F02 registry, F03 adapters, F04/F05 language, F07 evidence, F08 interfaces, F09 AI). "Better than
   Zoo" means: requirements are first-class and immutable during an edit loop, every build is deterministic and
   testable offline, units are tracked through arithmetic, geometry identity is semantic, and acceptance comes only from
-  Mirum checks. No own kernel (F11 stays a later go/no-go).
+  Mirum checks. No own kernel (F11 stays a later go/no-go). Update 2026-11-24: F11 closed with an owner go decision; see
+  [the native kernel roadmap](checked-engineering-v1/phase-3-framework-language/NATIVE-KERNEL-ROADMAP.md).
 
 ## 2. Zoo architecture, layer by layer (public material)
 

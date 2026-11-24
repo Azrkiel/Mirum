@@ -142,7 +142,7 @@ Claim strings match backend/engineering/capabilities.py as cited in section 3. P
 
 ## 7. Exclusions
 
-- No new solid-modeling kernel; F11 is a later go/no-go research gate only.
+- No new solid-modeling kernel; F11 is a later go/no-go research gate only. (Superseded 2026-11-24: F11 closed with an owner go decision; see [NATIVE-KERNEL-ROADMAP.md](NATIVE-KERNEL-ROADMAP.md).)
 - MEL v0.1 is not a universal CAD feature editor.
 - No G1 execution before the v0.2 specification exists.
 - No server-side streaming preview.
