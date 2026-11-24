@@ -17,6 +17,14 @@ DATUM = (FIXTURES / 'datum.mir').read_bytes()
 CLIENT = 'editable-plate-review'
 
 
+@pytest.fixture(autouse=True)
+def without_provider_credentials(monkeypatch):
+    # parity_app supplies a placeholder only when the variable is absent.
+    monkeypatch.setenv('GEMINI_API_KEY_HEAVY', '')
+    for key in ('GEMINI_API_KEY_PRO', 'GEMINI_API_KEY', 'GOOGLE_API_KEY'):
+        monkeypatch.delenv(key, raising=False)
+
+
 def create(world):
     response = world.c.post(f'{V1}/programs', headers=http_headers(CLIENT))
     assert response.status_code == 201, response.text

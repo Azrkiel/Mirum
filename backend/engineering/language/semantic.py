@@ -329,10 +329,12 @@ def _compile_program(program: Program, data: bytes, source_id: str | None, guard
     if schema.fields is _BAY_FIELDS or schema.fields is _EDITABLE_PLATE_FIELDS:
         if schema.fields is _BAY_FIELDS:
             from engineering.program import bay_bridge as bridge
+            label = 'equipment-bay'
         else:
             from engineering.program import editable_plate_bridge as bridge
+            label = 'editable plate'
         if payload['capability'] != bridge.capability_reference().model_dump():
-            raise _error('MEL-S015', 'capability or policy version mismatch',
+            raise _error('MEL-S015', f'{label} capability or policy version mismatch',
                          program.design_span, 'capability')
         try:
             content = bridge.content_for(payload['specification'])
@@ -352,7 +354,7 @@ def _compile_program(program: Program, data: bytes, source_id: str | None, guard
         ir = bridge.program_for(content, program.design, provenance, bindings,
                          SourceSpan(**_span_dict(program.block_span, source_id)))
         if bridge.content_from_program(ir) != content:
-            raise _error('MEL-S017', 'generator brief did not round trip', program.design_span, 'program')
+            raise _error('MEL-S017', f'{label} brief did not round trip', program.design_span, 'program')
         guard.check(program.design_span, 'design')
         spans = tuple((a.name, a.span) for a in program.assignments) + (('design', program.block_span),)
         return CompiledProgram(ir=ir, brief_content=content, source_sha256=source_hash,
