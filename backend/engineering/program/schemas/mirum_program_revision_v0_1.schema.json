@@ -25,6 +25,7 @@
             "generator-preview.glb",
             "generator-cleaned.stl",
             "generator-spec.canonical.json",
+            "generator-bom.json",
             "generator-bundle.zip",
             "generator-result.json"
           ],
@@ -230,6 +231,7 @@
             "enum": [
               "step",
               "glb",
+              "stl",
               "source",
               "brief",
               "specification",

@@ -15,7 +15,9 @@ import json
 from dataclasses import dataclass
 from typing import Literal
 
-from engineering.contracts import BriefContent, CandidateSpec
+from engineering.contracts import BriefContent, CandidateSpec, GeneratorBriefContent, GeneratorCandidate
+from engineering.equipment_bay import CAPABILITY_ID as BAY_ID
+from engineering.program.hashing import canonical_json
 from engineering.spec import specification_digest
 
 from .adapters import adapter_for
@@ -143,9 +145,32 @@ def _plans(ir, candidates) -> tuple[BuildPlan, ...]:
                           tuple(ir.execution.exports), spans) for c in candidates)
 
 
+def generator_candidates(content):
+    if content.capability.id == 'regen_chamber':
+        from engineering.regen_spec import specification_digest
+        candidate_sha = specification_digest(content.descriptor.parse_spec(content.specification))
+    else:
+        from hashlib import sha256
+        candidate_sha = sha256(canonical_json(content.specification).encode()).hexdigest()
+    return (GeneratorCandidate(content=content, brief_sha256=content.brief_sha256,
+                               fixed_requirements_sha256=content.fixed_requirements_sha256,
+                               candidate_sha256=candidate_sha),)
+
+
+def adapter_for_program(factory, compiled, *, mode='native'):
+    options = {'capability': BAY_ID} if compiled.ir.capability.id == BAY_ID else {}
+    return factory(compiled.ir.execution.backend, mode=mode, **options)
+
+
+def _program_candidates(content):
+    return generator_candidates(content) if isinstance(content, GeneratorBriefContent) else _candidates_from_content(content)
+
+
 def _has_builder(compiled) -> bool:
     return (compiled.ir.capability.id == 'rectangular_cantilever'
-            and isinstance(compiled.brief_content, BriefContent))
+            and isinstance(compiled.brief_content, BriefContent)) or (
+                compiled.ir.capability.id in (BAY_ID, 'regen_chamber')
+                and isinstance(compiled.brief_content, GeneratorBriefContent))
 
 
 # ------------------------------------------------------------------ stage 5: plan (offline)
@@ -153,10 +178,10 @@ def _has_builder(compiled) -> bool:
 def plan_program(compiled, *, mode: str = 'native', adapter_factory=adapter_for) -> ProgramPlan | PlanRefusal:
     """Plan through the one adapter for the IR backend. Sync, offline, no probe, no fallback."""
     backend = compiled.ir.execution.backend
-    adapter = adapter_factory(backend, mode=mode)
     if not _has_builder(compiled):
         return _refuse('unsupported', _NO_BUILDER)
-    plans = _plans(compiled.ir, _candidates_from_content(compiled.brief_content))
+    adapter = adapter_for_program(adapter_factory, compiled, mode=mode)
+    plans = _plans(compiled.ir, _program_candidates(compiled.brief_content))
     for plan in plans:
         decision = adapter.supports(plan)
         if not decision.supported:
@@ -228,11 +253,14 @@ async def authorize_run(review: ProgramReview, compiled, brief_service, brief_id
         return refusal
     if execution_lock_v0_2_sha256(fresh) != review.lock_sha256:
         return _refuse('unavailable', 'lock_mismatch')  # re-review
-    if not _has_builder(compiled) or not isinstance(brief.content, BriefContent):
+    if not _has_builder(compiled) or type(brief.content) is not type(compiled.brief_content):
         return _refuse('refused', 'candidate_mismatch')
-    from engineering.cantilever import CantileverAdapter
-    planned = _candidates_from_content(compiled.brief_content)
-    candidates = CantileverAdapter().candidates(brief)
+    planned = _program_candidates(compiled.brief_content)
+    if isinstance(brief.content, GeneratorBriefContent):
+        candidates = generator_candidates(brief.content)
+    else:
+        from engineering.cantilever import CantileverAdapter
+        candidates = CantileverAdapter().candidates(brief)
     if (len(candidates) != len(planned)
             or any(a.candidate_sha256 != b.candidate_sha256 or a.brief_sha256 != b.brief_sha256
                    for a, b in zip(candidates, planned))):

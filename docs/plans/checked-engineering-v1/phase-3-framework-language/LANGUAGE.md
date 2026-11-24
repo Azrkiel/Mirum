@@ -206,3 +206,10 @@ AST-to-IR lowering is deterministic for the same supported versions. An executio
 Parser/formatter round trips, whitespace/comment equivalence, lexical failures, duplicate keys, unit confusion, nonfinite overflow, invalid versions, budget exhaustion and hostile Python-like input are mandatory. Equivalent .mir and form briefs must satisfy P03/P07.
 
 Later versions may add reusable components, dimensional expressions, assemblies or graphs only after their semantics, budgets, feature identity and evidence obligations are specified. Version migration returns an explicit semantic diff and requires renewed review where meaning changes. Never reinterpret old programs silently.
+
+
+## Added capability profiles
+
+The equipment-bay profile uses `equipment_bay` 1.0.0, backend `occt` and STEP export. It accepts length and width quantities, a module count of 8, 10 or 12, a preferred angle of 0° or 90°, and the pinned nominal or shifted supplier. The selected layout comes from the two-orientation search. The catalog digest, bay dimensions and module count are fixed requirements.
+
+The PicoGK profile uses `regen_chamber` 1.0.0, backend `picogk`, the registered `reference` preset and STL export. Its typed ProgramIR binds the preset specification digest and the existing geometry-only evidence scope. [Capability and replay handoff](handoffs/F10.md)

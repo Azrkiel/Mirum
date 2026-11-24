@@ -53,8 +53,18 @@ def create_program_runtime(engineering):
     try:
         from .program.facade import ProgramInterface, ProgramQuota
         from .program.transactions import RevisionService
+        from .program.adapters import adapter_for
+        from .equipment_bay_adapter import EquipmentBayAdapter
+        from .equipment_bay import CAPABILITY_ID as BAY_ID
+        def registered(backend, **options):
+            if backend == 'picogk':
+                regen = engineering.jobs.generators.get('regen_chamber')
+                options['runner'] = getattr(regen, '_runner', None)
+            return adapter_for(backend, **options)
+
         service = RevisionService(engineering.store, engineering.jobs, engineering.publisher,
-                                  engineering.briefs)
+                                  engineering.briefs, adapter_factory=registered)
+        engineering.jobs.generators.setdefault(BAY_ID, EquipmentBayAdapter())
         return ProgramInterface(service, engineering.briefs, engineering.quota,
                                 ProgramQuota.from_env(engineering.store))
     except Exception:  # noqa: BLE001 - fixed line only: never the exception text

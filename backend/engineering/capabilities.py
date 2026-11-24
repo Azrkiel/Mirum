@@ -417,7 +417,17 @@ def _plate_limits(spec: dict) -> dict:
     }
 
 
-_LIMIT_TABLE = {'co2_dragster': _dragster_limits, 'regen_chamber': _regen_limits, 'glider_cem': _glider_limits,
+def _bay_limits(spec):
+    return {
+        'bay_envelope': (('length', 'mm', 'le', spec['length_mm']),
+                         ('width', 'mm', 'le', spec['width_mm'])),
+        'mounting_alignment': (('max_offset', 'mm', 'le', 0.05),
+                               ('correspondences', 'count', 'eq', 4 * spec['module_count'])),
+        'occurrence_binding': (('diagnostics', 'count', 'eq', 0),),
+    }
+
+
+_LIMIT_TABLE = {'equipment_bay': _bay_limits, 'co2_dragster': _dragster_limits, 'regen_chamber': _regen_limits, 'glider_cem': _glider_limits,
                 'rectangular_plate': _plate_limits}
 
 
@@ -629,6 +639,21 @@ PLATE = GeneratorDescriptor(
                  'No safety factor is applied: the allowable stress and deflection are the user design limits',
                  'Digital checks only; no physical validation, material certification, manufacturing variation or standards conformity'))
 
+EQUIPMENT_BAY = GeneratorDescriptor(
+    id='equipment_bay', version='1.0.0', label='Equipment bay',
+    numerical_version='equipment_bay_numerical_v1',
+    spec_schema='engineering.equipment_bay:EquipmentBaySpec',
+    base_checks=('bay_envelope', 'mounting_alignment', 'occurrence_binding'),
+    unsupported_features=('noncatalog_parts', 'arbitrary_layout', 'physical_fit'),
+    selection_rule='first fitting uniform orientation from the reviewed pair',
+    numerical=(), runtime_limits=(),
+    primary_artifact='generator-body.step',
+    payloads=('generator-body.step', 'generator-bom.json', 'generator-report.json'),
+    adapter='engineering.equipment_bay_adapter:EquipmentBayAdapter',
+    claim='geometry_checks_only',
+    limitations=('Digital geometry criteria for two rows and a uniform 0° or 90° orientation',),
+)
+
 GENERATORS: tuple[GeneratorDescriptor, ...] = (DRAGSTER, REGEN, GLIDER, PLATE)
 
 
@@ -638,14 +663,14 @@ def list_capabilities() -> tuple[CapabilityDescriptor | GeneratorDescriptor, ...
 
 
 def get_generator(capability_id: str) -> GeneratorDescriptor | None:
-    return next((g for g in GENERATORS if g.id == capability_id), None)
+    return next((g for g in (*GENERATORS, EQUIPMENT_BAY) if g.id == capability_id), None)
 
 
 def get_capability(capability_id: str, version: str, *,
                    numerical_policy_version: str = 'beam_numerical_v1',
                    resource_policy_version: str = 'engineering_resources_v1'
                    ) -> CapabilityDescriptor | GeneratorDescriptor:
-    for descriptor in list_capabilities():
+    for descriptor in (*list_capabilities(), EQUIPMENT_BAY):
         numerical = (descriptor.numerical.version if isinstance(descriptor, CapabilityDescriptor)
                      else descriptor.numerical_version)
         resources = descriptor.resources.version

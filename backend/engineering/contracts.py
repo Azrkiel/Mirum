@@ -224,10 +224,18 @@ class GeneratorBriefContent(ContractModel):
 
     @property
     def fixed_requirements_sha256(self) -> str:
-        return digest(self.fixed_meaning())
+        meaning = self.fixed_meaning()
+        if self.capability.id == 'equipment_bay':
+            from .equipment_bay import FIXED_FIELDS, catalog_digest
+            meaning['specification'] = {name: self.specification[name] for name in FIXED_FIELDS}
+            meaning['catalog_sha256'] = catalog_digest()
+        return digest(meaning)
 
     @property
     def brief_sha256(self) -> str:
+        if self.capability.id == 'equipment_bay':
+            return digest(dict(fixed_requirements_sha256=self.fixed_requirements_sha256,
+                               specification=self.specification))
         return self.fixed_requirements_sha256
 
 
@@ -435,7 +443,7 @@ class ArtifactIdentity(ContractModel):
     path: Literal['brief.json', 'selected_spec.json', 'model.py', 'model.step', 'preview.glb',
                   'attempts.json', 'report.json', 'report.md', 'manifest.json',
                   'generator-spec.json', 'generator-report.json', 'generator-body.step',
-                  'generator-preview.glb', 'generator-cleaned.stl', 'generator-spec.canonical.json',
+                  'generator-preview.glb', 'generator-cleaned.stl', 'generator-spec.canonical.json', 'generator-bom.json',
                   'generator-bundle.zip', 'generator-result.json']
     sha256: Sha256
     bytes: int = Field(gt=0)

@@ -1,0 +1,10 @@
+language mirum "0.1";
+design picogk_reference {
+  capability = "regen_chamber";
+  capability_version = "1.0.0";
+  backend = "picogk";
+  numerical_policy = "regen_chamber_numerical_v1";
+  resource_policy = "engineering_resources_v1";
+  preset = "reference";
+  exports = ["stl"];
+}

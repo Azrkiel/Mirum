@@ -245,12 +245,13 @@ def test_ai_flag_is_only_in_the_step12_override():
         if b'e05-ai-offline.env' in data and rel != 'e2e/compose/e05-ai-offline.env':
             env_refs.add(rel)
     # The B13 step-12 override and the E05 offline e2e env file (no egress, placeholder key); the E05 live
-    # qualification script may set it in-process inside its owner-gated container (Wave E P5). Prod: the
+    # qualification script may set it in-process inside its owner-gated container (Wave E P5), and so may the
+    # F09 proposal harness (rehearsal offline in CI; live only via f09-live.yml on main). Prod: the
     # backend Fly config (owner yes 2026-11-22, runbook 2026-11-21-ai-flag-enable.md section 5); its whole
     # [env], caps included, is pinned by e2e/test_fly_release.py.
     required = {'e2e/compose/b13-step12.override.yml', 'e2e/compose/e05-ai-offline.env',
                 'deploy/fly/backend.fly.toml'}
-    assert required <= holders <= required | {'scripts/e05_live_eval.py'}, sorted(holders)
+    assert required <= holders <= required | {'scripts/e05_live_eval.py', 'scripts/f09_live_proposal.py'}, sorted(holders)
     # That env file is loaded only by its own e2e override, never by a release/prod compose or Fly config.
     assert env_refs == {'e2e/compose/e05-ai-offline.override.yml'}, sorted(env_refs)
     assert AI_FLAG not in text(ROOT / 'compose.release.yml')

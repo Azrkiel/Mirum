@@ -75,6 +75,8 @@ MAX_JSON_BODY_BYTES = 65536          # small JSON request bodies (review, compar
 MAX_JSON_RESPONSE_BYTES = 4194304    # 4 MiB, the CLI and HTTP SDK response cap
 MAX_MCP_MESSAGE_BYTES = 1048576      # 1 MiB per JSON-RPC line (a 64 KiB source fits with slack)
 MAX_JSON_DEPTH = 8                   # nesting depth of any accepted small JSON body
+MAX_EXPORT_BYTES = 64 * 1024**2
+MAX_GENERATOR_STL_EXPORT_BYTES = 128 * 1024**2
 
 # Program and revision ids are uuid4().hex (revision_store.create_program, revisions.Id32).
 ID_PATTERN = r'^[0-9a-f]{32}$'
@@ -84,12 +86,17 @@ EXPORT_SOURCE_FORMATS = ('program-source', 'program-ir', 'execution-lock')   # D
 BUNDLE_FORMATS = (
     'zip', 'brief', 'spec', 'source', 'step', 'glb', 'attempts', 'report', 'markdown', 'manifest',
     'generator-spec', 'generator-report', 'generator-body-step', 'generator-preview-glb',
-    'generator-cleaned-stl', 'generator-spec-canonical', 'generator-bundle-zip', 'generator-result')
+    'generator-cleaned-stl', 'generator-spec-canonical', 'generator-bundle-zip', 'generator-result',
+    'generator-bom')
 EXPORT_FORMATS = EXPORT_SOURCE_FORMATS + BUNDLE_FORMATS
 
 
 def is_export_format(fmt) -> bool:
     return type(fmt) is str and fmt in EXPORT_FORMATS
+
+
+def export_byte_limit(fmt: str) -> int:
+    return MAX_GENERATOR_STL_EXPORT_BYTES if fmt == 'generator-cleaned-stl' else MAX_EXPORT_BYTES
 
 
 class BoundsError(ValueError):

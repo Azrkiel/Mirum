@@ -45,6 +45,7 @@ GENERATOR_FORMATS = {
     'generator-spec-canonical': ('generator-spec.canonical.json','application/json'),
     'generator-bundle-zip': ('generator-bundle.zip','application/zip'),
     'generator-result': ('generator-result.json','application/json'),
+    'generator-bom': ('generator-bom.json','application/json'),
 }
 ALL_FORMATS = {**FORMATS, **GENERATOR_FORMATS}
 MIME.update(dict(GENERATOR_FORMATS.values()))

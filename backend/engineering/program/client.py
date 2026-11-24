@@ -33,7 +33,7 @@ __all__ = ['ProgramClient', 'ClientError', 'TransportError', 'UrllibTransport', 
            'TRANSPORT_CODES', 'EXPORT_FILENAMES', 'MAX_EXPORT_BYTES', 'DEFAULT_TIMEOUT', 'TOKEN_HEADER']
 
 TOKEN_HEADER = 'X-Mirum-Access-Token'
-MAX_EXPORT_BYTES = 64 * 1024 * 1024
+MAX_EXPORT_BYTES = api.MAX_EXPORT_BYTES
 DEFAULT_TIMEOUT = 60.0
 _JSON_MEDIA = 'application/json'
 _TOKEN_RE = re.compile(r'^[\x21-\x7e]{1,512}$')
@@ -53,6 +53,7 @@ EXPORT_FILENAMES = {
     'step': 'model.step', 'glb': 'preview.glb', 'attempts': 'attempts.json', 'report': 'report.json',
     'markdown': 'report.md', 'manifest': 'manifest.json',
     'generator-spec': 'generator-spec.json', 'generator-report': 'generator-report.json',
+    'generator-bom': 'generator-bom.json',
     'generator-body-step': 'generator-body.step', 'generator-preview-glb': 'generator-preview.glb',
     'generator-cleaned-stl': 'generator-cleaned.stl', 'generator-spec-canonical': 'generator-spec.canonical.json',
     'generator-bundle-zip': 'generator-bundle.zip', 'generator-result': 'generator-result.json',
@@ -355,7 +356,7 @@ class ProgramClient:
             raise ClientError(api.not_found())
         req = self._model(api.ExportRequest, revision_id=revision_id, fmt=fmt)
         status, headers, data = self._request(spec, {'rid': req.revision_id, 'fmt': fmt},
-                                              max_bytes=MAX_EXPORT_BYTES)
+                                              max_bytes=api.export_byte_limit(fmt))
         if status != 200:
             if status >= 400 and len(data) > api.MAX_JSON_RESPONSE_BYTES:
                 raise TransportError('bad_error_body')

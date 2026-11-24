@@ -263,6 +263,24 @@ REGISTRY_V0_1 = OperationRegistry(_DESCRIPTORS, version=REGISTRY_VERSION_V0_1)
 DEFAULT_REGISTRY = OperationRegistry(_DESCRIPTORS + _REGEN_DESCRIPTORS)
 
 
+BAY_REGISTRY_VERSION = 'mirum_operation_registry_v0_3'
+_BAY_DESCRIPTORS = tuple(
+    OperationDescriptor(
+        id=f'capability.{op}', version='0.3.0', summary=description,
+        args=() if op != 'export' else (ArgSpec(name='format', kind='text', allowed=('step',)),),
+        preconditions=(), outputs=(OutputSpec(name=output, type=kind),),
+        representations=(representation,), backend_requirements=('occt',),
+        capability_versions=('equipment_bay@1.0.0',), executable=True)
+    for op, description, output, kind, representation in (
+        ('build', 'Build a reviewed two-row equipment bay.', 'geometry', 'solid', 'brep'),
+        ('inspect', 'Measure the equipment bay and mounting bores.', 'measurements', 'measurement', 'report'),
+        ('export', 'Export the hierarchical equipment-bay STEP.', 'file', 'file', 'file'),
+    )
+)
+BAY_REGISTRY = OperationRegistry(_DESCRIPTORS + _REGEN_DESCRIPTORS + _BAY_DESCRIPTORS,
+                                 version=BAY_REGISTRY_VERSION)
+
+
 # ------------------------------------------------------------------ D7 records
 
 class OpStreamEntry(IRModel):
@@ -301,7 +319,7 @@ class OpStream(IRModel):
     def _known_operations(self):
         # Every construction path rejects unknown operations/versions; reserved construct.* operations
         # remain legal records here (executability is the loaders' and validate_op_stream's gate).
-        validate_op_stream(self, DEFAULT_REGISTRY, require_executable=False)
+        validate_op_stream(self, BAY_REGISTRY, require_executable=False)
         return self
 
 
@@ -361,6 +379,6 @@ def load_artifact_graph_json(text: str | bytes, *, require_executable: bool = Tr
     unless the caller passes `require_executable=False` to load them as records. Unknown operations
     and versions are always rejected (by the model itself)."""
     graph = _validate_record(ArtifactGraph, _parse_json_bounded(text), ARTIFACT_GRAPH_VERSION)
-    validate_op_stream(graph.op_stream, DEFAULT_REGISTRY, require_executable=require_executable,
+    validate_op_stream(graph.op_stream, BAY_REGISTRY, require_executable=require_executable,
                        field_prefix='op_stream')
     return graph

@@ -138,8 +138,11 @@ class CheckLimit(IRModel):
     def _sources(self):
         kind, _, ident = self.source.partition(':')
         if kind == 'reviewed':
-            if ident not in REVIEWED_IDS:
+            if ident not in REVIEWED_IDS and ident not in ('bay.length', 'bay.width', 'bay.module_count'):
                 _bad(f'limit source {self.source!r} is not a reviewed numeric requirement')
+        elif kind == 'policy' and ident in ('bay_alignment', 'bay_bindings'):
+            if self.scale_refs or self.value != {'bay_alignment': 0.05, 'bay_bindings': 0.0}[ident]:
+                _bad('an equipment-bay policy limit must equal its registered value')
         elif kind == 'policy' and ident in _DECLARED_REFS:
             if self.scale_refs or self.value != _DECLARED_REFS[ident]:
                 _bad('a regen or glider policy limit must equal its declared value and is never scaled')
@@ -957,6 +960,18 @@ def _label_plan_sha256(scope: str, capability, checks) -> str:
     return _sha({'claim_scope': scope, 'capability_id': capability.id,
                  'capability_version': capability.version,
                  'numerical_version': capability.numerical_version, 'checks': shape})
+
+
+def picogk_verified_check_plan():
+    """Fixed shape of the PicoGK geometry-only verified plan."""
+    return {'claim_scope': 'geometry_checks_only', 'capability_id': REGEN.id,
+            'capability_version': REGEN.version, 'numerical_version': REGEN.numerical_version,
+            'checks': [
+                {'check_id': 'geometry.bounds', 'limits': ['policy:regen.BBOX_TOLERANCE_VOXELS']},
+                {'check_id': 'geometry.volume', 'limits': ['policy:regen.VOLUME_TOLERANCE']},
+                *({'check_id': f'{category}.not_evaluated', 'limits': []}
+                  for category in ('physics', 'manufacturing', 'standards')),
+            ]}
 
 
 def _label_record(scope, capability, checks, *, revision_id, job_id, candidate_sha256, manifest_sha256,

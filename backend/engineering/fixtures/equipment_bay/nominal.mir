@@ -1,0 +1,14 @@
+language mirum "0.1";
+design equipment_bay {
+  capability = "equipment_bay";
+  capability_version = "1.0.0";
+  backend = "occt";
+  numerical_policy = "equipment_bay_numerical_v1";
+  resource_policy = "engineering_resources_v1";
+  length = 560 mm;
+  width = 260 mm;
+  module_count = 10;
+  preferred_angle = 0 deg;
+  supplier = "nominal";
+  exports = ["step"];
+}

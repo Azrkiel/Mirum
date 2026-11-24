@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import math
+import os
 import re
 
 import requests
@@ -198,8 +199,15 @@ def _choose_capability(client):
     return metadata,entry,bool(entry and is_generator(entry)),pending
 
 
-def render_checked(backend,headers):
+def render_checked(backend,headers,preview=None):
     client=CheckedClient(backend,headers)
+    if os.environ.get('MIRUM_PROGRAM_WORKSPACE') == '1':
+        entry = st.radio('Authoring workspace', ('Checked form', 'MEL program'),
+                         horizontal=True, key='engineering_authoring_workspace')
+        if entry == 'MEL program':
+            from program_workspace import render_program
+            render_program(backend, headers, client, preview)
+            return
     picked=_choose_capability(client)
     if picked is None: return
     metadata,entry,generator,pending=picked

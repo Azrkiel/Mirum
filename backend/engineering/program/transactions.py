@@ -29,6 +29,7 @@ from .adapters import adapter_for
 from .delivered import DeliveredVerifier, EvidenceRowInvalid
 from .evidence import evidence_sha256
 from .planning import (
+    adapter_for_program,
     PlanRefusal, ProgramReview, authorize_run, lock_program, open_review, plan_program,
 )
 from .hashing import execution_lock_v0_2_sha256, semantic_sha256
@@ -238,9 +239,8 @@ class RevisionService:
                 return refusal
         compiled = await asyncio.to_thread(compile_source, source, source_id=source_id)
         text = source if isinstance(source, str) else bytes(source).decode('utf-8')
-        backend = compiled.ir.execution.backend
-        adapter = self.adapter_factory(backend, mode='native')
-        plan = plan_program(compiled, mode='native', adapter_factory=lambda _backend, mode='native': adapter)
+        adapter = adapter_for_program(self.adapter_factory, compiled)
+        plan = plan_program(compiled, mode='native', adapter_factory=lambda _backend, **kwargs: adapter)
         if isinstance(plan, PlanRefusal):
             return plan
         lock = await lock_program(plan, adapter=adapter)
@@ -297,7 +297,7 @@ class RevisionService:
                 source_sha256=rev.source_sha256)
         except ValueError:
             return RevisionRefusal(('record_altered',))
-        adapter = self.adapter_factory(compiled.ir.execution.backend, mode='native')
+        adapter = adapter_for_program(self.adapter_factory, compiled)
         auth = await authorize_run(review, compiled, self.briefs, brief_id, adapter=adapter)
         if isinstance(auth, PlanRefusal):
             return auth
@@ -610,6 +610,11 @@ class RevisionService:
         (asyncio.to_thread). The caller closes the returned Download."""
         with self.store.transaction() as db:
             rev = self._load(db, revision_id, client)[0]
+        if rev.state == 'rejected' and rev.job_id is not None:
+            formats = ('generator-report', 'report', 'attempts') if rev.lock.capability_id == 'equipment_bay' else (
+                'report', 'attempts')
+            if fmt in formats:
+                return self.publisher.open_lease(rev.job_id, fmt)
         if rev.state != 'published' or rev.job_id is None or rev.bundle is None:
             raise KeyError('Revision has no published artifacts')
         return self.publisher.open_lease(rev.job_id, fmt, envelope=rev.bundle)
