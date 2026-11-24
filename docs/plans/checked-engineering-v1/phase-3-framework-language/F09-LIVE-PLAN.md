@@ -1,6 +1,6 @@
 # F09 live Gemini qualification plan
 
-Status: approval-ready, not run. Prepared 2026-11-24 on `engineering/checked-design-v1` (draft PR #144). No provider call has been made for this plan.
+Status: executed 2026-11-24. Run [live-20261124-a](https://github.com/Azrkiel/Mirum/actions/runs/45444047733) on `b08fd9e` passed S1-S4 and stopped at S5 on a clarification question; it spent 2 calls. After PR #145 fixed the prompts, run [live-20261124-b](https://github.com/Azrkiel/Mirum/actions/runs/45450348779) on `b65136b` passed all six steps with 3 calls. That is 5 of the approved 6 calls; the `f09-live-` reservation cap of 2 is spent. The plan below is kept as written.
 
 ## Why a new harness
 
