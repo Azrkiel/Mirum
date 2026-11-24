@@ -162,7 +162,7 @@ class OcctAdapter:
     mode = 'native'
 
     def __init__(self, *, python: str | None = None, capability: str = 'rectangular_cantilever'):
-        if capability not in ('rectangular_cantilever', 'equipment_bay'):
+        if capability not in ('rectangular_cantilever', 'equipment_bay', 'editable_plate'):
             raise ValueError('unsupported OCCT capability')
         self._python = python or sys.executable
         self._capability = capability
@@ -170,6 +170,9 @@ class OcctAdapter:
     def describe(self) -> BackendDescription:
         if self._capability == 'equipment_bay':
             from engineering.equipment_bay_adapter import describe
+            return describe()
+        if self._capability == 'editable_plate':
+            from engineering.editable_plate_adapter import describe
             return describe()
         return make_description('occt', mode='native', adapter_version=ADAPTER_VERSION,
                                 tolerances=_tolerances())
@@ -239,8 +242,11 @@ class OcctAdapter:
         if not probe.available:
             return refuse('unavailable', probe.reasons)
 
-        if self._capability == 'equipment_bay':
-            from engineering.equipment_bay_adapter import build_result, worker
+        if self._capability in ('equipment_bay', 'editable_plate'):
+            if self._capability == 'equipment_bay':
+                from engineering.equipment_bay_adapter import build_result, worker
+            else:
+                from engineering.editable_plate_adapter import build_result, worker
             from engineering.service import EngineeringUnavailable
             try:
                 output = await worker(self._python, 'build', plan.candidate.content.specification,
@@ -315,10 +321,11 @@ class OcctAdapter:
         if artifact.ref.format != 'step' or not self.supports(plan).supported:
             return refuse('unsupported', 'operation_not_supported')
 
-        if self._capability == 'equipment_bay':
+        if self._capability in ('equipment_bay', 'editable_plate'):
             from engineering.service import EngineeringUnavailable
+            measure = self.measure_bay if self._capability == 'equipment_bay' else self.measure_plate
             try:
-                output = await self.measure_bay(artifact.data, plan)
+                output = await measure(artifact.data, plan)
                 consistent = output['report']['outcome'] == 'pass'
             except (KeyError, OSError, ValueError, EngineeringUnavailable):
                 return refuse('unavailable', 'native_failed')
@@ -372,6 +379,13 @@ class OcctAdapter:
         from engineering.service import EngineeringUnavailable
         if self._capability != 'equipment_bay' or not self.supports(plan).supported:
             raise EngineeringUnavailable('Equipment-bay inspection is unsupported')
+        return await worker(self._python, 'inspect', plan.candidate.content.specification, step=step)
+
+    async def measure_plate(self, step: bytes, plan: BuildPlan) -> dict:
+        from engineering.editable_plate_adapter import worker
+        from engineering.service import EngineeringUnavailable
+        if self._capability != 'editable_plate' or not self.supports(plan).supported:
+            raise EngineeringUnavailable('Editable plate inspection is unsupported')
         return await worker(self._python, 'inspect', plan.candidate.content.specification, step=step)
 
     # ------------------------------------------------------------------ measure (F07, additive)

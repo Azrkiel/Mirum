@@ -506,7 +506,7 @@ def execution_lock_v0_2(ir: ProgramIR, backend_lock):
     The record lives in kernel.py (it embeds BackendLock and kernel imports this module), so it is
     imported lazily here."""
     from .kernel import BackendLock, ExecutionLockV0_2
-    from .registry import BAY_REGISTRY_VERSION
+    from .registry import registry_for_capability
     if not isinstance(backend_lock, BackendLock):
         raise ValueError('backend_lock must be a BackendLock')
     if backend_lock.mode != 'native':
@@ -517,7 +517,7 @@ def execution_lock_v0_2(ir: ProgramIR, backend_lock):
         schema_version=EXECUTION_LOCK_VERSION_V0_2,
         program_ir_version=base.program_ir_version,
         semantics_version=base.semantics_version,
-        registry_version=BAY_REGISTRY_VERSION if base.capability_id == 'equipment_bay' else REGISTRY_VERSION,
+        registry_version=registry_for_capability(base.capability_id).version,
         capability_id=base.capability_id,
         capability_version=base.capability_version,
         numerical_policy_version=base.numerical_policy_version,

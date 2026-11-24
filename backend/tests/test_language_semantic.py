@@ -36,7 +36,7 @@ def fail(source, **kw) -> MelError:
 # ---------------------------------------------------------------- table
 
 def test_table_is_complete_and_ascii():
-    assert set(SEMANTIC) == set(MEL_S_IR_CODES) == {f'MEL-S{i:03d}' for i in range(1, 20)}
+    assert set(SEMANTIC) == set(MEL_S_IR_CODES) == {f'MEL-S{i:03d}' for i in range(1, 24)}
     for code in SEMANTIC:
         assert code in HINTS and HINTS[code].isascii() and SEMANTIC[code].isascii()
     assert MEL_S_IR_CODES['MEL-S016'] is None and MEL_S_IR_CODES['MEL-S018'] is None

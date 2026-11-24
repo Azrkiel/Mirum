@@ -427,7 +427,12 @@ def _bay_limits(spec):
     }
 
 
-_LIMIT_TABLE = {'equipment_bay': _bay_limits, 'co2_dragster': _dragster_limits, 'regen_chamber': _regen_limits, 'glider_cem': _glider_limits,
+def _editable_plate_limits(_spec):
+    return {check: (('diagnostics', 'count', 'eq', 0),)
+            for check in ('plate_envelope', 'plate_bores', 'plate_binding')}
+
+
+_LIMIT_TABLE = {'editable_plate': _editable_plate_limits, 'equipment_bay': _bay_limits, 'co2_dragster': _dragster_limits, 'regen_chamber': _regen_limits, 'glider_cem': _glider_limits,
                 'rectangular_plate': _plate_limits}
 
 
@@ -654,6 +659,28 @@ EQUIPMENT_BAY = GeneratorDescriptor(
     limitations=('Digital geometry criteria for two rows and a uniform 0° or 90° orientation',),
 )
 
+EDITABLE_PLATE = GeneratorDescriptor(
+    id='editable_plate', version='1.0.0', label='Editable four-bore plate',
+    numerical_version='editable_plate_numerical_v1',
+    spec_schema='engineering.editable_plate:EditablePlateSpec',
+    base_checks=('plate_envelope', 'plate_bores', 'plate_binding'),
+    unsupported_features=('nonrectangular_stock', 'blind_bores', 'physical_fit', 'structural_analysis'),
+    selection_rule='rebuild the reviewed width and hole placement intent',
+    numerical=(
+        _inline('length_mm', 1e-6, 'backend/vendor/mirum_editable_plate.py'),
+        _inline('axis_component', 1e-8, 'backend/vendor/mirum_editable_plate.py'),
+        _inline('volume_mm3', 1e-5, 'backend/vendor/mirum_editable_plate.py'),
+        _inline('diagnostics', 0, 'backend/engineering/editable_plate.py'),
+    ),
+    runtime_limits=(),
+    primary_artifact='generator-body.step',
+    payloads=('generator-body.step', 'generator-report.json'),
+    adapter='engineering.editable_plate_adapter:EditablePlateAdapter',
+    claim='geometry_checks_only',
+    limitations=('Digital geometry checks for one rectangular plate family',),
+)
+_PROGRAM_GENERATORS = (EQUIPMENT_BAY, EDITABLE_PLATE)
+
 GENERATORS: tuple[GeneratorDescriptor, ...] = (DRAGSTER, REGEN, GLIDER, PLATE)
 
 
@@ -663,14 +690,14 @@ def list_capabilities() -> tuple[CapabilityDescriptor | GeneratorDescriptor, ...
 
 
 def get_generator(capability_id: str) -> GeneratorDescriptor | None:
-    return next((g for g in (*GENERATORS, EQUIPMENT_BAY) if g.id == capability_id), None)
+    return next((g for g in (*GENERATORS, *_PROGRAM_GENERATORS) if g.id == capability_id), None)
 
 
 def get_capability(capability_id: str, version: str, *,
                    numerical_policy_version: str = 'beam_numerical_v1',
                    resource_policy_version: str = 'engineering_resources_v1'
                    ) -> CapabilityDescriptor | GeneratorDescriptor:
-    for descriptor in (*list_capabilities(), EQUIPMENT_BAY):
+    for descriptor in (*list_capabilities(), *_PROGRAM_GENERATORS):
         numerical = (descriptor.numerical.version if isinstance(descriptor, CapabilityDescriptor)
                      else descriptor.numerical_version)
         resources = descriptor.resources.version

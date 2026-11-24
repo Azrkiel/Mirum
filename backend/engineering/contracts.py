@@ -11,12 +11,12 @@ import math
 from typing import Annotated, Any, Literal
 
 from pydantic import (AwareDatetime, ConfigDict, Field, StringConstraints, ValidationError,
-                      field_validator, model_validator)
+                      field_validator, model_serializer, model_validator)
 
 from cem.core import StrictModel, canonical_json, digest
 from .capabilities import (CAPABILITY, GENERATOR_BASE_PAYLOADS, GENERATOR_PREFIX,
                            GENERATOR_SPEC_PREFIX, GeneratorDescriptor, get_capability, get_generator)
-from .spec import CantileverSpec, specification_digest
+from .spec import BeamModel, CantileverSpec, MODEL, REGION_FIELDS, omit_absent_regions, specification_digest
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=240)]
 Sha256 = Annotated[str, StringConstraints(min_length=64, max_length=64, pattern=r'^[0-9a-f]{64}$')]
@@ -31,7 +31,7 @@ REVIEW_FIELDS = (
 
 def is_reviewable_field(name: str) -> bool:
     """Beam review fields, or a ``specification.<leaf>`` path of a generator brief."""
-    return name in REVIEW_FIELDS or name.startswith(GENERATOR_SPEC_PREFIX)
+    return name in (*REVIEW_FIELDS, *REGION_FIELDS) or name.startswith(GENERATOR_SPEC_PREFIX)
 
 
 class ContractModel(StrictModel):
@@ -111,7 +111,14 @@ class FixedRequirements(ContractModel):
     tip_force_n: float = Field(gt=0)
     max_tip_deflection_mm: float = Field(gt=0)
     material: MaterialReference
-    assumptions: Literal['ideal_clamp_end_force_linear_elastic']
+    assumptions: BeamModel
+    load_region: str | None = Field(default=None, min_length=1, max_length=64)
+    support_region: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_serializer(mode='wrap')
+    def omit_absent_regions(self, serialize):
+        return omit_absent_regions(serialize(self))
+
 
     def to_cantilever(self, height_mm: float) -> CantileverSpec:
         return CantileverSpec.model_validate(dict(
@@ -121,13 +128,18 @@ class FixedRequirements(ContractModel):
             youngs_modulus_mpa=self.material.youngs_modulus_mpa,
             allowable_stress_mpa=self.material.allowable_stress_mpa,
             material_reference=self.material.reference, tip_force_n=self.tip_force_n,
-            max_tip_deflection_mm=self.max_tip_deflection_mm, assumptions=self.assumptions))
+            max_tip_deflection_mm=self.max_tip_deflection_mm, assumptions=self.assumptions,
+            load_region=self.load_region, support_region=self.support_region))
 
     @model_validator(mode='after')
     def legacy_fixed_envelope(self):
         # A square section validates fixed inputs without inventing a selected
         # thickness; each actual thickness is separately validated below.
-        self.to_cantilever(self.width_mm)
+        if self.assumptions == MODEL:
+            # Only the selected bending depth defines the free-span guard.
+            self.to_cantilever(min(self.width_mm, self.length_mm * 0.075))
+        else:
+            self.to_cantilever(self.width_mm)
         return self
 
 
@@ -158,6 +170,12 @@ class BriefContent(ContractModel):
         for height in self.candidate_heights_mm:
             self.requirements.to_cantilever(height)
         return self
+
+    @property
+    def review_fields(self) -> tuple[str, ...]:
+        if self.requirements.assumptions == MODEL:
+            return (*REVIEW_FIELDS, *REGION_FIELDS)
+        return REVIEW_FIELDS
 
     def fixed_meaning(self) -> dict:
         return dict(schema_version=self.schema_version,
@@ -229,11 +247,14 @@ class GeneratorBriefContent(ContractModel):
             from .equipment_bay import FIXED_FIELDS, catalog_digest
             meaning['specification'] = {name: self.specification[name] for name in FIXED_FIELDS}
             meaning['catalog_sha256'] = catalog_digest()
+        elif self.capability.id == 'editable_plate':
+            from .editable_plate import FIXED_FIELDS
+            meaning['specification'] = {name: self.specification[name] for name in FIXED_FIELDS}
         return digest(meaning)
 
     @property
     def brief_sha256(self) -> str:
-        if self.capability.id == 'equipment_bay':
+        if self.capability.id in ('equipment_bay', 'editable_plate'):
             return digest(dict(fixed_requirements_sha256=self.fixed_requirements_sha256,
                                specification=self.specification))
         return self.fixed_requirements_sha256
@@ -320,7 +341,7 @@ class EngineeringBrief(ContractModel):
     @model_validator(mode='after')
     def exact_reviewed_meaning(self):
         generator = isinstance(self.content, GeneratorBriefContent)
-        fields = self.content.review_fields if generator else REVIEW_FIELDS
+        fields = self.content.review_fields
         if (self.fixed_requirements_sha256 != self.content.fixed_requirements_sha256
                 or self.brief_sha256 != self.content.brief_sha256):
             raise ValueError('Brief identity does not match normalized meaning')

@@ -8,15 +8,16 @@ from __future__ import annotations
 import hashlib
 from importlib.metadata import version
 import json
-from pathlib import Path
 import platform
 from typing import Literal
+
+from vendor.mirum_kernel.structural import MODEL, SOLVER_METHOD, result_state
 
 from .capabilities import CAPABILITY
 from .contracts import (ArtifactIdentity, CandidateSpec, CheckResult, CheckState,
                         ComparisonLimit, ContractModel, GeneratorCandidate, GeneratorCheckResult,
                         Measurement, Outcome, Sha256, Text)
-from .spec import build_source
+from .spec import BeamModel, build_source, structural_inputs, verifier_sources
 
 
 def report_digest(report: dict) -> str:
@@ -47,7 +48,7 @@ class BeamSolution(ContractModel):
 
 
 class PhysicsEvidence(Stage):
-    method: Literal['euler_bernoulli_beam_fem_v1'] | None = None
+    method: Literal['euler_bernoulli_beam_fem_v1', SOLVER_METHOD] | None = None
     units: Literal['mm_N_MPa'] | None = None
     mesh_history: tuple[BeamSolution, ...] | None = None
     solution: BeamSolution | None = None
@@ -58,7 +59,7 @@ class PhysicsEvidence(Stage):
     max_tip_deflection_mm: float | None = None
     allowable_stress_mpa: float | None = None
     material_reference: Text | None = None
-    boundary_conditions: Literal['X=0 ideal clamp; +Z end force at X=L'] | None = None
+    boundary_conditions: Text | None = None
 
 
 class WorkerCheck(ContractModel):
@@ -106,7 +107,8 @@ class NativeReport(ContractModel):
     versions: dict[str, Text]
     implementation_sha256: dict[str, Sha256]
     artifacts: dict[str, Sha256] | None = None
-    assumptions: Literal['ideal_clamp_end_force_linear_elastic'] | None = None
+    assumptions: BeamModel | None = None
+    structural_analysis: dict | None = None
 
 
 class PolicyDecision(ContractModel):
@@ -186,8 +188,8 @@ def _validate(candidate, evaluation):
     _require(checks == report_checks(candidate, raw), 'Typed checks differ from native report')
     step = ArtifactIdentity(path='model.step', sha256=report.step_sha256, bytes=report.step_bytes)
     _require(evaluation['step_identity'] == step, 'STEP identity mismatch')
-    paths = [Path(__file__).with_name(n) for n in ('verify.py', 'beam_fea.py', 'spec.py')]
-    paths.append(Path(__file__).parents[1]/'verification'/'solid_set.py')
+    named_regions = candidate.specification.assumptions == MODEL
+    paths = verifier_sources(named_regions)
     _require(report.implementation_sha256 == {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}, 'Unsupported verifier revision')
     _require(all(report.versions[k] == version(package) for k, package in
                  [('cadquery', 'cadquery'), ('ocp', 'cadquery-ocp'), ('numpy', 'numpy')]), 'Unsupported native runtime')
@@ -255,8 +257,21 @@ def _validate(candidate, evaluation):
         s, m, last = candidate.specification, report.measurements, physics.solution
         _require(physics.allowable_stress_mpa == s.allowable_stress_mpa
                  and physics.max_tip_deflection_mm == s.max_tip_deflection_mm
-                 and physics.material_reference == s.material_reference
-                 and all(h.second_moment_mm4 == m['section_iy_mm4'] for h in physics.mesh_history), 'Physics input association mismatch')
+                 and physics.material_reference == s.material_reference, 'Physics input association mismatch')
+        if named_regions:
+            analysis = report.structural_analysis
+            state = result_state(structural_inputs(s), analysis)
+            _require(state != 'stale' and analysis['samples'] == raw['physics']['mesh_history'],
+                     'Structural analysis is stale or unbound')
+            _require(state == 'passed' or bool(failed), 'Structural analysis failed')
+            _require(physics.method == SOLVER_METHOD and physics.boundary_conditions ==
+                     f'{s.support_region} ideal clamp; +Z end force at {s.load_region}',
+                     'Named boundary evidence does not match the reviewed case')
+        else:
+            _require(report.structural_analysis is None and physics.method == 'euler_bernoulli_beam_fem_v1'
+                     and physics.boundary_conditions == 'X=0 ideal clamp; +Z end force at X=L'
+                     and all(h.second_moment_mm4 == m['section_iy_mm4'] for h in physics.mesh_history),
+                     'Physics input association mismatch')
         _require(physics.mesh_converged == (physics.relative_mesh_change <= CAPABILITY.numerical.convergence_relative_error)
                  and physics.analytic_benchmark_passed == (physics.relative_analytic_error <= CAPABILITY.numerical.analytic_relative_error),
                  'Beam flags contradict numerical evidence')

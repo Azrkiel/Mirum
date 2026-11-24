@@ -26,7 +26,8 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from engineering.contracts import EngineeringRun, Lifecycle, Outcome
-from engineering.spec import canonical_spec
+from engineering.spec import canonical_spec, structural_inputs
+from vendor.mirum_kernel.structural import MODEL, result_state
 
 from .adapters import adapter_for
 from .beam_bridge import brief_content_from_program
@@ -71,7 +72,12 @@ _PROGRAM_DIR = Path(__file__).resolve().parent
 # occt.py holds OcctAdapter.measure, the stdout parser, the worker limits and the declared mesh bound, so a change
 # there is a method change too (security review of PR #142).
 METHOD_SOURCES = (_PROGRAM_DIR / 'evidence.py', _PROGRAM_DIR / 'delivered.py',
-                  _PROGRAM_DIR / 'adapters' / '_occt_measure.py', _PROGRAM_DIR / 'adapters' / 'occt.py')
+                  _PROGRAM_DIR / 'adapters' / '_occt_measure.py', _PROGRAM_DIR / 'adapters' / 'occt.py',
+                  _PROGRAM_DIR / 'adapters' / '_editable_plate_worker.py',
+                  _PROGRAM_DIR.parent / 'editable_plate_adapter.py',
+                  _PROGRAM_DIR.parent.parent / 'vendor' / 'mirum_editable_plate.py',
+                  _PROGRAM_DIR.parent.parent / 'vendor' / 'mirum_kernel' / 'structural.py',
+                  _PROGRAM_DIR.parent.parent / 'vendor' / 'mirum_kernel' / 'beam_fea.py')
 
 
 def compute_method_version(paths) -> str:
@@ -279,6 +285,9 @@ class DeliveredVerifier:
     # ---- the flow
 
     async def _verify(self, revision, ir, ctx: _Context) -> DeliveredEvidence:
+        if ir.capability.id == 'editable_plate':
+            ctx.claim_scope = 'geometry_checks_only'
+            return await self._verify_editable_plate(revision, ir, ctx)
         if ir.capability.id == 'equipment_bay':
             ctx.claim_scope = 'geometry_checks_only'
             return await self._verify_bay(revision, ir, ctx)
@@ -374,6 +383,79 @@ class DeliveredVerifier:
             report_volume_mm3=report['checks']['volume']['measured_mm3'],
             native_versions=revision.lock.backend_lock.native_versions)
 
+    async def _verify_editable_plate(self, revision, ir, ctx):
+        from engineering.editable_plate import AMBIGUITY, KERNEL_REVISION
+        from engineering.editable_plate_adapter import (
+            MAX_STEP_BYTES, METHOD, REPORT, STEP, bound_report, diagnostic_groups,
+        )
+        from vendor.mirum_editable_plate import LINEAR_TOL
+        from .editable_plate_bridge import content_from_program
+        from .bay_bridge import check_plan_record
+        from .hashing import execution_lock_v0_2_sha256, semantic_sha256
+        from .planning import generator_candidates
+
+        content = content_from_program(ir)
+        if (content.brief_sha256 != revision.brief_sha256
+                or content.fixed_requirements_sha256 != revision.fixed_requirements_sha256
+                or semantic_sha256(ir) != revision.semantic_sha256
+                or execution_lock_v0_2_sha256(revision.lock) != revision.lock_sha256
+                or revision.lock.backend_lock.adapter_version != KERNEL_REVISION):
+            raise _unavailable('lock_mismatch')
+        run = self._read_run(revision)
+        candidate, = generator_candidates(content)
+        if (run.selected_candidate_sha256 != candidate.candidate_sha256
+                or run.attempts[-1].candidate != candidate):
+            raise _mismatch()
+        bundle = run.bundle
+        ctx.candidate_sha256 = candidate.candidate_sha256
+        ctx.manifest_sha256 = bundle.manifest_sha256
+        check_plan = check_plan_record(revision.semantic_sha256, revision.lock_sha256, candidate)
+        await asyncio.to_thread(self.publisher.validate, revision.job_id, bundle)
+        payloads = (('generator-body-step', STEP, MAX_STEP_BYTES), ('generator-report', REPORT, MAX_JSON_BYTES))
+        blobs = await asyncio.to_thread(self._lease_all, revision.job_id, bundle, payloads)
+        step = blobs[STEP]
+        ctx.step_sha256 = hashlib.sha256(step).hexdigest()
+        adapter = self.adapter_factory('occt', capability='editable_plate')
+        if getattr(adapter, 'mode', None) != 'native':
+            raise _unavailable('mock_backend')
+        plan, = _plans(ir, (candidate,))
+        async with self._semaphore:
+            outcome = await adapter.measure_plate(step, plan)
+        report = bound_report(outcome['report'], step, candidate)
+        checks = []
+        for check, codes in diagnostic_groups(report).items():
+            if not codes and 'envelope_mm' not in report:
+                checks.append(CheckEvidence(
+                    check_id='plate.' + check, category='geometry', required=True, method=METHOD,
+                    method_version=method_version(), coverage='not_evaluated', representation='none',
+                    state='unavailable', reason='measurement_unavailable'))
+                continue
+            checks.append(CheckEvidence(
+                check_id='plate.' + check, category='geometry', required=True, method=METHOD,
+                method_version=method_version(), coverage='measured', representation='brep',
+                state='failed' if codes else 'passed',
+                reason=('binding_ambiguous' if AMBIGUITY.intersection(codes) else 'limit_exceeded') if codes else None,
+                error_bound=ErrorBound(value=LINEAR_TOL, unit='mm', source='editable plate length tolerance'),
+                measurements=(Measurement(
+                    name='diagnostics', unit='count', value=len(codes), representation='brep', satisfied=not codes,
+                    limit=CheckLimit(name='diagnostics', unit='count', value=0, comparison='eq',
+                                     source='policy:editable_plate.diagnostics')),)))
+            for code in sorted(set(codes)):
+                checks.append(CheckEvidence(
+                    check_id='plate.' + code, category='geometry', required=True, method=METHOD,
+                    method_version=method_version(), coverage='measured', representation='brep', state='failed',
+                    reason='binding_ambiguous' if code in AMBIGUITY else 'limit_exceeded'))
+        checks = tuple(checks)
+        verdict = derive_verdict(checks)
+        if verdict == 'verified' and canonical_json(report).encode() != blobs[REPORT]:
+            raise _mismatch()
+        return DeliveredEvidence(
+            revision_id=revision.revision_id, job_id=revision.job_id, candidate_sha256=ctx.candidate_sha256,
+            claim_scope='geometry_checks_only', manifest_sha256=ctx.manifest_sha256, step_sha256=ctx.step_sha256,
+            check_plan_sha256=hashlib.sha256(canonical_json(check_plan).encode()).hexdigest(),
+            method_version=method_version(), native_versions=revision.lock.backend_lock.native_versions,
+            checks=checks, verdict=verdict)
+
     async def _verify_bay(self, revision, ir, ctx):
         from engineering.equipment_bay_adapter import BOM, METHOD, REPORT, STEP, EquipmentBayAdapter
         from engineering.equipment_bay import KERNEL_REVISION
@@ -449,7 +531,7 @@ class DeliveredVerifier:
     def _plan(self, revision, ir, ctx: _Context) -> None:
         """The check plan, computed from reviewed inputs before any measurement."""
         try:
-            content = brief_content_from_program(ir)
+            content = brief_content_from_program(ir, design=ir.design)
             candidates = _candidates_from_content(content)
             plan = build_check_plan(ir, revision.lock, candidates, mesh_convention_pinned=True)
         except (ProgramError, ValidationError, ValueError):
@@ -528,6 +610,13 @@ class DeliveredVerifier:
             native = found[0]['native_report']
             if native['physics']['state'] != 'passed':
                 raise _mismatch()
+            if spec.specification.assumptions == MODEL:
+                analysis = native['structural_analysis']
+                if (result_state(structural_inputs(spec.specification), analysis) != 'passed'
+                        or analysis['samples'] != native['physics']['mesh_history']
+                        or native['spec_sha256'] != spec.candidate_sha256
+                        or native['step_sha256'] != hashlib.sha256(blobs['model.step']).hexdigest()):
+                    raise _mismatch()
             measured = native['measurements']
             return ReportInputs(physics_passed=True, section_iy_mm4=_number(measured['section_iy_mm4']),
                                 length_mm=_number(measured['length_mm']),

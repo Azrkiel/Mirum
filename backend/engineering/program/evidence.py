@@ -18,7 +18,7 @@ from typing import Annotated, Any, Literal, Mapping
 
 from pydantic import AfterValidator, Field, StringConstraints, model_validator
 
-from engineering.capabilities import CAPABILITY, GLIDER, REGEN
+from engineering.capabilities import CAPABILITY, EDITABLE_PLATE, GLIDER, REGEN
 from engineering.contracts import CandidateSpec
 from engineering.contracts import Sha256 as Hash64
 from engineering.spec import specification_digest
@@ -62,7 +62,7 @@ POLICY_FIELDS = tuple(sorted(_POLICY_VALUES))
 # Declared numerical refs of the non-beam capabilities, addressable as 'policy:regen.<NAME>' and
 # 'policy:glider.<NAME>' (D10). A limit citing one must equal the declared value exactly.
 _DECLARED_REFS = {f'{prefix}.{r.name}': float(r.value)
-                  for prefix, descriptor in (('regen', REGEN), ('glider', GLIDER))
+                  for prefix, descriptor in (('regen', REGEN), ('glider', GLIDER), ('editable_plate', EDITABLE_PLATE))
                   for r in descriptor.numerical
                   if isinstance(r.value, (int, float)) and not isinstance(r.value, bool)}
 
@@ -145,7 +145,7 @@ class CheckLimit(IRModel):
                 _bad('an equipment-bay policy limit must equal its registered value')
         elif kind == 'policy' and ident in _DECLARED_REFS:
             if self.scale_refs or self.value != _DECLARED_REFS[ident]:
-                _bad('a regen or glider policy limit must equal its declared value and is never scaled')
+                _bad('a capability policy limit must equal its declared value and is never scaled')
         elif kind == 'policy':
             if ident not in _POLICY_VALUES:
                 _bad(f'limit source {self.source!r} is not a numerical policy field')
