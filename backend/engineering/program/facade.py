@@ -235,7 +235,12 @@ class ExportResult:
 
 
 class ExportStream:
-    """One export opened for streaming (M1): metadata up front, the body read block by block from the
+    """Integrity note: the stored file's digest is verified when the lease opens (before the first byte), but a
+    file rewritten in place while it streams is only detected at the end, by cutting the stream short before the
+    terminal message. Clients must therefore verify X-Content-SHA256 on the bytes they received; the server does
+    not claim pre-send verification of what it sends.
+
+    One export opened for streaming (M1): metadata up front, the body read block by block from the
     stored file under its lease. Peak memory is one block (_CHUNK), not the artifact. ``close`` releases the
     lease and is idempotent; the consumer must call it (the HTTP layer does so after the last byte)."""
 
@@ -269,6 +274,20 @@ class ExportStream:
             return
         self.closed = True
         self._download.close()
+
+
+async def _open_shielded(service, revision_id, fmt, client):
+    """open_artifact off the event loop. If this task is cancelled while the worker thread is still opening,
+    the Download it later returns is closed (its lease would otherwise leak and block discard)."""
+    task = asyncio.ensure_future(asyncio.to_thread(service.open_artifact, revision_id, fmt, client=client))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        def close_late(done):
+            if not done.cancelled() and done.exception() is None:
+                done.result().close()
+        task.add_done_callback(close_late)
+        raise
 
 
 class _BytesDownload:
@@ -606,7 +625,7 @@ class ProgramInterface:
         if fmt in _SOURCE_EXPORTS:
             result = await self.export(request, client=client)
             return ExportStream(result.metadata, _BytesDownload(result.data), len(result.data))
-        download = await asyncio.to_thread(self.service.open_artifact, request.revision_id, fmt, client=client)
+        download = await _open_shielded(self.service, request.revision_id, fmt, client)
         try:
             limit = api.export_byte_limit(fmt)
             if download.size > limit:

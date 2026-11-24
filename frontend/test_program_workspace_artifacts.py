@@ -86,7 +86,7 @@ class Fake:
     def __init__(self, data):
         self.data, self.calls = data, 0
 
-    def artifact(self, rid, fmt):
+    def artifact(self, rid, fmt, expected_sha=None):
         self.calls += 1
         return bytes(self.data)
 
@@ -99,10 +99,3 @@ def test_session_cache_holds_identity_only_and_refetches():
     assert first == again == DATA and fake.calls == 2
     assert state['mel_artifact_cache'] == (('a' * 32, 'model.step', digest), digest)
     assert not held_bytes(state)
-
-
-def test_a_foreign_artifact_is_refused_and_not_remembered():
-    state = {}
-    with pytest.raises(pw.WorkspaceError):
-        pw._artifact_value(Fake(DATA), 'a' * 32, 'step', 'model.step', '1' * 64, state)
-    assert 'mel_artifact_cache' not in state

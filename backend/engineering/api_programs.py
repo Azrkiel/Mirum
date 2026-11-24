@@ -31,7 +31,8 @@ from .api_v1 import CheckedRoute
 from .program import interface as api
 from .program.interface import InterfaceFailure
 
-__all__ = ['PROGRAMS_ENV', 'EXPORT_CONCURRENCY_ENV', 'programs_enabled', 'create_program_runtime',
+__all__ = ['PROGRAMS_ENV', 'EXPORT_CONCURRENCY_ENV', 'EXPORT_SEND_TIMEOUT_ENV', 'EXPORT_DEADLINE_ENV',
+           'EXPORT_GATE_MIN_BYTES_ENV', 'programs_enabled', 'create_program_runtime',
            'attach_program_routes']
 
 _LOG = logging.getLogger(__name__)
@@ -44,6 +45,46 @@ EXPORT_CONCURRENCY_ENV = 'MIRUM_PROGRAM_EXPORT_CONCURRENCY'
 EXPORT_CONCURRENCY_DEFAULT = 2
 EXPORT_CONCURRENCY_MAX = 16
 EXPORT_RETRY_AFTER_SECONDS = 2
+# A reader that stops reading must not hold a slot and a file lease: every send of the body is bounded, and so
+# is the whole stream (sized for 128 MiB over a slow link). On a timeout the response is cut and everything is
+# released. Client identity is NOT used for a per-client slot cap: client_key is the trusted forwarded address
+# or the transport peer, and the Streamlit UI reaches this API from one server address, so a per-client cap
+# of 1 would serialize every UI user.
+EXPORT_SEND_TIMEOUT_ENV = 'MIRUM_PROGRAM_EXPORT_SEND_TIMEOUT_SECONDS'
+EXPORT_DEADLINE_ENV = 'MIRUM_PROGRAM_EXPORT_DEADLINE_SECONDS'
+EXPORT_SEND_TIMEOUT_DEFAULT = 30.0
+EXPORT_DEADLINE_DEFAULT = 300.0
+# Only an export larger than this takes a slot (small JSON reports and BOMs never do). Formats that are
+# always big binaries take one before they are opened.
+EXPORT_GATE_MIN_BYTES_ENV = 'MIRUM_PROGRAM_EXPORT_GATE_MIN_BYTES'
+EXPORT_GATE_MIN_BYTES_DEFAULT = 8 * 1024 * 1024
+_ALWAYS_GATED_FORMATS = frozenset({'zip', 'step', 'glb', 'generator-body-step', 'generator-preview-glb',
+                                   'generator-cleaned-stl', 'generator-bundle-zip'})
+
+
+def _env_seconds(environ, name, default):
+    env = os.environ if environ is None else environ
+    try:
+        value = float(str(env.get(name, '')).strip())
+    except ValueError:
+        return default
+    return value if 0 < value <= 3600 else default
+
+
+def export_send_timeout(environ=None) -> float:
+    return _env_seconds(environ, EXPORT_SEND_TIMEOUT_ENV, EXPORT_SEND_TIMEOUT_DEFAULT)
+
+
+def export_deadline(environ=None) -> float:
+    return _env_seconds(environ, EXPORT_DEADLINE_ENV, EXPORT_DEADLINE_DEFAULT)
+
+
+def export_gate_min_bytes(environ=None) -> int:
+    env = os.environ if environ is None else environ
+    raw = str(env.get(EXPORT_GATE_MIN_BYTES_ENV, '')).strip()
+    if raw.isascii() and raw.isdigit() and int(raw) >= 1:
+        return int(raw)
+    return EXPORT_GATE_MIN_BYTES_DEFAULT
 
 
 def export_concurrency(environ=None) -> int:
@@ -78,17 +119,35 @@ class ExportGate:
 
 
 class _ExportResponse(StreamingResponse):
-    """Streams an export and always releases the gate slot and the artifact lease: after the last byte, on a
-    client disconnect, on cancellation and on a mid-stream error."""
+    """Streams an export with a per-send timeout and a total deadline, and always releases the gate slot and
+    the artifact lease: after the last byte, on a timeout (the response is then cut short), on cancellation
+    and on a mid-stream error. ASGI spec 2.4 servers give no disconnect signal to the app, so a stalled
+    reader is only bounded by these timeouts."""
 
-    def __init__(self, content, release, **kwargs):
+    def __init__(self, content, release, *, send_timeout, deadline, **kwargs):
         super().__init__(content, **kwargs)
         self._release = release
+        self._send_timeout = send_timeout
+        self._deadline = deadline
+
+    async def _stream(self, send):
+        async def bounded(message):
+            await asyncio.wait_for(send(message), self._send_timeout)
+        await bounded({'type': 'http.response.start', 'status': self.status_code, 'headers': self.raw_headers})
+        async for chunk in self.body_iterator:
+            await bounded({'type': 'http.response.body', 'body': chunk, 'more_body': True})
+        await bounded({'type': 'http.response.body', 'body': b'', 'more_body': False})
 
     async def __call__(self, scope, receive, send):
         try:
-            await super().__call__(scope, receive, send)
+            await asyncio.wait_for(self._stream(send), self._deadline)
+        except asyncio.TimeoutError:
+            _LOG.warning('engineering.programs export_timeout')   # fixed line: no id, path or client
         finally:
+            try:
+                await self.body_iterator.aclose()
+            except Exception:  # noqa: BLE001 - a worker thread may still be inside the generator
+                pass
             self._release()
 
 
@@ -355,24 +414,32 @@ def attach_program_routes(app, limiter):
         return await serve(request, call)
 
     gate = ExportGate(export_concurrency())
+    send_timeout, deadline, gate_min = export_send_timeout(), export_deadline(), export_gate_min_bytes()
 
     async def revision_export(request: Request, rid: str, fmt: str):
         async def call(face, client):
             if not api.is_export_format(fmt):
                 raise InterfaceFailure(api.not_found())
-            # Source formats are tiny and never hold a lease: only bundle artifacts take a slot.
+            def busy():
+                return InterfaceFailure(api.busy('admission_busy', retry_after=EXPORT_RETRY_AFTER_SECONDS))
+            # Source formats are tiny. Always-large binary formats take a slot before they are opened; any other
+            # bundle format takes one only when its verified size is above the threshold.
             slot = None
-            if fmt not in api.EXPORT_SOURCE_FORMATS:
+            if fmt in _ALWAYS_GATED_FORMATS:
                 slot = gate.try_enter()
                 if slot is None:
-                    raise InterfaceFailure(api.busy('admission_busy', retry_after=EXPORT_RETRY_AFTER_SECONDS))
-            stream = None
+                    raise busy()
             try:
                 stream = await face.export_stream(api.ExportRequest(revision_id=rid, fmt=fmt), client=client)
             except BaseException:
                 if slot is not None:
                     slot()
                 raise
+            if slot is None and fmt not in api.EXPORT_SOURCE_FORMATS and stream.metadata.size_bytes > gate_min:
+                slot = gate.try_enter()
+                if slot is None:
+                    stream.close()
+                    raise busy()
             meta = stream.metadata
 
             def release():
@@ -396,7 +463,7 @@ def attach_program_routes(app, limiter):
                     except ValueError:  # a worker thread is still inside next(): release() closes the file
                         pass
 
-            return _ExportResponse(body(), release, media_type=meta.content_type, headers={
+            return _ExportResponse(body(), release, send_timeout=send_timeout, deadline=deadline, media_type=meta.content_type, headers={
                 'Cache-Control': 'no-store',
                 'Content-Disposition': 'attachment; filename="%s"' % meta.filename,
                 'Content-Length': str(meta.size_bytes),

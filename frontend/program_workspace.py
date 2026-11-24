@@ -80,7 +80,7 @@ class WorkspaceClient:
         self.base = backend.rstrip('/') + _BASE
         self.headers = headers
 
-    def request(self, method, path, *, source=None, source_id=None, body=None, parent=None, guard=None, artifact_bytes=0):
+    def request(self, method, path, *, source=None, source_id=None, body=None, parent=None, guard=None, artifact_bytes=0, expected_sha=None):
         headers = self.headers()
         if source is not None:
             headers = {**headers, 'Content-Type': 'application/vnd.mirum.mel'}
@@ -103,8 +103,12 @@ class WorkspaceClient:
                     data += chunk
                     digest.update(chunk)
                 if response.ok and artifact_bytes:
-                    if digest.hexdigest() != response.headers.get('X-Content-SHA256'):
+                    claimed = response.headers.get('X-Content-SHA256')
+                    if digest.hexdigest() != claimed:
                         raise WorkspaceError(502, {'message': 'Downloaded bytes failed the fingerprint check.'})
+                    # Fail closed: the verified header digest must be the revision record's digest.
+                    if expected_sha is not None and claimed != expected_sha:
+                        raise WorkspaceError(502, {'message': 'Artifact is not associated with this revision.'})
                     return bytes(data)
                 value = json.loads(data)
                 if not response.ok:
@@ -115,17 +119,17 @@ class WorkspaceClient:
                 raise
             raise WorkspaceError(503, {'message': 'The program service could not be reached.'}) from None
 
-    def artifact(self, revision, fmt):
+    def artifact(self, revision, fmt, expected_sha=None):
         limit = _PICO_STL_BYTES if fmt == 'generator-cleaned-stl' else _EXPORT_BYTES
-        return self.request('GET', f'/revisions/{revision}/artifacts/{fmt}', artifact_bytes=limit)
+        return self.request('GET', f'/revisions/{revision}/artifacts/{fmt}', artifact_bytes=limit,
+                            expected_sha=expected_sha)
 
 
 def _artifact_value(client, rid, fmt, name, expected_sha, state):
     """Fetch one artifact for this render only. The session keeps just its verified identity, never the
     bytes (a 128 MiB artifact must not sit in every viewer's session); a rerun fetches it again."""
-    value = client.artifact(rid, fmt)
-    if sha256(value).hexdigest() != expected_sha:
-        raise WorkspaceError(502, {'message': 'Artifact is not associated with this revision.'})
+    # The client has verified the bytes against X-Content-SHA256 and that header against expected_sha.
+    value = client.artifact(rid, fmt, expected_sha=expected_sha)
     state['mel_artifact_cache'] = ((rid, name, expected_sha), expected_sha)
     return value
 
@@ -151,7 +155,25 @@ def _source_from_beam(content):
     return '\n'.join((*statements, f'  candidate_heights = [{heights}];', '}', ''))
 
 
+_CLICK_TO_FETCH = ('.glb', '.step', '.stl', '.zip')
+
+
+def _needs_click(name):
+    """Large binary artifacts are fetched only when the user asks, never on every Streamlit rerun."""
+    return name.endswith(_CLICK_TO_FETCH)
+
+
+def _busy_message(error):
+    if isinstance(error, WorkspaceError) and error.status == 429 and error.details.get('code') == 'admission_busy':
+        return 'Exports are busy right now. Retry in a moment.'
+    return None
+
+
 def _show_error(error):
+    busy = _busy_message(error)
+    if busy:
+        st.info(busy)
+        return
     st.error('Program request failed.')
     st.text(str(error))
     if isinstance(error, WorkspaceError):
@@ -264,6 +286,10 @@ def _results(client, revision, preview):
         identities['package.zip'] = revision['bundle']['zip_sha256']
         selected = st.selectbox('Revision artifact', files, key=f'mel_artifact_{rid}')
         if selected:
+            if _needs_click(selected) and not st.button(f'Prepare {selected} for download',
+                                                        key=f'mel_prepare_{rid}_{selected}'):
+                st.caption('Large files are fetched only when requested.')
+                return
             value = _artifact_value(client, rid, fmt_by_file[selected], selected, identities[selected],
                                     st.session_state)
             st.download_button(f'Download {selected}', value, file_name=selected, key=f'mel_download_{rid}')
