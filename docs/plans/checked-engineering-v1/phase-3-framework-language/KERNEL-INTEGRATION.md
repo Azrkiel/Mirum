@@ -29,6 +29,8 @@ M1 editable part acceptance passed on the product release pin. Mirum reviewed an
 
 The M3 structural fixture has a [native conformance replay](handoffs/structural-cantilever.md) through the reviewed cantilever path.
 
+The M3 thermal fixture passed both offline replays and the reviewed program flow. Mirum verified the nominal STEP and numerical report, refused a stale temperature field and a negative remaining gap, and reread the archived nominal revision. The structural regression also passed. [Thermal verification and replay](handoffs/thermal-bar.md)
+
 The equipment-bay MEL fixture now exercises the real OCCT adapter and delivered verifier through the program routes. The integration tests cover recovery to the 90° layout, equivalent `1 m` and `1000 mm` inputs, nominal promotion, the four supplier mounting failures, retained STEP and BOM digests, stale-parent refusal and interrupted admission followed by rebuild. The accepted package can be archived and reread against its reviewed native lock. [Equipment-bay handoff](handoffs/equipment-bay.md) · [Replay contract](handoffs/F10.md)
 
 ## Long-lived projects and native geometry
