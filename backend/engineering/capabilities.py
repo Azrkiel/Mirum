@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
+from math import nextafter
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol
 
 from pydantic import StringConstraints, ValidationError
@@ -19,6 +20,8 @@ from cem.core import StrictModel
 from cem.glider.requirements import GliderMissionRequirements
 from .plate_spec import PLATE_NUMERICAL_V1
 from .spec import CantileverSpec
+from .thermal_bar import CHECKS as THERMAL_CHECKS, GEOMETRY_LIMIT_MM, VOLUME_RELATIVE_LIMIT
+from vendor.mirum_kernel import thermal
 
 if TYPE_CHECKING:
     from .contracts import CandidateSpec, EngineeringBrief, GeneratorCandidate
@@ -211,7 +214,7 @@ class GeneratorDescriptor(StrictModel):
     proposers: dict[str, str] = {}
     # What a passing run means (Wave E contract). Labels in the API, UI and package come from
     # this, never from the job outcome alone: "accepted" never reads as more than this claim.
-    claim: Literal['geometry_checks_only', 'screening_only', 'checked_design']
+    claim: Literal['geometry_checks_only', 'screening_only', 'checked_design', 'thermal_benchmark']
     engineering_certified: Literal[False] = False
     standards: Literal['not_evaluated'] = 'not_evaluated'
     limitations: tuple[str, ...]
@@ -432,7 +435,27 @@ def _editable_plate_limits(_spec):
             for check in ('plate_envelope', 'plate_bores', 'plate_binding')}
 
 
-_LIMIT_TABLE = {'editable_plate': _editable_plate_limits, 'equipment_bay': _bay_limits, 'co2_dragster': _dragster_limits, 'regen_chamber': _regen_limits, 'glider_cem': _glider_limits,
+def _thermal_limits(spec):
+    complete = ('stage_complete', 'count', 'eq', 'complete')
+    return {
+        'bar_geometry': (('bounds_error', 'mm', 'le', 'bounds_mm'),
+                         ('volume_error', 'ratio', 'le', 'volume_relative'),
+                         ('face_mismatches', 'count', 'eq', 'no_mismatch')),
+        'conduction': (complete, ('rise_error', 'ratio', 'le', 'rise_relative'),
+                       ('refinement_change', 'ratio', 'le', 'refinement_inclusive'),
+                       ('heat_imbalance', 'ratio', 'le', 'heat_imbalance')),
+        'expansion': (complete, ('expansion_error', 'ratio', 'le', 'expansion_relative'),
+                      ('uniform_error', 'ratio', 'le', 'expansion_relative'),
+                      ('refinement_change', 'ratio', 'le', 'refinement_inclusive'),
+                      ('transfer_error', 'delta_K', 'le', 'transfer_delta_k'),
+                      ('coverage', 'ratio', 'eq', 'complete')),
+        'clearance': (complete, ('absolute_error', 'mm', 'le', 'clearance_mm'),
+                      ('remaining_gap', 'mm', 'ge', spec['clearance_allowance_mm'])),
+    }
+
+
+_LIMIT_TABLE = {'thermal_bar': _thermal_limits, 'editable_plate': _editable_plate_limits,
+                'equipment_bay': _bay_limits, 'co2_dragster': _dragster_limits, 'regen_chamber': _regen_limits, 'glider_cem': _glider_limits,
                 'rectangular_plate': _plate_limits}
 
 
@@ -679,7 +702,26 @@ EDITABLE_PLATE = GeneratorDescriptor(
     claim='geometry_checks_only',
     limitations=('Digital geometry checks for one rectangular plate family',),
 )
-_PROGRAM_GENERATORS = (EQUIPMENT_BAY, EDITABLE_PLATE)
+THERMAL_BAR = GeneratorDescriptor(
+    id='thermal_bar', version='1.0.0', label='Steady-state thermal bar',
+    numerical_version='thermal_bar_numerical_v1',
+    spec_schema='engineering.thermal_bar:ThermalBarSpec', base_checks=THERMAL_CHECKS,
+    unsupported_features=('transient_heat', 'convection', 'restrained_thermal_stress', 'contact'),
+    selection_rule='one reviewed bar with a one-way temperature transfer',
+    numerical=tuple(_inline(name, value, 'backend/engineering/thermal_bar.py') for name, value in (
+        ('bounds_mm', GEOMETRY_LIMIT_MM), ('volume_relative', VOLUME_RELATIVE_LIMIT),
+        ('no_mismatch', 0), ('complete', 1), ('rise_relative', thermal.RISE_LIMIT),
+        ('refinement_inclusive', nextafter(thermal.CHANGE_LIMIT, 0.0)),
+        ('heat_imbalance', thermal.IMBALANCE_LIMIT), ('expansion_relative', thermal.EXPANSION_LIMIT),
+        ('transfer_delta_k', thermal.TRANSFER_LIMIT_K), ('clearance_mm', thermal.CLEARANCE_LIMIT_M * 1000),
+    )),
+    runtime_limits=(), primary_artifact='generator-body.step',
+    payloads=('generator-body.step', 'generator-report.json'),
+    adapter='engineering.thermal_bar_adapter:ThermalBarAdapter', claim='thermal_benchmark',
+    limitations=('Steady one-dimensional conduction and free axial expansion for a homogeneous bar',),
+)
+
+_PROGRAM_GENERATORS = (EQUIPMENT_BAY, EDITABLE_PLATE, THERMAL_BAR)
 
 GENERATORS: tuple[GeneratorDescriptor, ...] = (DRAGSTER, REGEN, GLIDER, PLATE)
 
