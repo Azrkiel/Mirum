@@ -63,7 +63,7 @@ def test_secret_reaches_only_the_live_step_through_a_private_file():
     assert '-v "$cred:/run/existing-provider.env:ro"' in live
     for blank in ('GEMINI_API_KEY_HEAVY=', 'GEMINI_API_KEY=', 'GOOGLE_API_KEY=', 'GEMINI_API_KEY_PRO='):
         assert '-e %s ' % blank in live
-    assert '--mode live' in live and '--max-provider-calls 6' in live
+    assert '--mode live' in live and '--max-provider-calls 4' in live
 
 
 def test_rehearsal_runs_offline_before_the_reservation_and_the_live_run():
@@ -75,10 +75,10 @@ def test_rehearsal_runs_offline_before_the_reservation_and_the_live_run():
     assert '--network none' in body and 'secrets.' not in body and '--credential-file' not in body
 
 
-def test_reservation_is_atomic_with_cumulative_cap_one():
+def test_reservation_is_atomic_with_cumulative_cap_two():
     body = steps()[step_index('git/refs')]
     assert 'refs/tags/f09-live-${RUN_ID}' in body
-    assert 'matching-refs/tags/f09-live-' in body and '-lt 1' in body
+    assert 'matching-refs/tags/f09-live-' in body and '-lt 2' in body
     validate = steps()[0]
     assert '^[a-z0-9][a-z0-9-]{5,62}$' in validate and '^[A-Za-z0-9._-]{6,80}$' in validate
 

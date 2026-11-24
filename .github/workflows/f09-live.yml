@@ -1,10 +1,13 @@
 name: F09 live proposal qualification (manual)
 
 # Manual only. Spends the owner's Gemini key on the F09 MEL proposal route: three beam proposals, each at
-# most the initial call plus the proposer's single schema repair, so at most 6 provider calls in total,
+# most the initial call plus the proposer's single schema repair, so at most 6 provider calls per run (4 for run 2, see below),
 # enforced by the harness and the backend daily call cap. Never runs on push or pull_request, so forks and
 # PRs never see the secret. The secret lives in environment b13-live (required reviewer, main only).
-# Cumulative cap 1: the run id is reserved atomically as an f09-live- tag and never reused.
+# Cumulative cap 2: each run id is reserved atomically as an f09-live- tag and never reused. Run 1
+# (live-20261124-a, 2 calls) stopped at S5 because its prompt left the material reference implicit and the
+# proposer correctly asked for clarification. Raised 1 -> 2 on 2026-11-24 under the same owner approval,
+# with this run limited to 4 calls so both runs stay within the approved 6.
 #
 # Order: validate inputs, build the verification image at this commit, run the provider-free rehearsal of
 # the same harness in that image, and only then take the reservation, the last step before the first
@@ -51,7 +54,7 @@ jobs:
           [[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9-]{5,62}$ ]] || { echo "bad run_id"; exit 1; }
           [[ "$AUTHORIZATION" =~ ^[A-Za-z0-9._-]{6,80}$ ]] || { echo "bad authorization"; exit 1; }
           used=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/f09-live-" --jq 'length')
-          [ "$used" -lt 1 ] || { echo "f09-live budget exhausted (${used}/1); needs new owner authorization"; exit 1; }
+          [ "$used" -lt 2 ] || { echo "f09-live budget exhausted (${used}/2); needs new owner authorization"; exit 1; }
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -93,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           used=$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/f09-live-" --jq 'length')
-          [ "$used" -lt 1 ] || { echo "f09-live budget exhausted (${used}/1)"; exit 1; }
+          [ "$used" -lt 2 ] || { echo "f09-live budget exhausted (${used}/2)"; exit 1; }
           gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
             -f "ref=refs/tags/f09-live-${RUN_ID}" -f "sha=${GITHUB_SHA}" >/dev/null \
             || { echo "run_id ${RUN_ID} already reserved; never repeated"; exit 1; }
@@ -134,7 +137,7 @@ jobs:
               --evidence-dir /evidence --state-dir /state \
               --credential-file /run/existing-provider.env \
               --run-id "$RUN_ID" --authorization "$AUTHORIZATION" \
-              --source-sha "$GITHUB_SHA" --image-id "$image_id" --max-provider-calls 6 \
+              --source-sha "$GITHUB_SHA" --image-id "$image_id" --max-provider-calls 4 \
             || status=$?
           rm -f "$cred"
           printf '{"run_id":"%s","sha":"%s","image_id":"%s","exit":%d}\n' \
