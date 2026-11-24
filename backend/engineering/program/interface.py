@@ -28,7 +28,7 @@ import re
 from dataclasses import dataclass
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, field_validator
 
 from engineering.language.diagnostics import HINTS as _MEL_HINTS
 from engineering.language.diagnostics import LEXICAL as _MEL_LEXICAL
@@ -51,7 +51,9 @@ __all__ = [
     'RESULT_KINDS', 'result_kind', 'ErrorSpan', 'MelMeta', 'ValidateResult', 'FormatResult',
     'PlanResult', 'RevisionStatus', 'ProgramView', 'ProgramCreated', 'RevisionResponse',
     'StageResponse', 'JournalLine', 'EvidenceCheck', 'EvidenceView', 'InspectBundle', 'HistoryView',
-    'DiffResponse', 'ExportMetadata', 'RESPONSE_MODELS', 'API_SCHEMA_MODELS',
+    'DiffResponse', 'ExportMetadata', 'ProgramListRequest', 'ProgramListEntry', 'ProgramList',
+    'AiEditRequest', 'AiEditResponse', 'AI_EDIT_REASON_CODES', 'MAX_PROGRAM_LIST',
+    'RESPONSE_MODELS', 'API_SCHEMA_MODELS',
     'ERROR_KINDS', 'ERROR_CATEGORIES', 'CHANGED_VALUES', 'NEXT_ACTIONS', 'KIND_STATUS', 'KIND_EXIT_CODE',
     'RESULT_KIND_EXIT_CODE', 'EXIT_OK', 'EXIT_TRANSPORT', 'EXIT_INVALID', 'EXIT_UNAVAILABLE',
     'EXIT_CONFLICT', 'ErrorEntry', 'ERROR_TABLE', 'InterfaceError', 'http_status', 'exit_code',
@@ -275,6 +277,29 @@ class ExportRequest(_Request):
     fmt: Annotated[str, StringConstraints(min_length=1, max_length=64)]
 
 
+# F09: the caller's program list and the typed AI edit (neither is an MCP tool).
+MAX_PROGRAM_LIST = 64   # the per-client program quota is 8; the list is capped far above it anyway
+
+
+class ProgramListRequest(_Request):
+    pass
+
+
+class AiEditRequest(_Request):
+    """A natural-language edit request. program_id comes from the path only; expected_parent is the head
+    the client saw (required: an AI edit is never applied to an unseen head)."""
+    program_id: Id32
+    request: Annotated[str, StringConstraints(min_length=1, max_length=2000)]
+    expected_parent: Id32
+
+    @field_validator('request')
+    @classmethod
+    def _request_not_blank(cls, value):
+        if not value.strip():
+            raise ValueError('request is empty')
+        return value
+
+
 # ------------------------------------------------------------------------------------- response models
 # No response model may carry draft_id, brief_id or job_id (D8: bearer ids of the unchecked v1 routes).
 
@@ -323,6 +348,7 @@ class MelMeta(_Response):
     compiler_version: Annotated[str, StringConstraints(max_length=64)]
     media_type: Literal['application/vnd.mirum.mel'] = MEL_MEDIA_TYPE
     max_source_bytes: Literal[65536] = MAX_MEL_BODY_BYTES
+    ai_edits: bool = False
 
 
 class ValidateResult(_Response):
@@ -454,9 +480,40 @@ class ExportMetadata(_Response):
     sha256: Sha256
 
 
+class ProgramListEntry(_Model):
+    program_id: Id32
+    head: RevisionStatus | None = None
+    fixed_requirements_sha256: Sha256 | None = None
+    created: Stamp
+
+
+class ProgramList(_Response):
+    programs: Annotated[tuple[ProgramListEntry, ...], Field(max_length=MAX_PROGRAM_LIST)]
+
+
+# Duplicated from mel_edit.REASON_CODES (a test pins equality); this module imports nothing from it.
+AI_EDIT_REASON_CODES = ('requirements_change_requested', 'other_capability', 'ambiguous', 'no_change',
+                        'unsupported_edit', 'invalid_reply', 'compile_failed')
+
+
+class AiEditResponse(_Response):
+    state: Literal['staged', 'refused']
+    reason_code: Literal['requirements_change_requested', 'other_capability', 'ambiguous', 'no_change',
+                         'unsupported_edit', 'invalid_reply', 'compile_failed'] | None = None
+    stage: StageResponse | None = None
+    provider_calls: Annotated[int, Field(ge=0, le=2)] = 0
+
+    def model_post_init(self, __context) -> None:
+        if (self.state == 'staged') != (self.stage is not None):
+            raise ValueError('stage is set only when staged')
+        if (self.state == 'refused') != (self.reason_code is not None):
+            raise ValueError('reason_code is set only when refused')
+
+
 RESPONSE_MODELS = (MelMeta, ValidateResult, FormatResult, PlanResult, RevisionStatus, ProgramView,
                    ProgramCreated, RevisionResponse, StageResponse, JournalLine, EvidenceCheck,
-                   EvidenceView, InspectBundle, HistoryView, DiffResponse, ExportMetadata)
+                   EvidenceView, InspectBundle, HistoryView, DiffResponse, ExportMetadata,
+                   ProgramListEntry, ProgramList, AiEditResponse)
 
 
 # ------------------------------------------------------------------------------------ error envelope
@@ -679,6 +736,15 @@ ERROR_TABLE: dict[str, ErrorEntry] = {
                       retry=True, action='retry_later', after=3600),
     'quota_drafts': _e('busy', 'capacity', 'The per-client draft limit was reached.', 'Retry later.',
                        retry=True, action='retry_later', after=3600),
+    # F09 typed edits
+    'ai_edits_disabled': _e('unavailable', 'service', 'Typed edits are not enabled on this server.',
+                            'Edit the source by hand.', action='none'),
+    'ai_unavailable': _e('unavailable', 'service', 'Typed edits are temporarily unavailable.',
+                         'Edit the source by hand or retry later.', retry=True, action='retry_later', after=60),
+    'requirements_change_not_allowed': _e('refused', 'revision',
+                                          'A typed edit cannot change the fixed requirements.',
+                                          'Change requirements in the source and review the change.',
+                                          action='fix_request'),
 }
 _GENERIC_MEL = _e('invalid_source', 'semantic', 'Invalid program.', 'Fix the source.', action='fix_source')
 _PLAN_UNAVAILABLE = frozenset({'mock_backend', 'lock_mismatch', 'lock_version_unsupported'})
@@ -892,6 +958,11 @@ OPERATIONS: tuple[OperationSpec, ...] = (
         response=RevisionResponse, description='Stage a rebuild of a revision.'),
     _op('export', ExportRequest, 'GET', '/revisions/{rid}/artifacts/{fmt}', False, _NO_MCP,
         response=ExportMetadata, description='Download one artifact of a revision.'),
+    _op('program_list', ProgramListRequest, 'GET', '/programs', False, ('python', 'http'),
+        response=ProgramList, description='List the programs of the caller with their head status.'),
+    _op('ai_edit', AiEditRequest, 'POST', '/programs/{pid}/ai-edits', True, ('python', 'http'), human=True,
+        response=AiEditResponse, body='json',
+        description='Stage a typed edit of the head revision from a natural-language request.'),
 )
 OPERATIONS_BY_NAME = {op.name: op for op in OPERATIONS}
 MCP_TOOL_NAMES = tuple(op.name for op in OPERATIONS if op.mcp)

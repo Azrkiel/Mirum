@@ -1,0 +1,42 @@
+{
+  "additionalProperties": false,
+  "description": "A natural-language edit request. program_id comes from the path only; expected_parent is the head\nthe client saw (required: an AI edit is never applied to an unseen head).",
+  "properties": {
+    "api_version": {
+      "const": "mirum_program_api_v0_1",
+      "default": "mirum_program_api_v0_1",
+      "enum": [
+        "mirum_program_api_v0_1"
+      ],
+      "title": "Api Version",
+      "type": "string"
+    },
+    "expected_parent": {
+      "maxLength": 32,
+      "minLength": 32,
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Expected Parent",
+      "type": "string"
+    },
+    "program_id": {
+      "maxLength": 32,
+      "minLength": 32,
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Program Id",
+      "type": "string"
+    },
+    "request": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "program_id",
+    "request",
+    "expected_parent"
+  ],
+  "title": "AiEditRequest",
+  "type": "object"
+}

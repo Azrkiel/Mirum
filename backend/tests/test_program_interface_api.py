@@ -850,6 +850,7 @@ D5_EXPECTED = {
     ('POST', '/revisions/{rid}/restore'), ('POST', '/revisions/{rid}/rebuild'),
     ('POST', '/revisions/{rid}/compare'), ('GET', '/revisions/{rid}/artifacts/{fmt}'),
 }
+F09_EXPECTED = {('GET', '/programs'), ('POST', '/programs/{pid}/ai-edits')}
 MEL_CASES = json.loads((F08 / 'mel_cases.json').read_text(encoding='utf-8'))['cases']
 
 
@@ -864,7 +865,7 @@ def _case_source(case) -> bytes:
 
 def test_registry_routes_equal_the_d5_list():
     registry = {(r.method, r.path) for op in api.OPERATIONS for r in op.routes}
-    assert registry == D5_EXPECTED and len(D5_EXPECTED) == 18
+    assert registry == D5_EXPECTED | F09_EXPECTED and len(D5_EXPECTED) == 18
 
 
 class Http:
@@ -1004,8 +1005,8 @@ def test_http_route_snapshot(http):
                     routes[(method, path[len(V1):])] = route
     found = set(routes)
     assert V1_EXPECTED <= found, 'the existing /engineering/v1 route set must be unchanged'
-    assert found - V1_EXPECTED == D5_EXPECTED
-    assert found == V1_EXPECTED | D5_EXPECTED
+    assert found - V1_EXPECTED == D5_EXPECTED | F09_EXPECTED
+    assert found == V1_EXPECTED | D5_EXPECTED | F09_EXPECTED
 
 
 def test_http_401_without_the_access_token_on_every_new_route(http, monkeypatch):

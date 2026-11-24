@@ -30,10 +30,12 @@ from .api_v1 import CheckedRoute
 from .program import interface as api
 from .program.interface import InterfaceFailure
 
-__all__ = ['PROGRAMS_ENV', 'programs_enabled', 'create_program_runtime', 'attach_program_routes']
+__all__ = ['PROGRAMS_ENV', 'PROGRAM_AI_ENV', 'programs_enabled', 'program_ai_enabled',
+           'create_program_runtime', 'attach_program_routes']
 
 _LOG = logging.getLogger(__name__)
 PROGRAMS_ENV = 'MIRUM_ENGINEERING_PROGRAMS'
+PROGRAM_AI_ENV = 'MIRUM_ENGINEERING_PROGRAM_AI'
 _TRUE = frozenset({'1', 'true', 'yes', 'on'})
 _JSON_MEDIA = 'application/json'
 
@@ -41,6 +43,12 @@ _JSON_MEDIA = 'application/json'
 def programs_enabled(environ=None) -> bool:
     env = os.environ if environ is None else environ
     return str(env.get(PROGRAMS_ENV, '')).strip().lower() in _TRUE
+
+
+def program_ai_enabled(environ=None) -> bool:
+    """Typed edits flag (default off), same parsing as programs_enabled."""
+    env = os.environ if environ is None else environ
+    return str(env.get(PROGRAM_AI_ENV, '')).strip().lower() in _TRUE
 
 
 def create_program_runtime(engineering):
@@ -55,11 +63,20 @@ def create_program_runtime(engineering):
         from .program.transactions import RevisionService
         service = RevisionService(engineering.store, engineering.jobs, engineering.publisher,
                                   engineering.briefs)
-        return ProgramInterface(service, engineering.briefs, engineering.quota,
+        face = ProgramInterface(service, engineering.briefs, engineering.quota,
                                 ProgramQuota.from_env(engineering.store))
     except Exception:  # noqa: BLE001 - fixed line only: never the exception text
         _LOG.warning('engineering.programs construction_failed')
         return None
+    if program_ai_enabled():
+        # Nothing is imported unless the typed-edit flag is on; a missing or failing module leaves it off.
+        try:
+            from .program.ai_edit import build_ai_edits
+            face.ai_edits = build_ai_edits(engineering)
+        except Exception:  # noqa: BLE001 - fixed line only: never the exception text
+            _LOG.warning('engineering.programs ai_edits_unavailable')
+            face.ai_edits = None
+    return face
 
 
 # ------------------------------------------------------------------------------------------- envelopes
@@ -175,7 +192,8 @@ def attach_program_routes(app, limiter):
     async def mel_meta(request: Request):
         async def call(face, client):
             from .program.versions import MEL_COMPILER_VERSION, MEL_LANGUAGE_VERSION
-            return api.MelMeta(language_version=MEL_LANGUAGE_VERSION, compiler_version=MEL_COMPILER_VERSION)
+            return api.MelMeta(language_version=MEL_LANGUAGE_VERSION, compiler_version=MEL_COMPILER_VERSION,
+                               ai_edits=getattr(face, 'ai_edits', None) is not None)
         return await serve(request, call)
 
     async def mel_validate(request: Request):
@@ -205,6 +223,22 @@ def attach_program_routes(app, limiter):
         async def call(face, client):
             return await face.program_create(api.ProgramCreateRequest(), client=client)
         return await serve(request, call, status=201)
+
+    async def program_list(request: Request):
+        async def call(face, client):
+            return await face.program_list(api.ProgramListRequest(), client=client)
+        return await serve(request, call)
+
+    async def program_ai_edit(request: Request, pid: str):
+        async def call(face, client):
+            data = await _json_body(request)  # the request text is never logged
+            if 'program_id' in data:
+                raise InterfaceFailure(api.invalid_request('invalid_field', field='program_id'))
+            if 'expected_parent' not in data:  # required: a typed edit is never applied to an unseen head
+                raise InterfaceFailure(api.invalid_request('invalid_field', field='expected_parent'))
+            return await face.ai_edit(api.parse_model(api.AiEditRequest, dict(data, program_id=pid)),
+                                      client=client)
+        return await serve(request, call)
 
     async def program_read(request: Request, pid: str):
         async def call(face, client):
@@ -300,6 +334,7 @@ def attach_program_routes(app, limiter):
         ('GET', '/mel/meta'): mel_meta, ('POST', '/mel/validate'): mel_validate,
         ('POST', '/mel/format'): mel_format, ('POST', '/mel/plan'): mel_plan,
         ('POST', '/programs'): program_create, ('GET', '/programs/{pid}'): program_read,
+        ('GET', '/programs'): program_list, ('POST', '/programs/{pid}/ai-edits'): program_ai_edit,
         ('GET', '/programs/{pid}/history'): program_history, ('GET', '/programs/{pid}/journal'): program_journal,
         ('POST', '/programs/{pid}/revisions'): revision_stage,
         ('GET', '/revisions/{rid}'): revision_status, ('GET', '/revisions/{rid}/evidence'): revision_evidence,
@@ -317,6 +352,7 @@ def attach_program_routes(app, limiter):
         ('GET', '/mel/meta'): '120/minute', ('POST', '/mel/validate'): '30/minute',
         ('POST', '/mel/format'): '30/minute', ('POST', '/mel/plan'): '30/minute',
         ('POST', '/programs'): '10/minute', ('GET', '/programs/{pid}'): '120/minute',
+        ('GET', '/programs'): '120/minute', ('POST', '/programs/{pid}/ai-edits'): '10/minute',
         ('GET', '/programs/{pid}/history'): '120/minute', ('GET', '/programs/{pid}/journal'): '120/minute',
         ('POST', '/programs/{pid}/revisions'): '10/minute',
         ('GET', '/revisions/{rid}'): '120/minute', ('GET', '/revisions/{rid}/evidence'): '120/minute',

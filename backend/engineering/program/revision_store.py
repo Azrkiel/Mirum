@@ -153,7 +153,7 @@ class RevisionStore:
     # ------------------------------------------------------------------ staging
 
     def insert_staged(self, db, revision: ProgramRevision, payload: RevisionPayload, *,
-                      expected_parent: str | None) -> RevisionRefusal | None:
+                      expected_parent: str | None, detail: dict | None = None) -> RevisionRefusal | None:
         if revision.state != 'staged' or revision.kind == 'restore':
             raise ValueError('insert_staged takes a staged edit or rebuild revision')
         program = self._program_or_raise(db, revision.program_id)
@@ -165,7 +165,8 @@ class RevisionStore:
         if refusal is not None:
             return refusal
         self._insert(db, revision, payload_text, self.clock())
-        self.append_journal(db, revision.program_id, revision.revision_id, 'staged', {})
+        self.append_journal(db, revision.program_id, revision.revision_id, 'staged',
+                           {} if detail is None else dict(detail))
         return None
 
     # ------------------------------------------------------------------ transitions

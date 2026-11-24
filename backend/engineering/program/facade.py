@@ -39,6 +39,7 @@ from engineering.admission import AdmissionBusy
 from engineering.briefs import RevisionConflict
 from engineering.contracts import ReviewAcknowledgement
 from engineering.language.diagnostics import MelError
+from engineering.language.semantic import compile_source
 from engineering.store import ArtifactExpired, parse_ai_client_cap
 
 from . import interface as api
@@ -252,6 +253,7 @@ class ProgramInterface:
         self.clock = clock if clock is not None else service.clock
         self._stateless = asyncio.Semaphore(_STATELESS_SLOTS)
         self._slot = asyncio.Lock()
+        self.ai_edits = None  # set by the runtime when typed edits are enabled (api_programs)
 
     # -------------------------------------------------------------------------------- common helpers
 
@@ -350,7 +352,8 @@ class ProgramInterface:
                 self.preparation_quota.record_draft(result.draft_id, client, source_len)
             return result
 
-    async def _stage_common(self, source, program_id, source_id, expected_parent, guard, require_guard, client):
+    async def _stage_common(self, source, program_id, source_id, expected_parent, guard, require_guard, client,
+                            origin='human'):
         source = self._source_bytes(source)
         head = self.service.current(program_id, client=client)  # unknown or foreign -> KeyError -> not_found
         if require_guard or guard is not None:
@@ -358,7 +361,7 @@ class ProgramInterface:
 
         async def work():
             return await self.service.stage(program_id, source, source_id=source_id or DEFAULT_SOURCE_ID,
-                                            expected_parent=expected_parent, client=client)
+                                            expected_parent=expected_parent, client=client, origin=origin)
 
         revision = await self._staging(work, len(source), client)
         view = self._view(revision.revision_id, client)
@@ -378,6 +381,83 @@ class ProgramInterface:
         (X-Mirum-Require-Requirements); a program without a head, or without a guard, is refused."""
         return await self._stage_common(source, request.program_id, request.source_id,
                                         request.expected_parent, require_requirements_sha256, True, client)
+
+    # ------------------------------------------------------------------------------- typed edit (F09)
+
+    @_guarded
+    async def ai_edit(self, request: api.AiEditRequest, *, client):
+        """POST /programs/{pid}/ai-edits. The edit service is attached by the runtime only when typed edits
+        are enabled; without it this fails first, before anything else is read."""
+        service = self.ai_edits
+        if service is None:
+            raise _fail(api.error('ai_edits_disabled'))
+        return await service.edit(self, request, client=client)
+
+    def head_for_edit(self, program_id, expected_parent, *, client):
+        """Seam for the edit service: (head RevisionView, stored MEL source text of the head).
+
+        Unknown or foreign program -> not_found. A program with no head, or a head that is not
+        ``expected_parent``, -> conflict ``stale_parent`` (a client that names a head it saw cannot match a
+        program that has none). A compacted source -> expired ``history_expired``. Reads only."""
+        try:
+            head = self.service.current(program_id, client=client)  # KeyError -> not_found
+            if head is None or head.revision.revision_id != expected_parent:
+                raise _fail(api.error('stale_parent'))
+            payload = self._refusal(self.service.source(head.revision.revision_id, client=client))
+            if payload is None:
+                raise _fail(api.not_found())
+            return head, payload.source
+        except InterfaceFailure:
+            raise
+        except Exception as exc:  # noqa: BLE001 - one mapping, the text is never read
+            raise InterfaceFailure(map_exception(exc)) from None
+
+    def precheck_stage(self, client, size) -> None:
+        """Seam for the edit service: the per-client program quota and the draft quota as a pure pre-check.
+        Raises the same busy failures as staging; writes nothing and takes no slot."""
+        code = self.program_quota.check_stage(client, size)
+        if code is not None:
+            raise _fail(api.busy(code))
+        try:
+            self.preparation_quota.admit_draft(client, ai=True, size=size)
+        except AdmissionBusy:
+            raise _fail(api.busy('quota_drafts')) from None
+
+    @_guarded
+    async def stage_edited(self, source_text, program_id, expected_parent, *, client, origin='ai_edit'):
+        """Seam for the edit service: stage ``source_text`` through the normal staging path with the
+        requirements guard taken from the head server-side (a program with no head is refused). ``origin``
+        is recorded on the staged journal event only."""
+        if type(source_text) is not str:
+            raise _fail(api.invalid_request('invalid_field', field='source'))
+        head = self.service.current(program_id, client=client)
+        guard = None if head is None else head.revision.fixed_requirements_sha256
+        if guard is not None:
+            # The edited source must keep the head's fixed requirements: compile (no writes) and compare
+            # before anything is staged. A MelError here maps to its diagnostic envelope.
+            compiled = await asyncio.to_thread(compile_source, source_text, source_id=DEFAULT_SOURCE_ID)
+            if compiled.brief_content.fixed_requirements_sha256 != guard:
+                raise _fail(api.error('requirements_changed'))
+        return await self._stage_common(source_text.encode('utf-8'), program_id, None, expected_parent, guard,
+                                        True, client, origin=origin)
+
+    @_guarded
+    async def program_list(self, request: api.ProgramListRequest | None = None, *, client):
+        """GET /programs: the caller's programs (never a foreign one), oldest first, with the head status.
+        Read-only: nothing is settled or admitted."""
+        with self.service.store.transaction() as db:
+            rows = [dict(r) for r in db.execute(
+                'SELECT id, created FROM programs WHERE client=? ORDER BY created, id LIMIT ?',
+                (str(client), api.MAX_PROGRAM_LIST)).fetchall()]
+        entries = []
+        for row in rows:
+            head = self.service.current(row['id'], client=client)
+            status = None if head is None else revision_status(head)
+            entries.append(api.ProgramListEntry(
+                program_id=row['id'], head=status,
+                fixed_requirements_sha256=None if status is None else status.fixed_requirements_sha256,
+                created=api.iso_utc(datetime.fromtimestamp(row['created'], tz=timezone.utc))))
+        return api.ProgramList(programs=tuple(entries))
 
     @_guarded
     async def rebuild(self, request: api.RebuildRequest, *, client):

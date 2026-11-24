@@ -1,6 +1,11 @@
 {
   "additionalProperties": false,
   "properties": {
+    "ai_edits": {
+      "default": false,
+      "title": "Ai Edits",
+      "type": "boolean"
+    },
     "api_version": {
       "const": "mirum_program_api_v0_1",
       "default": "mirum_program_api_v0_1",

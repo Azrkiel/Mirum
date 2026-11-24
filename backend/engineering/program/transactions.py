@@ -40,6 +40,8 @@ from .revisions import (
 
 __all__ = ['RevisionService']
 
+_ORIGINS = ('human', 'ai_edit')
+_ORIGIN_PROMPTS = (None, 'mel_edit_v1')
 _DEFAULT = object()  # RevisionService(verifier=...) sentinel: build the real DeliveredVerifier
 _CRASH_POINTS = ('after_admit_before_link', 'after_link_before_start', 'before_settle_commit',
                  'restore_after_validate')
@@ -212,18 +214,31 @@ class RevisionService:
                     failed_count += 1
         return failed_count
 
-    async def stage(self, program_id, source, *, source_id, expected_parent, client):
+    async def stage(self, program_id, source, *, source_id, expected_parent, client,
+                    origin: str = 'human', origin_prompt: str | None = None):
         """Compile, plan, lock and open a review, then stage one revision.
+
+        ``origin`` ('human' or 'ai_edit') and ``origin_prompt`` (None or 'mel_edit_v1') are recorded as the
+        detail of the 'staged' journal event only; the semantic hash, the IR and the payload never depend on
+        them. Rebuild records no origin detail (its journal event is unchanged).
 
         A stale parent or capacity refusal is decided in a first transaction, before any compile, probe
         or draft, so it writes nothing at all. MelError propagates unchanged and PlanRefusal is returned;
         neither writes anything. The final insert repeats the parent CAS: a race lost there returns the
         refusal and leaves the freshly opened draft orphaned, which expires under the existing draft
         retention (nothing else references it)."""
+        if origin not in _ORIGINS or origin_prompt not in _ORIGIN_PROMPTS:
+            raise ValueError('origin is not allowed')
+        detail = {'origin': origin}
+        if origin_prompt is not None:
+            detail['prompt'] = origin_prompt
+        elif origin == 'ai_edit':
+            detail['prompt'] = 'mel_edit_v1'
         return await self._stage(program_id, source, source_id=source_id, expected_parent=expected_parent,
-                                 client=client, kind='edit', derived_from=None)
+                                 client=client, kind='edit', derived_from=None, detail=detail)
 
-    async def _stage(self, program_id, source, *, source_id, expected_parent, client, kind, derived_from):
+    async def _stage(self, program_id, source, *, source_id, expected_parent, client, kind, derived_from,
+                     detail=None):
         """Shared staging path of stage() (kind 'edit') and rebuild() (kind 'rebuild')."""
         if not isinstance(source_id, str) or not source_id:
             raise ValueError('source_id is required')
@@ -260,7 +275,7 @@ class RevisionService:
         with self.store.transaction() as db:
             rs.compact(db, now=self.clock())
             self._owned_program(db, program_id, client)
-            refusal = rs.insert_staged(db, revision, payload, expected_parent=expected_parent)
+            refusal = rs.insert_staged(db, revision, payload, expected_parent=expected_parent, detail=detail)
         return revision if refusal is None else refusal
 
     # ------------------------------------------------------------------ run
