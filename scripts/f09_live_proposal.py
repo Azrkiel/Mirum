@@ -75,8 +75,19 @@ class StepFailure(AssertionError):
         self.details = dict(reason=reason, **details)
 
 
+_FIELD = re.compile(r'[A-Za-z0-9_.\[\]]{1,64}')
+_STATES = ('clarification_required', 'unsupported')
+
+
 def _safe_issues(issues):
-    return [dict(field=str(i.get('field'))[:64], state=str(i.get('state'))[:32]) for i in issues or ()][:16]
+    """Field paths and states only; anything not shaped like a field path is replaced, so no key name taken
+    from a model-shaped payload can reach the evidence."""
+    safe = []
+    for issue in list(issues or ())[:16]:
+        field, state = str(issue.get('field')), str(issue.get('state'))
+        safe.append(dict(field=field if _FIELD.fullmatch(field) else 'other',
+                         state=state if state in _STATES else 'other'))
+    return safe
 
 
 def sha(data):
