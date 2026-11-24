@@ -1,0 +1,995 @@
+{
+  "acceptance": {
+    "datum-100": {
+      "delivery_zip_sha256": "d61e750756fa7106a4ae502d9252a1e4d0bbff4f8ab1c0fbee962ec115b8d3a7",
+      "evidence_sha256": "9b6c9f1d0290768e26c1480c497819539e7dfeb5bc9e364832e37c93054dcea0",
+      "lock_sha256": "2009e9d667bf1f9bfa7870babe82a6e976a0c07945a2043f4f48a748b22505ce",
+      "measurement": {
+        "bores": [
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              -30.0,
+              -15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.left.lower",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              -30.0,
+              15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.left.upper",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              30.0,
+              -15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.right.lower",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              30.0,
+              15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.right.upper",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          }
+        ],
+        "bounds_mm": [
+          -50.0,
+          -25.0,
+          0.0,
+          50.0,
+          25.0,
+          6.0
+        ],
+        "candidate_sha256": "b554f478427fc0af7ef9c5e1d33b31a330f1e47f4de8ff148c987d336bc9724c",
+        "datum": {
+          "axes": [
+            [
+              1,
+              0,
+              0
+            ],
+            [
+              0,
+              1,
+              0
+            ],
+            [
+              0,
+              0,
+              1
+            ]
+          ],
+          "id": "plate.datum",
+          "origin_mm": [
+            0,
+            0,
+            0
+          ],
+          "side_ids": [
+            "plate.side.left",
+            "plate.side.right"
+          ]
+        },
+        "diagnostics": [],
+        "envelope_mm": [
+          100.0,
+          50.0,
+          6.0
+        ],
+        "kernel_revision": "6a68e99c67b99375f2a49a794f5d44464c6307e3",
+        "outcome": "pass",
+        "part_id": "plate",
+        "pattern": {
+          "id": "plate.bores",
+          "intent": "datum-driven",
+          "x_references": [
+            "plate.datum"
+          ],
+          "y_reference": "plate.datum"
+        },
+        "pitch_x_mm": 60.0,
+        "reader": "OCCT STEPControl_Reader",
+        "reviewed_brief_sha256": "5436839a0d5267142e928683e0833c0f73cb28a3f4ecee26832de84dd22f896a",
+        "schema": "editable_plate_measurement_v1",
+        "side_margins_mm": [
+          20.0,
+          20.0
+        ],
+        "specification": {
+          "datum_ref": "plate.datum",
+          "height_mm": 50.0,
+          "intent": "datum-driven",
+          "thickness_mm": 6.0,
+          "units": "mm",
+          "width_mm": 100.0
+        },
+        "step": {
+          "bytes": 34370,
+          "sha256": "928cec2cba06551c99e82ec2159f250646a79ebb4f1c94812d5c9d0d057a766b"
+        },
+        "tolerances": {
+          "axis_component": 1e-08,
+          "length_mm": 1e-06,
+          "volume_mm3": 1e-05
+        },
+        "units": "mm",
+        "versions": {
+          "cadquery": "2.6.1",
+          "cadquery-ocp": "7.8.1.1.post1",
+          "python": "3.10.22"
+        },
+        "volume_mm3": 29321.41598682459
+      },
+      "parent": "e8b56d441b3344cfb1973cad22a3f938",
+      "report_sha256": "9901c61ce6b2c89aff2639b2cd477ee83d06019f0668b10f7a7ffadef294d34a",
+      "revision_id": "cadd59237bc64a729b1689760f092286",
+      "semantic_sha256": "1df247d0773f564c566dadedeba397724962c56b79a11be9b7ca36bf72d68fd8",
+      "source_sha256": "00afba8b54066a748f61d204d14c4f943df409ad3c8e1806a2efe885af9d2b24",
+      "verification": {
+        "candidate_sha256": "b554f478427fc0af7ef9c5e1d33b31a330f1e47f4de8ff148c987d336bc9724c",
+        "check_plan_sha256": "79bf570393fd457c3e9ff65b37cd2edeb83d32c11653b5660c05dba5ab1c120c",
+        "checks": [
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_envelope",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_bores",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_binding",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          }
+        ],
+        "claim_scope": "geometry_checks_only",
+        "glb_sha256": null,
+        "manifest_sha256": "d2941bd8dffd6527c82c452f18f378d5f4d9a47e6c4e1a46a4a7df67b2b36314",
+        "method_version": "3a6ce30723d0d9f467dc3c3ebaafdfe85690380d9ec62fb29263c8f96cc374f9",
+        "reasons": [],
+        "run": null,
+        "status": "present",
+        "step_sha256": "928cec2cba06551c99e82ec2159f250646a79ebb4f1c94812d5c9d0d057a766b",
+        "verdict": "verified"
+      }
+    },
+    "datum-80": {
+      "delivery_zip_sha256": "5cc12137e01ea7ebf574976ff72468653e31719134230926e5eb0d0fe23fae2d",
+      "evidence_sha256": "e4db2e8cfb2dcbfcbe6d13b4145888c0ab00ba09f09c1856656c128f3a239620",
+      "lock_sha256": "2009e9d667bf1f9bfa7870babe82a6e976a0c07945a2043f4f48a748b22505ce",
+      "measurement": {
+        "bores": [
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              -30.0,
+              -15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.left.lower",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              -30.0,
+              15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.left.upper",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              30.0,
+              -15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.right.lower",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              30.0,
+              15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.right.upper",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          }
+        ],
+        "bounds_mm": [
+          -40.0,
+          -25.0,
+          0.0,
+          40.0,
+          25.0,
+          6.0
+        ],
+        "candidate_sha256": "c35c347d8343c78d2d3bcc7a9e8ac955de74d79713c6320e06000fe49a6e5de9",
+        "datum": {
+          "axes": [
+            [
+              1,
+              0,
+              0
+            ],
+            [
+              0,
+              1,
+              0
+            ],
+            [
+              0,
+              0,
+              1
+            ]
+          ],
+          "id": "plate.datum",
+          "origin_mm": [
+            0,
+            0,
+            0
+          ],
+          "side_ids": [
+            "plate.side.left",
+            "plate.side.right"
+          ]
+        },
+        "diagnostics": [],
+        "envelope_mm": [
+          80.0,
+          50.0,
+          6.0
+        ],
+        "kernel_revision": "6a68e99c67b99375f2a49a794f5d44464c6307e3",
+        "outcome": "pass",
+        "part_id": "plate",
+        "pattern": {
+          "id": "plate.bores",
+          "intent": "datum-driven",
+          "x_references": [
+            "plate.datum"
+          ],
+          "y_reference": "plate.datum"
+        },
+        "pitch_x_mm": 60.0,
+        "reader": "OCCT STEPControl_Reader",
+        "reviewed_brief_sha256": "eb9179a3c16d2daf36f679a5afb4adfa330624c84c6e34cd4846cdce09537208",
+        "schema": "editable_plate_measurement_v1",
+        "side_margins_mm": [
+          10.0,
+          10.0
+        ],
+        "specification": {
+          "datum_ref": "plate.datum",
+          "height_mm": 50.0,
+          "intent": "datum-driven",
+          "thickness_mm": 6.0,
+          "units": "mm",
+          "width_mm": 80.0
+        },
+        "step": {
+          "bytes": 34354,
+          "sha256": "add48d2105891ba73ba2bc0ad5f52a3ce4f725a89c0001a95cd749da5104d4d2"
+        },
+        "tolerances": {
+          "axis_component": 1e-08,
+          "length_mm": 1e-06,
+          "volume_mm3": 1e-05
+        },
+        "units": "mm",
+        "versions": {
+          "cadquery": "2.6.1",
+          "cadquery-ocp": "7.8.1.1.post1",
+          "python": "3.10.22"
+        },
+        "volume_mm3": 23321.41598682459
+      },
+      "parent": null,
+      "report_sha256": "2aca06279d8fd6723b338791d0b0ddadcfb1db536fc32ef7d64c09028cffac6a",
+      "revision_id": "e8b56d441b3344cfb1973cad22a3f938",
+      "semantic_sha256": "18e3f886470f2beb6f7a7132e8ed482f9fcb99403d92f5f354f038dee1e102bf",
+      "source_sha256": "5aa1266872c682d72f1a594850a74ca8a02460723605b8367bb16c0f32ba742c",
+      "verification": {
+        "candidate_sha256": "c35c347d8343c78d2d3bcc7a9e8ac955de74d79713c6320e06000fe49a6e5de9",
+        "check_plan_sha256": "912f325995195a993276a65a65582633ab3743d775ea219bd2eb05374a5cae32",
+        "checks": [
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_envelope",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_bores",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_binding",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          }
+        ],
+        "claim_scope": "geometry_checks_only",
+        "glb_sha256": null,
+        "manifest_sha256": "2cec932efa9d99ba0992f410f4659244ef2450c801c4e7d1cb39dd9242b11370",
+        "method_version": "3a6ce30723d0d9f467dc3c3ebaafdfe85690380d9ec62fb29263c8f96cc374f9",
+        "reasons": [],
+        "run": null,
+        "status": "present",
+        "step_sha256": "add48d2105891ba73ba2bc0ad5f52a3ce4f725a89c0001a95cd749da5104d4d2",
+        "verdict": "verified"
+      }
+    },
+    "edge-100": {
+      "delivery_zip_sha256": "f0b50f07f9ac5a6870eb7714803b068ea55c362cf06218aef1ed7fb08c0ab0d9",
+      "evidence_sha256": "2146499334fc67deb6fc9cfdbb47b9c0b1dbb1792732abf59846d33ced2435a4",
+      "lock_sha256": "2009e9d667bf1f9bfa7870babe82a6e976a0c07945a2043f4f48a748b22505ce",
+      "measurement": {
+        "bores": [
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              -40.0,
+              -15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.left.lower",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              -40.0,
+              15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.left.upper",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              40.0,
+              -15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.right.lower",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              40.0,
+              15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.right.upper",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          }
+        ],
+        "bounds_mm": [
+          -50.0,
+          -25.0,
+          0.0,
+          50.0,
+          25.0,
+          6.0
+        ],
+        "candidate_sha256": "28154a78256655b0fc6ae292d504c04118559b6b2b4f0a9bd8ce98cad7cf1241",
+        "datum": {
+          "axes": [
+            [
+              1,
+              0,
+              0
+            ],
+            [
+              0,
+              1,
+              0
+            ],
+            [
+              0,
+              0,
+              1
+            ]
+          ],
+          "id": "plate.datum",
+          "origin_mm": [
+            0,
+            0,
+            0
+          ],
+          "side_ids": [
+            "plate.side.left",
+            "plate.side.right"
+          ]
+        },
+        "diagnostics": [],
+        "envelope_mm": [
+          100.0,
+          50.0,
+          6.0
+        ],
+        "kernel_revision": "6a68e99c67b99375f2a49a794f5d44464c6307e3",
+        "outcome": "pass",
+        "part_id": "plate",
+        "pattern": {
+          "id": "plate.bores",
+          "intent": "edge-driven",
+          "x_references": [
+            "plate.side.left",
+            "plate.side.right"
+          ],
+          "y_reference": "plate.datum"
+        },
+        "pitch_x_mm": 80.0,
+        "reader": "OCCT STEPControl_Reader",
+        "reviewed_brief_sha256": "8137fd4df002c5ac61e52f8aaccf8234065abc1fd72fc28bc36787c536892c1f",
+        "schema": "editable_plate_measurement_v1",
+        "side_margins_mm": [
+          10.0,
+          10.0
+        ],
+        "specification": {
+          "datum_ref": "plate.datum",
+          "height_mm": 50.0,
+          "intent": "edge-driven",
+          "thickness_mm": 6.0,
+          "units": "mm",
+          "width_mm": 100.0
+        },
+        "step": {
+          "bytes": 34358,
+          "sha256": "b60e1f0e97e10c9d8ad33e042d2fe71d9cbe9671b4106d7d32d9c717c518b771"
+        },
+        "tolerances": {
+          "axis_component": 1e-08,
+          "length_mm": 1e-06,
+          "volume_mm3": 1e-05
+        },
+        "units": "mm",
+        "versions": {
+          "cadquery": "2.6.1",
+          "cadquery-ocp": "7.8.1.1.post1",
+          "python": "3.10.22"
+        },
+        "volume_mm3": 29321.415986824588
+      },
+      "parent": "945542ca299c45f1856f170bd37d531d",
+      "replay_zip_sha256": "7ee8102960ccbf6041712cde16dca8e99b61f219f8c5ec0302faf02ad048d7a5",
+      "report_sha256": "dc3095ff00a205057ce24c878fc2759421cdc4b36f40ce1bce1d3f50ca8d8d32",
+      "revision_id": "5c2c7dcca5cf4568bb48fd47bd817f14",
+      "semantic_sha256": "3a8e2f2595acdb6d9e6140f33e9cd9bcd5d594853baa2eff3c44f1f66f21a697",
+      "source_sha256": "0fab894f56f6f641bad1c9a6bc112ba9888df2cb4bb2c6327e53a5e6dea1809e",
+      "verification": {
+        "candidate_sha256": "28154a78256655b0fc6ae292d504c04118559b6b2b4f0a9bd8ce98cad7cf1241",
+        "check_plan_sha256": "b0855aad69634b67da4111c201d34e1b8a187a766d6d1ccd479936175d3d919e",
+        "checks": [
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_envelope",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_bores",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_binding",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          }
+        ],
+        "claim_scope": "geometry_checks_only",
+        "glb_sha256": null,
+        "manifest_sha256": "fc449099247843911539fd9cd1b31b596e4a445fb914e51564dc5a8a6124440f",
+        "method_version": "3a6ce30723d0d9f467dc3c3ebaafdfe85690380d9ec62fb29263c8f96cc374f9",
+        "reasons": [],
+        "run": null,
+        "status": "present",
+        "step_sha256": "b60e1f0e97e10c9d8ad33e042d2fe71d9cbe9671b4106d7d32d9c717c518b771",
+        "verdict": "verified"
+      }
+    },
+    "edge-80": {
+      "delivery_zip_sha256": "d8e58dc920dd2f268d49846ea9b34eb49ef57952954f2b052d41c09897ce4b7d",
+      "evidence_sha256": "7d0ced0efa1c1c20c34ce4968318683fb633332d3fd361dbd310ccf4e0e1d7c8",
+      "lock_sha256": "2009e9d667bf1f9bfa7870babe82a6e976a0c07945a2043f4f48a748b22505ce",
+      "measurement": {
+        "bores": [
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              -30.0,
+              -15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.left.lower",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              -30.0,
+              15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.left.upper",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              30.0,
+              -15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.right.lower",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          },
+          {
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "center_mm": [
+              30.0,
+              15.0
+            ],
+            "diameter_mm": 6.0,
+            "id": "plate.bores.right.upper",
+            "through": true,
+            "z_range_mm": [
+              0.0,
+              6.0
+            ]
+          }
+        ],
+        "bounds_mm": [
+          -40.0,
+          -25.0,
+          0.0,
+          40.0,
+          25.0,
+          6.0
+        ],
+        "candidate_sha256": "86440663947285df2ba4c54645a49d2fe99706c9fde95e376fafa0b675d6b4a3",
+        "datum": {
+          "axes": [
+            [
+              1,
+              0,
+              0
+            ],
+            [
+              0,
+              1,
+              0
+            ],
+            [
+              0,
+              0,
+              1
+            ]
+          ],
+          "id": "plate.datum",
+          "origin_mm": [
+            0,
+            0,
+            0
+          ],
+          "side_ids": [
+            "plate.side.left",
+            "plate.side.right"
+          ]
+        },
+        "diagnostics": [],
+        "envelope_mm": [
+          80.0,
+          50.0,
+          6.0
+        ],
+        "kernel_revision": "6a68e99c67b99375f2a49a794f5d44464c6307e3",
+        "outcome": "pass",
+        "part_id": "plate",
+        "pattern": {
+          "id": "plate.bores",
+          "intent": "edge-driven",
+          "x_references": [
+            "plate.side.left",
+            "plate.side.right"
+          ],
+          "y_reference": "plate.datum"
+        },
+        "pitch_x_mm": 60.0,
+        "reader": "OCCT STEPControl_Reader",
+        "reviewed_brief_sha256": "0ab68566222588e8bf703f04f7f95265fb21b103fb15ddbf3c12d73a690cf03d",
+        "schema": "editable_plate_measurement_v1",
+        "side_margins_mm": [
+          10.0,
+          10.0
+        ],
+        "specification": {
+          "datum_ref": "plate.datum",
+          "height_mm": 50.0,
+          "intent": "edge-driven",
+          "thickness_mm": 6.0,
+          "units": "mm",
+          "width_mm": 80.0
+        },
+        "step": {
+          "bytes": 34354,
+          "sha256": "add48d2105891ba73ba2bc0ad5f52a3ce4f725a89c0001a95cd749da5104d4d2"
+        },
+        "tolerances": {
+          "axis_component": 1e-08,
+          "length_mm": 1e-06,
+          "volume_mm3": 1e-05
+        },
+        "units": "mm",
+        "versions": {
+          "cadquery": "2.6.1",
+          "cadquery-ocp": "7.8.1.1.post1",
+          "python": "3.10.22"
+        },
+        "volume_mm3": 23321.41598682459
+      },
+      "parent": null,
+      "report_sha256": "bbf96ec7d32579e425efdf158281db9ac0ca43cd561f026db12f34da01f6deb5",
+      "revision_id": "945542ca299c45f1856f170bd37d531d",
+      "semantic_sha256": "bf4c11c18dcc96e466a2e541d55385ee27798f7a741e06b8234ea2547ea5149f",
+      "source_sha256": "500cf9b3c935bba4373b16174d95d5fa97e3a54fc7038e7030e0c15a7c233253",
+      "verification": {
+        "candidate_sha256": "86440663947285df2ba4c54645a49d2fe99706c9fde95e376fafa0b675d6b4a3",
+        "check_plan_sha256": "217b6aa875285cad3b83d922019a207772e57202513ace1727a145b78361b266",
+        "checks": [
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_envelope",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_bores",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_binding",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          }
+        ],
+        "claim_scope": "geometry_checks_only",
+        "glb_sha256": null,
+        "manifest_sha256": "4dd39cf5510a5a927c3ac3061745e70a36d491d52ab5cccfccf613e5291fc61a",
+        "method_version": "3a6ce30723d0d9f467dc3c3ebaafdfe85690380d9ec62fb29263c8f96cc374f9",
+        "reasons": [],
+        "run": null,
+        "status": "present",
+        "step_sha256": "add48d2105891ba73ba2bc0ad5f52a3ce4f725a89c0001a95cd749da5104d4d2",
+        "verdict": "verified"
+      }
+    }
+  },
+  "delivered_step_rejections": {
+    "ambiguous_feature": {
+      "evidence_sha256": "06a1755fbe15ec131bf3f8325b764446c4f15b3496a96a0cd716f2e4a060dfc2",
+      "verification": {
+        "candidate_sha256": "28154a78256655b0fc6ae292d504c04118559b6b2b4f0a9bd8ce98cad7cf1241",
+        "check_plan_sha256": "b0855aad69634b67da4111c201d34e1b8a187a766d6d1ccd479936175d3d919e",
+        "checks": [
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_envelope",
+            "coverage": "measured",
+            "reason": "limit_exceeded",
+            "required": true,
+            "state": "failed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.volume_mismatch",
+            "coverage": "measured",
+            "reason": "limit_exceeded",
+            "required": true,
+            "state": "failed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_bores",
+            "coverage": "measured",
+            "reason": "limit_exceeded",
+            "required": true,
+            "state": "failed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.unexpected_bores",
+            "coverage": "measured",
+            "reason": "limit_exceeded",
+            "required": true,
+            "state": "failed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_binding",
+            "coverage": "measured",
+            "reason": "binding_ambiguous",
+            "required": true,
+            "state": "failed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.ambiguous_feature",
+            "coverage": "measured",
+            "reason": "binding_ambiguous",
+            "required": true,
+            "state": "failed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.datum_mismatch",
+            "coverage": "measured",
+            "reason": "limit_exceeded",
+            "required": true,
+            "state": "failed"
+          }
+        ],
+        "claim_scope": "geometry_checks_only",
+        "glb_sha256": null,
+        "manifest_sha256": "aa211218749b0d9f5c0aef454448fe6ca9b386174ec7746eceff884968093104",
+        "method_version": "3a6ce30723d0d9f467dc3c3ebaafdfe85690380d9ec62fb29263c8f96cc374f9",
+        "reasons": [],
+        "run": null,
+        "status": "present",
+        "step_sha256": "695142757c7857fe779a2f375ead82409d978f71afaa69ac994b2ce7e67c932b",
+        "verdict": "ambiguous"
+      }
+    },
+    "feature_missing": {
+      "evidence_sha256": "3fe1862ba35af4b70f921e8f17bdb6fbef17b9b624df8c70518caf3cdefacb1b",
+      "verification": {
+        "candidate_sha256": "28154a78256655b0fc6ae292d504c04118559b6b2b4f0a9bd8ce98cad7cf1241",
+        "check_plan_sha256": "b0855aad69634b67da4111c201d34e1b8a187a766d6d1ccd479936175d3d919e",
+        "checks": [
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_envelope",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_bores",
+            "coverage": "measured",
+            "reason": "limit_exceeded",
+            "required": true,
+            "state": "failed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.feature_missing",
+            "coverage": "measured",
+            "reason": "limit_exceeded",
+            "required": true,
+            "state": "failed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.unexpected_bores",
+            "coverage": "measured",
+            "reason": "limit_exceeded",
+            "required": true,
+            "state": "failed"
+          },
+          {
+            "category": "geometry",
+            "check_id": "plate.plate_binding",
+            "coverage": "measured",
+            "reason": null,
+            "required": true,
+            "state": "passed"
+          }
+        ],
+        "claim_scope": "geometry_checks_only",
+        "glb_sha256": null,
+        "manifest_sha256": "29f17cf34104ac1bad8f9c30038ff5d96fa4716ff6a9e10dc3bc8e208d3ce980",
+        "method_version": "3a6ce30723d0d9f467dc3c3ebaafdfe85690380d9ec62fb29263c8f96cc374f9",
+        "reasons": [],
+        "run": null,
+        "status": "present",
+        "step_sha256": "928cec2cba06551c99e82ec2159f250646a79ebb4f1c94812d5c9d0d057a766b",
+        "verdict": "failed"
+      }
+    }
+  },
+  "kernel_main": "1da2197afce7bd576a0d2d101d6baf1ae2649524",
+  "kernel_worker_commit": "6a68e99c67b99375f2a49a794f5d44464c6307e3",
+  "mirum_main": "b08fd9ea8a7f6a586766c2521f7deb83ce391b44",
+  "mirum_test_commit": "ce617b86742de9351470ac35d277e0038468c64b",
+  "platform": "Debian 13, Linux x86-64",
+  "product_lock_sha256": "9ffe8a24069acd5776f4186a8393162a53819de7322f533b016939b6aedf7eed"
+}
