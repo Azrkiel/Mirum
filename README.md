@@ -20,6 +20,8 @@ backend process and one active checked job, with six jobs per client per hour,
 a 420-second deadline and six-hour download retention. Run storage is capped at
 512 MiB total.
 
+The [checked-program integration plan](docs/plans/checked-engineering-v1/phase-3-framework-language/KERNEL-INTEGRATION.md) describes how MEL, revision review and independent geometry checks will support the first equipment-bay assembly.
+
 ## What it does
 
 - Reads a prompt and pulls out dimensions, material, and part type.

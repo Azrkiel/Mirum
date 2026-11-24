@@ -1,5 +1,7 @@
 # Mirum Architecture
 
+For checked engineering programs, Mirum compiles MEL, reviews candidate revisions and verifies delivered artifacts through a shared runtime. The equipment-bay plan describes the boundary with the geometry and model research implementation. The diagram below follows the free-form generation path. [Checked-program architecture and integration plan](docs/plans/checked-engineering-v1/phase-3-framework-language/KERNEL-INTEGRATION.md)
+
 Text-to-CAD pipeline that converts natural-language part descriptions into
 validated, exportable 3D geometry (GLB + STEP) via a hierarchical
 multi-agent system built on Gemini and CadQuery/OpenCASCADE.

@@ -14,6 +14,8 @@ Phase 1 is B01–B14. Phase 2 is the E capability expansion. This phase follows 
 
 Do not restart or relabel completed B work. Parent [STATUS.md](../STATUS.md) is authoritative for B/E progress. This phase has its own [status](STATUS.md), tasks and P-series release gates. F11 is optional research after the F01–F10 release.
 
+The [kernel integration plan](KERNEL-INTEGRATION.md) defines the proposed equipment-bay capability, the model proposal interface and the retention work for larger assemblies. The [phase status](STATUS.md) records which framework tasks have shipped.
+
 ## Accepted end result
 
 A user can write, edit or ask AI to propose a .mir program; inspect its normalized requirements and chosen backend; review the exact plan; execute it; see measured results and revision differences; and download source, IR, lock, reports and native artifacts. The existing beam produces the same bounded verdict through form and language input. A real PicoGK program produces explicitly geometry-only evidence. CLI, Python, HTTP and MCP use the same runtime. Rejected/unsupported/unavailable outcomes remain distinct.
