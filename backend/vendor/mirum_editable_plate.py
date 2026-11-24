@@ -114,10 +114,11 @@ def build_step(plate: Plate) -> bytes:
         destination = Path(directory) / "plate.step"
         cq.exporters.export(solid, str(destination))
         data = destination.read_bytes()
-    # OCCT writes the wall clock into the Part 21 header. Fix only that metadata.
+    # Replace the wall clock and OCCT exchange counter with stable STEP metadata.
     data, count = re.subn(rb"(FILE_NAME\('[^']*',')[^']+(')", rb"\g<1>2000-01-01T00:00:00\2", data, count=1)
-    if count != 1:
-        raise PlateError("step_export_failed", "step", "the STEP file name header could not be normalized")
+    data, labels = re.subn(rb"'Open CASCADE STEP translator [0-9.]+ [0-9]+'", b"'plate'", data)
+    if count != 1 or labels != 2:
+        raise PlateError("step_export_failed", "step", "STEP metadata could not be normalized")
     return data
 
 

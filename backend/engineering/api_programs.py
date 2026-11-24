@@ -54,6 +54,8 @@ def create_program_runtime(engineering):
         from .program.facade import ProgramInterface, ProgramQuota
         from .program.transactions import RevisionService
         from .program.adapters import adapter_for
+        from .editable_plate import CAPABILITY_ID as PLATE_ID
+        from .editable_plate_adapter import EditablePlateAdapter
         from .equipment_bay_adapter import EquipmentBayAdapter
         from .equipment_bay import CAPABILITY_ID as BAY_ID
         def registered(backend, **options):
@@ -65,6 +67,7 @@ def create_program_runtime(engineering):
         service = RevisionService(engineering.store, engineering.jobs, engineering.publisher,
                                   engineering.briefs, adapter_factory=registered)
         engineering.jobs.generators.setdefault(BAY_ID, EquipmentBayAdapter())
+        engineering.jobs.generators.setdefault(PLATE_ID, EditablePlateAdapter())
         return ProgramInterface(service, engineering.briefs, engineering.quota,
                                 ProgramQuota.from_env(engineering.store))
     except Exception:  # noqa: BLE001 - fixed line only: never the exception text

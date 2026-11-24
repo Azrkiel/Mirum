@@ -237,7 +237,12 @@ class RevisionService:
             refusal = rs._capacity(db, program_id, staged=True, payload_bytes=0)
             if refusal is not None:
                 return refusal
+            parent = self._load(db, expected_parent, client)[0] if expected_parent else None
         compiled = await asyncio.to_thread(compile_source, source, source_id=source_id)
+        if kind == 'edit' and parent is not None and 'editable_plate' in (parent.lock.capability_id,
+                                                                          compiled.ir.capability.id):
+            if parent.fixed_requirements_sha256 != compiled.brief_content.fixed_requirements_sha256:
+                return RevisionRefusal(('requirements_changed',))
         text = source if isinstance(source, str) else bytes(source).decode('utf-8')
         adapter = adapter_for_program(self.adapter_factory, compiled)
         plan = plan_program(compiled, mode='native', adapter_factory=lambda _backend, **kwargs: adapter)
@@ -611,7 +616,7 @@ class RevisionService:
         with self.store.transaction() as db:
             rev = self._load(db, revision_id, client)[0]
         if rev.state == 'rejected' and rev.job_id is not None:
-            formats = ('generator-report', 'report', 'attempts') if rev.lock.capability_id == 'equipment_bay' else (
+            formats = ('generator-report', 'report', 'attempts') if rev.lock.capability_id in ('equipment_bay', 'editable_plate') else (
                 'report', 'attempts')
             if fmt in formats:
                 return self.publisher.open_lease(rev.job_id, fmt)

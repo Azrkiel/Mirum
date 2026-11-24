@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from engineering.contracts import BriefContent, CandidateSpec, GeneratorBriefContent, GeneratorCandidate
+from engineering.editable_plate import CAPABILITY_ID as PLATE_ID
 from engineering.equipment_bay import CAPABILITY_ID as BAY_ID
 from engineering.program.hashing import canonical_json
 from engineering.spec import specification_digest
@@ -158,7 +159,8 @@ def generator_candidates(content):
 
 
 def adapter_for_program(factory, compiled, *, mode='native'):
-    options = {'capability': BAY_ID} if compiled.ir.capability.id == BAY_ID else {}
+    capability = compiled.ir.capability.id
+    options = {'capability': capability} if capability in (BAY_ID, PLATE_ID) else {}
     return factory(compiled.ir.execution.backend, mode=mode, **options)
 
 
@@ -169,7 +171,7 @@ def _program_candidates(content):
 def _has_builder(compiled) -> bool:
     return (compiled.ir.capability.id == 'rectangular_cantilever'
             and isinstance(compiled.brief_content, BriefContent)) or (
-                compiled.ir.capability.id in (BAY_ID, 'regen_chamber')
+                compiled.ir.capability.id in (BAY_ID, PLATE_ID, 'regen_chamber')
                 and isinstance(compiled.brief_content, GeneratorBriefContent))
 
 

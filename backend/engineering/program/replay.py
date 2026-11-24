@@ -65,9 +65,13 @@ def _small(files, name):
 
 
 def check_plan(ir, lock, status):
-    if ir.capability.id == 'equipment_bay':
-        from .bay_bridge import check_plan_record, content_from_program
+    if ir.capability.id in ('equipment_bay', 'editable_plate'):
+        from .bay_bridge import check_plan_record
         from .planning import generator_candidates
+        if ir.capability.id == 'equipment_bay':
+            from .bay_bridge import content_from_program
+        else:
+            from .editable_plate_bridge import content_from_program
 
         candidate, = generator_candidates(content_from_program(ir))
         return check_plan_record(status['semantic_sha256'], status['lock_sha256'], candidate)
@@ -220,6 +224,14 @@ async def remeasure(data):
         if (report['outcome'] != 'pass' or _json(report) != delivery[REPORT]
                 or _json(output['bom']) != delivery[BOM]):
             raise ValueError('replayed bay differs from recorded numerical evidence')
+    elif ir.capability.id == 'editable_plate':
+        from engineering.editable_plate_adapter import REPORT, STEP, bound_report
+
+        step = delivery[STEP]
+        output = await adapter.measure_plate(step, candidate)
+        report = bound_report(output['report'], step, candidate.candidate)
+        if report['outcome'] != 'pass' or _json(report) != delivery[REPORT]:
+            raise ValueError('replayed editable plate differs from recorded numerical evidence')
     elif ir.capability.id == 'regen_chamber':
         path = 'generator-cleaned.stl'
         artifact = Artifact(ArtifactRef(name=path, format='stl', representation='mesh',

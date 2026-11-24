@@ -10,7 +10,7 @@ from vendor.mirum_editable_plate import Plate, PlateError
 from .capabilities import StrictModel
 
 CAPABILITY_ID = 'editable_plate'
-KERNEL_REVISION = '51fb2b29ed7d767b9f151d25375b59af6fb7532c'
+KERNEL_REVISION = '6a68e99c67b99375f2a49a794f5d44464c6307e3'
 FIXED_FIELDS = ('height_mm', 'thickness_mm', 'intent', 'datum_ref', 'units')
 CHECKS = ('plate_envelope', 'plate_bores', 'plate_binding')
 

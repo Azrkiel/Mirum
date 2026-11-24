@@ -268,7 +268,7 @@ def _normalize(program: Program, schema: CapabilitySchema, guard: _Deadline) -> 
             payload.setdefault('__exports', tuple(converted))
         else:
             _set(payload, path, converted)
-    if schema.fields is _BAY_FIELDS or schema.fields is _REGEN_FIELDS:
+    if schema.fields in (_BAY_FIELDS, _REGEN_FIELDS, _EDITABLE_PLATE_FIELDS):
         payload['schema_version'] = 'engineering_generator_brief_v1'
     else:
         payload['requirements']['units'] = 'mm_N_MPa'

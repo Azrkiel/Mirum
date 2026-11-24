@@ -281,6 +281,29 @@ BAY_REGISTRY = OperationRegistry(_DESCRIPTORS + _REGEN_DESCRIPTORS + _BAY_DESCRI
                                  version=BAY_REGISTRY_VERSION)
 
 
+PLATE_OPERATION_VERSION = '0.4.0'
+PLATE_REGISTRY_VERSION = 'mirum_operation_registry_v0_4'
+_PLATE_DESCRIPTORS = tuple(
+    OperationDescriptor(
+        id=f'capability.{op}', version=PLATE_OPERATION_VERSION, summary=description,
+        args=() if op != 'export' else (ArgSpec(name='format', kind='text', allowed=('step',)),),
+        preconditions=(), outputs=(OutputSpec(name=output, type=kind),),
+        representations=(representation,), backend_requirements=('occt',),
+        capability_versions=('editable_plate@1.0.0',), executable=True)
+    for op, description, output, kind, representation in (
+        ('build', 'Rebuild an editable rectangular plate from its reviewed width.', 'geometry', 'solid', 'brep'),
+        ('inspect', 'Measure the delivered plate envelope and through-bores.', 'measurements', 'measurement', 'report'),
+        ('export', 'Export the editable plate STEP.', 'file', 'file', 'file'),
+    )
+)
+PLATE_REGISTRY = OperationRegistry((*BAY_REGISTRY.descriptors(), *_PLATE_DESCRIPTORS),
+                                   version=PLATE_REGISTRY_VERSION)
+
+
+def registry_for_capability(capability_id: str) -> OperationRegistry:
+    return {'equipment_bay': BAY_REGISTRY, 'editable_plate': PLATE_REGISTRY}.get(capability_id, DEFAULT_REGISTRY)
+
+
 # ------------------------------------------------------------------ D7 records
 
 class OpStreamEntry(IRModel):
@@ -319,7 +342,7 @@ class OpStream(IRModel):
     def _known_operations(self):
         # Every construction path rejects unknown operations/versions; reserved construct.* operations
         # remain legal records here (executability is the loaders' and validate_op_stream's gate).
-        validate_op_stream(self, BAY_REGISTRY, require_executable=False)
+        validate_op_stream(self, PLATE_REGISTRY, require_executable=False)
         return self
 
 
@@ -379,6 +402,6 @@ def load_artifact_graph_json(text: str | bytes, *, require_executable: bool = Tr
     unless the caller passes `require_executable=False` to load them as records. Unknown operations
     and versions are always rejected (by the model itself)."""
     graph = _validate_record(ArtifactGraph, _parse_json_bounded(text), ARTIFACT_GRAPH_VERSION)
-    validate_op_stream(graph.op_stream, BAY_REGISTRY, require_executable=require_executable,
+    validate_op_stream(graph.op_stream, PLATE_REGISTRY, require_executable=require_executable,
                        field_prefix='op_stream')
     return graph
