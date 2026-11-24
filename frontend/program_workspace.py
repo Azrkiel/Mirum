@@ -163,6 +163,20 @@ def _needs_click(name):
     return name.endswith(_CLICK_TO_FETCH)
 
 
+def _should_fetch(state, identity, clicked):
+    """Whether this render fetches the selected artifact. Small files always; a large binary only after a
+    click, and then on the reruns a download click triggers (Streamlit 1.39 has no on_click="ignore"), until
+    another artifact is chosen. Only the identity is remembered, never bytes."""
+    if not _needs_click(identity[1]):
+        state.pop('mel_prepared', None)
+        return True
+    if clicked:
+        state['mel_prepared'] = identity
+    elif state.get('mel_prepared') != identity:
+        state.pop('mel_prepared', None)
+    return state.get('mel_prepared') == identity
+
+
 def _busy_message(error):
     if isinstance(error, WorkspaceError) and error.status == 429 and error.details.get('code') == 'admission_busy':
         return 'Exports are busy right now. Retry in a moment.'
@@ -286,8 +300,9 @@ def _results(client, revision, preview):
         identities['package.zip'] = revision['bundle']['zip_sha256']
         selected = st.selectbox('Revision artifact', files, key=f'mel_artifact_{rid}')
         if selected:
-            if _needs_click(selected) and not st.button(f'Prepare {selected} for download',
-                                                        key=f'mel_prepare_{rid}_{selected}'):
+            clicked = _needs_click(selected) and st.button(f'Prepare {selected} for download',
+                                                           key=f'mel_prepare_{rid}_{selected}')
+            if not _should_fetch(st.session_state, (rid, selected, identities[selected]), clicked):
                 st.caption('Large files are fetched only when requested.')
                 return
             value = _artifact_value(client, rid, fmt_by_file[selected], selected, identities[selected],

@@ -74,13 +74,13 @@ class FakeFace:
 
 
 class FakeLimiter:
-    _key_func = staticmethod(lambda request: 'alice')
+    _key_func = staticmethod(lambda request: request.headers.get('x-test-client', 'alice'))
 
     def limit(self, rate):
         return lambda fn: fn
 
 
-def make_app(face, monkeypatch, size='2'):
+def make_app(face, monkeypatch, size='3'):
     monkeypatch.setenv(api_programs.EXPORT_CONCURRENCY_ENV, size)
     app = FastAPI()
     app.state.programs = face
@@ -94,10 +94,10 @@ def client_for(app):
 
 def test_export_concurrency_env_parsing():
     parse = api_programs.export_concurrency
-    assert parse({}) == 2
+    assert parse({}) == 3
     assert parse({api_programs.EXPORT_CONCURRENCY_ENV: '5'}) == 5
     for bad in ('0', '-1', 'x', '17', '', '1.5'):
-        assert parse({api_programs.EXPORT_CONCURRENCY_ENV: bad}) == 2
+        assert parse({api_programs.EXPORT_CONCURRENCY_ENV: bad}) == 3
 
 
 def test_gate_is_non_blocking_and_release_is_idempotent():
@@ -129,7 +129,7 @@ def test_streamed_export_has_identical_bytes_and_headers(monkeypatch):
 def test_extra_concurrent_export_is_refused_busy_then_slot_is_reusable(monkeypatch):
     go = threading.Event()
     face = FakeFace(go=go)
-    app = make_app(face, monkeypatch, size='2')
+    app = make_app(face, monkeypatch, size='3')
 
     async def run():
         async with client_for(app) as c:
