@@ -57,6 +57,8 @@ def create_program_runtime(engineering):
         from .editable_plate import CAPABILITY_ID as PLATE_ID
         from .editable_plate_adapter import EditablePlateAdapter
         from .equipment_bay_adapter import EquipmentBayAdapter
+        from .thermal_bar import CAPABILITY_ID as THERMAL_ID
+        from .thermal_bar_adapter import ThermalBarAdapter
         from .equipment_bay import CAPABILITY_ID as BAY_ID
         def registered(backend, **options):
             if backend == 'picogk':
@@ -68,6 +70,7 @@ def create_program_runtime(engineering):
                                   engineering.briefs, adapter_factory=registered)
         engineering.jobs.generators.setdefault(BAY_ID, EquipmentBayAdapter())
         engineering.jobs.generators.setdefault(PLATE_ID, EditablePlateAdapter())
+        engineering.jobs.generators.setdefault(THERMAL_ID, ThermalBarAdapter())
         return ProgramInterface(service, engineering.briefs, engineering.quota,
                                 ProgramQuota.from_env(engineering.store))
     except Exception:  # noqa: BLE001 - fixed line only: never the exception text
