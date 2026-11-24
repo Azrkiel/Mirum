@@ -60,4 +60,3 @@ python -m pytest -q -ra \
 ```
 
 The M1 tests ran with empty or unset provider keys. The application uses a local fixture access token for Program API requests. The tested path performs deterministic local CAD work. STEP and report hashes can be compared across replays with the recorded toolchain. Revision IDs, receipts and archive digests identify the individual run.
-

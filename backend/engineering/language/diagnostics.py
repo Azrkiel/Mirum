@@ -135,6 +135,8 @@ HINTS = {
     'MEL-S017': 'Report this compiler defect; the reviewed round trip did not reproduce the validated brief.',
     'MEL-S018': 'Shorten or simplify the source so it compiles within 2 seconds.',
     'MEL-S019': 'Check the field values; the program record built from them was invalid.',
+    'MEL-S020': 'Use an authored datum in the plate program.',
+    'MEL-S021': 'Use dimensions that keep all four bores separate and inside the plate.',
 }
 
 _SNIPPET = 64
