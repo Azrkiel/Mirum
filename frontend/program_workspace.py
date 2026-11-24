@@ -160,21 +160,27 @@ def _replace_source(source, *, guard=None):
 
 
 def _proposal(client, typed, head):
-    prompt = st.text_area('Describe a beam revision', max_chars=2000, key='mel_ai_prompt')
-    if st.button('Request AI draft', disabled=not head or not prompt.strip()):
-        try:
-            prepared = typed.request('POST', '/drafts', {'mode': 'ai', 'capability': _BEAM,
-                                                        'input': {}, 'prompt': prompt})
-            draft = prepared['draft']['content']
-            if prepared['issues'] or draft is None:
-                st.info('The proposal needs clarification before it can become MEL.')
-                st.json(prepared['issues'])
-                return
-            source = _source_from_beam(draft)
-            client.request('POST', '/mel/plan', source=source.encode('utf-8'))
-            _replace_source(source, guard=head['fixed_requirements_sha256'])
-        except (WorkspaceError, APIError) as error:
-            _show_error(error)
+    with st.form('mel_ai_proposal'):
+        prompt = st.text_area('Describe a beam revision', max_chars=2000)
+        submitted = st.form_submit_button('Request AI draft')
+    if not submitted:
+        return
+    if not prompt.strip():
+        st.info('Describe the beam revision before requesting a draft.')
+        return
+    try:
+        prepared = typed.request('POST', '/drafts', {'mode': 'ai', 'capability': _BEAM,
+                                                    'input': {}, 'prompt': prompt})
+        draft = prepared['draft']['content']
+        if prepared['issues'] or draft is None:
+            st.info('The proposal needs clarification before it can become MEL.')
+            st.json(prepared['issues'])
+            return
+        source = _source_from_beam(draft)
+        client.request('POST', '/mel/plan', source=source.encode('utf-8'))
+        _replace_source(source, guard=head['fixed_requirements_sha256'])
+    except (WorkspaceError, APIError) as error:
+        _show_error(error)
 
 
 def _review(client, revision, current_source):
@@ -320,8 +326,12 @@ def render_program(backend, headers, typed, preview=None):
     source = st.text_area('MEL source', value=_EXAMPLE, height=370, max_chars=65536, key='mel_source').encode('utf-8')
     try:
         if st.button('Validate and preview plan'):
-            st.session_state['mel_plan'] = (sha256(source).hexdigest(),
-                                           client.request('POST', '/mel/plan', source=source))
+            try:
+                st.session_state['mel_plan'] = (sha256(source).hexdigest(),
+                                               client.request('POST', '/mel/plan', source=source))
+            except WorkspaceError as error:
+                st.session_state.pop('mel_plan', None)
+                _show_error(error)
         plan = st.session_state.get('mel_plan')
         if plan and plan[0] == sha256(source).hexdigest():
             st.json(plan[1], expanded=False)
@@ -360,13 +370,17 @@ def render_program(backend, headers, typed, preview=None):
         guard = st.session_state.get('mel_proposal_guard')
         if st.button('Stage source', disabled=stale):
             source_id = 'typed-ai-proposal.mir' if guard else None
-            staged = client.request('POST', program_path + '/revisions', source=source, source_id=source_id,
-                                    parent=parent, guard=guard)
-            rid = staged['revision']['revision_id']
-            st.session_state.setdefault('mel_review_fields', {})[rid] = staged['review_fields']
-            st.session_state['mel_selected_revision'] = rid
-            st.session_state['mel_revision_epoch'] = st.session_state.get('mel_revision_epoch', 0) + 1
-            st.rerun()
+            try:
+                staged = client.request('POST', program_path + '/revisions', source=source, source_id=source_id,
+                                        parent=parent, guard=guard)
+            except WorkspaceError as error:
+                _show_error(error)
+            else:
+                rid = staged['revision']['revision_id']
+                st.session_state.setdefault('mel_review_fields', {})[rid] = staged['review_fields']
+                st.session_state['mel_selected_revision'] = rid
+                st.session_state['mel_revision_epoch'] = st.session_state.get('mel_revision_epoch', 0) + 1
+                st.rerun()
         revisions = {row['revision_id']: row for row in history['revisions']}
         if not revisions:
             return

@@ -228,6 +228,13 @@ def main():
             expect(page.get_by_role('button', name='Stage source')).to_be_enabled()
             # Two revisions here share the same fixed requirements.
             source = textarea.input_value()
+            textarea.fill('invalid source')
+            textarea.press('Control+Enter')
+            action(page, 'Stage source')
+            expect(page.get_by_text('MEL-P002', exact=True)).to_be_visible()
+            expect(page.get_by_text('Accepted head', exact=True)).to_be_visible()
+            action(page, 'Load selected revision source')
+            expect(textarea).to_have_value(source)
             textarea.fill(source.replace('"nominal"', '"supplier-shifted"'))
             textarea.press('Tab')
             action(page, 'Stage source')
