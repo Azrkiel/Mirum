@@ -689,7 +689,7 @@ ERROR_TABLE: dict[str, ErrorEntry] = {
 }
 _GENERIC_MEL = _e('invalid_source', 'semantic', 'Invalid program.', 'Fix the source.', action='fix_source')
 _PLAN_UNAVAILABLE = frozenset({'mock_backend', 'lock_mismatch', 'lock_version_unsupported'})
-_REVISION_REFUSAL_CODES = ('stale_parent', 'not_restorable', 'already_current', 'history_expired',
+_REVISION_REFUSAL_CODES = ('stale_parent', 'requirements_changed', 'not_restorable', 'already_current', 'history_expired',
                            'artifacts_expired', 'artifacts_missing', 'artifacts_altered', 'record_altered',
                            'review_expired', 'capacity')
 _MEL_UNSUPPORTED = frozenset({'MEL-S011', 'MEL-S012', 'MEL-S013'})

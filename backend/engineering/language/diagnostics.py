@@ -69,6 +69,8 @@ SEMANTIC = {
     'MEL-S017': 'Reviewed round trip mismatch',
     'MEL-S018': 'Compile deadline exceeded',
     'MEL-S019': 'Invalid program record',
+    'MEL-S020': 'Dangling authored reference',
+    'MEL-S021': 'Invalid plate dimension',
 }
 # MEL-S code -> F02 IR code (None: no IR equivalent).
 MEL_S_IR_CODES = MappingProxyType({
@@ -76,7 +78,7 @@ MEL_S_IR_CODES = MappingProxyType({
     'MEL-S005': 'IR006', 'MEL-S006': 'IR006', 'MEL-S007': 'IR007', 'MEL-S008': 'IR010',
     'MEL-S009': 'IR010', 'MEL-S010': 'IR010', 'MEL-S011': 'IR010', 'MEL-S012': 'IR010',
     'MEL-S013': 'IR010', 'MEL-S014': 'IR010', 'MEL-S015': 'IR010', 'MEL-S016': None,
-    'MEL-S017': 'IR010', 'MEL-S018': None, 'MEL-S019': 'IR010',
+    'MEL-S017': 'IR010', 'MEL-S018': None, 'MEL-S019': 'IR010', 'MEL-S020': 'IR004', 'MEL-S021': 'IR010',
 })
 
 HINTS = {
@@ -133,6 +135,8 @@ HINTS = {
     'MEL-S017': 'Report this compiler defect; the reviewed round trip did not reproduce the validated brief.',
     'MEL-S018': 'Shorten or simplify the source so it compiles within 2 seconds.',
     'MEL-S019': 'Check the field values; the program record built from them was invalid.',
+    'MEL-S020': 'Use an authored datum in the plate program.',
+    'MEL-S021': 'Use dimensions that keep all four bores separate and inside the plate.',
 }
 
 _SNIPPET = 64

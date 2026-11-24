@@ -198,6 +198,8 @@ Frozen in F05 (see [F05 handoff](handoffs/F05.md)): stages 1-4 are `engineering.
 | MEL-S017 | Reviewed round trip mismatch (fail closed) | IR010 |
 | MEL-S018 | Compile deadline exceeded (resource) | none |
 | MEL-S019 | Invalid program record from the bridge | IR010 |
+| MEL-S020 | Dangling authored reference | IR004 |
+| MEL-S021 | Invalid editable plate dimension | IR010 |
 
 AST-to-IR lowering is deterministic for the same supported versions. An execution lock changes when backend/native/solver/numerical policies change. A source-only formatting edit can retain semantic approval only after recomputing and proving semantic equality; provenance still records the changed source.
 

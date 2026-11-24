@@ -1,0 +1,14 @@
+language mirum "0.1";
+design editable_plate {
+  capability = "editable_plate";
+  capability_version = "1.0.0";
+  backend = "occt";
+  numerical_policy = "editable_plate_numerical_v1";
+  resource_policy = "engineering_resources_v1";
+  width = 80 mm;
+  height = 50 mm;
+  thickness = 6 mm;
+  intent = "edge-driven";
+  datum_ref = "plate.datum";
+  exports = ["step"];
+}

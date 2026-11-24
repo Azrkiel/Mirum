@@ -89,7 +89,19 @@ _REGEN_FIELDS = {
     'preset': ('string', ('specification', 'preset'), None),
 }
 
+_EDITABLE_PLATE_FIELDS = {
+    **{name: FIELDS[name] for name in ('capability', 'capability_version', 'backend',
+                                      'numerical_policy', 'resource_policy', 'exports')},
+    'width': ('quantity', ('specification', 'width_mm'), 'length'),
+    'height': ('quantity', ('specification', 'height_mm'), 'length'),
+    'thickness': ('quantity', ('specification', 'thickness_mm'), 'length'),
+    'intent': ('string', ('specification', 'intent'), None),
+    'datum_ref': ('string', ('specification', 'datum_ref'), None),
+}
+
 CAPABILITY_SCHEMAS = {
+    ('editable_plate', '1.0.0'): CapabilitySchema(
+        fields=_EDITABLE_PLATE_FIELDS, backends=('occt',), exports=('step',), max_candidates=1),
     ('regen_chamber', '1.0.0'): CapabilitySchema(
         fields=_REGEN_FIELDS, backends=('picogk',), exports=('stl',), max_candidates=1),
     ('equipment_bay', '1.0.0'): CapabilitySchema(
@@ -256,7 +268,7 @@ def _normalize(program: Program, schema: CapabilitySchema, guard: _Deadline) -> 
             payload.setdefault('__exports', tuple(converted))
         else:
             _set(payload, path, converted)
-    if schema.fields is _BAY_FIELDS or schema.fields is _REGEN_FIELDS:
+    if schema.fields in (_BAY_FIELDS, _REGEN_FIELDS, _EDITABLE_PLATE_FIELDS):
         payload['schema_version'] = 'engineering_generator_brief_v1'
     else:
         payload['requirements']['units'] = 'mm_N_MPa'
@@ -314,28 +326,35 @@ def _compile_program(program: Program, data: bytes, source_id: str | None, guard
                                semantic_sha256=semantic_sha256(ir), brief_sha256=content.brief_sha256,
                                spans=spans)
 
-    if schema.fields is _BAY_FIELDS:
-        from engineering.program.bay_bridge import capability_reference, content_for, program_for, content_from_program
-        if payload['capability'] != capability_reference().model_dump():
-            raise _error('MEL-S015', 'equipment-bay capability or policy version mismatch',
+    if schema.fields is _BAY_FIELDS or schema.fields is _EDITABLE_PLATE_FIELDS:
+        if schema.fields is _BAY_FIELDS:
+            from engineering.program import bay_bridge as bridge
+            label = 'equipment-bay'
+        else:
+            from engineering.program import editable_plate_bridge as bridge
+            label = 'editable plate'
+        if payload['capability'] != bridge.capability_reference().model_dump():
+            raise _error('MEL-S015', f'{label} capability or policy version mismatch',
                          program.design_span, 'capability')
         try:
-            content = content_for(payload['specification'])
+            content = bridge.content_for(payload['specification'])
         except ValidationError as exc:
             issue = exc.errors(include_input=False, include_url=False)[0]
             lookup = {path[-1]: name for name, (_, path, _) in schema.fields.items() if path}
-            name = lookup.get(issue['loc'][0]) if issue['loc'] else 'preferred_angle'
+            field = issue.get('ctx', {}).get('field')
+            name = lookup.get(field or (issue['loc'][0] if issue['loc'] else 'preferred_angle'))
+            code = {'dangling_reference': 'MEL-S020', 'invalid_dimension': 'MEL-S021'}.get(issue['type'], 'MEL-S015')
             a = program.get(name) if name else None
-            raise _error('MEL-S015', issue['msg'][:200], a.span if a else program.design_span,
+            raise _error(code, issue['msg'][:200], a.span if a else program.design_span,
                          name or 'program') from None
         source_hash = source_sha256(data)
         provenance = ProgramProvenance(kind='language', source_sha256=source_hash, source_id=source_id)
         bindings = {path[-1]: SourceSpan(**_span_dict(program.get(name).span, source_id))
                     for name, (_, path, _) in schema.fields.items() if path[:1] == ('specification',)}
-        ir = program_for(content, program.design, provenance, bindings,
+        ir = bridge.program_for(content, program.design, provenance, bindings,
                          SourceSpan(**_span_dict(program.block_span, source_id)))
-        if content_from_program(ir) != content:
-            raise _error('MEL-S017', 'equipment-bay brief did not round trip', program.design_span, 'program')
+        if bridge.content_from_program(ir) != content:
+            raise _error('MEL-S017', f'{label} brief did not round trip', program.design_span, 'program')
         guard.check(program.design_span, 'design')
         spans = tuple((a.name, a.span) for a in program.assignments) + (('design', program.block_span),)
         return CompiledProgram(ir=ir, brief_content=content, source_sha256=source_hash,

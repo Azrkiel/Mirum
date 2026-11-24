@@ -17,7 +17,8 @@ from engineering.contracts import CandidateSpec, GeneratorCandidate
 from .errors import IRModel, ProgramError, SourceSpan, Str240
 from .ir import MAX_LIST, Backend, ExportFormat, Name64, Name128, SemanticId, _prepare_input
 from .registry import (
-    BAY_REGISTRY, DEFAULT_REGISTRY, ArtifactGraph, OpStream, OpStreamEntry, Representation, validate_op_stream,
+    PLATE_OPERATION_VERSION, ArtifactGraph, OpStream, OpStreamEntry, Representation,
+    registry_for_capability, validate_op_stream,
 )
 
 __all__ = [
@@ -402,7 +403,8 @@ def make_description(backend: str, *, mode: Mode, adapter_version: str,
 
 # ------------------------------------------------------------------ plan helpers
 
-_OP_VERSION = {'rectangular_cantilever': '0.1.0', 'regen_chamber': '0.2.0', 'equipment_bay': '0.3.0'}
+_OP_VERSION = {'rectangular_cantilever': '0.1.0', 'regen_chamber': '0.2.0', 'equipment_bay': '0.3.0',
+               'editable_plate': PLATE_OPERATION_VERSION}
 
 
 def canonical_entries(capability_id: str, exports: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
@@ -434,7 +436,7 @@ def check_plan(description: BackendDescription, plan: BuildPlan) -> SupportDecis
 
     if plan.backend != description.backend:
         return no('backend_mismatch')
-    registry = BAY_REGISTRY if plan.capability_id == 'equipment_bay' else DEFAULT_REGISTRY
+    registry = registry_for_capability(plan.capability_id)
     try:
         validate_op_stream(plan.op_stream, registry, require_executable=True,
                            field_prefix='op_stream')
@@ -458,7 +460,7 @@ def check_plan(description: BackendDescription, plan: BuildPlan) -> SupportDecis
         return no('plan_invalid')
     c = plan.candidate
     try:
-        if plan.capability_id in ('regen_chamber', 'equipment_bay'):
+        if plan.capability_id in ('regen_chamber', 'equipment_bay', 'editable_plate'):
             ok = (isinstance(c, GeneratorCandidate)
                   and (c.content.capability.id, c.content.capability.version)
                   == (plan.capability_id, plan.capability_version))
