@@ -53,6 +53,9 @@ def create_program_runtime(engineering):
     try:
         from .program.facade import ProgramInterface, ProgramQuota
         from .program.transactions import RevisionService
+        from .equipment_bay_adapter import EquipmentBayAdapter
+        from .equipment_bay import CAPABILITY_ID as BAY_ID
+        engineering.jobs.generators.setdefault(BAY_ID, EquipmentBayAdapter())
         service = RevisionService(engineering.store, engineering.jobs, engineering.publisher,
                                   engineering.briefs)
         return ProgramInterface(service, engineering.briefs, engineering.quota,

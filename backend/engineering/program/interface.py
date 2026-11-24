@@ -84,7 +84,8 @@ EXPORT_SOURCE_FORMATS = ('program-source', 'program-ir', 'execution-lock')   # D
 BUNDLE_FORMATS = (
     'zip', 'brief', 'spec', 'source', 'step', 'glb', 'attempts', 'report', 'markdown', 'manifest',
     'generator-spec', 'generator-report', 'generator-body-step', 'generator-preview-glb',
-    'generator-cleaned-stl', 'generator-spec-canonical', 'generator-bundle-zip', 'generator-result')
+    'generator-cleaned-stl', 'generator-spec-canonical', 'generator-bundle-zip', 'generator-result',
+    'generator-bom')
 EXPORT_FORMATS = EXPORT_SOURCE_FORMATS + BUNDLE_FORMATS
 
 

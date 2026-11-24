@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "equipment-bay",
+  "units": "mm",
+  "bay_size": [560, 260],
+  "gap": 10,
+  "margin": 20,
+  "rotation_deg": 90,
+  "mounting": {
+    "diameter": 4,
+    "alignment_tolerance": 0.05,
+    "lookup_radius": 5,
+    "module_holes": {
+      "h1": [-38, -28],
+      "h2": [-38, 28],
+      "h3": [38, -28],
+      "h4": [38, 28]
+    }
+  },
+  "tray": {
+    "occurrence_id": "tray",
+    "definition_id": "mounting-tray",
+    "revision": "nominal",
+    "thickness": 4
+  },
+  "module": {
+    "definition_id": "equipment-module",
+    "revision": "nominal",
+    "size": [100, 80, 35]
+  },
+  "modules": [
+    {"id": "module-01", "slot": [0, 0]},
+    {"id": "module-02", "slot": [0, 1]},
+    {"id": "module-03", "slot": [1, 0]},
+    {"id": "module-04", "slot": [1, 1]},
+    {"id": "module-05", "slot": [2, 0]},
+    {"id": "module-06", "slot": [2, 1]},
+    {"id": "module-07", "slot": [3, 0]},
+    {"id": "module-08", "slot": [3, 1]},
+    {"id": "module-09", "slot": [4, 0]},
+    {"id": "module-10", "slot": [4, 1]}
+  ]
+}

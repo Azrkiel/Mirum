@@ -72,9 +72,20 @@ class CapabilitySchema:
     unique_candidates: bool = True
 
 
-# Exact capability@version -> schema. regen_chamber, glider_cem, rectangular_plate and co2_dragster
-# are unsupported in v0.1: the reviewed bridge carries only the beam.
+# Exact capability and version select the reviewed bridge.
+_BAY_FIELDS = {
+    **{name: FIELDS[name] for name in ('capability', 'capability_version', 'backend',
+                                      'numerical_policy', 'resource_policy', 'exports')},
+    'length': ('quantity', ('specification', 'length_mm'), 'length'),
+    'width': ('quantity', ('specification', 'width_mm'), 'length'),
+    'module_count': ('integer', ('specification', 'module_count'), None),
+    'preferred_angle': ('quantity', ('specification', 'preferred_angle_rad'), 'angle'),
+    'supplier': ('string', ('specification', 'supplier'), None),
+}
+
 CAPABILITY_SCHEMAS = {
+    ('equipment_bay', '1.0.0'): CapabilitySchema(
+        fields=_BAY_FIELDS, backends=('occt',), exports=('step',), max_candidates=1),
     (CAPABILITY_ID, CAPABILITY_VERSION): CapabilitySchema(
         fields=FIELDS, backends=('occt',), exports=('step', 'glb'), max_candidates=4),
 }
@@ -167,7 +178,7 @@ def _resolve_schema(program: Program, guard: _Deadline) -> CapabilitySchema:
         known = {c for c, _ in CAPABILITY_SCHEMAS}
         name = 'capability_version' if capability in known else 'capability'
         raise _error('MEL-S011', f'unsupported capability {snippet(capability)!r} version {snippet(version)!r}; '
-                     f'v0.1 supports {CAPABILITY_ID} {CAPABILITY_VERSION}', program.get(name).span, name)
+                     'see the MEL capability table', program.get(name).span, name)
     return schema
 
 
@@ -176,7 +187,7 @@ def _normalize(program: Program, schema: CapabilitySchema, guard: _Deadline) -> 
     for a in program.assignments:
         guard.check(a.span, a.name)
         if a.name not in fields:
-            raise _error('MEL-S002', f'Unknown field {snippet(a.name)!r} for {CAPABILITY_ID} {CAPABILITY_VERSION}',
+            raise _error('MEL-S002', f'Unknown field {snippet(a.name)!r} for this capability',
                          a.name_span, a.name)
     missing = [name for name in fields if program.get(name) is None]
     if missing:
@@ -200,8 +211,12 @@ def _normalize(program: Program, schema: CapabilitySchema, guard: _Deadline) -> 
                 raise _error('MEL-S001', 'material_source_kind must be "illustrative", "user_supplied" or '
                              '"documented"', value.span, name)
             if name == 'backend' and converted not in schema.backends:
-                raise _error('MEL-S012', f'backend {snippet(converted)!r} is not supported for {CAPABILITY_ID}',
+                raise _error('MEL-S012', f'backend {snippet(converted)!r} is not supported for this capability',
                              value.span, name)
+        elif kind == 'integer':
+            if not isinstance(value, Quantity) or value.unit is not None or not float(value.number).is_integer():
+                raise _error('MEL-S008', f'{name} must be a whole number', a.span, name)
+            converted = int(float(value.number))
         elif kind == 'quantity':
             converted = _quantity(name, value, dimension, a.span)
         elif kind == 'quantity_list':
@@ -230,7 +245,10 @@ def _normalize(program: Program, schema: CapabilitySchema, guard: _Deadline) -> 
             payload.setdefault('__exports', tuple(converted))
         else:
             _set(payload, path, converted)
-    payload['requirements']['units'] = 'mm_N_MPa'
+    if schema.fields is _BAY_FIELDS:
+        payload['schema_version'] = 'engineering_generator_brief_v1'
+    else:
+        payload['requirements']['units'] = 'mm_N_MPa'
     return payload
 
 
@@ -256,7 +274,7 @@ def _compile_program(program: Program, data: bytes, source_id: str | None, guard
     from engineering.program.beam_bridge import brief_content_from_program, program_from_brief_content
     from engineering.program.errors import ProgramError
     from engineering.program.hashing import semantic_sha256, source_sha256
-    from engineering.program.ir import ProgramProvenance, program_from_dict
+    from engineering.program.ir import ProgramProvenance, SourceSpan, program_from_dict
     from pydantic import ValidationError
 
     guard.check(program.design_span, 'design')
@@ -265,6 +283,34 @@ def _compile_program(program: Program, data: bytes, source_id: str | None, guard
     payload = _normalize(program, schema, guard)
     backend = payload.pop('__backend')
     exports = payload.pop('__exports')
+
+    if schema.fields is _BAY_FIELDS:
+        from engineering.program.bay_bridge import capability_reference, content_for, program_for, content_from_program
+        if payload['capability'] != capability_reference().model_dump():
+            raise _error('MEL-S015', 'equipment-bay capability or policy version mismatch',
+                         program.design_span, 'capability')
+        try:
+            content = content_for(payload['specification'])
+        except ValidationError as exc:
+            issue = exc.errors(include_input=False, include_url=False)[0]
+            lookup = {path[-1]: name for name, (_, path, _) in schema.fields.items() if path}
+            name = lookup.get(issue['loc'][0]) if issue['loc'] else 'preferred_angle'
+            a = program.get(name) if name else None
+            raise _error('MEL-S015', issue['msg'][:200], a.span if a else program.design_span,
+                         name or 'program') from None
+        source_hash = source_sha256(data)
+        provenance = ProgramProvenance(kind='language', source_sha256=source_hash, source_id=source_id)
+        bindings = {path[-1]: SourceSpan(**_span_dict(program.get(name).span, source_id))
+                    for name, (_, path, _) in schema.fields.items() if path[:1] == ('specification',)}
+        ir = program_for(content, program.design, provenance, bindings,
+                         SourceSpan(**_span_dict(program.block_span, source_id)))
+        if content_from_program(ir) != content:
+            raise _error('MEL-S017', 'equipment-bay brief did not round trip', program.design_span, 'program')
+        guard.check(program.design_span, 'design')
+        spans = tuple((a.name, a.span) for a in program.assignments) + (('design', program.block_span),)
+        return CompiledProgram(ir=ir, brief_content=content, source_sha256=source_hash,
+                               semantic_sha256=semantic_sha256(ir), brief_sha256=content.brief_sha256,
+                               spans=spans)
 
     content, issues = BriefService(MemoryBriefRepository()).validate(payload)
     guard.check(program.design_span, 'design')

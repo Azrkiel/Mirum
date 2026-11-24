@@ -357,13 +357,21 @@ class ProgramInterface:
             self._requirements_guard(head, guard)
 
         async def work():
+            if guard is not None:
+                from engineering.language.semantic import compile_source
+                compiled = await asyncio.to_thread(compile_source, source, source_id=source_id or DEFAULT_SOURCE_ID)
+                if compiled.brief_content.fixed_requirements_sha256 != guard:
+                    raise _fail(api.error('requirements_changed'))
             return await self.service.stage(program_id, source, source_id=source_id or DEFAULT_SOURCE_ID,
                                             expected_parent=expected_parent, client=client)
 
         revision = await self._staging(work, len(source), client)
         view = self._view(revision.revision_id, client)
-        from engineering.contracts import REVIEW_FIELDS
-        return api.StageResponse(revision=revision_status(view), review_fields=tuple(REVIEW_FIELDS))
+        from engineering.contracts import GeneratorBriefContent, REVIEW_FIELDS
+        content = self.briefs.repository.read(revision.draft_id).draft.content if (
+            revision.lock.capability_id == 'equipment_bay') else None
+        fields = content.review_fields if isinstance(content, GeneratorBriefContent) else REVIEW_FIELDS
+        return api.StageResponse(revision=revision_status(view), review_fields=tuple(fields))
 
     @_guarded
     async def stage(self, source: bytes, request: api.StageRequest, *, client):

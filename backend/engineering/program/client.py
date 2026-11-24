@@ -53,6 +53,7 @@ EXPORT_FILENAMES = {
     'step': 'model.step', 'glb': 'preview.glb', 'attempts': 'attempts.json', 'report': 'report.json',
     'markdown': 'report.md', 'manifest': 'manifest.json',
     'generator-spec': 'generator-spec.json', 'generator-report': 'generator-report.json',
+    'generator-bom': 'generator-bom.json',
     'generator-body-step': 'generator-body.step', 'generator-preview-glb': 'generator-preview.glb',
     'generator-cleaned-stl': 'generator-cleaned.stl', 'generator-spec-canonical': 'generator-spec.canonical.json',
     'generator-bundle-zip': 'generator-bundle.zip', 'generator-result': 'generator-result.json',

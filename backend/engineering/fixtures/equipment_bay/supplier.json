@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "occurrence_id": "module-01",
+  "definition_id": "equipment-module",
+  "from_revision": "nominal",
+  "to_revision": "supplier-shifted",
+  "hole_shift_mm": [2, 0]
+}

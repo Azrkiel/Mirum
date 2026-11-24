@@ -138,8 +138,11 @@ class CheckLimit(IRModel):
     def _sources(self):
         kind, _, ident = self.source.partition(':')
         if kind == 'reviewed':
-            if ident not in REVIEWED_IDS:
+            if ident not in REVIEWED_IDS and ident not in ('bay.length', 'bay.width', 'bay.module_count'):
                 _bad(f'limit source {self.source!r} is not a reviewed numeric requirement')
+        elif kind == 'policy' and ident in ('bay_alignment', 'bay_bindings'):
+            if self.scale_refs or self.value != {'bay_alignment': 0.05, 'bay_bindings': 0.0}[ident]:
+                _bad('an equipment-bay policy limit must equal its registered value')
         elif kind == 'policy' and ident in _DECLARED_REFS:
             if self.scale_refs or self.value != _DECLARED_REFS[ident]:
                 _bad('a regen or glider policy limit must equal its declared value and is never scaled')

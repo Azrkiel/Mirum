@@ -161,10 +161,16 @@ class OcctAdapter:
     backend = 'occt'
     mode = 'native'
 
-    def __init__(self, *, python: str | None = None):
+    def __init__(self, *, python: str | None = None, capability: str = 'rectangular_cantilever'):
+        if capability not in ('rectangular_cantilever', 'equipment_bay'):
+            raise ValueError('unsupported OCCT capability')
         self._python = python or sys.executable
+        self._capability = capability
 
     def describe(self) -> BackendDescription:
+        if self._capability == 'equipment_bay':
+            from engineering.equipment_bay_adapter import describe
+            return describe()
         return make_description('occt', mode='native', adapter_version=ADAPTER_VERSION,
                                 tolerances=_tolerances())
 
@@ -220,7 +226,7 @@ class OcctAdapter:
         return check_plan(self.describe(), plan)
 
     async def build(self, plan: BuildPlan, context: ExecutionContext) -> Built:
-        common = dict(backend='occt', adapter_version=ADAPTER_VERSION, mode='native',
+        common = dict(backend='occt', adapter_version=self.describe().adapter_version, mode='native',
                       capability_id=plan.capability_id, capability_version=plan.capability_version)
 
         def refuse(outcome: str, reasons: tuple, code: str | None = None) -> Built:
@@ -232,6 +238,16 @@ class OcctAdapter:
         probe = await self.probe()
         if not probe.available:
             return refuse('unavailable', probe.reasons)
+
+        if self._capability == 'equipment_bay':
+            from engineering.equipment_bay_adapter import build_result, worker
+            from engineering.service import EngineeringUnavailable
+            try:
+                output = await worker(self._python, 'build', plan.candidate.content.specification,
+                                      seconds=context.deadline_s)
+                return build_result(plan, output, context)
+            except (KeyError, OSError, ValueError, EngineeringUnavailable):
+                return refuse('unavailable', ('native_failed',))
 
         # Lazy: these modules sit next to native code and are only needed once a build starts.
         from engineering.cantilever import CantileverAdapter
@@ -299,6 +315,17 @@ class OcctAdapter:
         if artifact.ref.format != 'step' or not self.supports(plan).supported:
             return refuse('unsupported', 'operation_not_supported')
 
+        if self._capability == 'equipment_bay':
+            from engineering.service import EngineeringUnavailable
+            try:
+                output = await self.measure_bay(artifact.data, plan)
+                consistent = output['report']['outcome'] == 'pass'
+            except (KeyError, OSError, ValueError, EngineeringUnavailable):
+                return refuse('unavailable', 'native_failed')
+            if not consistent:
+                return refuse('precision_failure', 'measurement_out_of_tolerance')
+            return InspectResult(backend='occt', mode='native', outcome='consistent', artifact_sha256=sha)
+
         from compiler import _WORK_DIR
         from process_runner import ProcessRunner
         from engineering.spec import canonical_spec
@@ -339,6 +366,13 @@ class OcctAdapter:
         # No conversion, ever.
         return ExportResult(backend='occt', mode='native', outcome='unsupported',
                             reasons=('export_not_supported',), format=fmt)
+
+    async def measure_bay(self, step: bytes, plan: BuildPlan) -> dict:
+        from engineering.equipment_bay_adapter import worker
+        from engineering.service import EngineeringUnavailable
+        if self._capability != 'equipment_bay' or not self.supports(plan).supported:
+            raise EngineeringUnavailable('Equipment-bay inspection is unsupported')
+        return await worker(self._python, 'inspect', plan.candidate.content.specification, step=step)
 
     # ------------------------------------------------------------------ measure (F07, additive)
 

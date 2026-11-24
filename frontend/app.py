@@ -1025,7 +1025,7 @@ if workflow == 'Deterministic rocket nozzle':
     st.stop()
 if workflow == 'Checked design':
     from engineering_ui import render_checked
-    render_checked(BACKEND_URL, _auth_headers)
+    render_checked(BACKEND_URL, _auth_headers, render_glb_viewer)
     st.stop()
 if workflow == 'CO2 dragster':
     from dragster_ui import render_dragster

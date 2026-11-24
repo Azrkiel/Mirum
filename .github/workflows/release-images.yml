@@ -8,6 +8,10 @@ on:
       - "picogk-builder/**"
       - "spike-picogk/Dockerfile.runtime"
       - "scripts/regen_release_smoke.py"
+      - "scripts/phase3_bay_release.py"
+      - "backend/engineering/equipment_bay*.py"
+      - "backend/engineering/program/**"
+      - "backend/vendor/mirum_kernel/**"
       - "backend/engineering/regen_*.py"
       - ".dockerignore"
       - ".github/ci-requirements/**"
@@ -55,6 +59,27 @@ jobs:
         id: release
         with:
           evidence-path: release-evidence/release-images.json
+
+      - name: Verify equipment-bay publication and replay in the release image
+        run: |
+          set -euo pipefail
+          export MIRUM_ACCESS_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+          volume=$(docker volume create)
+          container=
+          cleanup() {
+            if [ -n "$container" ]; then docker rm -f "$container" >/dev/null; fi
+            docker volume rm "$volume" >/dev/null
+          }
+          trap cleanup EXIT
+          docker run --rm --user 0 --network none --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+            -v "$volume:/v" --entrypoint sh mirum-backend:release -c 'chown 10001:10001 /v && chmod 700 /v'
+          container=$(docker run -d --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --memory 4g --pids-limit 512 \
+            --tmpfs /tmp:rw,size=256m,mode=1777 --tmpfs /tmp/mirum:rw,size=256m,uid=10001,gid=10001,mode=0700 \
+            -v "$volume:/tmp/mirum/engineering" -e MIRUM_ACCESS_TOKEN -e MIRUM_ENGINEERING_PROGRAMS=1 \
+            -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent mirum-backend:release)
+          docker exec -i "$container" python - < scripts/phase3_bay_release.py \
+            | tee release-evidence/phase3-equipment-bay.json
 
       # Builds and smokes the Fly variant (stage fly) in a privileged container; never pushed here.
       - uses: ./.github/actions/build-fly-image

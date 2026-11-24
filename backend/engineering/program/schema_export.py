@@ -17,7 +17,7 @@ from .ir import ExecutionLock, ProgramIR
 from .kernel import ExecutionLockV0_2
 from .interface import API_SCHEMA_MODELS
 from .revisions import JournalEntry, ProgramRevision, RevisionDiff
-from .registry import DEFAULT_REGISTRY, REGISTRY_V0_1, ArtifactGraph, OperationDescriptor, OpStream
+from .registry import BAY_REGISTRY, DEFAULT_REGISTRY, REGISTRY_V0_1, ArtifactGraph, OperationDescriptor, OpStream
 from .versions import REGISTRY_VERSION, REGISTRY_VERSION_V0_1
 
 __all__ = ['SCHEMA_DIR', 'SCHEMA_MODELS', 'REGISTRY_EXPORT_NAME_V0_1', 'REGISTRY_EXPORT_NAME_V0_2',
@@ -62,6 +62,10 @@ def generated() -> dict[str, str]:
     out[REGISTRY_EXPORT_NAME_V0_2] = _dump({
         'registry_version': REGISTRY_VERSION,
         'operations': [d.model_dump(mode='json') for d in DEFAULT_REGISTRY.descriptors()],
+    })
+    out[f'{BAY_REGISTRY.version}.json'] = _dump({
+        'registry_version': BAY_REGISTRY.version,
+        'operations': [d.model_dump(mode='json') for d in BAY_REGISTRY.descriptors()],
     })
     return out
 

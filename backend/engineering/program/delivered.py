@@ -32,7 +32,8 @@ from .adapters import adapter_for
 from .beam_bridge import brief_content_from_program
 from .errors import ProgramError
 from .evidence import (
-    UNKNOWN_SHA256, CheckEvidence, CheckPlan, DeliveredEvidence, FaceTable, ReportInputs,
+    UNKNOWN_SHA256, CheckEvidence, CheckLimit, CheckPlan, DeliveredEvidence, ErrorBound, FaceTable,
+    Measurement, ReportInputs,
     build_check_plan, build_delivered_evidence, check_plan_sha256, derive_verdict,
 )
 from .hashing import canonical_json
@@ -241,6 +242,7 @@ class _Context:
 
     def __init__(self):
         self.plan: CheckPlan | None = None
+        self.claim_scope = 'checked_design'
         self.candidates = {}
         self.candidate_sha256: str | None = None
         self.manifest_sha256: str | None = None
@@ -277,6 +279,9 @@ class DeliveredVerifier:
     # ---- the flow
 
     async def _verify(self, revision, ir, ctx: _Context) -> DeliveredEvidence:
+        if ir.capability.id == 'equipment_bay':
+            ctx.claim_scope = 'geometry_checks_only'
+            return await self._verify_bay(revision, ir, ctx)
         self._plan(revision, ir, ctx)
         run = self._read_run(revision)
         bundle = run.bundle
@@ -318,6 +323,78 @@ class DeliveredVerifier:
         except (ValidationError, ValueError):
             raise _unavailable() from None
 
+    async def _verify_bay(self, revision, ir, ctx):
+        from engineering.equipment_bay_adapter import BOM, METHOD, REPORT, STEP, EquipmentBayAdapter
+        from engineering.equipment_bay import KERNEL_REVISION
+        from .bay_bridge import check_plan_record, content_from_program
+        from .hashing import execution_lock_v0_2_sha256, semantic_sha256
+        from .planning import generator_candidates
+
+        content = content_from_program(ir)
+        if (content.brief_sha256 != revision.brief_sha256
+                or content.fixed_requirements_sha256 != revision.fixed_requirements_sha256
+                or semantic_sha256(ir) != revision.semantic_sha256
+                or execution_lock_v0_2_sha256(revision.lock) != revision.lock_sha256
+                or revision.lock.backend_lock.adapter_version != KERNEL_REVISION):
+            raise _unavailable('lock_mismatch')
+        run = self._read_run(revision)
+        candidate, = generator_candidates(content)
+        if (run.selected_candidate_sha256 != candidate.candidate_sha256
+                or run.attempts[-1].candidate != candidate):
+            raise _mismatch()
+        bundle = run.bundle
+        ctx.candidate_sha256 = candidate.candidate_sha256
+        ctx.manifest_sha256 = bundle.manifest_sha256
+        await asyncio.to_thread(self.publisher.validate, revision.job_id, bundle)
+        payloads = (('generator-body-step', STEP, MAX_BINARY_BYTES), ('generator-bom', BOM, MAX_JSON_BYTES),
+                    ('generator-report', REPORT, MAX_JSON_BYTES))
+        blobs = await asyncio.to_thread(self._lease_all, revision.job_id, bundle, payloads)
+        ctx.step_sha256 = hashlib.sha256(blobs[STEP]).hexdigest()
+        adapter = self.adapter_factory('occt', capability='equipment_bay')
+        if getattr(adapter, 'mode', None) != 'native':
+            raise _unavailable('mock_backend')
+        plan = _plans(ir, (candidate,))[0]
+        async with self._semaphore:
+            outcome = await adapter.measure_bay(blobs[STEP], plan)
+        report = outcome['report']
+        report.update(search=outcome['search'], kernel_revision=KERNEL_REVISION)
+        if (canonical_json(outcome['bom']).encode() != blobs[BOM]
+                or canonical_json(report).encode() != blobs[REPORT]
+                or report['step']['sha256'] != ctx.step_sha256):
+            raise _mismatch()
+
+        measured = EquipmentBayAdapter.measurements(blobs[REPORT])
+        limits = content.descriptor.expected_limits(content.specification)
+        sources = {'length': 'reviewed:bay.length', 'width': 'reviewed:bay.width',
+                   'max_offset': 'policy:bay_alignment', 'correspondences': 'reviewed:bay.module_count',
+                   'diagnostics': 'policy:bay_bindings'}
+        checks = []
+        for check, limit_rows in limits.items():
+            measurements = []
+            for limit in limit_rows:
+                number = _number(measured[check][limit.name])
+                passed = number <= limit.value if limit.comparison == 'le' else number == limit.value
+                measurements.append(Measurement(
+                    name=limit.name, unit=limit.unit, value=number, representation='brep', satisfied=passed,
+                    limit=CheckLimit(name=limit.name, unit=limit.unit, value=limit.value,
+                                     comparison=limit.comparison, source=sources[limit.name])))
+            passed = all(row.satisfied for row in measurements)
+            checks.append(CheckEvidence(
+                check_id='bay.' + check, category='geometry', required=True, coverage='measured',
+                method=METHOD, method_version=method_version(), representation='brep',
+                state='passed' if passed else 'failed', reason=None if passed else 'limit_exceeded',
+                error_bound=ErrorBound(value=1e-6, unit='mm', source='equipment bay geometric roundoff'),
+                measurements=tuple(measurements)))
+        checks = tuple(checks)
+        verdict = derive_verdict(checks)
+        return DeliveredEvidence(
+            revision_id=revision.revision_id, job_id=revision.job_id, candidate_sha256=ctx.candidate_sha256,
+            claim_scope='geometry_checks_only', manifest_sha256=ctx.manifest_sha256, step_sha256=ctx.step_sha256,
+            check_plan_sha256=hashlib.sha256(canonical_json(
+                check_plan_record(revision.semantic_sha256, revision.lock_sha256, candidate)).encode()).hexdigest(),
+            method_version=method_version(), native_versions=revision.lock.backend_lock.native_versions,
+            checks=checks, verdict=verdict)
+
     def _plan(self, revision, ir, ctx: _Context) -> None:
         """The check plan, computed from reviewed inputs before any measurement."""
         try:
@@ -357,11 +434,11 @@ class DeliveredVerifier:
             raise _unavailable('lock_mismatch')
         return run
 
-    def _lease_all(self, job_id, bundle) -> dict[str, bytes]:
+    def _lease_all(self, job_id, bundle, payloads=None) -> dict[str, bytes]:
         """Blocking: lease and read each payload with its cap; check length and sha256 against the bundle."""
         identities = {p.path: p for p in bundle.payloads}
         out = {}
-        for fmt, name, cap in _PAYLOADS:
+        for fmt, name, cap in (_PAYLOADS if payloads is None else payloads):
             identity = identities.get(name)
             if identity is None or identity.bytes > cap:
                 raise _unavailable()
@@ -432,7 +509,7 @@ class DeliveredVerifier:
             checks = tuple(self._problem_check(e, problem) for e in cand.entries)
         return DeliveredEvidence(
             revision_id=revision.revision_id, job_id=revision.job_id or '0' * 32,
-            candidate_sha256=ctx.candidate_sha256 or UNKNOWN_SHA256, claim_scope='checked_design',
+            candidate_sha256=ctx.candidate_sha256 or UNKNOWN_SHA256, claim_scope=ctx.claim_scope,
             manifest_sha256=ctx.manifest_sha256 or UNKNOWN_SHA256, step_sha256=ctx.step_sha256,
             glb_sha256=ctx.glb_sha256,
             check_plan_sha256=check_plan_sha256(plan) if plan is not None else UNKNOWN_SHA256,
