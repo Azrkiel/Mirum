@@ -39,13 +39,13 @@ PAYLOADS = set(MIME)-{'package.zip','manifest.json'}   # the beam's eight; gener
 GENERATOR_FORMATS = {
     'generator-spec': ('generator-spec.json','application/json'),
     'generator-report': ('generator-report.json','application/json'),
-    'generator-bom': ('generator-bom.json','application/json'),
     'generator-body-step': ('generator-body.step','application/step'),
     'generator-preview-glb': ('generator-preview.glb','model/gltf-binary'),
     'generator-cleaned-stl': ('generator-cleaned.stl','model/stl'),
     'generator-spec-canonical': ('generator-spec.canonical.json','application/json'),
     'generator-bundle-zip': ('generator-bundle.zip','application/zip'),
     'generator-result': ('generator-result.json','application/json'),
+    'generator-bom': ('generator-bom.json','application/json'),
 }
 ALL_FORMATS = {**FORMATS, **GENERATOR_FORMATS}
 MIME.update(dict(GENERATOR_FORMATS.values()))
