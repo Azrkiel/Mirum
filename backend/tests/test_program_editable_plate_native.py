@@ -55,7 +55,9 @@ def edit(source):
 def evidence(world, revision):
     result = world.c.get(f'{V1}/revisions/{revision}/evidence', headers=http_headers(CLIENT))
     assert result.status_code == 200, result.text
-    return result.json()['evidence']
+    bundle = result.json()
+    assert bundle['revision']['revision_id'] == revision
+    return bundle['evidence']
 
 
 def download(world, revision, fmt):
@@ -72,7 +74,8 @@ def accepted(world, revision, *, width, x, margin, notes=None):
     step = download(world, revision, 'generator-body-step')
     raw_report = download(world, revision, 'generator-report')
     report = json.loads(raw_report)
-    assert receipt['revision_id'] == revision
+    assert receipt['manifest_sha256'] == state['bundle']['manifest_sha256']
+    assert {row['path']: row['sha256'] for row in state['bundle']['payloads']}['generator-report.json'] == sha256(raw_report).hexdigest()
     assert receipt['verdict'] == 'verified', receipt
     assert receipt['step_sha256'] == report['step']['sha256'] == sha256(step).hexdigest()
     assert receipt['candidate_sha256'] == report['candidate_sha256']
@@ -190,7 +193,7 @@ def test_editable_plate_intents_and_delivered_step_gate(tmp_path, monkeypatch):
         package = capture(client, edge_edit)
         (tmp_path / 'edge-100' / 'replay.zip').write_bytes(package)
         assert 'generator-body.step' in replay(package)['verified_files']
-        assert world.await_(remeasure(package))['native_reread'] == 'consistent'
+        assert world.on_loop(remeasure(package))['native_reread'] == 'consistent'
 
 
 def test_editable_plate_cancellation_interruption_and_retry(tmp_path, monkeypatch):
