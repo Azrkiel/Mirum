@@ -452,7 +452,7 @@ class Measurement(ContractModel):
     name: Text
     value: float
     unit: Literal['mm', 'mm2', 'mm3', 'mm4', 'N', 'N_mm', 'MPa', 'ratio', 'count', 'rad', 'N_mm_energy',
-                  'kg', 'm', 'm4', 'Pa', 's', 'm_s']
+                  'kg', 'm', 'm4', 'Pa', 's', 'm_s', 'delta_K']
 
 
 class ComparisonLimit(Measurement):

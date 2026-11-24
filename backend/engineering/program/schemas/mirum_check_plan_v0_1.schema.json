@@ -156,7 +156,8 @@
             "mm3",
             "mm4",
             "ratio",
-            "count"
+            "count",
+            "delta_K"
           ],
           "title": "Unit",
           "type": "string"

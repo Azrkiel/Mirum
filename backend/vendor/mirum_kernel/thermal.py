@@ -1,7 +1,7 @@
 """Bounded steady conduction, registered field transfer and axial clearance in SI."""
 
 from bisect import bisect_left
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from functools import cache
 from hashlib import sha256
 from math import fsum, isfinite
@@ -80,9 +80,12 @@ def validate_field_reference(reference):
 
 @cache
 def solver_fingerprint():
+    def source_digest(path):
+        return sha256(path.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+
     return dict(engine='mirum_axial_fvm_and_free_strain_v1',
-                implementation_sha256=sha256(Path(__file__).read_bytes()).hexdigest(),
-                digest_implementation_sha256=sha256(Path(__file__).with_name('structural.py').read_bytes()).hexdigest(),
+                implementation_sha256=source_digest(Path(__file__)),
+                digest_implementation_sha256=source_digest(Path(__file__).with_name('structural.py')),
                 runtime=python_implementation(), python=python_version())
 
 
@@ -190,17 +193,25 @@ def _resolve_field(fields, case, producer, source):
     return field
 
 
-def transfer(case, producer, source_elements, target_elements, fields, registration=None):
+def common_registration(case):
+    return dict(frame=FRAME, geometry_sha256=digest(geometry(case)), target_to_source_x_offset_m=0.0)
+
+
+def transfer(case, producer, source_elements, target_elements, fields, registration):
     if source_elements not in SOURCE_MESHES or target_elements not in TARGET_MESHES:
         raise Diagnostic('field_incompatible', 'source or target mesh is outside the bounded benchmark')
     source, target = mesh(case, source_elements), mesh(case, target_elements)
     field = _resolve_field(fields, case, producer, source)
-    if registration is None:
-        registration = dict(frame=FRAME, target_to_source_x_offset_m=0.0)
+    if registration is None or registration == []:
+        raise Diagnostic('registration_missing', 'no coordinate registration available')
+    if isinstance(registration, (list, tuple)) and len(registration) > 1:
+        raise Diagnostic('registration_ambiguous', 'multiple coordinate registrations supplied')
     offset = registration.get('target_to_source_x_offset_m') if isinstance(registration, dict) else None
     if (not isinstance(registration, dict) or registration.get('frame') != FRAME
             or type(offset) not in (int, float) or not isfinite(offset)):
         raise Diagnostic('field_incompatible', 'registration requires the common axial frame and a finite offset')
+    if registration.get('geometry_sha256') != source['geometry_sha256']:
+        raise Diagnostic('registration_stale', 'registration geometry differs from the current source and target')
     x, temperature = field['x_m'], field['temperature_k']
     mapped = [node + offset for node in target['coordinates_m']]
     if mapped[0] < x[0] or mapped[-1] > x[-1]:
@@ -238,6 +249,7 @@ def expansion_inputs(case, conduction):
         field_reference=case.field_reference, producer_sha256=conduction['dependency_sha256'],
         fields=[row['field']['sha256'] for row in conduction['result']['samples']],
         targets=[mesh(case, n) for n in TARGET_MESHES],
+        registration=common_registration(case),
         integration='composite_trapezoid_of_target_temperature_minus_reference',
         limits=dict(finest_expansion_relative=EXPANSION_LIMIT, finest_pair_relative_lt=CHANGE_LIMIT,
                     transfer_absolute_k=TRANSFER_LIMIT_K, uniform_delta_k=1.0))
@@ -254,7 +266,8 @@ def solve_expansion(case, inputs, conduction):
     uniform_ref = case.alpha_per_k * case.length_m
     samples = []
     for grid, row in zip(inputs['targets'], conduction['result']['samples'], strict=True):
-        delivery = transfer(case, inputs['producer_sha256'], row['elements'], grid['elements'], [row['field']])
+        delivery = transfer(case, inputs['producer_sha256'], row['elements'], grid['elements'], [row['field']],
+                            inputs['registration'])
         x = grid['coordinates_m']
         integral = _integral(x, delivery['target_temperature_k'], case.reference_k)
         uniform = case.alpha_per_k * _integral(x, [case.reference_k + 1] * len(x), case.reference_k)
@@ -288,6 +301,14 @@ def run(case, *, previous=None):
     """Run stage dependencies in order. Reuse only matching, intact passing results."""
     previous = {} if previous is None else previous
     stages, calls = {}, {}
+    case_data = {key: float(value) if type(value) in (int, float) else value for key, value in asdict(case).items()}
+
+    def finish(verdict, **diagnostic):
+        for name in ('conduction', 'expansion', 'clearance'):
+            if name not in stages:
+                stages[name] = dict(action='blocked', prior_state='stale' if name in previous else 'absent')
+        return dict(schema=SCHEMA, case_sha256=digest(case_data), stages=stages, calls=calls,
+                    verdict=verdict, **diagnostic)
 
     def execute(name, inputs, solve, *args):
         dependency = digest(inputs)
@@ -311,11 +332,11 @@ def run(case, *, previous=None):
         inputs = conduction_inputs(case)
         conduction = execute('conduction', inputs, solve_conduction, case, inputs)
         if conduction['result']['state'] != 'passed':
-            return dict(schema=SCHEMA, stages=stages, calls=calls, verdict='failed')
+            return finish('failed')
         inputs = expansion_inputs(case, conduction)
         expansion = execute('expansion', inputs, solve_expansion, case, inputs, conduction)
         if expansion['result']['state'] != 'passed':
-            return dict(schema=SCHEMA, stages=stages, calls=calls, verdict='failed')
+            return finish('failed')
         inputs = dict(expansion_sha256=expansion['result_sha256'], expansion_dependency_sha256=expansion['dependency_sha256'],
                       plane=dict(stationary=True, frame=FRAME, normal=[-1, 0, 0],
                                  x_m=case.length_m + case.cold_gap_m),
@@ -323,7 +344,6 @@ def run(case, *, previous=None):
                       cold_gap_m=float(case.cold_gap_m), allowance_m=float(case.clearance_allowance_m),
                       limit_absolute_error_m=CLEARANCE_LIMIT_M)
         clearance = execute('clearance', inputs, _clearance, case, expansion)
-        return dict(schema=SCHEMA, stages=stages, calls=calls, verdict=clearance['result']['state'])
+        return finish(clearance['result']['state'])
     except Diagnostic as exc:
-        return dict(schema=SCHEMA, stages=stages, calls=calls, verdict=exc.code,
-                    diagnostic=dict(code=exc.code, detail=exc.detail, field=exc.field))
+        return finish(exc.code, diagnostic=dict(code=exc.code, detail=exc.detail, field=exc.field))

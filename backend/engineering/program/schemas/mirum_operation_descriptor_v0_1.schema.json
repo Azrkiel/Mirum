@@ -23,7 +23,12 @@
                 "mass",
                 "time",
                 "angle",
-                "dimensionless"
+                "dimensionless",
+                "temperature",
+                "temperature_difference",
+                "power",
+                "conductivity",
+                "thermal_expansion"
               ],
               "type": "string"
             },

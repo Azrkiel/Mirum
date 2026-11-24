@@ -10,7 +10,7 @@ from vendor.mirum_kernel import thermal
 
 
 CAPABILITY_ID = 'thermal_bar'
-KERNEL_REVISION = 'a86cfa0e5a4dfa47434fc68233d954b26e7187bc'
+KERNEL_REVISION = '35b158ff7a6d97231f87d1a25f404f19d31bd9bb'
 TRANSFER_MODEL = 'common_x_linear_trapezoid_v1'
 GEOMETRY_LIMIT_MM = 1e-5
 VOLUME_RELATIVE_LIMIT = 1e-8

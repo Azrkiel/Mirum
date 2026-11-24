@@ -18,7 +18,7 @@ from typing import Annotated, Any, Literal, Mapping
 
 from pydantic import AfterValidator, Field, StringConstraints, model_validator
 
-from engineering.capabilities import CAPABILITY, EDITABLE_PLATE, GLIDER, REGEN
+from engineering.capabilities import CAPABILITY, EDITABLE_PLATE, GLIDER, REGEN, THERMAL_BAR
 from engineering.contracts import CandidateSpec
 from engineering.contracts import Sha256 as Hash64
 from engineering.spec import specification_digest
@@ -62,7 +62,8 @@ POLICY_FIELDS = tuple(sorted(_POLICY_VALUES))
 # Declared numerical refs of the non-beam capabilities, addressable as 'policy:regen.<NAME>' and
 # 'policy:glider.<NAME>' (D10). A limit citing one must equal the declared value exactly.
 _DECLARED_REFS = {f'{prefix}.{r.name}': float(r.value)
-                  for prefix, descriptor in (('regen', REGEN), ('glider', GLIDER), ('editable_plate', EDITABLE_PLATE))
+                  for prefix, descriptor in (('regen', REGEN), ('glider', GLIDER), ('editable_plate', EDITABLE_PLATE),
+                                             ('thermal', THERMAL_BAR))
                   for r in descriptor.numerical
                   if isinstance(r.value, (int, float)) and not isinstance(r.value, bool)}
 
@@ -129,7 +130,7 @@ def _compare(comparison: str, value: float, limit: float) -> bool:
 class CheckLimit(IRModel):
     name: Identifier
     value: Annotated[float, Field(ge=-_BIG, le=_BIG)]
-    unit: Literal['mm', 'mm2', 'mm3', 'mm4', 'ratio', 'count']
+    unit: Literal['mm', 'mm2', 'mm3', 'mm4', 'ratio', 'count', 'delta_K']
     comparison: Literal['le', 'ge', 'abs_le', 'eq']
     source: Ascii120
     scale_refs: Annotated[tuple[Ascii64, ...], Field(max_length=4)] = ()
@@ -138,7 +139,8 @@ class CheckLimit(IRModel):
     def _sources(self):
         kind, _, ident = self.source.partition(':')
         if kind == 'reviewed':
-            if ident not in REVIEWED_IDS and ident not in ('bay.length', 'bay.width', 'bay.module_count'):
+            if ident not in REVIEWED_IDS and ident not in (
+                    'bay.length', 'bay.width', 'bay.module_count', 'thermal.clearance_allowance'):
                 _bad(f'limit source {self.source!r} is not a reviewed numeric requirement')
         elif kind == 'policy' and ident in ('bay_alignment', 'bay_bindings'):
             if self.scale_refs or self.value != {'bay_alignment': 0.05, 'bay_bindings': 0.0}[ident]:
@@ -491,7 +493,7 @@ class ErrorBound(IRModel):
 class Measurement(IRModel):
     name: Identifier
     value: Annotated[float, Field(ge=-_BIG, le=_BIG)]
-    unit: Literal['mm', 'mm2', 'mm3', 'mm4', 'ratio', 'count']
+    unit: Literal['mm', 'mm2', 'mm3', 'mm4', 'ratio', 'count', 'delta_K']
     representation: Representation
     limit: CheckLimit
     satisfied: bool
@@ -618,7 +620,7 @@ class DeliveredEvidence(IRModel):
             _bad('a verified record carries no reasons')
         # Only beam evidence is about a STEP; a regen or glider record has none (its STL is not a STEP).
         if self.verdict == 'verified' and (
-                (self.step_sha256 is None and self.claim_scope == 'checked_design')
+                (self.step_sha256 is None and self.claim_scope in ('checked_design', 'thermal_benchmark'))
                 or UNKNOWN_SHA256 in (self.step_sha256, self.manifest_sha256, self.check_plan_sha256,
                                       self.candidate_sha256)):
             _bad('a verified record names its STEP, manifest, plan and candidate')
@@ -632,6 +634,11 @@ class DeliveredEvidence(IRModel):
                     _bad('verified beam evidence needs all three features bound')
         else:
             self._label_rules()
+        if self.claim_scope == 'thermal_benchmark' and self.verdict == 'verified':
+            if ({(c.check_id, c.category) for c in self.checks if c.required}
+                    != {(f'thermal.{check}', 'geometry' if check == 'bar_geometry' else 'physics')
+                        for check in THERMAL_BAR.base_checks}):
+                _bad('thermal evidence must include every reviewed thermal bar check')
         return self
 
     def _label_rules(self) -> None:
@@ -641,10 +648,12 @@ class DeliveredEvidence(IRModel):
         for c in self.checks:
             if c.check_id.startswith(('delivered.', 'beam.')):
                 _bad('this claim scope cannot carry a delivered beam check')
-            if c.category in ('physics', 'manufacturing', 'standards') and (
+            forbidden = ('manufacturing', 'standards') if self.claim_scope == 'thermal_benchmark' else (
+                'physics', 'manufacturing', 'standards')
+            if c.category in forbidden and (
                     c.state != 'not_evaluated' or c.coverage != 'not_evaluated'):
-                _bad('physics, manufacturing and standards must be not_evaluated for this claim scope')
-            if c.measurements and c.error_bound is None:
+                _bad('out of scope checks must be not_evaluated for this claim scope')
+            if c.measurements and c.category != 'physics' and c.error_bound is None:
                 _bad('a check with measurements declares its error bound for this claim scope')
         found: list = []
         _labels(self.model_dump(mode='json', exclude={'claim_scope', 'schema_version'}), found)

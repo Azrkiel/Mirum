@@ -170,7 +170,8 @@
             "mm3",
             "mm4",
             "ratio",
-            "count"
+            "count",
+            "delta_K"
           ],
           "title": "Unit",
           "type": "string"
@@ -340,7 +341,8 @@
             "mm3",
             "mm4",
             "ratio",
-            "count"
+            "count",
+            "delta_K"
           ],
           "title": "Unit",
           "type": "string"
@@ -432,7 +434,8 @@
       "enum": [
         "checked_design",
         "geometry_checks_only",
-        "screening_only"
+        "screening_only",
+        "thermal_benchmark"
       ],
       "title": "Claim Scope",
       "type": "string"
