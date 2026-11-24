@@ -35,23 +35,28 @@ AI_REQUESTS = 3
 POLL_SECONDS = 540.0
 EVIDENCE_NAME = 'f09-live.json'
 
+_EQUIVALENT = (
+    'Prepare the reviewed reference cantilever beam: 200 mm long and 10 mm wide, dimensional tolerance '
+    '0.01 mm, 50 N tip force, maximum tip deflection 1 mm. Material: Young\'s modulus 70000 MPa, allowable '
+    'stress 120 MPa, illustrative properties with the reference "Illustrative user-provided properties; '
+    'not certified stock values". Assume an ideal clamped end with force and linear elastic behavior. '
+    'Use bounded thickness mode with candidate heights 5 mm, 10 mm and 15 mm.')
+_LENGTH = '200 mm long'
+_CANDIDATES = 'candidate heights 5 mm, 10 mm and 15 mm'
+
+
+def _derived(old, new):
+    """Each later prompt is the complete equivalent prompt with exactly one change. The proposer must not
+    invent a material reference or fill gaps, so a prompt that leaves any fact implicit ("as before") is
+    answered with a clarification question (live run live-20261124-a, step S5)."""
+    assert _EQUIVALENT.count(old) == 1
+    return _EQUIVALENT.replace(old, new)
+
+
 PROMPTS = {
-    'equivalent': (
-        'Prepare the reviewed reference cantilever beam: 200 mm long and 10 mm wide, dimensional tolerance '
-        '0.01 mm, 50 N tip force, maximum tip deflection 1 mm. Material: Young\'s modulus 70000 MPa, allowable '
-        'stress 120 MPa, illustrative properties with the reference "Illustrative user-provided properties; '
-        'not certified stock values". Assume an ideal clamped end with force and linear elastic behavior. '
-        'Use bounded thickness mode with candidate heights 5 mm, 10 mm and 15 mm.'),
-    'length_201': (
-        'Same reference cantilever beam as before (10 mm wide, 0.01 mm tolerance, 50 N tip force, 1 mm maximum '
-        'tip deflection, 70000 MPa modulus, 120 MPa allowable stress, illustrative material, ideal clamped end '
-        'with linear elastic behavior, bounded thickness mode, candidate heights 5 mm, 10 mm and 15 mm), but '
-        'change the length to 201 mm. Keep everything else the same.'),
-    'candidate_20': (
-        'Same reference cantilever beam as before: 200 mm long, 10 mm wide, 0.01 mm tolerance, 50 N tip force, '
-        '1 mm maximum tip deflection, 70000 MPa modulus, 120 MPa allowable stress, illustrative material, '
-        'ideal clamped end with linear elastic behavior, bounded thickness mode. Change only the candidate '
-        'choices: try a single candidate height of 20 mm.'),
+    'equivalent': _EQUIVALENT,
+    'length_201': _derived(_LENGTH, '201 mm long'),
+    'candidate_20': _derived(_CANDIDATES, 'a single candidate height of 20 mm'),
 }
 REPLY_FILES = {'equivalent': 'reply_equivalent.json', 'length_201': 'reply_length_201.json',
                'candidate_20': 'reply_candidate_20.json'}
@@ -59,6 +64,19 @@ REPLY_FILES = {'equivalent': 'reply_equivalent.json', 'length_201': 'reply_lengt
 
 class Blocked(Exception):
     """Argument or environment problem found before any provider call."""
+
+
+class StepFailure(AssertionError):
+    """A step failure with safe details only: route names, HTTP status, issue field/state, diagnostic codes.
+    Never issue reasons or any other text that can echo the provider's reply."""
+
+    def __init__(self, reason, **details):
+        super().__init__(reason)
+        self.details = dict(reason=reason, **details)
+
+
+def _safe_issues(issues):
+    return [dict(field=str(i.get('field'))[:64], state=str(i.get('state'))[:32]) for i in issues or ()][:16]
 
 
 def sha(data):
@@ -234,14 +252,17 @@ class World:
         status, prepared = self.ai_draft(key)
         proposal_calls = self.calls() - calls_before
         if status != 201 and status != 200:
-            raise AssertionError('typed draft route answered %s' % status)
+            raise StepFailure('draft_route_status', http_status=status, ledger_calls_for_proposal=proposal_calls)
         content = prepared['draft']['content']
         if prepared['issues'] or content is None:
-            raise AssertionError('proposal needs clarification')
+            raise StepFailure('proposal_not_ready', issues=_safe_issues(prepared['issues']),
+                              content_present=content is not None, ledger_calls_for_proposal=proposal_calls)
         source = self.convert(content).encode('utf-8')
         planned = self.req('POST', '/mel/plan', content=source, headers={'Content-Type': 'application/vnd.mirum.mel'})
         if planned.status != 200:
-            raise AssertionError('converted source failed the compiler plan route')
+            code = (planned.json or {}).get('code') if isinstance(planned.json, dict) else None
+            raise StepFailure('plan_refused', http_status=planned.status,
+                              code=str(code)[:64] if code else None, ledger_calls_for_proposal=proposal_calls)
         origins = prepared['draft']['provenance']['field_origins']
         prompt_sha = sha(PROMPTS[key])
         link = dict(draft_input_mode=prepared['draft']['provenance']['input_mode'],
@@ -492,6 +513,8 @@ def execute(args, evidence):
             started = time.monotonic()
             try:
                 record.update(function(w))
+            except StepFailure as failure:
+                record.update(passed=False, error_type='StepFailure', failure=failure.details)
             except Exception as error:  # noqa: BLE001 - class name only; messages can echo model output
                 record.update(passed=False, error_type=type(error).__name__)
             record['provider_calls'] = w.calls() - start_calls

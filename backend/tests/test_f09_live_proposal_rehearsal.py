@@ -145,3 +145,26 @@ def test_rehearsal_run_passes_every_step_with_no_network(tmp_path):
     for prompt in harness.PROMPTS.values():
         assert prompt[:60] not in text
     assert 'offline-fixture-never-sent' not in text
+
+
+def test_later_prompts_restate_every_fact_with_exactly_one_change():
+    # Live run live-20261124-a: a prompt that left the material reference implicit drew a clarification.
+    harness = load_harness()
+    base = harness.PROMPTS['equivalent']
+    reference = 'Illustrative user-provided properties; not certified stock values'
+    for key, (old, new) in {'length_201': ('200 mm long', '201 mm long'),
+                            'candidate_20': ('candidate heights 5 mm, 10 mm and 15 mm',
+                                             'a single candidate height of 20 mm')}.items():
+        prompt = harness.PROMPTS[key]
+        assert reference in prompt and 'as before' not in prompt
+        assert prompt == base.replace(old, new) and prompt != base
+
+
+def test_step_failure_details_never_carry_issue_reasons():
+    harness = load_harness()
+    secret_like = 'model text that must not reach evidence'
+    issues = [{'field': 'request', 'state': 'clarification_required', 'reason': secret_like}]
+    failure = harness.StepFailure('proposal_not_ready', issues=harness._safe_issues(issues))
+    assert failure.details == {'reason': 'proposal_not_ready',
+                               'issues': [{'field': 'request', 'state': 'clarification_required'}]}
+    assert secret_like not in json.dumps(failure.details)
