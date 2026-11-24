@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from engineering.program.client import ProgramClient
-from engineering.program.replay import capture, remeasure
+from engineering.program.replay import capture, remeasure, replay
 from tests.test_program_equipment_bay_native import CLIENT, export, review, run, stage
 from tests.test_program_interface_parity import BASE, TOKEN, V1, bridge, http_headers, parity_app
 from tests.test_program_thermal_units import SOURCE
@@ -46,7 +46,7 @@ def test_thermal_review_verification_and_archive(tmp_path, monkeypatch):
 
         assert review(world, staged) == rid
         publication = run(world, rid)
-        assert publication['state'] == 'published', publication
+        assert publication['state'] == 'published', (publication, evidence(rid))
         original_evidence = evidence(rid)
         assert original_evidence['verdict'] == 'verified'
         original_report = export(world, rid, 'generator-report')
@@ -106,7 +106,7 @@ def test_thermal_review_verification_and_archive(tmp_path, monkeypatch):
         assert evidence(rid) == original_evidence
         assert export(world, rid, 'generator-report') == original_report
         assert export(world, rid, 'generator-body-step') == original_step
-        assert capture(client, rid) == package or asyncio.run(remeasure(capture(client, rid))) == archived
+        assert replay(capture(client, rid)) == replay(package)
 
         if destination := os.environ.get('MIRUM_THERMAL_EVIDENCE_DIR'):
             output = Path(destination)
@@ -114,7 +114,7 @@ def test_thermal_review_verification_and_archive(tmp_path, monkeypatch):
             (output / 'mirum-thermal-replay.zip').write_bytes(package)
             (output / 'mirum-thermal-receipt.json').write_text(json.dumps(dict(
                 revision=client.inspect(rid).model_dump(mode='json')['revision'], evidence=original_evidence,
-                reregistered_revision=new_id, stale_revision=stale_id, stale_evidence=evidence(stale_id),
+                subsequent_revision=new_id, stale_revision=stale_id, stale_evidence=evidence(stale_id),
                 rejected_revision=tight_id, rejected_clearance=diagnostic['analysis']['stages']['clearance'],
                 archive_sha256=hashlib.sha256(package).hexdigest(), replay=archived,
             ), indent=2, sort_keys=True) + '\n', encoding='utf-8')

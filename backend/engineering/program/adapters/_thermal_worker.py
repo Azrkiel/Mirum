@@ -59,7 +59,7 @@ def main():
             path.write_bytes(step)
         else:
             raise ValueError('Unsupported thermal worker operation')
-        table = measure_step(path)['table']
+        table = measure_step(str(path))['table']
     geometry = _geometry_witness(table, dims)
     analysis = thermal.run(case)
     solver_values = {key: getattr(case, key.removesuffix('_mm') + '_m') for key in LENGTH_FIELDS}

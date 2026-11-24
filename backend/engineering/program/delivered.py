@@ -394,7 +394,9 @@ class DeliveredVerifier:
     async def _verify_thermal(self, revision, ir, ctx):
         from engineering.capabilities import THERMAL_BAR
         from engineering.thermal_bar import GEOMETRY_LIMIT_MM, KERNEL_REVISION
-        from engineering.thermal_bar_adapter import MAX_STEP_BYTES, METHOD, REPORT, STEP, bound_report, measured_values
+        from engineering.thermal_bar_adapter import (
+            MAX_STEP_BYTES, METHOD, REPORT, STEP, bound_report, encode_report, measured_values,
+        )
         from .bay_bridge import check_plan_record
         from .evidence import _compare
         from .hashing import execution_lock_v0_2_sha256, semantic_sha256
@@ -431,7 +433,7 @@ class DeliveredVerifier:
         if report['geometry']['native_versions'] != [
                 version.model_dump(mode='json') for version in revision.lock.backend_lock.native_versions]:
             raise _unavailable('lock_mismatch')
-        if canonical_json(report).encode() != blobs[REPORT]:
+        if encode_report(report) != blobs[REPORT]:
             raise _mismatch()
         numerical = {'bar_geometry': {'bounds_error': 'bounds_mm', 'volume_error': 'volume_relative',
                                       'face_mismatches': 'no_mismatch'},

@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 
+from cem.core import canonical_json as canonical_report_json
+
 from .capabilities import THERMAL_BAR
 from .contracts import ArtifactIdentity, CheckState, GeneratorCheckResult, Measurement, Outcome
 from .policy import _comparison, report_digest
@@ -23,6 +25,10 @@ METHOD = 'thermal_bar_fvm_v1'
 PART = 'thermal.bar'
 MAX_STEP_BYTES = 512 * 1024
 WORKER = Path(__file__).parent / 'program' / 'adapters' / '_thermal_worker.py'
+
+
+def encode_report(report):
+    return canonical_report_json(report).encode()
 
 
 def describe():
@@ -115,7 +121,7 @@ def build_result(plan, output, context):
     candidate = plan.candidate
     step = b64decode(output['step'], validate=True)
     report = bound_report(output['report'], step, candidate)
-    report_bytes = canonical_json(report).encode()
+    report_bytes = encode_report(report)
     if len(report_bytes) + len(step) > context.max_artifact_bytes:
         raise ValueError('Thermal bar bundle exceeds the byte budget')
     passing = report['outcome'] == 'pass'

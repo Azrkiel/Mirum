@@ -235,12 +235,12 @@ async def remeasure(data):
         if report['outcome'] != 'pass' or _json(report) != delivery[REPORT]:
             raise ValueError('replayed editable plate differs from recorded numerical evidence')
     elif ir.capability.id == 'thermal_bar':
-        from engineering.thermal_bar_adapter import REPORT, STEP, bound_report
+        from engineering.thermal_bar_adapter import REPORT, STEP, bound_report, encode_report
 
         step = delivery[STEP]
         output = await adapter.measure_thermal(step, candidate)
         report = bound_report(output['report'], step, candidate.candidate)
-        if report['outcome'] != 'pass' or _json(report) != delivery[REPORT]:
+        if report['outcome'] != 'pass' or encode_report(report) != delivery[REPORT]:
             raise ValueError('replayed thermal bar differs from the reviewed numerical evidence')
     elif ir.capability.id == 'regen_chamber':
         path = 'generator-cleaned.stl'
