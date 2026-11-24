@@ -95,17 +95,17 @@ class WorkspaceClient:
                                         allow_redirects=False, timeout=(5, 90), stream=True)
             with response:
                 limit = artifact_bytes if artifact_bytes and response.ok else 1024**2
-                chunks, length = [], 0
+                # One growing buffer and a running digest: no chunk list, no join copy.
+                data, digest = bytearray(), sha256()
                 for chunk in response.iter_content(65536):
-                    length += len(chunk)
-                    if length > limit:
+                    if len(data) + len(chunk) > limit:
                         raise WorkspaceError(502, {'message': 'Response exceeded the workspace size limit.'})
-                    chunks.append(chunk)
-                data = b''.join(chunks)
+                    data += chunk
+                    digest.update(chunk)
                 if response.ok and artifact_bytes:
-                    if sha256(data).hexdigest() != response.headers.get('X-Content-SHA256'):
+                    if digest.hexdigest() != response.headers.get('X-Content-SHA256'):
                         raise WorkspaceError(502, {'message': 'Downloaded bytes failed the fingerprint check.'})
-                    return data
+                    return bytes(data)
                 value = json.loads(data)
                 if not response.ok:
                     raise WorkspaceError(response.status_code, value)
@@ -118,6 +118,16 @@ class WorkspaceClient:
     def artifact(self, revision, fmt):
         limit = _PICO_STL_BYTES if fmt == 'generator-cleaned-stl' else _EXPORT_BYTES
         return self.request('GET', f'/revisions/{revision}/artifacts/{fmt}', artifact_bytes=limit)
+
+
+def _artifact_value(client, rid, fmt, name, expected_sha, state):
+    """Fetch one artifact for this render only. The session keeps just its verified identity, never the
+    bytes (a 128 MiB artifact must not sit in every viewer's session); a rerun fetches it again."""
+    value = client.artifact(rid, fmt)
+    if sha256(value).hexdigest() != expected_sha:
+        raise WorkspaceError(502, {'message': 'Artifact is not associated with this revision.'})
+    state['mel_artifact_cache'] = ((rid, name, expected_sha), expected_sha)
+    return value
 
 
 def _source_from_beam(content):
@@ -254,15 +264,8 @@ def _results(client, revision, preview):
         identities['package.zip'] = revision['bundle']['zip_sha256']
         selected = st.selectbox('Revision artifact', files, key=f'mel_artifact_{rid}')
         if selected:
-            cache = st.session_state.get('mel_artifact_cache')
-            identity = (rid, selected, identities[selected])
-            if cache and cache[0] == identity:
-                value = cache[1]
-            else:
-                value = client.artifact(rid, fmt_by_file[selected])
-                st.session_state['mel_artifact_cache'] = (identity, value)
-            if sha256(value).hexdigest() != identities[selected]:
-                raise WorkspaceError(502, {'message': 'Artifact is not associated with this revision.'})
+            value = _artifact_value(client, rid, fmt_by_file[selected], selected, identities[selected],
+                                    st.session_state)
             st.download_button(f'Download {selected}', value, file_name=selected, key=f'mel_download_{rid}')
             if selected == 'preview.glb' and preview:
                 preview(value)
