@@ -12,6 +12,7 @@ from .capabilities import CAPABILITY
 from .contracts import (ArtifactIdentity, CandidateSpec, CheckResult, CheckState,
                         ComparisonLimit, EngineeringBrief, Measurement, Outcome)
 from .service import EngineeringUnavailable
+from .spec import MODEL, verifier_sources
 
 
 def report_checks(candidate: CandidateSpec, report: dict) -> tuple[CheckResult, ...]:
@@ -26,7 +27,7 @@ def report_checks(candidate: CandidateSpec, report: dict) -> tuple[CheckResult, 
             raise ValueError('Worker scope/identity/evidence mismatch')
         step = ArtifactIdentity(path='model.step', sha256=report['step_sha256'], bytes=report['step_bytes'])
         implementation = report['implementation_sha256']
-        if set(implementation) != {'verify.py', 'beam_fea.py', 'spec.py', 'solid_set.py'}:
+        if set(implementation) != {p.name for p in verifier_sources(candidate.specification.assumptions == MODEL)}:
             raise ValueError('Missing verifier identity')
         if any(len(v) != 64 or any(c not in '0123456789abcdef' for c in v) for v in implementation.values()):
             raise ValueError('Malformed verifier identity')

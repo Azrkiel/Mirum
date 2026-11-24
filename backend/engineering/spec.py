@@ -3,9 +3,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+
+from vendor.mirum_kernel.structural import Case, INBOARD, MODEL, prepare, resolve_region
+
+LEGACY_BEAM_MODEL = "ideal_clamp_end_force_linear_elastic"
+BeamModel = Literal[LEGACY_BEAM_MODEL, MODEL]
+REGION_FIELDS = ("load_region", "support_region")
 
 
 class CantileverSpec(BaseModel):
@@ -22,7 +29,14 @@ class CantileverSpec(BaseModel):
     tip_force_n: float = Field(gt=0, le=100000000)
     max_tip_deflection_mm: float = Field(gt=0, le=100)
     material_reference: str = Field(min_length=1, max_length=240)
-    assumptions: Literal['ideal_clamp_end_force_linear_elastic']
+    assumptions: BeamModel
+    load_region: str | None = Field(default=None, min_length=1, max_length=64)
+    support_region: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_serializer(mode='wrap')
+    def omit_absent_regions(self, serialize):
+        return omit_absent_regions(serialize(self))
+
 
     @model_validator(mode='after')
     def supported_envelope(self):
@@ -34,7 +48,39 @@ class CantileverSpec(BaseModel):
             raise ValueError('Deflection requirement must remain within 2 percent of span')
         if not self.material_reference.strip():
             raise ValueError('A user-approved material/allowable reference is required')
+        for role in ('load', 'support'):
+            ref = getattr(self, role + '_region')
+            if self.assumptions == MODEL:
+                resolve_region(role, ref)
+            elif ref is not None:
+                raise ValueError('Named boundary regions require the named-regions beam model')
+        if self.assumptions == MODEL and self.support_region == INBOARD:
+            if 0.75 * self.length_mm < 10 * self.height_mm:
+                raise ValueError('Free span must be at least ten times the bending depth')
         return self
+
+
+def omit_absent_regions(payload):
+    for name in REGION_FIELDS:
+        if payload.get(name) is None:
+            payload.pop(name, None)
+    return payload
+
+
+def structural_inputs(spec):
+    """Canonical idealized geometry, used after confirming the delivered prism by native reread."""
+    return prepare(Case(
+        span_m=spec.length_mm / 1000, width_m=spec.width_mm / 1000, depth_m=spec.height_mm / 1000,
+        youngs_modulus_pa=spec.youngs_modulus_mpa * 1e6, force_n=spec.tip_force_n,
+        load_region=spec.load_region, support_region=spec.support_region, units='SI'))
+
+
+def verifier_sources(named_regions):
+    base = Path(__file__).resolve().parent
+    kernel = base.parent / 'vendor' / 'mirum_kernel'
+    sources = (base / 'verify.py', kernel / 'beam_fea.py', base / 'spec.py',
+               base.parent / 'verification' / 'solid_set.py')
+    return (*sources, kernel / 'structural.py') if named_regions else sources
 
 
 def canonical_spec(spec: CantileverSpec) -> str:

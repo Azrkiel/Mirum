@@ -19,6 +19,7 @@ import unicodedata
 from dataclasses import dataclass
 
 from engineering.program.versions import MEL_COMPILER_VERSION, MEL_LANGUAGE_VERSION
+from vendor.mirum_kernel.structural import BoundaryError, MODEL, resolve_region
 
 from .diagnostics import MelError, Position, Span, make, snippet
 from .parser import parse
@@ -51,6 +52,10 @@ FIELDS: dict[str, tuple[str, tuple[str, ...], str | None]] = {
     'candidate_heights': ('quantity_list', ('candidate_heights_mm',), 'length'),
     'exports': ('string_list', (), None),
 }
+_REGION_FIELDS = {
+    'load_region': ('string', ('requirements', 'load_region'), None),
+    'support_region': ('string', ('requirements', 'support_region'), None),
+}
 # Frozen identity translation (LANGUAGE.md, F01): any other value is an error, never a default.
 SOURCE_KINDS = frozenset({'illustrative', 'user_supplied', 'documented'})
 # Requirement id (F02 bridge) -> MEL field, for spans.
@@ -59,7 +64,7 @@ REQUIREMENT_FIELDS = {
     'load.tip_force': 'tip_force', 'limit.max_tip_deflection': 'max_tip_deflection',
     'material.youngs_modulus': 'youngs_modulus', 'material.allowable_stress': 'allowable_stress',
     'material.reference': 'material_reference', 'material.source_kind': 'material_source_kind',
-    'model.assumptions': 'assumptions',
+    'model.assumptions': 'assumptions', 'load.region': 'load_region', 'support.region': 'support_region',
 }
 
 
@@ -207,6 +212,10 @@ def _resolve_schema(program: Program, guard: _Deadline) -> CapabilitySchema:
 
 def _normalize(program: Program, schema: CapabilitySchema, guard: _Deadline) -> dict:
     fields = schema.fields
+    if fields is FIELDS:
+        assumptions = program.get('assumptions')
+        if assumptions is not None and isinstance(assumptions.value, String) and assumptions.value.value == MODEL:
+            fields = {**fields, **_REGION_FIELDS}
     for a in program.assignments:
         guard.check(a.span, a.name)
         if a.name not in fields:
@@ -215,6 +224,9 @@ def _normalize(program: Program, schema: CapabilitySchema, guard: _Deadline) -> 
     missing = [name for name in fields if program.get(name) is None]
     if missing:
         # LANGUAGE.md (F01): a missing material_source_kind is MEL-S001, like any invalid value.
+        if missing[0] in _REGION_FIELDS:
+            raise _error('MEL-S023', f'boundary_missing: {missing[0]} is required',
+                         program.design_span, missing[0])
         code = 'MEL-S001' if missing[0] == 'material_source_kind' else 'MEL-S003'
         raise _error(code, f'Missing required field {missing[0]!r} (no defaults)', program.design_span,
                      missing[0])
@@ -361,6 +373,15 @@ def _compile_program(program: Program, data: bytes, source_id: str | None, guard
                                semantic_sha256=semantic_sha256(ir), brief_sha256=content.brief_sha256,
                                spans=spans)
 
+    requirements = payload['requirements']
+    if requirements.get('assumptions') == MODEL:
+        for role in ('load', 'support'):
+            name = role + '_region'
+            try:
+                resolve_region(role, requirements[name])
+            except BoundaryError as exc:
+                code = 'MEL-S022' if exc.diagnostic['code'] == 'boundary_ambiguous' else 'MEL-S023'
+                raise _error(code, str(exc)[:200], program.get(name).span, name) from None
     content, issues = BriefService(MemoryBriefRepository()).validate(payload)
     guard.check(program.design_span, 'design')
     if content is None or issues:

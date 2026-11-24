@@ -26,7 +26,8 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from engineering.contracts import EngineeringRun, Lifecycle, Outcome
-from engineering.spec import canonical_spec
+from engineering.spec import canonical_spec, structural_inputs
+from vendor.mirum_kernel.structural import MODEL, result_state
 
 from .adapters import adapter_for
 from .beam_bridge import brief_content_from_program
@@ -74,7 +75,9 @@ METHOD_SOURCES = (_PROGRAM_DIR / 'evidence.py', _PROGRAM_DIR / 'delivered.py',
                   _PROGRAM_DIR / 'adapters' / '_occt_measure.py', _PROGRAM_DIR / 'adapters' / 'occt.py',
                   _PROGRAM_DIR / 'adapters' / '_editable_plate_worker.py',
                   _PROGRAM_DIR.parent / 'editable_plate_adapter.py',
-                  _PROGRAM_DIR.parent.parent / 'vendor' / 'mirum_editable_plate.py')
+                  _PROGRAM_DIR.parent.parent / 'vendor' / 'mirum_editable_plate.py',
+                  _PROGRAM_DIR.parent.parent / 'vendor' / 'mirum_kernel' / 'structural.py',
+                  _PROGRAM_DIR.parent.parent / 'vendor' / 'mirum_kernel' / 'beam_fea.py')
 
 
 def compute_method_version(paths) -> str:
@@ -528,7 +531,7 @@ class DeliveredVerifier:
     def _plan(self, revision, ir, ctx: _Context) -> None:
         """The check plan, computed from reviewed inputs before any measurement."""
         try:
-            content = brief_content_from_program(ir)
+            content = brief_content_from_program(ir, design=ir.design)
             candidates = _candidates_from_content(content)
             plan = build_check_plan(ir, revision.lock, candidates, mesh_convention_pinned=True)
         except (ProgramError, ValidationError, ValueError):
@@ -607,6 +610,13 @@ class DeliveredVerifier:
             native = found[0]['native_report']
             if native['physics']['state'] != 'passed':
                 raise _mismatch()
+            if spec.specification.assumptions == MODEL:
+                analysis = native['structural_analysis']
+                if (result_state(structural_inputs(spec.specification), analysis) != 'passed'
+                        or analysis['samples'] != native['physics']['mesh_history']
+                        or native['spec_sha256'] != spec.candidate_sha256
+                        or native['step_sha256'] != hashlib.sha256(blobs['model.step']).hexdigest()):
+                    raise _mismatch()
             measured = native['measurements']
             return ReportInputs(physics_passed=True, section_iy_mm4=_number(measured['section_iy_mm4']),
                                 length_mm=_number(measured['length_mm']),

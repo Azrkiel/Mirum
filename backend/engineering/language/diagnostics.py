@@ -71,6 +71,8 @@ SEMANTIC = {
     'MEL-S019': 'Invalid program record',
     'MEL-S020': 'Dangling authored reference',
     'MEL-S021': 'Invalid plate dimension',
+    'MEL-S022': 'Ambiguous analysis boundary reference',
+    'MEL-S023': 'Missing analysis boundary reference',
 }
 # MEL-S code -> F02 IR code (None: no IR equivalent).
 MEL_S_IR_CODES = MappingProxyType({
@@ -79,6 +81,7 @@ MEL_S_IR_CODES = MappingProxyType({
     'MEL-S009': 'IR010', 'MEL-S010': 'IR010', 'MEL-S011': 'IR010', 'MEL-S012': 'IR010',
     'MEL-S013': 'IR010', 'MEL-S014': 'IR010', 'MEL-S015': 'IR010', 'MEL-S016': None,
     'MEL-S017': 'IR010', 'MEL-S018': None, 'MEL-S019': 'IR010', 'MEL-S020': 'IR004', 'MEL-S021': 'IR010',
+    'MEL-S022': 'IR010', 'MEL-S023': 'IR004',
 })
 
 HINTS = {
@@ -137,6 +140,8 @@ HINTS = {
     'MEL-S019': 'Check the field values; the program record built from them was invalid.',
     'MEL-S020': 'Use an authored datum in the plate program.',
     'MEL-S021': 'Use dimensions that keep all four bores separate and inside the plate.',
+    'MEL-S022': 'Select a single named end or support section.',
+    'MEL-S023': 'Name the free end for loading and one of the supported clamp sections.',
 }
 
 _SNIPPET = 64

@@ -82,7 +82,7 @@ def check_plan(ir, lock, status):
     from .evidence import build_check_plan
     from .planning import _candidates_from_content
 
-    candidates = _candidates_from_content(brief_content_from_program(ir))
+    candidates = _candidates_from_content(brief_content_from_program(ir, design=ir.design))
     return build_check_plan(ir, lock, candidates, mesh_convention_pinned=True)
 
 
