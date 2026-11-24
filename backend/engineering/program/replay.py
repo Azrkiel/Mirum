@@ -8,6 +8,7 @@ from pathlib import Path
 from zipfile import BadZipFile, ZIP_STORED, ZipFile
 
 from .client import ProgramClient
+from .interface import bounded_json_loads
 from .hashing import canonical_json, execution_lock_v0_2_sha256, semantic_sha256
 from .ir import load_execution_lock_json, load_program_json
 from .kernel import ExecutionLockV0_2, canonical_entries
@@ -35,7 +36,7 @@ def _bounded(path, maximum=MAX_BYTES):
     return data
 
 
-def _members(data, expected=None):
+def _members(data, expected=None, *, expanded_limit=MAX_BYTES):
     if not 0 < len(data) <= MAX_BYTES:
         raise ValueError('archive byte limit exceeded')
     with ZipFile(BytesIO(data)) as archive:
@@ -43,7 +44,7 @@ def _members(data, expected=None):
         names = {info.filename for info in infos}
         if (not 0 < len(infos) <= 32 or len(names) != len(infos)
                 or any(not name or '/' in name or '\\' in name or name in ('.', '..') for name in names)
-                or sum(info.file_size for info in infos) > MAX_BYTES
+                or sum(info.file_size for info in infos) > expanded_limit
                 or (expected is not None and names != set(expected))):
             raise ValueError('unexpected archive members or byte count')
         files = {}
@@ -60,7 +61,7 @@ def _small(files, name):
     raw = files[name]
     if len(raw) > MAX_METADATA:
         raise ValueError('metadata byte limit exceeded')
-    return json.loads(raw)
+    return bounded_json_loads(raw, max_bytes=MAX_METADATA, max_depth=32)
 
 
 def check_plan(ir, lock, status):
@@ -70,12 +71,23 @@ def check_plan(ir, lock, status):
 
         candidate, = generator_candidates(content_from_program(ir))
         return check_plan_record(status['semantic_sha256'], status['lock_sha256'], candidate)
+    if ir.capability.id == 'regen_chamber':
+        from .evidence import picogk_verified_check_plan
+        return picogk_verified_check_plan()
     from .beam_bridge import brief_content_from_program
     from .evidence import build_check_plan
     from .planning import _candidates_from_content
 
     candidates = _candidates_from_content(brief_content_from_program(ir))
     return build_check_plan(ir, lock, candidates, mesh_convention_pinned=True)
+
+
+
+def _delivered_files(data, ir):
+    from engineering.capabilities import REGEN
+
+    limit = REGEN.resources.run_bytes if ir.capability.id == REGEN.id else MAX_BYTES
+    return _members(data, expanded_limit=limit)
 
 
 
@@ -139,7 +151,7 @@ def replay(data):
         if (status['state'] != 'published' or evidence['verdict'] != 'verified'
                 or _digest(outer['delivery.zip']) != status['bundle']['zip_sha256']):
             raise ValueError('delivery does not match the verified revision')
-        delivery = _members(outer['delivery.zip'])
+        delivery = _delivered_files(outer['delivery.zip'], ir)
         delivery_manifest = _small(delivery, 'manifest.json')
         identities = {row['path']: row for row in delivery_manifest['payloads']}
         recorded = {row['path']: row['sha256'] for row in status['bundle']['payloads']}
@@ -154,11 +166,78 @@ def replay(data):
         step = next((name for name in ('model.step', 'generator-body.step') if name in delivery), None)
         if step and _digest(delivery[step]) != evidence['step_sha256']:
             raise ValueError('delivered STEP does not match the verification receipt')
+        if ir.capability.id == 'regen_chamber':
+            report = _small(delivery, 'generator-report.json')
+            if (report['stl_sha256'] != _digest(delivery['generator-cleaned.stl'])
+                    or report['spec_sha256'] != evidence['candidate_sha256']):
+                raise ValueError('archived STL or PicoGK preset differs from the verified delivery')
         return {'schema_version': VERSION, 'revision_id': status['revision_id'],
                 'semantic_sha256': status['semantic_sha256'], 'lock_sha256': status['lock_sha256'],
                 'check_plan_sha256': evidence['check_plan_sha256'], 'verified_files': sorted(identities)}
     except (KeyError, TypeError, BadZipFile, OSError) as exc:
         raise ValueError('malformed program replay package') from exc
+
+
+async def remeasure(data):
+    """Reread archived STEP under the exact reviewed native lock."""
+    from .adapters import adapter_for
+    from .kernel import Artifact, ArtifactRef
+    from .planning import PlanRefusal, adapter_for_program, lock_program, plan_program
+
+    evidence = replay(data)
+    contents = _members(data, (*MEMBERS, 'replay-manifest.json'))
+    receipt = _small(contents, 'receipt.json')
+    ir = load_program_json(contents['program-ir.json'])
+    lock = load_execution_lock_json(contents['execution-lock.json'])
+    from engineering.language.semantic import compile_source
+
+    compiled = compile_source(contents['program.mir'], source_id=ir.provenance.source_id)
+    planned = plan_program(compiled)
+    if isinstance(planned, PlanRefusal):
+        raise ValueError('archived plan is unavailable')
+    if ir.execution.backend == 'picogk':
+        from functools import partial
+        from tempfile import TemporaryDirectory
+        from engineering.regen_web import JobRunner
+
+        with TemporaryDirectory() as temporary:
+            adapter = adapter_for('picogk', runner=partial(JobRunner, Path(temporary)))
+    else:
+        adapter = adapter_for_program(adapter_for, compiled)
+    fresh = await lock_program(planned, adapter=adapter)
+    if fresh != lock:
+        raise ValueError('reviewed native lock is not available on this runtime')
+    job = receipt['evidence']
+    candidate = next(plan for plan in planned.plans if plan.candidate.candidate_sha256 == job['candidate_sha256'])
+    delivery = _delivered_files(contents['delivery.zip'], ir)
+    if ir.capability.id == 'equipment_bay':
+        from engineering.equipment_bay import KERNEL_REVISION
+        from engineering.equipment_bay_adapter import BOM, REPORT, STEP
+
+        output = await adapter.measure_bay(delivery[STEP], candidate)
+        report = output['report']
+        report.update(search=output['search'], kernel_revision=KERNEL_REVISION)
+        if (report['outcome'] != 'pass' or _json(report) != delivery[REPORT]
+                or _json(output['bom']) != delivery[BOM]):
+            raise ValueError('replayed bay differs from recorded numerical evidence')
+    elif ir.capability.id == 'regen_chamber':
+        path = 'generator-cleaned.stl'
+        artifact = Artifact(ArtifactRef(name=path, format='stl', representation='mesh',
+                                       sha256=_digest(delivery[path]), size=len(delivery[path]),
+                                       node_id='regen.geometry'), delivery[path])
+        result = await adapter.inspect(artifact, candidate, report=_small(delivery, 'generator-report.json'))
+        if result.outcome != 'consistent':
+            raise ValueError('replayed PicoGK mesh does not meet the reviewed reread limits')
+    else:
+        path = 'model.step'
+        artifact = Artifact(ArtifactRef(name=path, format='step', representation='brep',
+                                       sha256=_digest(delivery[path]), size=len(delivery[path]),
+                                       node_id='beam.solid'), delivery[path])
+        result = await adapter.inspect(artifact, candidate)
+        if result.outcome != 'consistent':
+            raise ValueError('replayed beam differs from the reviewed numerical limits')
+    return dict(evidence, native_reread='consistent')
+
 
 
 def main():
@@ -170,6 +249,7 @@ def main():
     create.add_argument('archive', type=Path)
     read = commands.add_parser('verify')
     read.add_argument('archive', type=Path)
+    read.add_argument('--measure', action='store_true')
     args = parser.parse_args()
     if args.command == 'capture':
         client = ProgramClient(os.environ['MIRUM_API_URL'], token=os.environ.get('MIRUM_ACCESS_TOKEN'))
@@ -177,7 +257,13 @@ def main():
         with args.archive.open('xb') as output:
             output.write(data)
     else:
-        print(json.dumps(replay(_bounded(args.archive)), sort_keys=True))
+        data = _bounded(args.archive)
+        if args.measure:
+            import asyncio
+            result = asyncio.run(remeasure(data))
+        else:
+            result = replay(data)
+        print(json.dumps(result, sort_keys=True))
 
 
 if __name__ == '__main__':

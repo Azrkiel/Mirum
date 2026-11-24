@@ -78,7 +78,7 @@ jobs:
             --tmpfs /tmp:rw,size=256m,mode=1777 --tmpfs /tmp/mirum:rw,size=256m,uid=10001,gid=10001,mode=0700 \
             -v "$volume:/tmp/mirum/engineering" -e MIRUM_ACCESS_TOKEN -e MIRUM_ENGINEERING_PROGRAMS=1 \
             -e GEMINI_API_KEY_HEAVY=offline-fixture-never-sent mirum-backend:release)
-          docker exec -i "$container" python - < scripts/phase3_bay_release.py \
+          docker exec -i -e BAY_SMOKE_PICOGK=1 "$container" python - < scripts/phase3_bay_release.py \
             | tee release-evidence/phase3-equipment-bay.json
 
       # Builds and smokes the Fly variant (stage fly) in a privileged container; never pushed here.

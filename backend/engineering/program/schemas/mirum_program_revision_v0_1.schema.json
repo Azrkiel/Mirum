@@ -231,6 +231,7 @@
             "enum": [
               "step",
               "glb",
+              "stl",
               "source",
               "brief",
               "specification",

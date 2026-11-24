@@ -54,7 +54,7 @@ MAX_ARGS = 64
 # Symbolic backend selectors (LANGUAGE.md: occt; FRAMEWORK.md: PicoGK) and the export formats the
 # beam capability produces (engineering.capabilities.CAPABILITY.exports; a test pins the equality).
 Backend = Literal['occt', 'picogk']
-ExportFormat = Literal['step', 'glb', 'source', 'brief', 'specification', 'attempts',
+ExportFormat = Literal['step', 'glb', 'stl', 'source', 'brief', 'specification', 'attempts',
                        'report_json', 'report_markdown', 'manifest', 'zip']
 
 

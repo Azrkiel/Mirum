@@ -210,9 +210,10 @@ def _results(client, revision, preview):
     if inspected['evidence']['status'] == 'present' or inspected['evidence'].get('run'):
         st.subheader('Revision evidence')
         st.json(inspected['evidence'], expanded=False)
-    fmt_by_file = {'model.step': 'step', 'preview.glb': 'glb', 'report.json': 'report',
-                   'generator-body.step': 'generator-body-step', 'generator-bom.json': 'generator-bom',
-                   'generator-report.json': 'generator-report'}
+    fmt_by_file = {'preview.glb': 'glb', 'generator-body.step': 'generator-body-step',
+                   'model.step': 'step', 'generator-cleaned.stl': 'generator-cleaned-stl',
+                   'generator-bom.json': 'generator-bom', 'generator-report.json': 'generator-report',
+                   'report.json': 'report'}
     if revision['artifacts'] == 'available':
         identities = {row['path']: row['sha256'] for row in revision['bundle']['payloads']}
         files = [name for name in fmt_by_file if name in identities]
@@ -221,7 +222,13 @@ def _results(client, revision, preview):
         identities['package.zip'] = revision['bundle']['zip_sha256']
         selected = st.selectbox('Revision artifact', files, key=f'mel_artifact_{rid}')
         if selected:
-            value = client.artifact(rid, fmt_by_file[selected])
+            cache = st.session_state.get('mel_artifact_cache')
+            identity = (rid, selected, identities[selected])
+            if cache and cache[0] == identity:
+                value = cache[1]
+            else:
+                value = client.artifact(rid, fmt_by_file[selected])
+                st.session_state['mel_artifact_cache'] = (identity, value)
             if sha256(value).hexdigest() != identities[selected]:
                 raise WorkspaceError(502, {'message': 'Artifact is not associated with this revision.'})
             st.download_button(f'Download {selected}', value, file_name=selected, key=f'mel_download_{rid}')
@@ -229,8 +236,12 @@ def _results(client, revision, preview):
                 preview(value)
             elif selected.endswith('.json'):
                 st.json(json.loads(value), expanded=False)
-    elif revision['state'] == 'rejected' and st.button('Read rejection report'):
-        st.json(json.loads(client.artifact(rid, 'report')), expanded=False)
+    else:
+        st.session_state.pop('mel_artifact_cache', None)
+        if revision['state'] == 'rejected' and st.button('Read rejection report'):
+            st.json(json.loads(client.artifact(rid, 'report')), expanded=False)
+        elif revision['artifacts'] == 'expired':
+            st.info('This revision’s package expired. Its evidence history is still available.')
 
 
 def _measured(client, revision):
@@ -240,9 +251,12 @@ def _measured(client, revision):
     rid = revision['revision_id']
     if 'generator-report.json' in names:
         report = json.loads(client.artifact(rid, 'generator-report'))
-        length, width = report['envelope']['measured_mm']
-        offsets = [row['offset_mm'] for row in report['mounting']['correspondences']]
-        return {'length_mm': length, 'width_mm': width, 'max_offset_mm': max(offsets)}
+        if 'envelope' in report:
+            length, width = report['envelope']['measured_mm']
+            offsets = [row['offset_mm'] for row in report['mounting']['correspondences']]
+            return {'length_mm': length, 'width_mm': width, 'max_offset_mm': max(offsets)}
+        return {key: value for key, value in report.get('checks', {}).get('volume', {}).items()
+                if type(value) in (int, float)}
     if 'report.json' in names:
         report = json.loads(client.artifact(rid, 'report'))
         return report['evaluations'][-1]['native_report']['measurements']

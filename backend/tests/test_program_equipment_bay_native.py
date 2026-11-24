@@ -145,7 +145,7 @@ def test_bay_interrupted_link_recovers_and_retry_preserves_artifacts(tmp_path, m
     with parity_app(tmp_path, monkeypatch, 'native', strict=True) as w:
         headers = http_headers(CLIENT)
         recovered = w.c.get(f'{V1}/revisions/{pending}', headers=headers).json()['revision']
-        assert recovered['state'] == 'failed'
+        assert recovered['state'] == 'cancelled'
         assert export(w, head, 'generator-body-step') == step
         assert export(w, head, 'generator-bom') == bom
         rebuilt = w.c.post(f'{V1}/revisions/{pending}/rebuild',

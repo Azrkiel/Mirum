@@ -146,10 +146,15 @@ def _plans(ir, candidates) -> tuple[BuildPlan, ...]:
 
 
 def generator_candidates(content):
-    from hashlib import sha256
+    if content.capability.id == 'regen_chamber':
+        from engineering.regen_spec import specification_digest
+        candidate_sha = specification_digest(content.descriptor.parse_spec(content.specification))
+    else:
+        from hashlib import sha256
+        candidate_sha = sha256(canonical_json(content.specification).encode()).hexdigest()
     return (GeneratorCandidate(content=content, brief_sha256=content.brief_sha256,
                                fixed_requirements_sha256=content.fixed_requirements_sha256,
-                               candidate_sha256=sha256(canonical_json(content.specification).encode()).hexdigest()),)
+                               candidate_sha256=candidate_sha),)
 
 
 def adapter_for_program(factory, compiled, *, mode='native'):
@@ -164,7 +169,8 @@ def _program_candidates(content):
 def _has_builder(compiled) -> bool:
     return (compiled.ir.capability.id == 'rectangular_cantilever'
             and isinstance(compiled.brief_content, BriefContent)) or (
-                compiled.ir.capability.id == BAY_ID and isinstance(compiled.brief_content, GeneratorBriefContent))
+                compiled.ir.capability.id in (BAY_ID, 'regen_chamber')
+                and isinstance(compiled.brief_content, GeneratorBriefContent))
 
 
 # ------------------------------------------------------------------ stage 5: plan (offline)

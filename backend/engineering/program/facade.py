@@ -369,7 +369,7 @@ class ProgramInterface:
         view = self._view(revision.revision_id, client)
         from engineering.contracts import GeneratorBriefContent, REVIEW_FIELDS
         content = self.briefs.repository.read(revision.draft_id).draft.content if (
-            revision.lock.capability_id == 'equipment_bay') else None
+            revision.lock.capability_id in ('equipment_bay', 'regen_chamber')) else None
         fields = content.review_fields if isinstance(content, GeneratorBriefContent) else REVIEW_FIELDS
         return api.StageResponse(revision=revision_status(view), review_fields=tuple(fields))
 

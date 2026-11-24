@@ -654,7 +654,7 @@ EQUIPMENT_BAY = GeneratorDescriptor(
     limitations=('Digital geometry criteria for two rows and a uniform 0° or 90° orientation',),
 )
 
-GENERATORS: tuple[GeneratorDescriptor, ...] = (DRAGSTER, REGEN, GLIDER, PLATE, EQUIPMENT_BAY)
+GENERATORS: tuple[GeneratorDescriptor, ...] = (DRAGSTER, REGEN, GLIDER, PLATE)
 
 
 def list_capabilities() -> tuple[CapabilityDescriptor | GeneratorDescriptor, ...]:
@@ -663,14 +663,14 @@ def list_capabilities() -> tuple[CapabilityDescriptor | GeneratorDescriptor, ...
 
 
 def get_generator(capability_id: str) -> GeneratorDescriptor | None:
-    return next((g for g in GENERATORS if g.id == capability_id), None)
+    return next((g for g in (*GENERATORS, EQUIPMENT_BAY) if g.id == capability_id), None)
 
 
 def get_capability(capability_id: str, version: str, *,
                    numerical_policy_version: str = 'beam_numerical_v1',
                    resource_policy_version: str = 'engineering_resources_v1'
                    ) -> CapabilityDescriptor | GeneratorDescriptor:
-    for descriptor in list_capabilities():
+    for descriptor in (*list_capabilities(), EQUIPMENT_BAY):
         numerical = (descriptor.numerical.version if isinstance(descriptor, CapabilityDescriptor)
                      else descriptor.numerical_version)
         resources = descriptor.resources.version

@@ -1,5 +1,6 @@
 """Native release-image smoke of the equipment-bay through ProgramInterface HTTP."""
 
+import asyncio
 from pathlib import Path
 from hashlib import sha256
 import json
@@ -7,7 +8,7 @@ import os
 import time
 
 from engineering.program.client import ClientError, ProgramClient, TransportError
-from engineering.program.replay import capture, replay
+from engineering.program.replay import capture, remeasure
 
 SOURCE = Path(os.environ.get('BAY_SMOKE_SOURCE', '/app/backend/engineering/fixtures/equipment_bay/nominal.mir'))
 URL = os.environ.get('BAY_SMOKE_URL', 'http://127.0.0.1:8000')
@@ -18,12 +19,12 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
-def run(client, stage):
+def run(client, stage, *, seconds=180):
     revision = stage.revision
     rid = revision.revision_id
     client.review(rid, revision.brief_sha256, stage.review_fields, 'native image smoke')
     client.run(rid)
-    stop = time.monotonic() + 180
+    stop = time.monotonic() + seconds
     while time.monotonic() < stop:
         status = client.status(rid).revision
         if status.result_kind != 'pending':
@@ -55,7 +56,7 @@ def main():
     good = json.loads(client.export(rid, 'generator-report').data)
     require(good['envelope']['measured_mm'] == [480.0, 250.0] and good['mounting']['counts']['pass'] == 40,
             'nominal measurements changed')
-    archive = replay(capture(client, rid))
+    archive = asyncio.run(remeasure(capture(client, rid)))
     bad_source = source.replace(b'"nominal"', b'"supplier-shifted"')
     shifted = run(client, client.stage(program, bad_source, source_id='equipment-bay.mir',
                                        expected_parent=rid,
@@ -69,10 +70,24 @@ def main():
             and client.export(rid, 'generator-body-step').data == step
             and client.export(rid, 'generator-bom').data == bom,
             'rejection altered the accepted head or bytes')
+    pico_evidence = None
+    if os.environ.get('BAY_SMOKE_PICOGK') == '1':
+        source_path = SOURCE.parent.parent / 'picogk' / 'reference.mir'
+        pico_program = client.program_create().program_id
+        pico = run(client, client.stage(pico_program, source_path.read_bytes(), source_id='picogk-reference.mir'),
+                   seconds=420)
+        require(pico.state == 'published', f'PicoGK revision {pico.state}: {pico.reason}')
+        inspected = client.inspect(pico.revision_id).evidence
+        require(inspected.verdict == 'verified' and inspected.claim_scope == 'geometry_checks_only'
+                and inspected.step_sha256 is None,
+                'PicoGK evidence must verify the STL within its geometry scope')
+        pico_evidence = {'claim_scope': inspected.claim_scope, 'verdict': inspected.verdict,
+                         'checks': [check.check_id for check in inspected.checks],
+                         'replay': asyncio.run(remeasure(capture(client, pico.revision_id)))}
     print(json.dumps({
         'native_versions': good['tool_versions'], 'nominal_envelope_mm': good['envelope']['measured_mm'],
         'nominal_matches': good['mounting']['counts'], 'substitution_matches': bad['mounting']['counts'],
-        'step_sha256': evidence.step_sha256, 'replay': archive,
+        'step_sha256': evidence.step_sha256, 'replay': archive, 'picogk': pico_evidence,
     }, indent=2, sort_keys=True))
 
 

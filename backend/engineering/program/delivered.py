@@ -282,6 +282,9 @@ class DeliveredVerifier:
         if ir.capability.id == 'equipment_bay':
             ctx.claim_scope = 'geometry_checks_only'
             return await self._verify_bay(revision, ir, ctx)
+        if ir.capability.id == 'regen_chamber':
+            ctx.claim_scope = 'geometry_checks_only'
+            return await self._verify_regen(revision, ir, ctx)
         self._plan(revision, ir, ctx)
         run = self._read_run(revision)
         bundle = run.bundle
@@ -322,6 +325,54 @@ class DeliveredVerifier:
                 glb_sha256=ctx.glb_sha256, method_version=method_version())
         except (ValidationError, ValueError):
             raise _unavailable() from None
+
+    async def _verify_regen(self, revision, ir, ctx):
+        from engineering.capabilities import REGEN
+        from engineering.regen_adapter import REPORT, SPEC, STL
+        from engineering.regen_spec import canonical_spec
+        from .evidence import evidence_from_picogk_inspect
+        from .hashing import execution_lock_v0_2_sha256, semantic_sha256
+        from .planning import generator_candidates
+        from .regen_bridge import content_from_program
+
+        content = content_from_program(ir)
+        if (content.brief_sha256 != revision.brief_sha256
+                or content.fixed_requirements_sha256 != revision.fixed_requirements_sha256
+                or semantic_sha256(ir) != revision.semantic_sha256
+                or execution_lock_v0_2_sha256(revision.lock) != revision.lock_sha256):
+            raise _unavailable('lock_mismatch')
+        run = self._read_run(revision)
+        candidate, = generator_candidates(content)
+        if run.selected_candidate_sha256 != candidate.candidate_sha256 or run.attempts[-1].candidate != candidate:
+            raise _mismatch()
+        ctx.candidate_sha256 = candidate.candidate_sha256
+        ctx.manifest_sha256 = run.bundle.manifest_sha256
+        await asyncio.to_thread(self.publisher.validate, revision.job_id, run.bundle)
+        payloads = (('generator-cleaned-stl', STL, REGEN.resources.run_bytes),
+                    ('generator-report', REPORT, MAX_JSON_BYTES),
+                    ('generator-spec-canonical', SPEC, MAX_JSON_BYTES))
+        blobs = await asyncio.to_thread(self._lease_all, revision.job_id, run.bundle, payloads)
+        spec = REGEN.parse_spec(content.specification)
+        if blobs[SPEC] != canonical_spec(spec).encode():
+            raise _mismatch()
+        stl_sha = hashlib.sha256(blobs[STL]).hexdigest()
+        report = parse_json_bounded(blobs[REPORT], MAX_JSON_BYTES)
+        if report['stl_sha256'] != stl_sha or report['spec_sha256'] != candidate.candidate_sha256:
+            raise _mismatch()
+        adapter = self.adapter_factory('picogk')
+        if getattr(adapter, 'mode', None) != 'native':
+            raise _unavailable('mock_backend')
+        plan = _plans(ir, (candidate,))[0]
+        artifact = Artifact(ArtifactRef(name=STL, format='stl', representation='mesh', sha256=stl_sha,
+                                       size=len(blobs[STL]), node_id='regen.geometry'), blobs[STL])
+        async with self._semaphore:
+            measured = await adapter.inspect(artifact, plan, report=report)
+        return evidence_from_picogk_inspect(
+            measured, revision_id=revision.revision_id, job_id=revision.job_id,
+            candidate_sha256=candidate.candidate_sha256, manifest_sha256=ctx.manifest_sha256,
+            method_version=method_version(), voxel_size_mm=spec.voxel_size_mm,
+            report_volume_mm3=report['checks']['volume']['measured_mm3'],
+            native_versions=revision.lock.backend_lock.native_versions)
 
     async def _verify_bay(self, revision, ir, ctx):
         from engineering.equipment_bay_adapter import BOM, METHOD, REPORT, STEP, EquipmentBayAdapter

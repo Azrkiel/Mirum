@@ -962,6 +962,18 @@ def _label_plan_sha256(scope: str, capability, checks) -> str:
                  'numerical_version': capability.numerical_version, 'checks': shape})
 
 
+def picogk_verified_check_plan():
+    """Fixed shape of the PicoGK geometry-only verified plan."""
+    return {'claim_scope': 'geometry_checks_only', 'capability_id': REGEN.id,
+            'capability_version': REGEN.version, 'numerical_version': REGEN.numerical_version,
+            'checks': [
+                {'check_id': 'geometry.bounds', 'limits': ['policy:regen.BBOX_TOLERANCE_VOXELS']},
+                {'check_id': 'geometry.volume', 'limits': ['policy:regen.VOLUME_TOLERANCE']},
+                *({'check_id': f'{category}.not_evaluated', 'limits': []}
+                  for category in ('physics', 'manufacturing', 'standards')),
+            ]}
+
+
 def _label_record(scope, capability, checks, *, revision_id, job_id, candidate_sha256, manifest_sha256,
                   method_version, native_versions) -> DeliveredEvidence:
     checks = tuple(checks) + _not_evaluated_entries(method_version)

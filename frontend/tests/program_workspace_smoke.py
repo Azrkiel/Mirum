@@ -51,16 +51,58 @@ def resume(page, key):
     expect(page.get_by_text(f'Program ID {key}', exact=True)).to_be_visible(timeout=30_000)
 
 
+def beam_flow(page, url):
+    open_editor(page, url)
+    action(page, 'Create program')
+    action(page, 'Stage source')
+    expect(page.get_by_text('Revision state: staged', exact=True)).to_be_visible(timeout=30_000)
+    review(page)
+    settle(page, 'published')
+    selected = page.get_by_text(re.compile(r'^[a-f0-9]{12} · published$')).first
+    first = selected.text_content().split()[0]
+    expect(page.locator('iframe').first.content_frame.locator('#renderCanvas')).to_be_visible(timeout=20_000)
+
+    page.get_by_text('AI-assisted beam proposal', exact=True).click()
+    prompt = page.get_by_role('textbox', name='Describe a beam revision')
+    prompt.fill('Try the same reviewed beam with a single candidate.')
+    prompt.press('Tab')
+    action(page, 'Request AI draft')
+    expect(page.get_by_text('Program request failed.', exact=True)).to_be_visible(timeout=30_000)
+    action(page, 'Load selected revision source')
+    source_field = page.get_by_role('textbox', name='MEL source')
+    source_field.fill(source_field.input_value().replace('[5 mm, 10 mm, 15 mm]', '[20 mm]'))
+    source_field.press('Tab')
+    action(page, 'Stage source')
+    action(page, 'Cancel revision')
+    settle(page, 'cancelled')
+    action(page, 'Stage source')
+    review(page)
+    settle(page, 'published')
+
+    page.get_by_role('combobox', name='Revision', exact=True).click()
+    page.get_by_text(re.compile(f'^{first} · published$')).last.click()
+    page.get_by_text('Restore this saved revision as the accepted head.', exact=True).click()
+    action(page, 'Restore selected revision')
+    expect(page.get_by_text('Revision state: published', exact=True)).to_be_visible(timeout=30_000)
+
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--url', default='http://127.0.0.1:8528')
     parser.add_argument('--browser', default='/usr/bin/chromium')
     parser.add_argument('--screenshot', type=Path)
+    parser.add_argument('--beam', action='store_true', help='exercise captured GLB, unavailable AI, cancel and restore')
     args = parser.parse_args()
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=args.browser, args=['--no-sandbox'])
         page = browser.new_page()
         try:
+            if args.beam:
+                beam_flow(page, args.url)
+                print(json.dumps({'browser': browser.version, 'preview': 'saved GLB',
+                                  'provider': 'unavailable', 'cancel': 'passed', 'restore': 'passed'}))
+                return
             open_editor(page, args.url)
             textarea = page.get_by_role('textbox', name='MEL source')
             textarea.fill('invalid source')
@@ -80,7 +122,7 @@ def main():
             expect(page.get_by_text('Revision state: staged', exact=True)).to_be_visible(timeout=30_000)
             review(page)
             settle(page, 'published')
-            expect(page.get_by_role('button', name='Download generator-body.step')).to_be_visible()
+            expect(page.get_by_text('Download generator-body.step', exact=True)).to_be_visible()
             action(other, 'Refresh revision status')
             expect(other.get_by_text(re.compile('The accepted head changed'))).to_be_visible(timeout=30_000)
             expect(other.get_by_role('button', name='Stage source')).to_be_disabled()

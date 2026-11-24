@@ -83,7 +83,15 @@ _BAY_FIELDS = {
     'supplier': ('string', ('specification', 'supplier'), None),
 }
 
+_REGEN_FIELDS = {
+    **{name: FIELDS[name] for name in ('capability', 'capability_version', 'backend',
+                                      'numerical_policy', 'resource_policy', 'exports')},
+    'preset': ('string', ('specification', 'preset'), None),
+}
+
 CAPABILITY_SCHEMAS = {
+    ('regen_chamber', '1.0.0'): CapabilitySchema(
+        fields=_REGEN_FIELDS, backends=('picogk',), exports=('stl',), max_candidates=1),
     ('equipment_bay', '1.0.0'): CapabilitySchema(
         fields=_BAY_FIELDS, backends=('occt',), exports=('step',), max_candidates=1),
     (CAPABILITY_ID, CAPABILITY_VERSION): CapabilitySchema(
@@ -174,6 +182,9 @@ def _resolve_schema(program: Program, guard: _Deadline) -> CapabilitySchema:
         values.append(_string(name, a.value, a.span))
     capability, version = values
     schema = CAPABILITY_SCHEMAS.get((capability, version))
+    if schema is not None and schema.fields is _REGEN_FIELDS and program.get('preset') is None:
+        raise _error('MEL-S011', 'PicoGK MEL requires the registered release preset',
+                     program.get('capability').span, 'capability')
     if schema is None:
         known = {c for c, _ in CAPABILITY_SCHEMAS}
         name = 'capability_version' if capability in known else 'capability'
@@ -245,7 +256,7 @@ def _normalize(program: Program, schema: CapabilitySchema, guard: _Deadline) -> 
             payload.setdefault('__exports', tuple(converted))
         else:
             _set(payload, path, converted)
-    if schema.fields is _BAY_FIELDS:
+    if schema.fields is _BAY_FIELDS or schema.fields is _REGEN_FIELDS:
         payload['schema_version'] = 'engineering_generator_brief_v1'
     else:
         payload['requirements']['units'] = 'mm_N_MPa'
@@ -283,6 +294,25 @@ def _compile_program(program: Program, data: bytes, source_id: str | None, guard
     payload = _normalize(program, schema, guard)
     backend = payload.pop('__backend')
     exports = payload.pop('__exports')
+
+    if schema.fields is _REGEN_FIELDS:
+        from engineering.program.regen_bridge import PRESET, capability_reference, preset_content, program_for
+        if payload['capability'] != capability_reference().model_dump():
+            raise _error('MEL-S015', 'PicoGK capability or policy version mismatch', program.design_span, 'capability')
+        preset = program.get('preset')
+        if payload['specification']['preset'] != PRESET:
+            raise _error('MEL-S015', 'use the registered PicoGK release reference', preset.span, 'preset')
+        content = preset_content()
+        source_hash = source_sha256(data)
+        provenance = ProgramProvenance(kind='language', source_sha256=source_hash, source_id=source_id)
+        ir = program_for(content, program.design, provenance,
+                         preset_span=SourceSpan(**_span_dict(preset.span, source_id)),
+                         source_span=SourceSpan(**_span_dict(program.block_span, source_id)))
+        guard.check(program.design_span, 'design')
+        spans = tuple((a.name, a.span) for a in program.assignments) + (('design', program.block_span),)
+        return CompiledProgram(ir=ir, brief_content=content, source_sha256=source_hash,
+                               semantic_sha256=semantic_sha256(ir), brief_sha256=content.brief_sha256,
+                               spans=spans)
 
     if schema.fields is _BAY_FIELDS:
         from engineering.program.bay_bridge import capability_reference, content_for, program_for, content_from_program
