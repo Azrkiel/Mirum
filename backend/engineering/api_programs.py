@@ -17,11 +17,12 @@ never run with lifespan=).
 
 Nothing here logs an exception text, a path or an id.
 """
+import asyncio
 import logging
 import os
 
 from fastapi import APIRouter, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 # slowapi's RateLimitExceeded subclasses starlette's HTTPException (fastapi's is a subclass of it too): catch the base
 # so a 429 from the limiter becomes a busy envelope, not the catch-all 503.
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -30,12 +31,65 @@ from .api_v1 import CheckedRoute
 from .program import interface as api
 from .program.interface import InterfaceFailure
 
-__all__ = ['PROGRAMS_ENV', 'programs_enabled', 'create_program_runtime', 'attach_program_routes']
+__all__ = ['PROGRAMS_ENV', 'EXPORT_CONCURRENCY_ENV', 'programs_enabled', 'create_program_runtime',
+           'attach_program_routes']
 
 _LOG = logging.getLogger(__name__)
 PROGRAMS_ENV = 'MIRUM_ENGINEERING_PROGRAMS'
 _TRUE = frozenset({'1', 'true', 'yes', 'on'})
 _JSON_MEDIA = 'application/json'
+# M1: bundle exports (up to 128 MiB for generator-cleaned-stl) are capped process-wide. Over the cap the
+# request is refused at once with the admission_busy envelope (429 + Retry-After), never queued.
+EXPORT_CONCURRENCY_ENV = 'MIRUM_PROGRAM_EXPORT_CONCURRENCY'
+EXPORT_CONCURRENCY_DEFAULT = 2
+EXPORT_CONCURRENCY_MAX = 16
+EXPORT_RETRY_AFTER_SECONDS = 2
+
+
+def export_concurrency(environ=None) -> int:
+    """Size of the export gate from the environment: an integer in 1..16, else the default (2)."""
+    env = os.environ if environ is None else environ
+    raw = str(env.get(EXPORT_CONCURRENCY_ENV, '')).strip()
+    if raw.isascii() and raw.isdigit() and 1 <= int(raw) <= EXPORT_CONCURRENCY_MAX:
+        return int(raw)
+    return EXPORT_CONCURRENCY_DEFAULT
+
+
+class ExportGate:
+    """A non-blocking counting gate. The event loop is single threaded, so a plain counter is race free;
+    release() is idempotent per slot (a slot is a one-shot callable)."""
+
+    def __init__(self, size: int):
+        self.size = size
+        self.active = 0
+
+    def try_enter(self):
+        """A one-shot release callable, or None when every slot is taken."""
+        if self.active >= self.size:
+            return None
+        self.active += 1
+        done = []
+
+        def release():
+            if not done:
+                done.append(True)
+                self.active -= 1
+        return release
+
+
+class _ExportResponse(StreamingResponse):
+    """Streams an export and always releases the gate slot and the artifact lease: after the last byte, on a
+    client disconnect, on cancellation and on a mid-stream error."""
+
+    def __init__(self, content, release, **kwargs):
+        super().__init__(content, **kwargs)
+        self._release = release
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._release()
 
 
 def programs_enabled(environ=None) -> bool:
@@ -300,15 +354,52 @@ def attach_program_routes(app, limiter):
             return await face.diff(api.parse_model(api.DiffRequest, dict(data, revision_id=rid)), client=client)
         return await serve(request, call)
 
+    gate = ExportGate(export_concurrency())
+
     async def revision_export(request: Request, rid: str, fmt: str):
         async def call(face, client):
             if not api.is_export_format(fmt):
                 raise InterfaceFailure(api.not_found())
-            result = await face.export(api.ExportRequest(revision_id=rid, fmt=fmt), client=client)
-            meta = result.metadata
-            return Response(content=result.data, media_type=meta.content_type, headers={
+            # Source formats are tiny and never hold a lease: only bundle artifacts take a slot.
+            slot = None
+            if fmt not in api.EXPORT_SOURCE_FORMATS:
+                slot = gate.try_enter()
+                if slot is None:
+                    raise InterfaceFailure(api.busy('admission_busy', retry_after=EXPORT_RETRY_AFTER_SECONDS))
+            stream = None
+            try:
+                stream = await face.export_stream(api.ExportRequest(revision_id=rid, fmt=fmt), client=client)
+            except BaseException:
+                if slot is not None:
+                    slot()
+                raise
+            meta = stream.metadata
+
+            def release():
+                try:
+                    stream.close()
+                finally:
+                    if slot is not None:
+                        slot()
+
+            async def body():
+                blocks = stream.blocks()
+                try:
+                    while True:
+                        block = await asyncio.to_thread(next, blocks, None)
+                        if block is None:
+                            break
+                        yield block
+                finally:
+                    try:
+                        blocks.close()
+                    except ValueError:  # a worker thread is still inside next(): release() closes the file
+                        pass
+
+            return _ExportResponse(body(), release, media_type=meta.content_type, headers={
                 'Cache-Control': 'no-store',
                 'Content-Disposition': 'attachment; filename="%s"' % meta.filename,
+                'Content-Length': str(meta.size_bytes),
                 'X-Content-SHA256': meta.sha256})
         return await serve(request, call)
 
