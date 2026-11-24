@@ -311,11 +311,12 @@ def step_mel(w):
 def published_facts(w, rid):
     inspected = w.req('GET', '/revisions/%s/evidence' % rid)
     spec = w.req('GET', '/revisions/%s/artifacts/spec' % rid)
-    assert inspected.status == 200 and spec.status == 200
+    attempts = w.req('GET', '/revisions/%s/artifacts/attempts' % rid)
+    assert inspected.status == 200 and spec.status == 200 and attempts.status == 200
     evidence = inspected.json['evidence']
-    run = evidence.get('run') or {}
+    # attempts.json is the delivered, ordered attempt list that F07 verification rereads (delivered.py).
     return dict(verdict=evidence.get('verdict'), status=evidence.get('status'),
-                attempt_outcomes=[a['outcome'] for a in sorted(run.get('attempts', ()), key=lambda a: a['ordinal'])],
+                attempt_outcomes=[a['outcome'] for a in json.loads(attempts.raw)],
                 height_mm=json.loads(spec.raw)['height_mm'], manifest_sha256=evidence.get('manifest_sha256'))
 
 
