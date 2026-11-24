@@ -6,7 +6,7 @@ Branch: engineering/checked-design-v1. Added against 603b0e4b7b860ea39e81ceed1c5
 
 Build Mirum's own engineering execution framework and **Mirum Engineering Language (MEL)**: a versioned declarative .mir language describing supported objects, physical requirements, design choices and requested evidence. Compile it into typed engineering programs executed through registered geometry backends.
 
-Own engineering runtime: yes. Own parser, type checker, compiler and language semantics: yes, in F04/F05. New mathematical solid-modeling kernel: a separate optional research decision in F11. “Any kernel” means an extensible adapter protocol; a backend becomes usable only after its specific operations, representations, tolerances, runtime and claims have been qualified.
+Own engineering runtime: yes. Own parser, type checker, compiler and language semantics: yes, in F04/F05. New mathematical solid-modeling kernel: yes, by owner decision at F11 (2026-11-24), staged and gated in the [native kernel roadmap](NATIVE-KERNEL-ROADMAP.md). “Any kernel” means an extensible adapter protocol; a backend becomes usable only after its specific operations, representations, tolerances, runtime and claims have been qualified.
 
 ## Position in the existing plan
 

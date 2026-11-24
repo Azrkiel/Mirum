@@ -13,9 +13,11 @@ Optional research; not required for F01–F10 release.
 4. Write a go/no-go decision and separately scoped implementation roadmap; no experimental backend enters production or inherits existing acceptance.
 
 ## Accepted end result
-- [ ] The decision distinguishes Mirum's engineering runtime from a new solid-modeling kernel.
-- [ ] A go decision has measurable targets and a bounded prototype/evidence plan; a no-go is a valid completed research outcome.
-- [ ] No claim that this research task delivers a general-purpose production geometry kernel.
+Closed 2026-11-24 with an owner go decision. [Decision](../handoffs/F11.md) · [Roadmap](../NATIVE-KERNEL-ROADMAP.md)
+
+- [x] The decision distinguishes Mirum's engineering runtime from a new solid-modeling kernel.
+- [x] A go decision has measurable targets and a bounded prototype/evidence plan; a no-go is a valid completed research outcome.
+- [x] No claim that this research task delivers a general-purpose production geometry kernel.
 
 ## Verification and integration
 Exercise the task behavior with independent positive/negative fixtures. Applicable release checks: P04, P05 in [ACCEPTANCE.md](../ACCEPTANCE.md). Native adapters require real native evidence; mock paths are labelled explicitly. Use the B01/B14 reproduced runtime and applicable security review instructions.
