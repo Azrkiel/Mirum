@@ -230,6 +230,7 @@ def test_escaped_printable_non_ascii_is_still_a_string():
 def test_requirement_map_covers_every_bridge_requirement():
     from engineering.language.lower_beam import REQUIREMENT_FIELDS
     from engineering.program.beam_bridge import _REGION_REQUIREMENTS, _REQUIREMENTS
+    # The M3 structural model (#148) adds the optional load/support region requirements.
     assert set(REQUIREMENT_FIELDS) == {rid for rid, _ in _REQUIREMENTS + _REGION_REQUIREMENTS}
 
 

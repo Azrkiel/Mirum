@@ -137,8 +137,9 @@ def test_journal_events_allowlist():
 
 def test_refusal_reasons_exact():
     assert REFUSAL_REASONS == ('stale_parent', 'requirements_changed', 'not_restorable', 'already_current',
-                              'history_expired', 'artifacts_expired', 'artifacts_missing', 'artifacts_altered',
-                              'record_altered', 'review_expired', 'capacity')
+                               'history_expired',
+                               'artifacts_expired', 'artifacts_missing', 'artifacts_altered',
+                               'record_altered', 'review_expired', 'capacity')
 
 
 @pytest.mark.parametrize('reason', REFUSAL_REASONS)
