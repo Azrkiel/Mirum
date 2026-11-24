@@ -229,8 +229,8 @@ def test_escaped_printable_non_ascii_is_still_a_string():
 
 def test_requirement_map_covers_every_bridge_requirement():
     from engineering.language.lower_beam import REQUIREMENT_FIELDS
-    from engineering.program.beam_bridge import _REQUIREMENTS
-    assert set(REQUIREMENT_FIELDS) == {rid for rid, _ in _REQUIREMENTS}
+    from engineering.program.beam_bridge import _REGION_REQUIREMENTS, _REQUIREMENTS
+    assert set(REQUIREMENT_FIELDS) == {rid for rid, _ in _REQUIREMENTS + _REGION_REQUIREMENTS}
 
 
 @pytest.mark.parametrize('bad', ['', '../x.mir', 'a/../b', '/abs.mir', 'a//b', 'C:' + BS + 'x', 'a b', 'x' * 129,
