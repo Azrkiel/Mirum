@@ -229,7 +229,7 @@ class BriefService:
             return Provenance(record_id=uuid4().hex, created_at=datetime.now(timezone.utc),
                               input_mode='form', field_origins=tuple(origins))
         origins = []
-        for name in REVIEW_FIELDS:
+        for name in content.review_fields if content is not None else REVIEW_FIELDS:
             path = name.split('.') if name in ('mode', 'candidate_heights_mm') else ['requirements', *name.split('.')]
             value = payload
             for part in path:

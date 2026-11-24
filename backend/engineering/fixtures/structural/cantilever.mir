@@ -1,0 +1,23 @@
+language mirum "0.1";
+design m3_cantilever {
+  capability = "rectangular_cantilever";
+  capability_version = "1.0.0";
+  backend = "occt";
+  numerical_policy = "beam_numerical_v1";
+  resource_policy = "engineering_resources_v1";
+  length = 0.20 m;
+  width = 0.020 m;
+  dimensional_tolerance = 0.01 mm;
+  tip_force = 1 N;
+  max_tip_deflection = 1 mm;
+  youngs_modulus = 70 GPa;
+  allowable_stress = 120 MPa;
+  material_reference = "Illustrative 70 GPa benchmark material";
+  material_source_kind = "illustrative";
+  assumptions = "named_regions_end_force_linear_elastic";
+  load_region = "beam.free_end";
+  support_region = "beam.root_section";
+  mode = "fixed_design";
+  candidate_heights = [0.004 m];
+  exports = ["step", "glb"];
+}

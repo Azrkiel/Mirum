@@ -290,7 +290,10 @@ def reasons_of(record):
 # --------------------------------------------------------------------------- method version, constants
 
 def test_method_version_covers_exactly_three_files():
-    assert [p.name for p in dv.METHOD_SOURCES] == ['evidence.py', 'delivered.py', '_occt_measure.py', 'occt.py']
+    assert [p.name for p in dv.METHOD_SOURCES] == [
+        'evidence.py', 'delivered.py', '_occt_measure.py', 'occt.py', '_editable_plate_worker.py',
+        'editable_plate_adapter.py', 'mirum_editable_plate.py', 'structural.py', 'beam_fea.py',
+    ]
     assert all(p.is_file() for p in dv.METHOD_SOURCES)
     assert dv.METHOD_SOURCES[0].parent == PROGRAM and dv.METHOD_SOURCES[2].parent == PROGRAM / 'adapters'
     assert dv.METHOD_SOURCES[3].parent == PROGRAM / 'adapters'

@@ -11,7 +11,9 @@ from importlib.metadata import PackageNotFoundError, version
 import math
 from pathlib import Path
 
-from .spec import CantileverSpec, specification_digest
+from vendor.mirum_kernel.structural import MODEL, SOLVER_METHOD, analyze
+
+from .spec import CantileverSpec, specification_digest, structural_inputs, verifier_sources
 from .beam_fea import solve_cantilever
 
 
@@ -153,17 +155,29 @@ def verify_step(step_path: str, spec: CantileverSpec) -> dict:
                                       volume_mm3=volume, surface_area_mm2=area,
                                       section_area_mm2=properties.Mass(), section_iy_mm4=inertia)
         report['design_intent']['state'] = 'passed'
-        solutions = [solve_cantilever(length_mm=length, width_mm=width, height_mm=height,
-                     youngs_modulus_mpa=spec.youngs_modulus_mpa, tip_force_n=spec.tip_force_n,
-                     second_moment_mm4=inertia, elements=n) for n in (4, 8, 16)]
+        named_regions = spec.assumptions == MODEL
+        if named_regions:
+            analysis = analyze(structural_inputs(spec))
+            report['structural_analysis'] = analysis
+            solutions = analysis['samples']
+            analytic_displacement = analysis['analytical_tip_displacement_mm']
+            free_span = spec.length_mm * (1 - analysis['inputs']['support']['span_fraction'])
+            analytic_stress = spec.tip_force_n * free_span * spec.height_mm / (2 * solutions[-1]['second_moment_mm4'])
+        else:
+            solutions = [solve_cantilever(length_mm=length, width_mm=width, height_mm=height,
+                         youngs_modulus_mpa=spec.youngs_modulus_mpa, tip_force_n=spec.tip_force_n,
+                         second_moment_mm4=inertia, elements=n) for n in (4, 8, 16)]
+            analytic_displacement = spec.tip_force_n * length**3 / (3*spec.youngs_modulus_mpa*inertia)
+            analytic_stress = spec.tip_force_n * length * height / (2*inertia)
         last, previous = solutions[-1], solutions[-2]
         convergence = max(abs(last[key]-previous[key]) / abs(last[key])
                           for key in ('tip_displacement_mm', 'root_bending_stress_mpa'))
-        analytic_displacement = spec.tip_force_n * length**3 / (3*spec.youngs_modulus_mpa*inertia)
-        analytic_stress = spec.tip_force_n * length * height / (2*inertia)
         benchmark_error = max(abs(last['tip_displacement_mm']/analytic_displacement-1),
                               abs(last['root_bending_stress_mpa']/analytic_stress-1))
-        physics = dict(state='failed', method='euler_bernoulli_beam_fem_v1', units='mm_N_MPa',
+        method = SOLVER_METHOD if named_regions else 'euler_bernoulli_beam_fem_v1'
+        boundary = (f'{spec.support_region} ideal clamp; +Z end force at {spec.load_region}'
+                    if named_regions else 'X=0 ideal clamp; +Z end force at X=L')
+        physics = dict(state='failed', method=method, units='mm_N_MPa',
                        mesh_history=solutions, solution=last, relative_mesh_change=convergence,
                        mesh_converged=convergence <= 1e-7,
                        analytic_benchmark_passed=benchmark_error <= 1e-7,
@@ -171,7 +185,7 @@ def verify_step(step_path: str, spec: CantileverSpec) -> dict:
                        max_tip_deflection_mm=spec.max_tip_deflection_mm,
                        allowable_stress_mpa=spec.allowable_stress_mpa,
                        material_reference=spec.material_reference,
-                       boundary_conditions='X=0 ideal clamp; +Z end force at X=L')
+                       boundary_conditions=boundary)
         report['physics'] = physics
         require('mesh_convergence', physics['mesh_converged'], 'Beam mesh convergence failed',
                 [('relative_mesh_change', convergence, 'ratio', 'le', 1e-7)])
@@ -211,9 +225,7 @@ def verify_step(step_path: str, spec: CantileverSpec) -> dict:
                 report['versions'][key] = version(package)
             except PackageNotFoundError:
                 report['versions'][key] = 'unavailable'
-        sources = [Path(__file__), Path(__file__).with_name('beam_fea.py'),
-                   Path(__file__).with_name('spec.py'),
-                   Path(__file__).parents[1] / 'verification' / 'solid_set.py']
+        sources = verifier_sources(spec.assumptions == MODEL)
         report['implementation_sha256'] = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
                                            for path in sources}
     return report

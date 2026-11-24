@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from engineering.capabilities import CAPABILITY
 from engineering.contracts import BriefContent
+from engineering.spec import MODEL
 
 from .errors import ProgramError
 from .ir import (
@@ -41,6 +42,7 @@ _REQUIREMENTS: tuple[tuple[str, str], ...] = (
     ('material.source_kind', 'text'),
     ('model.assumptions', 'text'),
 )
+_REGION_REQUIREMENTS = (('load.region', 'text'), ('support.region', 'text'))
 _UNIT = {'length': 'mm', 'force': 'N', 'pressure': 'MPa'}
 
 
@@ -72,14 +74,18 @@ def program_from_brief_content(content: BriefContent, *, provenance: ProgramProv
         'material.source_kind': mat.source_kind,  # frozen identity translation
         'model.assumptions': req.assumptions,
     }
+    fields = _REQUIREMENTS
+    if req.assumptions == MODEL:
+        fields += _REGION_REQUIREMENTS
+        raw.update({'load.region': req.load_region, 'support.region': req.support_region})
     requirements = []
-    for rid, kind in _REQUIREMENTS:
+    for rid, kind in fields:
         if kind == 'text':
             value = TextValue(kind='text', text=raw[rid])
         else:
             value = normalize(raw[rid], _UNIT[kind], kind, field=rid)
         requirements.append(Requirement(id=rid, value=value))
-    ids = tuple(rid for rid, _ in _REQUIREMENTS)
+    ids = tuple(rid for rid, _ in fields)
     analysis = tuple(
         AnalysisPlanRef(id='check.' + _suffix(c), check=c, requirement_refs=(*ids, HEIGHT_ID))
         for c in content.required_checks)
@@ -130,12 +136,17 @@ def brief_content_from_program(ir: ProgramIR, *, design: str | None = None) -> B
     if (cap.id, cap.version) != (CAPABILITY.id, CAPABILITY.version):
         raise ProgramError('IR010', f'capability {cap.id}@{cap.version} is not the beam capability',
                            'capability.id')
-    known = {rid for rid, _ in _REQUIREMENTS}
     by_id = {r.id: r for r in ir.requirements.requirements}
+    model = by_id.get('model.assumptions')
+    fields = _REQUIREMENTS
+    named = model is not None and _text(model) == MODEL
+    if named:
+        fields += _REGION_REQUIREMENTS
+    known = {rid for rid, _ in fields}
     for r in ir.requirements.requirements:
         if r.id not in known:
             raise ProgramError('IR002', f'requirement {r.id!r} is not a beam requirement', r.id, r.span)
-    for rid, _ in _REQUIREMENTS:
+    for rid, _ in fields:
         if rid not in by_id:
             raise ProgramError('IR004', f'missing requirement {rid!r}', rid)
     params = {p.id: p for p in ir.candidates.parameters}
@@ -159,7 +170,7 @@ def brief_content_from_program(ir: ProgramIR, *, design: str | None = None) -> B
     # The legacy brief cannot carry any of the following; anything but the bridge's canonical mapping
     # is rejected rather than silently dropped. List order is not semantic (hashes sort), so it is
     # normalized by the bridge; names, references, flags and execution are not.
-    canonical_refs = sorted((*(rid for rid, _ in _REQUIREMENTS), HEIGHT_ID))
+    canonical_refs = sorted((*(rid for rid, _ in fields), HEIGHT_ID))
     for i, a in enumerate(ir.analysis):
         if a.id != 'check.' + _suffix(a.check):
             raise ProgramError('IR010', f'analysis id {a.id!r} is not the canonical id for check {a.check!r}',
@@ -214,6 +225,9 @@ def brief_content_from_program(ir: ProgramIR, *, design: str | None = None) -> B
         'candidate_heights_mm': heights,
         'required_checks': checks,
     }
+    if named:
+        payload['requirements'].update(load_region=_text(by_id['load.region']),
+                                       support_region=_text(by_id['support.region']))
     try:
         return BriefContent.model_validate_json(json.dumps(payload, allow_nan=False))
     except ValidationError as exc:
