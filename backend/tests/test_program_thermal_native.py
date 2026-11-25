@@ -118,3 +118,62 @@ def test_thermal_review_verification_and_archive(tmp_path, monkeypatch):
                 rejected_revision=tight_id, rejected_clearance=diagnostic['analysis']['stages']['clearance'],
                 archive_sha256=hashlib.sha256(package).hexdigest(), replay=archived,
             ), indent=2, sort_keys=True) + '\n', encoding='utf-8')
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='native subprocess isolation requires POSIX')
+def test_thermal_retention_restores_verified_bytes_after_expiry(tmp_path, monkeypatch):
+    from engineering.capabilities import CAPABILITY
+    from engineering.program.retention import retire_program, restore_revision
+    from engineering.store import SQLiteStore
+
+    archive_root = tmp_path / 'archive'
+    archive_root.mkdir()
+    monkeypatch.setenv('MIRUM_ENGINEERING_PROGRAM_ARCHIVE_DIR', str(archive_root))
+    with parity_app(tmp_path, monkeypatch, 'native', strict=True) as world:
+        pid = world.c.post(f'{V1}/programs', headers=http_headers(CLIENT)).json()['program_id']
+        rid = review(world, stage(world, pid, SOURCE))
+        assert run(world, rid)['state'] == 'published'
+        client = ProgramClient(BASE, token=TOKEN, transport=bridge(world, CLIENT))
+        package = capture(client, rid)
+        automatic_path = archive_root / '.captures' / pid / f'{rid}.zip'
+        automatic = automatic_path.read_bytes()
+        assert replay(automatic) == replay(package)
+        package = automatic
+        store_root = world.service.store.root
+        clock = lambda: world.service.clock() + CAPABILITY.resources.state_retention_seconds + 1
+        with world.service.store.transaction() as db:
+            db.execute('UPDATE publications SET expires=0')
+            db.execute('UPDATE jobs SET expires=0')
+        world.service.publisher.cleanup()
+        with world.service.store.transaction() as db:
+            assert world.service.revision_store.compact(db, now=clock()) > 0
+        with pytest.raises(ValueError, match='capture needs an available'):
+            capture(client, rid)
+    store = SQLiteStore(store_root)
+    try:
+        misplaced = tmp_path / 'temporarily-unavailable.zip'
+        automatic_path.rename(misplaced)
+        with pytest.raises(ValueError, match='missing replay'):
+            retire_program(store, pid, archive_root, clock=clock)
+        misplaced.rename(automatic_path)
+        archive = retire_program(store, pid, archive_root, clock=clock)
+        assert not automatic_path.exists()
+        with store.transaction() as db:
+            assert db.execute('SELECT id FROM programs WHERE id=?', (pid,)).fetchone() is None
+            assert db.execute('SELECT revision_id FROM program_evidence WHERE revision_id=?',
+                              (rid,)).fetchone() is None
+    finally:
+        store.close()
+
+    restored = tmp_path / 'restored.zip'
+    assert restore_revision(archive, rid, restored) == replay(package)
+    assert restored.read_bytes() == package
+    with pytest.raises(FileExistsError):
+        restore_revision(archive, rid, restored)
+    assert asyncio.run(remeasure(restored.read_bytes()))['native_reread'] == 'consistent'
+
+    saved = archive / f'{rid}.zip'
+    saved.write_bytes(saved.read_bytes()[:-1])
+    with pytest.raises(ValueError, match='digest'):
+        restore_revision(archive, rid, tmp_path / 'corrupt.zip')
+    assert not (tmp_path / 'corrupt.zip').exists()

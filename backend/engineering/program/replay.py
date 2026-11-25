@@ -103,11 +103,22 @@ def capture(client, revision_id):
     status, evidence = snapshot['revision'], snapshot['evidence']
     if status['state'] != 'published' or status['artifacts'] != 'available' or evidence['verdict'] != 'verified':
         raise ValueError('capture needs an available, verified published revision')
+    return build_replay(
+        status, evidence,
+        source=client.export(revision_id, 'program-source').data,
+        ir_json=client.export(revision_id, 'program-ir').data,
+        lock_json=client.export(revision_id, 'execution-lock').data,
+        delivery=client.export(revision_id, 'zip').data,
+    )
+
+
+def build_replay(status, evidence, *, source, ir_json, lock_json, delivery):
+    """Create the same verified replay from a pinned revision's in-process inputs."""
     fetched = {
-        'program.mir': client.export(revision_id, 'program-source').data,
-        'program-ir.json': client.export(revision_id, 'program-ir').data,
-        'execution-lock.json': client.export(revision_id, 'execution-lock').data,
-        'delivery.zip': client.export(revision_id, 'zip').data,
+        'program.mir': source,
+        'program-ir.json': ir_json,
+        'execution-lock.json': lock_json,
+        'delivery.zip': delivery,
         'receipt.json': _json({'revision': status, 'evidence': evidence}),
     }
     ir = load_program_json(fetched['program-ir.json'])

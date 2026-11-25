@@ -289,7 +289,7 @@ RESULT_KINDS = ('published', 'rejected', 'unavailable', 'verification_failed', '
                 'cancelled', 'conflict')
 ResultKind = Literal['published', 'rejected', 'unavailable', 'verification_failed', 'pending', 'failed',
                      'cancelled', 'conflict']
-_UNAVAILABLE_REASONS = frozenset({'delivered_evidence_unavailable', 'job_unavailable'})
+_UNAVAILABLE_REASONS = frozenset({'archive_unavailable', 'delivered_evidence_unavailable', 'job_unavailable'})
 _VERIFICATION_REASONS = frozenset({'delivered_check_failed', 'delivered_unverified',
                                    'delivered_evidence_stale', 'delivered_binding_ambiguous'})
 
