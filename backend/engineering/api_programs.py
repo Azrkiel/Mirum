@@ -235,6 +235,7 @@ def create_program_runtime(engineering):
     try:
         from .program.facade import ProgramInterface, ProgramQuota
         from .program.transactions import RevisionService
+        from .program.retention import ARCHIVE_DIR_ENV, PublicationArchive
         from .program.adapters import adapter_for
         from .editable_plate import CAPABILITY_ID as PLATE_ID
         from .editable_plate_adapter import EditablePlateAdapter
@@ -248,8 +249,11 @@ def create_program_runtime(engineering):
                 options['runner'] = getattr(regen, '_runner', None)
             return adapter_for(backend, **options)
 
+        archive_dir = os.environ.get(ARCHIVE_DIR_ENV)
+        archive = PublicationArchive(engineering.store, archive_dir) if archive_dir else None
         service = RevisionService(engineering.store, engineering.jobs, engineering.publisher,
-                                  engineering.briefs, adapter_factory=registered)
+                                  engineering.briefs, adapter_factory=registered,
+                                  publication_archive=archive)
         engineering.jobs.generators.setdefault(BAY_ID, EquipmentBayAdapter())
         engineering.jobs.generators.setdefault(PLATE_ID, EditablePlateAdapter())
         engineering.jobs.generators.setdefault(THERMAL_ID, ThermalBarAdapter())

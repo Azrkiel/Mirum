@@ -1145,10 +1145,10 @@ def gate_world(hw, clock, *, adapter=None, timeout_s=5.0):
     return hw
 
 
-def gate_service(hw, clock, verifier):
+def gate_service(hw, clock, verifier, **options):
     jobs = SimpleNamespace(store=hw.store, publisher=hw.pub, wait=_no_wait)
     briefs = SimpleNamespace(repository=SimpleNamespace(store=hw.store))
-    return RevisionService(hw.store, jobs, hw.pub, briefs, clock=clock, verifier=verifier)
+    return RevisionService(hw.store, jobs, hw.pub, briefs, clock=clock, verifier=verifier, **options)
 
 
 def insert_running(hw, svc, pid, rid=REV1):
@@ -1297,6 +1297,51 @@ def test_a_compacted_payload_skips_verification_and_fails_unverified(hw, clock):
     rev = settled(svc, REV1)
     assert rev.state == 'failed' and rev.reason == DELIVERED_UNVERIFIED
     assert hw.verifier.calls == 0 and head_of(hw) is None
+
+
+def test_durable_archive_failure_cannot_publish_a_verified_revision(hw, clock):
+    gate_world(hw, clock)
+
+    def unavailable(*args):
+        assert head_of(hw) is None
+        raise OSError('archive storage unavailable')
+
+    svc = gate_service(hw, clock, hw.verifier,
+                       publication_archive=SimpleNamespace(save=unavailable, discard=lambda rev: None))
+    pid = svc.create_program(CH)
+    insert_running(hw, svc, pid)
+    result = settled(svc, REV1)
+    assert result.state == 'failed' and result.reason == 'archive_unavailable'
+    assert evidence_rows(hw) == 1
+    assert head_of(hw) is None
+    assert 'published' not in event_names(svc, pid)
+
+
+def test_durable_archive_and_head_recover_after_interrupted_commit(hw, clock, monkeypatch):
+    gate_world(hw, clock)
+    saved = []
+    archive = SimpleNamespace(save=lambda revision, *_: saved.append(revision), discard=lambda rev: None)
+    svc = gate_service(hw, clock, hw.verifier, publication_archive=archive)
+    pid = svc.create_program(CH)
+    insert_running(hw, svc, pid)
+    assert asyncio.run(hw.verifier.verify(state_of(svc, REV1), hw.ir)).verdict == 'verified'
+
+    def interrupt(point):
+        assert point == 'before_settle_commit'
+        raise RuntimeError('interrupted commit')
+
+    with monkeypatch.context() as scope:
+        scope.setattr(svc, '_crash_point', interrupt)
+        with pytest.raises(RuntimeError, match='interrupted commit'):
+            svc.settle(REV1)
+    assert head_of(hw) is None
+    assert state_of(svc, REV1).state == 'running'
+    assert len(saved) == 1 and saved[0].state == 'published'
+
+    published = svc.settle(REV1, recovered=True)
+    assert len(saved) == 2 and published == saved[-1]
+    assert head_of(hw) == REV1
+    assert event_names(svc, pid) == ['published', 'recovered']
 
 
 def test_verification_cannot_accept_a_rejection(hw, clock):

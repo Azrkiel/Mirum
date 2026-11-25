@@ -34,7 +34,7 @@ from .planning import (
 )
 from .hashing import execution_lock_v0_2_sha256, semantic_sha256
 from .ir import load_execution_lock_json, load_program_json
-from .revision_store import RevisionStore
+from .revision_store import RevisionStore, published_revision
 from .revisions import (
     ProgramRevision, RevisionDiff, RevisionRefusal, RevisionView, build_payload, diff, evidence_from_run,
 )
@@ -52,7 +52,7 @@ def _utc(ts: float) -> datetime:
 
 class RevisionService:
     def __init__(self, store, jobs, publisher, briefs, adapter_factory=adapter_for, *, clock=time.time,
-                 verifier=_DEFAULT):
+                 verifier=_DEFAULT, publication_archive=None):
         if getattr(getattr(briefs, 'repository', None), 'store', None) is not store:
             raise ValueError('briefs must use the same store')
         if getattr(jobs, 'store', None) is not store or getattr(jobs, 'publisher', None) is not publisher:
@@ -65,6 +65,10 @@ class RevisionService:
         self.clock = clock
         # F07 D9: a monotone gate. Default is the real verifier (fail closed); None disables it (F06 behaviour).
         self.verifier = DeliveredVerifier(store, publisher, adapter_factory) if verifier is _DEFAULT else verifier
+        if publication_archive is not None and self.verifier is None:
+            raise ValueError('publication archival requires delivered verification')
+        self.publication_archive = publication_archive
+        self._archive_lock = threading.Lock()
         self.revision_store = RevisionStore(store, clock=clock)
         self._tasks: dict[str, asyncio.Task] = {}
         self._admitting: Counter = Counter()
@@ -394,7 +398,16 @@ class RevisionService:
                     raise
                 except Exception as exc:  # settle still runs and fails closed (delivered_unverified)
                     self.last_settle_error = exc
-            self.settle(revision_id)
+            if self.publication_archive is None:
+                self.settle(revision_id)
+            else:
+                work = asyncio.create_task(asyncio.to_thread(self.settle, revision_id))
+                try:
+                    await asyncio.shield(work)
+                finally:
+                    # Shutdown must let the owned disk operation leave the store before closing it.
+                    if not work.done():
+                        await work
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # the revision stays running; recovery (task 5) or a later settle finishes it
@@ -433,35 +446,72 @@ class RevisionService:
     # ------------------------------------------------------------------ settle
 
     def settle(self, revision_id, *, recovered=False, validation_problem=None) -> ProgramRevision:
-        """D6: finish a running revision from its terminal job, in ONE store transaction.
+        """Finish a terminal job with a single transactional head move.
 
-        ``recovered`` and ``validation_problem`` are used by recover() only: the former journals a
-        'recovered' entry in the same transaction, the latter (a failed full validation done before the
-        transaction) turns an otherwise accepted job into a failed revision."""
-        rs = self.revision_store
-        with self.store.transaction() as db:
-            got = rs.get(db, revision_id) if type(revision_id) is str else None
-            if got is None:
-                raise KeyError('Unknown revision')
-            rev, cancel, _ = got
-            if rev.state != 'running':
-                return rev
+        When archival is configured, save a prospective publication outside the write
+        transaction. Recheck the exact record and verification evidence at promotion.
+        Both normal execution and startup recovery use this path.
+        """
+        if self.publication_archive is None:
+            return self._settle(revision_id, recovered, validation_problem)
+        with self._archive_lock:
+            archived = self._prepare_archive(revision_id, validation_problem)
+            result = self._settle(revision_id, recovered, validation_problem, archived)
+            if result.state not in ('staged', 'running', 'published'):
+                try:
+                    self.publication_archive.discard(result)
+                except (OSError, ValueError) as exc:
+                    self.last_settle_error = exc
+            return result
+
+    def _settle_inputs(self, db, revision_id):
+        got = self.revision_store.get(db, revision_id) if type(revision_id) is str else None
+        if got is None:
+            raise KeyError('Unknown revision')
+        rev, cancel, payload = got
+        run = None
+        if rev.state == 'running':
             row = db.execute('SELECT record FROM jobs WHERE id=?', (rev.job_id,)).fetchone()
-            run = None
             if row is not None:
                 try:
                     run = parse_run(row['record'])
                 except ValueError:
                     run = False
-                if run and run.lifecycle not in TERMINAL:
-                    return rev
-            result = self._decide(db, rev, cancel, row is None, run, validation_problem)
+        return rev, cancel, payload, run
+
+    def _prepare_archive(self, revision_id, validation_problem):
+        with self.store.transaction() as db:
+            rev, cancel, payload, run = self._settle_inputs(db, revision_id)
+            if (rev.state != 'running' or cancel or payload is None or not run
+                    or run.lifecycle.value != 'completed' or run.outcome.value != 'accepted'):
+                return None
+            program = self.revision_store.program(db, rev.program_id)
+            if program['head'] != rev.parent:
+                return None
+            problem, evidence = self._verified_publication(db, rev, run, validation_problem)
+            if problem is not None:
+                return None
+            preview = published_revision(rev, program['head_seq'] + 1, run.bundle, max(self._now(), rev.updated_at))
+        try:
+            self.publication_archive.save(preview, payload, evidence, self.publisher)
+        except (OSError, KeyError, ValueError) as exc:
+            self.last_settle_error = exc
+            return None
+        return preview, evidence_sha256(evidence)
+
+    def _settle(self, revision_id, recovered, validation_problem, archived=None):
+        with self.store.transaction() as db:
+            rev, cancel, _payload, run = self._settle_inputs(db, revision_id)
+            if rev.state != 'running' or (run and run.lifecycle not in TERMINAL):
+                return rev
+            result = self._decide(db, rev, cancel, run, validation_problem, archived)
             if recovered:
-                rs.append_journal(db, result.program_id, result.revision_id, 'recovered', {'state': result.state})
+                self.revision_store.append_journal(db, result.program_id, result.revision_id,
+                                                   'recovered', {'state': result.state})
             self._crash_point('before_settle_commit')
             return result
 
-    def _decide(self, db, rev, cancel, job_missing, run, validation_problem=None) -> ProgramRevision:
+    def _decide(self, db, rev, cancel, run, validation_problem, archived) -> ProgramRevision:
         rs = self.revision_store
 
         def finish(state, event, reason):
@@ -472,31 +522,48 @@ class RevisionService:
 
         if cancel or (run and run.lifecycle.value == 'cancelled'):
             return finish('cancelled', 'cancelled', 'cancelled')
-        if job_missing:
+        if run is None:
             return finish('failed', 'failed', 'job_missing')
         if run is False:
             return finish('failed', 'failed', 'job_record_invalid')
         if run.lifecycle.value == 'completed' and run.outcome.value == 'accepted':
-            problem = self._acceptance_problem(rev, run) or validation_problem
-            detail = {'job_id': rev.job_id}
-            if problem is None and self.verifier is not None:
-                # F07 D7/D8: a verified row bound to this job, bundle and method version, read in THIS
-                # transaction. Journal detail keys allow only [a-z_], so 'evidence_hash' carries the sha256.
-                problem = self.verifier.evidence.match_problem(
-                    db, rev.revision_id, job_id=rev.job_id, bundle=run.bundle,
-                    method_version=delivered.method_version())
-                if problem is None:
-                    detail['evidence_hash'] = evidence_sha256(self.verifier.evidence.get(db, rev.revision_id))
+            problem, evidence = self._verified_publication(db, rev, run, validation_problem)
             if problem is not None:
                 return finish('failed', 'failed', problem)
-            promoted = rs.promote(db, rev, expected_head=rev.parent, bundle=run.bundle,
-                                  now=max(self._now(), rev.updated_at), detail=detail)
+            detail = {'job_id': rev.job_id}
+            if evidence is not None:
+                detail['evidence_hash'] = evidence_sha256(evidence)
+            now = max(self._now(), rev.updated_at)
+            if self.publication_archive is not None:
+                program = rs.program(db, rev.program_id)
+                if program['head'] != rev.parent:
+                    return finish('conflict', 'conflict', 'stale_parent')
+                if archived is None:
+                    return finish('failed', 'failed', 'archive_unavailable')
+                preview, evidence_hash = archived
+                now = preview.updated_at
+                if (preview != published_revision(rev, program['head_seq'] + 1, run.bundle, now)
+                        or evidence_hash != detail['evidence_hash']):
+                    return finish('failed', 'failed', 'archive_unavailable')
+            promoted = rs.promote(db, rev, expected_head=rev.parent, bundle=run.bundle, now=now, detail=detail)
             if promoted is None:
                 return finish('conflict', 'conflict', 'stale_parent')
             return promoted
         if run.lifecycle.value == 'completed' and run.outcome.value == 'rejected':
             return finish('rejected', 'rejected', 'rejected_by_policy')
         return finish('failed', 'failed', 'job_unavailable')
+
+    def _verified_publication(self, db, rev, run, validation_problem):
+        problem = self._acceptance_problem(rev, run) or validation_problem
+        evidence = None
+        if problem is None and self.verifier is not None:
+            # The verified row must still match the job, bundle and current method version.
+            problem = self.verifier.evidence.match_problem(
+                db, rev.revision_id, job_id=rev.job_id, bundle=run.bundle,
+                method_version=delivered.method_version())
+            if problem is None:
+                evidence = self.verifier.evidence.get(db, rev.revision_id)
+        return problem, evidence
 
     def _acceptance_problem(self, rev, run) -> str | None:
         bundle = getattr(run, 'bundle', None)

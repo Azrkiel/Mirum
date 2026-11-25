@@ -35,6 +35,9 @@ _REVISION_COLUMNS = ('id', 'program_id', 'parent', 'kind', 'derived_from', 'evid
                      'cancel', 'published_seq', 'job_id', 'brief_id', 'record', 'payload', 'reason',
                      'created', 'updated')
 
+_JOURNAL_NO_DELETE = '''CREATE TRIGGER IF NOT EXISTS program_journal_no_delete BEFORE DELETE ON program_journal
+        BEGIN SELECT RAISE(ABORT,'append-only'); END'''
+
 _SCHEMA = (
     '''CREATE TABLE IF NOT EXISTS programs(
         id TEXT PRIMARY KEY, client TEXT NOT NULL, head TEXT, head_seq INTEGER NOT NULL DEFAULT 0,
@@ -55,8 +58,7 @@ _SCHEMA = (
         event TEXT NOT NULL, detail TEXT NOT NULL, created REAL NOT NULL)''',
     '''CREATE TRIGGER IF NOT EXISTS program_journal_no_update BEFORE UPDATE ON program_journal
         BEGIN SELECT RAISE(ABORT,'append-only'); END''',
-    '''CREATE TRIGGER IF NOT EXISTS program_journal_no_delete BEFORE DELETE ON program_journal
-        BEGIN SELECT RAISE(ABORT,'append-only'); END''',
+    _JOURNAL_NO_DELETE,
 )
 
 
@@ -70,6 +72,11 @@ def _columns(rev: ProgramRevision) -> dict:
 
 def _utc(ts: float) -> datetime:
     return datetime.fromtimestamp(ts, tz=timezone.utc)
+
+
+def published_revision(revision, seq, bundle, now):
+    return ProgramRevision.model_validate(dict(
+        revision.model_dump(), state='published', published_seq=seq, bundle=bundle, updated_at=now))
 
 
 class RevisionStore:
@@ -99,6 +106,17 @@ class RevisionStore:
         if row is None:
             raise KeyError('Unknown program')
         return row
+
+    def retire(self, db, program_id: str) -> None:
+        """Remove one history after the operator has durably archived and rechecked it."""
+        db.execute('DELETE FROM program_evidence WHERE revision_id IN '
+                   '(SELECT id FROM program_revisions WHERE program_id=?)', (program_id,))
+        # SQLite rolls back the trigger change with the data on interruption.
+        db.execute('DROP TRIGGER program_journal_no_delete')
+        db.execute('DELETE FROM program_journal WHERE program_id=?', (program_id,))
+        db.execute(_JOURNAL_NO_DELETE)
+        db.execute('DELETE FROM program_revisions WHERE program_id=?', (program_id,))
+        db.execute('DELETE FROM programs WHERE id=?', (program_id,))
 
     # ------------------------------------------------------------------ journal
 
@@ -211,8 +229,7 @@ class RevisionStore:
         if cur.rowcount != 1:
             return None
         seq = db.execute('SELECT head_seq FROM programs WHERE id=?', (revision.program_id,)).fetchone()[0]
-        published = ProgramRevision.model_validate(dict(
-            revision.model_dump(), state='published', published_seq=seq, bundle=bundle, updated_at=now))
+        published = published_revision(revision, seq, bundle, now)
         if not self._cas(db, published, expected_state='running', event='published', detail=detail):
             raise RuntimeError('Revision left running inside its own promotion transaction')
         return published
