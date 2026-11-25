@@ -80,7 +80,7 @@ class WorkspaceClient:
         self.base = backend.rstrip('/') + _BASE
         self.headers = headers
 
-    def request(self, method, path, *, source=None, source_id=None, body=None, parent=None, guard=None, artifact_bytes=0):
+    def request(self, method, path, *, source=None, source_id=None, body=None, parent=None, guard=None, artifact_bytes=0, expected_sha=None):
         headers = self.headers()
         if source is not None:
             headers = {**headers, 'Content-Type': 'application/vnd.mirum.mel'}
@@ -95,17 +95,21 @@ class WorkspaceClient:
                                         allow_redirects=False, timeout=(5, 90), stream=True)
             with response:
                 limit = artifact_bytes if artifact_bytes and response.ok else 1024**2
-                chunks, length = [], 0
+                # One growing buffer and a running digest: no chunk list, no join copy.
+                data, digest = bytearray(), sha256()
                 for chunk in response.iter_content(65536):
-                    length += len(chunk)
-                    if length > limit:
+                    if len(data) + len(chunk) > limit:
                         raise WorkspaceError(502, {'message': 'Response exceeded the workspace size limit.'})
-                    chunks.append(chunk)
-                data = b''.join(chunks)
+                    data += chunk
+                    digest.update(chunk)
                 if response.ok and artifact_bytes:
-                    if sha256(data).hexdigest() != response.headers.get('X-Content-SHA256'):
+                    claimed = response.headers.get('X-Content-SHA256')
+                    if digest.hexdigest() != claimed:
                         raise WorkspaceError(502, {'message': 'Downloaded bytes failed the fingerprint check.'})
-                    return data
+                    # Fail closed: the verified header digest must be the revision record's digest.
+                    if expected_sha is not None and claimed != expected_sha:
+                        raise WorkspaceError(502, {'message': 'Artifact is not associated with this revision.'})
+                    return bytes(data)
                 value = json.loads(data)
                 if not response.ok:
                     raise WorkspaceError(response.status_code, value)
@@ -115,9 +119,19 @@ class WorkspaceClient:
                 raise
             raise WorkspaceError(503, {'message': 'The program service could not be reached.'}) from None
 
-    def artifact(self, revision, fmt):
+    def artifact(self, revision, fmt, expected_sha=None):
         limit = _PICO_STL_BYTES if fmt == 'generator-cleaned-stl' else _EXPORT_BYTES
-        return self.request('GET', f'/revisions/{revision}/artifacts/{fmt}', artifact_bytes=limit)
+        return self.request('GET', f'/revisions/{revision}/artifacts/{fmt}', artifact_bytes=limit,
+                            expected_sha=expected_sha)
+
+
+def _artifact_value(client, rid, fmt, name, expected_sha, state):
+    """Fetch one artifact for this render only. The session keeps just its verified identity, never the
+    bytes (a 128 MiB artifact must not sit in every viewer's session); a rerun fetches it again."""
+    # The client has verified the bytes against X-Content-SHA256 and that header against expected_sha.
+    value = client.artifact(rid, fmt, expected_sha=expected_sha)
+    state['mel_artifact_cache'] = ((rid, name, expected_sha), expected_sha)
+    return value
 
 
 def _source_from_beam(content):
@@ -141,7 +155,39 @@ def _source_from_beam(content):
     return '\n'.join((*statements, f'  candidate_heights = [{heights}];', '}', ''))
 
 
+_CLICK_TO_FETCH = ('.glb', '.step', '.stl', '.zip')
+
+
+def _needs_click(name):
+    """Large binary artifacts are fetched only when the user asks, never on every Streamlit rerun."""
+    return name.endswith(_CLICK_TO_FETCH)
+
+
+def _should_fetch(state, identity, clicked):
+    """Whether this render fetches the selected artifact. Small files always; a large binary only after a
+    click, and then on the reruns a download click triggers (Streamlit 1.39 has no on_click="ignore"), until
+    another artifact is chosen. Only the identity is remembered, never bytes."""
+    if not _needs_click(identity[1]):
+        state.pop('mel_prepared', None)
+        return True
+    if clicked:
+        state['mel_prepared'] = identity
+    elif state.get('mel_prepared') != identity:
+        state.pop('mel_prepared', None)
+    return state.get('mel_prepared') == identity
+
+
+def _busy_message(error):
+    if isinstance(error, WorkspaceError) and error.status == 429 and error.details.get('code') == 'admission_busy':
+        return 'Exports are busy right now. Retry in a moment.'
+    return None
+
+
 def _show_error(error):
+    busy = _busy_message(error)
+    if busy:
+        st.info(busy)
+        return
     st.error('Program request failed.')
     st.text(str(error))
     if isinstance(error, WorkspaceError):
@@ -254,15 +300,13 @@ def _results(client, revision, preview):
         identities['package.zip'] = revision['bundle']['zip_sha256']
         selected = st.selectbox('Revision artifact', files, key=f'mel_artifact_{rid}')
         if selected:
-            cache = st.session_state.get('mel_artifact_cache')
-            identity = (rid, selected, identities[selected])
-            if cache and cache[0] == identity:
-                value = cache[1]
-            else:
-                value = client.artifact(rid, fmt_by_file[selected])
-                st.session_state['mel_artifact_cache'] = (identity, value)
-            if sha256(value).hexdigest() != identities[selected]:
-                raise WorkspaceError(502, {'message': 'Artifact is not associated with this revision.'})
+            clicked = _needs_click(selected) and st.button(f'Prepare {selected} for download',
+                                                           key=f'mel_prepare_{rid}_{selected}')
+            if not _should_fetch(st.session_state, (rid, selected, identities[selected]), clicked):
+                st.caption('Large files are fetched only when requested.')
+                return
+            value = _artifact_value(client, rid, fmt_by_file[selected], selected, identities[selected],
+                                    st.session_state)
             st.download_button(f'Download {selected}', value, file_name=selected, key=f'mel_download_{rid}')
             if selected == 'preview.glb' and preview:
                 preview(value)

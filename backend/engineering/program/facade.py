@@ -47,7 +47,7 @@ from .interface import InterfaceFailure
 from .planning import PlanRefusal
 from .revisions import BundleDigests, PayloadDigest, ProgramRevision, RevisionRefusal
 
-__all__ = ['ProgramInterface', 'ProgramQuota', 'ExportResult', 'InterfaceFailure', 'map_exception',
+__all__ = ['ProgramInterface', 'ProgramQuota', 'ExportResult', 'ExportStream', 'InterfaceFailure', 'map_exception',
            'DEFAULT_SOURCE_ID', 'PROGRAM_QUOTA_DEFAULTS', 'PROGRAM_QUOTA_ENV', 'MAX_EXPORT_BYTES']
 
 _LOG = logging.getLogger('mirum.program.interface')
@@ -232,6 +232,73 @@ def _evidence_view(record) -> api.EvidenceView:
 class ExportResult:
     metadata: api.ExportMetadata
     data: bytes
+
+
+class ExportStream:
+    """Integrity note: the stored file's digest is verified when the lease opens (before the first byte), but a
+    file rewritten in place while it streams is only detected at the end, by cutting the stream short before the
+    terminal message. Clients must therefore verify X-Content-SHA256 on the bytes they received; the server does
+    not claim pre-send verification of what it sends.
+
+    One export opened for streaming (M1): metadata up front, the body read block by block from the
+    stored file under its lease. Peak memory is one block (_CHUNK), not the artifact. ``close`` releases the
+    lease and is idempotent; the consumer must call it (the HTTP layer does so after the last byte)."""
+
+    def __init__(self, metadata, download, limit):
+        self.metadata = metadata
+        self._download = download
+        self._limit = limit
+        self.closed = False
+
+    def blocks(self):
+        """Blocking generator of the body (run each next() off the event loop). Fail closed: more bytes than
+        the byte limit or the declared size, or a final digest that is not the advertised one, raises (the
+        response is then cut short and the client's own digest check refuses it)."""
+        import hashlib
+        meta, download = self.metadata, self._download
+        hasher, total = hashlib.sha256(), 0
+        while True:
+            block = download.file.read(_CHUNK)
+            if not block:
+                break
+            total += len(block)
+            if total > self._limit or total > meta.size_bytes:
+                raise _fail(api.too_large('response_too_large'))
+            hasher.update(block)
+            yield block
+        if total != meta.size_bytes or hasher.hexdigest() != meta.sha256:
+            raise _fail(api.error('artifacts_altered'))
+
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        self._download.close()
+
+
+async def _open_shielded(service, revision_id, fmt, client):
+    """open_artifact off the event loop. If this task is cancelled while the worker thread is still opening,
+    the Download it later returns is closed (its lease would otherwise leak and block discard)."""
+    task = asyncio.ensure_future(asyncio.to_thread(service.open_artifact, revision_id, fmt, client=client))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        def close_late(done):
+            if not done.cancelled() and done.exception() is None:
+                done.result().close()
+        task.add_done_callback(close_late)
+        raise
+
+
+class _BytesDownload:
+    """A small in-memory body (source formats) shaped like a Download for ExportStream."""
+
+    def __init__(self, data: bytes):
+        import io
+        self.file = io.BytesIO(data)
+
+    def close(self):
+        self.file.close()
 
 
 _SOURCE_EXPORTS = {
@@ -545,6 +612,43 @@ class ProgramInterface:
                                 sha256=download.sha256 or None)
         finally:
             download.close()
+
+    @_guarded
+    async def export_stream(self, request: api.ExportRequest, *, client) -> ExportStream:
+        """Same checks and metadata as ``export`` but the body is not buffered: the lease stays open and the
+        caller streams ``blocks()`` then calls ``close()``. open_artifact has already streamed the stored file's
+        digest against the recorded one, so the advertised sha256 is verified before a byte is sent; the
+        blocks are hashed again as they go out."""
+        fmt = request.fmt
+        if not api.is_export_format(fmt):
+            raise _fail(api.not_found())
+        if fmt in _SOURCE_EXPORTS:
+            result = await self.export(request, client=client)
+            return ExportStream(result.metadata, _BytesDownload(result.data), len(result.data))
+        download = await _open_shielded(self.service, request.revision_id, fmt, client)
+        try:
+            limit = api.export_byte_limit(fmt)
+            if download.size > limit:
+                raise _fail(api.too_large('response_too_large'))
+            digest = download.sha256 or await asyncio.to_thread(self._digest, download, limit)
+            meta = api.ExportMetadata(revision_id=request.revision_id, fmt=fmt, filename=download.filename,
+                                      content_type=download.mime_type, size_bytes=download.size, sha256=digest)
+            return ExportStream(meta, download, limit)
+        except BaseException:
+            download.close()
+            raise
+
+    @staticmethod
+    def _digest(download, limit) -> str:
+        import hashlib
+        hasher, total = hashlib.sha256(), 0
+        for block in iter(lambda: download.file.read(_CHUNK), b''):
+            total += len(block)
+            if total > limit:
+                raise _fail(api.too_large('response_too_large'))
+            hasher.update(block)
+        download.file.seek(0)
+        return hasher.hexdigest()
 
     @staticmethod
     def _read_all(download, limit) -> bytes:
