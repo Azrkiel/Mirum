@@ -49,7 +49,7 @@ EXPORT_RETRY_AFTER_SECONDS = 2
 # is the whole stream (sized for 128 MiB over a slow link). On a timeout the response is cut and everything is
 # released. ExportGate also caps slots per client at max(1, size - 1), keyed by client_key (the trusted
 # forwarded address when MIRUM_TRUSTED_CLIENT_HEADER=1, else the transport peer). Without the trusted header
-# every Streamlit UI user shares the UI server's key, so UI traffic gets size - 1 slots in total; this is a
+# every Streamlit UI user shares the UI server's key, so UI traffic gets max(1, size - 1) slots in total; this is a
 # fairness control, not DDoS protection (a client with many addresses gets a key per address).
 EXPORT_SEND_TIMEOUT_ENV = 'MIRUM_PROGRAM_EXPORT_SEND_TIMEOUT_SECONDS'
 EXPORT_DEADLINE_ENV = 'MIRUM_PROGRAM_EXPORT_DEADLINE_SECONDS'
