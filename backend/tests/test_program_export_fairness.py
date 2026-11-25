@@ -143,3 +143,36 @@ def test_a_failure_after_the_stream_opens_releases_slot_and_lease(monkeypatch):
     first, second = asyncio.run(run())
     assert first.status_code >= 500 and face.downloads[0].closed == 1
     assert second.status_code == 200 and second.content == PAYLOAD
+
+
+def test_a_second_cancel_during_cleanup_still_releases():
+    """Round-3 L9: a cancel that lands while __call__ is awaiting its cleanup must not skip the release."""
+    from tests.test_program_export_deadlines import scope_for as scope
+    released = []
+
+    async def run():
+        streaming = asyncio.Event()
+
+        async def body():
+            try:
+                yield b'x'
+                streaming.set()
+                await asyncio.Event().wait()
+            finally:
+                await asyncio.Event().wait()            # cleanup that only a second cancel interrupts
+
+        async def send(message):
+            return None
+
+        resp = api_programs._ExportResponse(body(), lambda: released.append(1), send_timeout=5, deadline=60,
+                                            media_type='application/octet-stream')
+        task = asyncio.create_task(resp(scope(URL), receive_forever, send))
+        await asyncio.wait_for(streaming.wait(), 5)
+        task.cancel()                                   # first cancel: __call__ enters its cleanup
+        await asyncio.sleep(0.05)
+        assert not task.done() and released == []      # blocked inside the cleanup await
+        task.cancel()                                   # second cancel interrupts the cleanup
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 5)
+    asyncio.run(run())
+    assert released == [1]

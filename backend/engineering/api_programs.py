@@ -47,9 +47,10 @@ EXPORT_CONCURRENCY_MAX = 16
 EXPORT_RETRY_AFTER_SECONDS = 2
 # A reader that stops reading must not hold a slot and a file lease: every send of the body is bounded, and so
 # is the whole stream (sized for 128 MiB over a slow link). On a timeout the response is cut and everything is
-# released. Client identity is NOT used for a per-client slot cap: client_key is the trusted forwarded address
-# or the transport peer, and the Streamlit UI reaches this API from one server address, so a per-client cap
-# of 1 would serialize every UI user.
+# released. ExportGate also caps slots per client at max(1, size - 1), keyed by client_key (the trusted
+# forwarded address when MIRUM_TRUSTED_CLIENT_HEADER=1, else the transport peer). Without the trusted header
+# every Streamlit UI user shares the UI server's key, so UI traffic gets size - 1 slots in total; this is a
+# fairness control, not DDoS protection (a client with many addresses gets a key per address).
 EXPORT_SEND_TIMEOUT_ENV = 'MIRUM_PROGRAM_EXPORT_SEND_TIMEOUT_SECONDS'
 EXPORT_DEADLINE_ENV = 'MIRUM_PROGRAM_EXPORT_DEADLINE_SECONDS'
 EXPORT_SEND_TIMEOUT_DEFAULT = 30.0
@@ -205,14 +206,18 @@ class _ExportResponse(StreamingResponse):
                 except (asyncio.TimeoutError, _TooSlow):
                     _LOG.warning('engineering.programs export_cut')   # fixed line: no id, path or client
         finally:
-            for task in (stream, watch):
-                task.cancel()
-            await asyncio.gather(stream, watch, return_exceptions=True)
+            # The release sits in its own finally: a second cancellation landing in either await below
+            # (e.g. server shutdown after a disconnect cancel) must not leak the slot and the file lease.
             try:
-                await self.body_iterator.aclose()
-            except Exception:  # noqa: BLE001 - a worker thread may still be inside the generator
-                pass
-            self._release()
+                for task in (stream, watch):
+                    task.cancel()
+                await asyncio.gather(stream, watch, return_exceptions=True)
+                try:
+                    await self.body_iterator.aclose()
+                except Exception:  # noqa: BLE001 - a worker thread may still be inside the generator
+                    pass
+            finally:
+                self._release()
 
 
 def programs_enabled(environ=None) -> bool:
