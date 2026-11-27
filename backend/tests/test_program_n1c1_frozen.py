@@ -106,11 +106,6 @@ MEL_PINS = {
         '4d81808ade568a03fd196034652f3c4d1257b94623be178707202f91cd36c068',
         '852fa8eaf0e94d5c64662e260fd839afb34dfdd3939b30695b3688aa7d4eb95e',
         '68116327b2208f88cc9d6af2d6fd1759ebe23d92cd97223dee3db4ebab4081b5'),
-    'docs/plans/checked-engineering-v1/phase-3-framework-language/examples/beam.mir': (
-        '345eec424a2d346005e3ea6c0ce9c83171c48524e8d6e78ca33819cbfb14e15f',
-        '4d81808ade568a03fd196034652f3c4d1257b94623be178707202f91cd36c068',
-        '852fa8eaf0e94d5c64662e260fd839afb34dfdd3939b30695b3688aa7d4eb95e',
-        '68116327b2208f88cc9d6af2d6fd1759ebe23d92cd97223dee3db4ebab4081b5'),
 }
 
 DESCRIPTION_PINS = {
