@@ -44,6 +44,11 @@ COPY frontend/ /workspace/frontend/
 COPY --from=explorer-build /build/dist /workspace/frontend/components/glider_explorer/dist
 COPY --from=explorer-build /usr/local/bin/node /usr/local/bin/node
 COPY native-kernel/ /workspace/native-kernel/
+# N1c-3b: the pinned mirum-native kernel (FROM scratch GHCR image, by digest). Gate image only; release images
+# stay unchanged until promotion. The hash is checked against the committed file, and the binary stays root-owned
+# and not group/world-writable so NativePlateAdapter's probe trust checks pass for the test user.
+COPY --from=ghcr.io/azrkiel/mirum-native@sha256:98e503588daab23582eb6ca531b69b341e8422a3072c86524f398cbfe4afe09d /opt/mirum-native/bin/mirum-native /opt/mirum-native/bin/mirum-native
+RUN sha256sum -c /workspace/native-kernel/mirum-native.sha256     && chown root:root /opt /opt/mirum-native /opt/mirum-native/bin /opt/mirum-native/bin/mirum-native     && chmod 0755 /opt/mirum-native /opt/mirum-native/bin /opt/mirum-native/bin/mirum-native
 COPY data_pipeline/ /workspace/data_pipeline/
 COPY scripts/ /workspace/scripts/
 COPY output/wing_assembly_oml_reference.json /workspace/output/wing_assembly_oml_reference.json

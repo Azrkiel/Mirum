@@ -194,3 +194,70 @@ def test_bake_builds_from_the_local_checkout_not_a_git_context():
         text = (ROOT / rel).read_text(encoding='utf-8')
         n = len(re.findall(r'uses: docker/bake-action@', text))
         assert n and len(re.findall(r'^\s+source: \.\s', text, re.M)) == n, rel
+
+
+# ---- N1c-3b: the native gate image carries the pinned mirum-native binary (release images stay unchanged) ----
+def _native_pin():
+    import sys
+    sys.path.insert(0, str(ROOT / 'backend'))
+    from engineering.program.adapters import native_pin
+    return native_pin
+
+
+def _verify_lines():
+    return _logical_lines(ROOT / 'Dockerfile.verify')
+
+
+def test_verify_image_copies_the_kernel_by_full_digest_never_a_tag():
+    pin = _native_pin()
+    copies = [l for l in _verify_lines() if re.match(r'COPY\s+.*--from=ghcr\.io/azrkiel/mirum-native', l, re.I)]
+    assert len(copies) == 1, copies
+    m = re.match(r'COPY\s+--from=(\S+)\s+(\S+)\s+(\S+)$', copies[0])
+    assert m, copies[0]
+    ref, src, dst = m.groups()
+    assert '@sha256:' in ref and re.fullmatch(r'ghcr\.io/azrkiel/mirum-native@sha256:[0-9a-f]{64}', ref), ref
+    assert ref == pin.IMAGE
+    assert src == dst == pin.BINARY_PATH
+
+
+def test_native_sha_file_matches_the_pin_and_the_installed_path():
+    pin = _native_pin()
+    text = (ROOT / 'native-kernel' / 'mirum-native.sha256').read_text(encoding='utf-8').strip().splitlines()
+    assert len(text) == 1
+    m = re.fullmatch(r'([0-9a-f]{64})  (/\S+)', text[0])
+    assert m, text
+    assert m.group(1) == pin.BINARY_SHA256 and m.group(2) == pin.BINARY_PATH
+
+
+def test_verify_image_checks_the_hash_and_locks_down_the_binary():
+    pin = _native_pin()
+    lines = _verify_lines()
+    idx = [i for i, l in enumerate(lines) if '--from=ghcr.io/azrkiel/mirum-native' in l][0]
+    sha_file = '/workspace/native-kernel/mirum-native.sha256'
+    # the sha file must already be in the image when it is checked
+    copy_kernel_dir = [i for i, l in enumerate(lines) if l.startswith('COPY native-kernel/')]
+    assert copy_kernel_dir and copy_kernel_dir[0] < idx + 2
+    run = lines[idx + 1]
+    assert run.startswith('RUN ') and f'sha256sum -c {sha_file}' in run
+    assert 'chown root:root' in run and 'chmod 0755' in run and pin.BINARY_PATH in run
+    assert 'chmod -R' not in run
+    # nothing after the check may rewrite the binary tree
+    for later in lines[idx + 2:]:
+        assert '/opt/mirum-native' not in later
+
+
+def test_ci_gate_runs_require_the_binary_and_kernel_env():
+    ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
+    shard_runs = [l for l in ci.splitlines() if 'docker run' in l and 'ci_shard.py' in l]
+    assert len(shard_runs) == 2
+    for l in shard_runs:
+        for env in ('MIRUM_NATIVE_GATE_IMAGE=1', 'MIRUM_NATIVE_REQUIRE_BINARY=1', 'MIRUM_NATIVE_KERNEL=1',
+                    'MIRUM_NATIVE_BIN=/opt/mirum-native/bin/mirum-native'):
+            assert f'-e {env}' in l, (env, l)
+
+
+def test_release_images_do_not_carry_the_native_binary():
+    for rel in ('Dockerfile', 'backend/Dockerfile', 'frontend/Dockerfile'):
+        p = ROOT / rel
+        if p.is_file():
+            assert 'mirum-native' not in p.read_text(encoding='utf-8'), rel
