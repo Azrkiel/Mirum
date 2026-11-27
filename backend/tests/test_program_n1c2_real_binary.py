@@ -1,8 +1,8 @@
 """N1c-2: the real pinned mirum-native binary plus the real OCCT plate worker (native shard, opt-in).
 
 Set MIRUM_N1C2_REAL_BIN to the downloaded binary (it must match the pin) and, when this interpreter has no
-CadQuery, MIRUM_N1C2_OCCT_PYTHON to an interpreter that has it. Fails rather than skips when
-MIRUM_NATIVE_GATE_IMAGE=1 and the binary is missing (N1c-3 wires that in CI).
+CadQuery, MIRUM_N1C2_OCCT_PYTHON to an interpreter that has it. Skipped without the binary; the fail-rather-than-skip
+rule for MIRUM_NATIVE_GATE_IMAGE=1 arrives with the native gate image in N1c-3.
 """
 from __future__ import annotations
 
@@ -18,8 +18,6 @@ from engineering.program.kernel import ExecutionContext, plan_for
 from engineering.program.planning import generator_candidates
 
 BIN = os.environ.get('MIRUM_N1C2_REAL_BIN')
-if os.environ.get('MIRUM_NATIVE_GATE_IMAGE') == '1':
-    assert BIN and Path(BIN).is_file(), 'the native gate image must provide the pinned binary'
 pytestmark = [pytest.mark.skipif(os.name != 'posix' or not BIN, reason='needs posix and MIRUM_N1C2_REAL_BIN')]
 
 PLATE = (Path(__file__).resolve().parents[1] / 'engineering' / 'fixtures' / 'editable_plate' / 'edge.mir').read_bytes()
