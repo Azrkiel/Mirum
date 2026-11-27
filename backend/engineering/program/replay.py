@@ -11,9 +11,10 @@ from .client import ProgramClient
 from .interface import bounded_json_loads
 from .hashing import canonical_json, execution_lock_v0_2_sha256, semantic_sha256
 from .ir import load_execution_lock_json, load_program_json
-from .kernel import ExecutionLockV0_2, canonical_entries
+from .kernel import ExecutionLockV0_2, ExecutionLockV0_3, canonical_entries
 
 VERSION = 'mirum_program_replay_v0_1'
+LOCK_TYPES = (ExecutionLockV0_2, ExecutionLockV0_3)
 MAX_BYTES = 64 * 1024**2
 MAX_METADATA = 1024**2
 MEMBERS = ('program.mir', 'program-ir.json', 'execution-lock.json', 'delivery.zip', 'receipt.json',
@@ -123,7 +124,7 @@ def build_replay(status, evidence, *, source, ir_json, lock_json, delivery):
     }
     ir = load_program_json(fetched['program-ir.json'])
     lock = load_execution_lock_json(fetched['execution-lock.json'])
-    fetched['operation-plan.json'] = _json(canonical_entries(ir.capability.id, ir.execution.exports))
+    fetched['operation-plan.json'] = _json(canonical_entries(ir.capability.id, ir.execution.exports, ir.execution.backend))
     fetched['check-plan.json'] = _json(check_plan(ir, lock, status))
     out = BytesIO()
     with ZipFile(out, 'w', compression=ZIP_STORED) as bundle:
@@ -150,8 +151,8 @@ def replay(data):
         status, evidence = receipt['revision'], receipt['evidence']
         ir = load_program_json(outer['program-ir.json'])
         lock = load_execution_lock_json(outer['execution-lock.json'])
-        if not isinstance(lock, ExecutionLockV0_2):
-            raise ValueError('this replay version requires a native v0.2 execution lock')
+        if not isinstance(lock, LOCK_TYPES):
+            raise ValueError('this replay version requires a native v0.2 or v0.3 execution lock')
         compiled = compile_source(outer['program.mir'], source_id=ir.provenance.source_id)
         if (compiled.ir != ir or compiled.source_sha256 != status['source_sha256']
                 or semantic_sha256(ir) != status['semantic_sha256']
@@ -160,7 +161,8 @@ def replay(data):
                 or compiled.brief_content.fixed_requirements_sha256 != status['fixed_requirements_sha256']
                 or (lock.capability_id, lock.capability_version, lock.backend, lock.exports)
                 != (ir.capability.id, ir.capability.version, ir.execution.backend, ir.execution.exports)
-                or outer['operation-plan.json'] != _json(canonical_entries(ir.capability.id, ir.execution.exports))):
+                or outer['operation-plan.json'] != _json(canonical_entries(ir.capability.id, ir.execution.exports,
+                                                                       ir.execution.backend))):
             raise ValueError('source, IR, lock or plan identities differ')
         if (outer['check-plan.json'] != _json(check_plan(ir, lock, status))
                 or _digest(outer['check-plan.json']) != evidence['check_plan_sha256']):

@@ -18,7 +18,7 @@ from engineering.contracts import Sha256 as _Sha256
 
 from .hashing import canonical_json
 from .ir import ProgramIR
-from .kernel import ExecutionLockV0_2
+from .kernel import ExecutionLockV0_2, ExecutionLockV0_3
 from .versions import PROGRAM_JOURNAL_VERSION, PROGRAM_REVISION_VERSION
 
 __all__ = [
@@ -100,7 +100,7 @@ class ProgramRevision(ContractModel):
     brief_sha256: Hash64
     fixed_requirements_sha256: Hash64
     lock_sha256: Hash64
-    lock: ExecutionLockV0_2
+    lock: Annotated[ExecutionLockV0_2 | ExecutionLockV0_3, Field(discriminator='schema_version')]
     draft_id: Id32
     draft_revision: Seq
     brief_id: Id32 | None = None
@@ -181,7 +181,7 @@ class RevisionPayload(ContractModel):
         return cls._bounded(v, MAX_LOCK_JSON_BYTES, 'lock_json', allow_empty=False)
 
 
-def build_payload(source_id: str, source: str, ir: ProgramIR, lock: ExecutionLockV0_2) -> RevisionPayload:
+def build_payload(source_id: str, source: str, ir: ProgramIR, lock: ExecutionLockV0_2 | ExecutionLockV0_3) -> RevisionPayload:
     """Payload with canonical IR and lock JSON (deterministic for equal inputs)."""
     return RevisionPayload(source_id=source_id, source=source, ir_json=canonical_json(ir),
                            lock_json=canonical_json(lock))

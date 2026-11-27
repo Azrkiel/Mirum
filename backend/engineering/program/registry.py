@@ -315,7 +315,31 @@ THERMAL_REGISTRY = OperationRegistry((*PLATE_REGISTRY.descriptors(), *(
 )), version='mirum_operation_registry_v0_5')
 
 
-def registry_for_capability(capability_id: str) -> OperationRegistry:
+# N1c-1: mirum-native registers editable_plate@1.0.0 only, as new operation version 0.6.0. The registry is
+# a strict superset of v0_5; no earlier descriptor changes.
+NATIVE_BACKEND = 'mirum-native'
+NATIVE_PLATE_OPERATION_VERSION = '0.6.0'
+NATIVE_REGISTRY_VERSION = 'mirum_operation_registry_v0_6'
+_NATIVE_PLATE_DESCRIPTORS = tuple(
+    OperationDescriptor(
+        id=f'capability.{op}', version=NATIVE_PLATE_OPERATION_VERSION, summary=summary,
+        args=() if op != 'export' else (ArgSpec(name='format', kind='text', allowed=('step',)),),
+        preconditions=(), outputs=(OutputSpec(name=output, type=kind),),
+        representations=(representation,), backend_requirements=(NATIVE_BACKEND,),
+        capability_versions=('editable_plate@1.0.0',), executable=True)
+    for op, summary, output, kind, representation in (
+        ('build', 'Build the editable rectangular plate with the native kernel.', 'geometry', 'solid', 'brep'),
+        ('inspect', 'Measure the native plate by rereading its STEP.', 'measurements', 'measurement', 'report'),
+        ('export', 'Export the native editable plate STEP.', 'file', 'file', 'file'),
+    )
+)
+NATIVE_REGISTRY = OperationRegistry((*THERMAL_REGISTRY.descriptors(), *_NATIVE_PLATE_DESCRIPTORS),
+                                    version=NATIVE_REGISTRY_VERSION)
+
+
+def registry_for_capability(capability_id: str, backend: str = 'occt') -> OperationRegistry:
+    if backend == NATIVE_BACKEND and capability_id == 'editable_plate':
+        return NATIVE_REGISTRY
     return {'equipment_bay': BAY_REGISTRY, 'editable_plate': PLATE_REGISTRY,
             'thermal_bar': THERMAL_REGISTRY}.get(capability_id, DEFAULT_REGISTRY)
 
@@ -358,7 +382,7 @@ class OpStream(IRModel):
     def _known_operations(self):
         # Every construction path rejects unknown operations/versions; reserved construct.* operations
         # remain legal records here (executability is the loaders' and validate_op_stream's gate).
-        validate_op_stream(self, THERMAL_REGISTRY, require_executable=False)
+        validate_op_stream(self, NATIVE_REGISTRY, require_executable=False)
         return self
 
 
@@ -418,6 +442,6 @@ def load_artifact_graph_json(text: str | bytes, *, require_executable: bool = Tr
     unless the caller passes `require_executable=False` to load them as records. Unknown operations
     and versions are always rejected (by the model itself)."""
     graph = _validate_record(ArtifactGraph, _parse_json_bounded(text), ARTIFACT_GRAPH_VERSION)
-    validate_op_stream(graph.op_stream, THERMAL_REGISTRY, require_executable=require_executable,
+    validate_op_stream(graph.op_stream, NATIVE_REGISTRY, require_executable=require_executable,
                        field_prefix='op_stream')
     return graph

@@ -17,7 +17,7 @@ class MockKernelAdapter:
     mode = 'mock'
 
     def __init__(self, backend: str):
-        if backend not in ('occt', 'picogk'):
+        if backend not in ('occt', 'picogk', 'mirum-native'):
             raise ValueError(f'unknown backend {backend!r}')
         self.backend = backend
 

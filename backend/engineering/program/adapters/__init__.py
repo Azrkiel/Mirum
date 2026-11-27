@@ -2,7 +2,7 @@
 
 `adapter_for(backend, mode=...)` returns exactly the adapter for that backend id; it never falls
 back to another backend. Mode 'mock' returns the geometry-free MockKernelAdapter. Mode 'native'
-imports the native adapter lazily from `.occt` or `.picogk` (added by those modules), so importing
+imports the native adapter lazily from `.occt`, `.picogk` or `.native` (added by those modules), so importing
 this package never loads a native kernel, a web framework or a client library.
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ from .mock import MockKernelAdapter
 
 __all__ = ['adapter_for', 'MockKernelAdapter']
 
-_BACKENDS = ('occt', 'picogk')
+_BACKENDS = ('occt', 'picogk', 'mirum-native')
 
 
 def adapter_for(backend: str, *, mode: str = 'native', **kw):
@@ -21,6 +21,10 @@ def adapter_for(backend: str, *, mode: str = 'native', **kw):
         return MockKernelAdapter(backend)
     if mode != 'native':
         raise ValueError(f'unknown mode {mode!r}; expected native or mock')
+    if backend == 'mirum-native':
+        # N1c-1: registered but never available; never falls back to OCCT. N1c-2 swaps in the real adapter.
+        from .native import NativeUnavailableAdapter
+        return NativeUnavailableAdapter(**kw)
     if backend == 'occt':
         from .occt import OcctAdapter
         return OcctAdapter(**kw)

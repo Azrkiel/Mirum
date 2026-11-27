@@ -15,9 +15,9 @@ from pydantic import Field, StringConstraints, model_validator
 from engineering.contracts import CandidateSpec, GeneratorCandidate
 
 from .errors import IRModel, ProgramError, SourceSpan, Str240
-from .ir import MAX_LIST, Backend, ExportFormat, Name64, Name128, SemanticId, _prepare_input
+from .ir import MAX_LIST, BackendV0_1, ExportFormat, Name64, Name128, SemanticId, _prepare_input
 from .registry import (
-    PLATE_OPERATION_VERSION, THERMAL_OPERATION_VERSION, ArtifactGraph, OpStream, OpStreamEntry, Representation,
+    NATIVE_BACKEND, NATIVE_PLATE_OPERATION_VERSION, PLATE_OPERATION_VERSION, THERMAL_OPERATION_VERSION, ArtifactGraph, OpStream, OpStreamEntry, Representation,
     registry_for_capability, validate_op_stream,
 )
 
@@ -28,14 +28,20 @@ __all__ = [
     'NativeVersion', 'ToleranceConvention', 'SpanBinding', 'BackendDescription', 'ProbeResult',
     'SupportDecision', 'ExecutionContext', 'BuildPlan', 'ArtifactRef', 'Measurement', 'BuildResult',
     'InspectResult', 'ExportResult', 'BackendLock', 'Artifact', 'Built', 'KernelAdapter',
-    'OCCT_DECLARATION', 'PICOGK_DECLARATION', 'make_description', 'plan_for', 'check_plan',
+    'OCCT_DECLARATION', 'PICOGK_DECLARATION', 'NATIVE_DECLARATION', 'NATIVE_CLAIMS', 'make_description', 'plan_for', 'check_plan',
     'backend_lock', 'canonical_entries', 'ExecutionLockV0_2',
+    'KERNEL_RECORDS_VERSION_V0_2', 'BackendIdV0_1', 'BackendLockV0_2', 'ExecutionLockV0_3',
 ]
 
 KERNEL_RECORDS_VERSION = 'mirum_kernel_v0_1'
-SchemaVersion = Literal['mirum_kernel_v0_1']
+KERNEL_RECORDS_VERSION_V0_2 = 'mirum_kernel_v0_2'
+# v0_1 is the frozen shape embedded in BackendLock / the lock v0_2 schema file. A record whose backend is
+# mirum-native is v0_2 and every other record stays v0_1 (enforced by _KernelRecord).
+SchemaVersionV0_1 = Literal['mirum_kernel_v0_1']
+SchemaVersion = Literal['mirum_kernel_v0_1', 'mirum_kernel_v0_2']
 
-BackendId = Literal['occt', 'picogk']
+BackendIdV0_1 = BackendV0_1
+BackendId = Literal['occt', 'picogk', 'mirum-native']
 Mode = Literal['native', 'mock']
 KernelFormat = Literal['step', 'glb', 'stl']
 ClaimScope = Literal['checked_design', 'geometry_checks_only', 'screening_only', 'thermal_benchmark']
@@ -64,6 +70,25 @@ def _bad(msg: str, field: str | None = None):
     raise ProgramError('IR010', msg, field)
 
 
+class _KernelRecord(IRModel):
+    """Records that carry a backend: schema_version is mirum_kernel_v0_2 if and only if the backend is
+    mirum-native (the version defaults accordingly), so occt and picogk records stay byte-identical."""
+
+    @model_validator(mode='before')
+    @classmethod
+    def _default_version(cls, data):
+        if isinstance(data, dict) and data.get('backend') == NATIVE_BACKEND and 'schema_version' not in data:
+            return {**data, 'schema_version': KERNEL_RECORDS_VERSION_V0_2}
+        return data
+
+    @model_validator(mode='after')
+    def _version_matches_backend(self):
+        if (self.backend == NATIVE_BACKEND) != (self.schema_version == KERNEL_RECORDS_VERSION_V0_2):
+            _bad('schema_version mirum_kernel_v0_2 is required for, and only for, the mirum-native backend',
+                 'schema_version')
+        return self
+
+
 # ------------------------------------------------------------------ small records
 
 class NativeVersion(IRModel):
@@ -83,7 +108,7 @@ class SpanBinding(IRModel):
     span: SourceSpan
 
 
-class BackendDescription(IRModel):
+class BackendDescription(_KernelRecord):
     schema_version: SchemaVersion = KERNEL_RECORDS_VERSION
     backend: BackendId
     adapter_version: Name64
@@ -95,7 +120,7 @@ class BackendDescription(IRModel):
     operations: Annotated[tuple[Str240, ...], Field(max_length=MAX_LIST)]
 
 
-class ProbeResult(IRModel):
+class ProbeResult(_KernelRecord):
     schema_version: SchemaVersion = KERNEL_RECORDS_VERSION
     backend: BackendId
     mode: Mode
@@ -112,7 +137,7 @@ class ProbeResult(IRModel):
         return self
 
 
-class SupportDecision(IRModel):
+class SupportDecision(_KernelRecord):
     schema_version: SchemaVersion = KERNEL_RECORDS_VERSION
     backend: BackendId
     mode: Mode
@@ -129,13 +154,13 @@ class SupportDecision(IRModel):
 
 class ExecutionContext(IRModel):
     """Deadline and byte budget for one build. A scope label only: no credentials, paths or env."""
-    schema_version: SchemaVersion = KERNEL_RECORDS_VERSION
+    schema_version: SchemaVersionV0_1 = KERNEL_RECORDS_VERSION
     deadline_s: Annotated[float, Field(gt=0, le=3600)]
     max_artifact_bytes: Annotated[int, Field(gt=0)]
     workspace: Name128
 
 
-class BuildPlan(IRModel):
+class BuildPlan(_KernelRecord):
     schema_version: SchemaVersion = KERNEL_RECORDS_VERSION
     capability_id: Name64
     capability_version: Name64
@@ -167,7 +192,7 @@ class Measurement(IRModel):
     source: Literal['report', 'reread']
 
 
-class BuildResult(IRModel):
+class BuildResult(_KernelRecord):
     schema_version: SchemaVersion = KERNEL_RECORDS_VERSION
     backend: BackendId
     adapter_version: Name64
@@ -225,7 +250,7 @@ class BuildResult(IRModel):
         return self
 
 
-class InspectResult(IRModel):
+class InspectResult(_KernelRecord):
     schema_version: SchemaVersion = KERNEL_RECORDS_VERSION
     backend: BackendId
     mode: Mode
@@ -250,7 +275,7 @@ class InspectResult(IRModel):
         return self
 
 
-class ExportResult(IRModel):
+class ExportResult(_KernelRecord):
     schema_version: SchemaVersion = KERNEL_RECORDS_VERSION
     backend: BackendId
     mode: Mode
@@ -272,8 +297,8 @@ class ExportResult(IRModel):
 
 
 class BackendLock(IRModel):
-    schema_version: SchemaVersion = KERNEL_RECORDS_VERSION
-    backend: BackendId
+    schema_version: SchemaVersionV0_1 = KERNEL_RECORDS_VERSION
+    backend: BackendIdV0_1
     adapter_version: Name64
     mode: Mode
     native_versions: Annotated[tuple[NativeVersion, ...], Field(max_length=MAX_LIST)]
@@ -282,13 +307,26 @@ class BackendLock(IRModel):
     tolerances: Annotated[tuple[ToleranceConvention, ...], Field(max_length=MAX_LIST)]
 
 
-def backend_lock(description: BackendDescription, probe: ProbeResult) -> BackendLock:
+class BackendLockV0_2(IRModel):
+    """mirum-native backend lock (kernel records v0_2). BackendLock stays the v0_1 shape."""
+    schema_version: Literal['mirum_kernel_v0_2'] = KERNEL_RECORDS_VERSION_V0_2
+    backend: Literal['mirum-native']
+    adapter_version: Name64
+    mode: Mode
+    native_versions: Annotated[tuple[NativeVersion, ...], Field(max_length=MAX_LIST)]
+    representations: Annotated[tuple[Representation, ...], Field(max_length=MAX_LIST)]
+    export_formats: Annotated[tuple[KernelFormat, ...], Field(max_length=MAX_LIST)]
+    tolerances: Annotated[tuple[ToleranceConvention, ...], Field(max_length=MAX_LIST)]
+
+
+def backend_lock(description: BackendDescription, probe: ProbeResult) -> BackendLock | BackendLockV0_2:
     """Pin the backend actually probed. Raises ValueError unless the probe is available and agrees."""
     if not probe.available:
         raise ValueError('cannot lock a backend whose probe is not available')
     if probe.backend != description.backend or probe.mode != description.mode:
         raise ValueError('probe and description disagree on backend or mode')
-    return BackendLock(
+    cls = BackendLockV0_2 if description.backend == NATIVE_BACKEND else BackendLock
+    return cls(
         backend=description.backend, adapter_version=description.adapter_version,
         mode=description.mode, native_versions=probe.native_versions,
         representations=description.representations, export_formats=description.export_formats,
@@ -308,7 +346,7 @@ class ExecutionLockV0_2(IRModel):
     capability_version: Name128
     numerical_policy_version: Name128
     resource_policy_version: Name128
-    backend: Backend
+    backend: BackendV0_1
     exports: Annotated[tuple[ExportFormat, ...], Field(max_length=32)]
     language_version: Name128
     compiler_version: Name128
@@ -325,6 +363,43 @@ class ExecutionLockV0_2(IRModel):
             _bad('a mock backend lock can never be part of an execution lock', 'backend_lock.mode')
         if self.backend_lock.backend != self.backend:
             _bad('backend_lock.backend must equal backend', 'backend_lock.backend')
+        for i, e in enumerate(self.exports):
+            if e not in self.backend_lock.export_formats:
+                _bad(f'export {e!r} is not in backend_lock.export_formats', f'exports.{i}')
+        return self
+
+
+class ExecutionLockV0_3(IRModel):
+    """N1c-1 execution lock for the mirum-native backend: the v0_2 fields with the backend fixed to
+    mirum-native, a BackendLockV0_2 and the v0_6 registry. v0_1 and v0_2 locks never carry mirum-native and
+    a v0_3 lock never carries occt or picogk."""
+    schema_version: Literal['mirum_execution_lock_v0_3']
+    program_ir_version: Name128
+    semantics_version: Name128
+    registry_version: Name128
+    capability_id: Name128
+    capability_version: Name128
+    numerical_policy_version: Name128
+    resource_policy_version: Name128
+    backend: Literal['mirum-native']
+    exports: Annotated[tuple[ExportFormat, ...], Field(max_length=32)]
+    language_version: Name128
+    compiler_version: Name128
+    backend_lock: BackendLockV0_2
+
+    @model_validator(mode='before')
+    @classmethod
+    def _budgets(cls, data):
+        return _prepare_input(data)
+
+    @model_validator(mode='after')
+    def _consistent(self):
+        if self.backend_lock.mode != 'native':
+            _bad('a mock backend lock can never be part of an execution lock', 'backend_lock.mode')
+        if self.capability_id != 'editable_plate':
+            _bad('only editable_plate is registered for the mirum-native backend', 'capability_id')
+        if self.registry_version != registry_for_capability(self.capability_id, self.backend).version:
+            _bad('registry_version must be the mirum-native registry', 'registry_version')
         for i, e in enumerate(self.exports):
             if e not in self.backend_lock.export_formats:
                 _bad(f'export {e!r} is not in backend_lock.export_formats', f'exports.{i}')
@@ -389,7 +464,17 @@ PICOGK_DECLARATION: Mapping[str, tuple[str, ...]] = MappingProxyType(dict(
     capabilities=('regen_chamber@1.0.0',),
     operations=('capability.build@0.2.0', 'capability.inspect@0.2.0', 'capability.export@0.2.0'),
 ))
-_DECLARATIONS = {'occt': OCCT_DECLARATION, 'picogk': PICOGK_DECLARATION}
+# mirum-native: editable_plate@1.0.0 only, STEP only. The native kernel never measures its own output; the
+# OCCT reread does (representations brep + report, no mesh).
+NATIVE_DECLARATION: Mapping[str, tuple[str, ...]] = MappingProxyType(dict(
+    representations=('brep', 'report'),
+    export_formats=('step',),
+    capabilities=('editable_plate@1.0.0',),
+    operations=tuple(f'capability.{op}@{NATIVE_PLATE_OPERATION_VERSION}' for op in ('build', 'inspect', 'export')),
+))
+# D2: the native plate carries the same claim scope as the OCCT reference, never more.
+NATIVE_CLAIMS: Mapping[str, ClaimScope] = MappingProxyType({'editable_plate@1.0.0': 'geometry_checks_only'})
+_DECLARATIONS = {'occt': OCCT_DECLARATION, 'picogk': PICOGK_DECLARATION, NATIVE_BACKEND: NATIVE_DECLARATION}
 
 
 def make_description(backend: str, *, mode: Mode, adapter_version: str,
@@ -407,9 +492,12 @@ _OP_VERSION = {'rectangular_cantilever': '0.1.0', 'regen_chamber': '0.2.0', 'equ
                'editable_plate': PLATE_OPERATION_VERSION, 'thermal_bar': THERMAL_OPERATION_VERSION}
 
 
-def canonical_entries(capability_id: str, exports: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+def canonical_entries(capability_id: str, exports: tuple[str, ...],
+                      backend: str = 'occt') -> tuple[tuple[str, str], ...]:
     """(operation, operation_version) in canonical order: build, inspect, then one export each."""
     v = _OP_VERSION.get(capability_id, '0.1.0')
+    if backend == NATIVE_BACKEND and capability_id == 'editable_plate':
+        v = NATIVE_PLATE_OPERATION_VERSION
     return ((('capability.build', v), ('capability.inspect', v))
             + tuple(('capability.export', v) for _ in exports))
 
@@ -421,7 +509,7 @@ def plan_for(capability_id: str, capability_version: str, backend: str,
     keys = ('build', 'inspect') + ('export',) * len(exports)
     entries = tuple(
         OpStreamEntry(seq=i, operation=op, operation_version=ver, span=bound.get(keys[i]))
-        for i, (op, ver) in enumerate(canonical_entries(capability_id, exports)))
+        for i, (op, ver) in enumerate(canonical_entries(capability_id, exports, backend)))
     return BuildPlan(
         capability_id=capability_id, capability_version=capability_version, backend=backend,
         candidate=candidate, exports=exports,
@@ -436,7 +524,7 @@ def check_plan(description: BackendDescription, plan: BuildPlan) -> SupportDecis
 
     if plan.backend != description.backend:
         return no('backend_mismatch')
-    registry = registry_for_capability(plan.capability_id)
+    registry = registry_for_capability(plan.capability_id, plan.backend)
     try:
         validate_op_stream(plan.op_stream, registry, require_executable=True,
                            field_prefix='op_stream')
@@ -450,11 +538,12 @@ def check_plan(description: BackendDescription, plan: BuildPlan) -> SupportDecis
             d = registry.get(e.operation, e.operation_version)
         except ProgramError as err:
             return no('operation_not_supported', err.code)
-        if key not in d.capability_versions:
+        if key not in d.capability_versions or (
+                plan.backend == NATIVE_BACKEND and NATIVE_BACKEND not in d.backend_requirements):
             return no('capability_not_supported_by_backend')
     if any(x not in description.export_formats for x in plan.exports):
         return no('export_not_supported')
-    expected = canonical_entries(plan.capability_id, plan.exports)
+    expected = canonical_entries(plan.capability_id, plan.exports, plan.backend)
     actual = tuple((e.operation, e.operation_version, e.step_ref) for e in plan.op_stream.entries)
     if actual != tuple((op, ver, None) for op, ver in expected):
         return no('plan_invalid')
