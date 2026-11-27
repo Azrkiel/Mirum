@@ -136,12 +136,15 @@ def _reject_constant(_name):
     raise ValueError('non-finite JSON constant')
 
 
-def parse_json_bounded(data: bytes, cap: int = MAX_JSON_BYTES, max_depth: int = MAX_JSON_DEPTH):
-    """Parse untrusted JSON: size cap, no NaN/Infinity, bounded nesting depth. Raises _Problem (unavailable)."""
+def parse_json_bounded(data: bytes, cap: int = MAX_JSON_BYTES, max_depth: int = MAX_JSON_DEPTH,
+                       object_pairs_hook=None):
+    """Parse untrusted JSON: size cap, no NaN/Infinity, bounded nesting depth. Raises _Problem (unavailable).
+
+    ``object_pairs_hook`` is passed to json.loads (default None: unchanged); a hook may raise ValueError."""
     if len(data) > cap:
         raise _unavailable()
     try:
-        value = json.loads(data.decode('utf-8'), parse_constant=_reject_constant)
+        value = json.loads(data.decode('utf-8'), parse_constant=_reject_constant, object_pairs_hook=object_pairs_hook)
     except (ValueError, RecursionError):
         raise _unavailable() from None
     stack = [(value, 1)]

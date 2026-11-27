@@ -1,14 +1,16 @@
 """mirum-native plate adapter (N1c-2): builds editable_plate@1.0.0 with the pinned native kernel.
 
 Trust model. The binary is pinned by SHA-256 (adapters/native_pin.py) and every probe re-checks the file
-(absolute path, regular file, not a symlink, not group/world-writable, bounded size, SHA, version
-handshake, an analytic volume build). The kernel never measures its own output: the STEP it writes is
+(absolute path with no symlinked component, regular file, not group/world-writable, bounded size, SHA,
+version handshake, an analytic volume build); every ancestor directory must also be root- or service-user
+owned and not group/world-writable (unless sticky). The kernel never measures its own output: the STEP it writes is
 re-read by the existing OCCT plate worker, and that report is the evidence. A disagreement between the two
 makes the build `rejected`. Nothing here falls back to the OCCT adapter; this module never imports or
 constructs it.
 
 Residual risk (documented): the SHA check and the exec are two steps on the same path. The file must be
-owned by root or the service user, and neither it nor its directory may be group/world-writable, so only
+owned by root or the service user, and neither it nor any ancestor directory may be group/world-writable
+(sticky ancestors excepted), so only
 the owner could swap it between the two.
 """
 from __future__ import annotations
@@ -56,6 +58,14 @@ def _finite(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
+def _no_duplicates(pairs):
+    """object_pairs_hook: a JSON object with a repeated key is evidence_invalid, never last-wins."""
+    keys = [key for key, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError('duplicate key')
+    return dict(pairs)
+
+
 class _Refused(Exception):
     def __init__(self, reason: str):
         super().__init__(reason)
@@ -97,6 +107,29 @@ class NativePlateAdapter:
     def _path(self) -> str:
         return self._binary or os.environ.get(ENV_BIN) or BINARY_PATH
 
+    @staticmethod
+    def _check_ancestors(path: str, geteuid) -> None:
+        """No symlinked component, and every ancestor directory up to / is owned by root or the service user
+        and is not group/world-writable (unless sticky), so nobody else can swap a component of the path."""
+        if os.path.realpath(path) != os.path.normpath(path):
+            raise _Refused('probe_failed')
+        directory = os.path.dirname(path)
+        while True:
+            try:
+                info = os.lstat(directory)
+            except OSError:
+                raise _Refused('probe_failed') from None
+            if not stat.S_ISDIR(info.st_mode):
+                raise _Refused('probe_failed')
+            if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH) and not info.st_mode & stat.S_ISVTX:
+                raise _Refused('probe_failed')
+            if geteuid is not None and info.st_uid not in (0, geteuid()):
+                raise _Refused('probe_failed')
+            parent = os.path.dirname(directory)
+            if parent == directory:
+                return
+            directory = parent
+
     def _check_file(self, path: str) -> None:
         """Raises _Refused. Synchronous; called in a thread."""
         if not isinstance(path, str) or not os.path.isabs(path) or '\x00' in path:
@@ -120,6 +153,7 @@ class NativePlateAdapter:
             raise _Refused('probe_failed') from None
         if not stat.S_ISDIR(parent.st_mode) or parent.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
             raise _Refused('probe_failed')
+        self._check_ancestors(path, geteuid)
         digest = hashlib.sha256()
         try:
             fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
@@ -175,7 +209,7 @@ class NativePlateAdapter:
         if not isinstance(stdout, str):
             raise _Refused('evidence_invalid')
         try:
-            return parse_json_bounded(stdout.encode('utf-8', 'ignore'), _STDOUT_LIMIT)
+            return parse_json_bounded(stdout.encode('utf-8', 'ignore'), _STDOUT_LIMIT, object_pairs_hook=_no_duplicates)
         except (_Problem, ValueError, RecursionError):
             raise _Refused('evidence_invalid') from None
 

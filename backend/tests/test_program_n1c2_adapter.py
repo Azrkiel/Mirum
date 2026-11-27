@@ -44,7 +44,10 @@ def record(extra=None):
         json.dump(dict(argv=sys.argv, env=dict(os.environ), cwd=os.getcwd(), **(extra or {{}})), out)
 if args[:1] == ['version']:
     record()
-    print(json.dumps(cfg['version']))
+    text = json.dumps(cfg['version'])
+    if cfg.get('dup_version'):  # a duplicate key ahead of the genuine one: last-wins parsers would accept it
+        text = '{{"name": "evil", ' + text[1:]
+    print(text)
     sys.exit(0)
 record()
 plan = json.load(open(args[1]))
@@ -298,6 +301,51 @@ def test_probe_refuses_a_writable_parent_directory(tmp_path):
     assert run(adapter_of(binary, pin).probe()).reasons == ('probe_failed',)
 
 
+def test_probe_refuses_a_symlinked_ancestor_directory(tmp_path):
+    (tmp_path / 'real').mkdir(mode=0o755)
+    binary, pin = make_fake(tmp_path / 'real' / 'b')
+    (tmp_path / 'link').symlink_to(tmp_path / 'real')
+    via_link = tmp_path / 'link' / 'b' / 'mirum-native'
+    assert via_link.exists() and os.path.realpath(via_link) == str(binary)
+    assert run(adapter_of(via_link, pin).probe()).reasons == ('probe_failed',)
+    assert run(adapter_of(binary, pin).probe()).available  # the same file by its real path is fine
+
+
+def test_probe_refuses_a_group_or_world_writable_ancestor_unless_sticky(tmp_path):
+    outer = tmp_path / 'outer'
+    outer.mkdir(mode=0o755)
+    binary, pin = make_fake(outer / 'b')
+    for mode in (0o775, 0o757, 0o777):
+        os.chmod(outer, mode)
+        assert run(adapter_of(binary, pin).probe()).reasons == ('probe_failed',), oct(mode)
+    os.chmod(outer, 0o1777)  # sticky: other users cannot rename or replace entries
+    assert run(adapter_of(binary, pin).probe()).available
+    os.chmod(outer, 0o755)
+    assert run(adapter_of(binary, pin).probe()).available
+
+
+def test_probe_refuses_an_ancestor_not_owned_by_root_or_the_service_user(tmp_path, monkeypatch):
+    import engineering.program.adapters.native as native
+    binary, pin = make_fake(tmp_path / 'b')
+    real_lstat = os.lstat
+
+    def lstat(path, *a, **k):
+        result = real_lstat(path, *a, **k)
+        if str(path) == str(tmp_path) and stat.S_ISDIR(result.st_mode):
+            return os.stat_result((result.st_mode, result.st_ino, result.st_dev, result.st_nlink,
+                                   os.geteuid() + 12345, result.st_gid, result.st_size,
+                                   int(result.st_atime), int(result.st_mtime), int(result.st_ctime)))
+        return result
+
+    monkeypatch.setattr(native.os, 'lstat', lstat)
+    assert run(adapter_of(binary, pin).probe()).reasons == ('probe_failed',)
+
+
+def test_probe_rejects_duplicate_json_keys_in_the_native_stdout(tmp_path):
+    binary, pin = make_fake(tmp_path / 'b', dup_version=True)
+    assert run(adapter_of(binary, pin).probe()).reasons == ('probe_failed',)
+
+
 def test_probe_refuses_oversized_binary(tmp_path, monkeypatch):
     import engineering.program.adapters.native as native
     binary, pin = make_fake(tmp_path / 'b')
@@ -334,10 +382,12 @@ def test_build_subprocess_environment_and_argv_are_minimal(tmp_path, candidate, 
     run(adapter_of(binary, pin).build(native_plan(candidate), context()))
     rec = json.loads((binary.parent / 'record-plate.json').read_text())
     env = dict(rec['env'])
+    # LANG=C from the adapter, plus the tokens ProcessRunner always adds (process_runner.py), and nothing else.
     tokens = {k: env.pop(k) for k in ('MIRUM_PROCESS_TOKEN', 'MIRUM_ENGINEERING_OWNER') if k in env}
     assert 'MIRUM_PROCESS_TOKEN' in tokens
     env.pop('LC_CTYPE', None)  # added by CPython's C-locale coercion in the runner's own wrapper (LANG=C)
     assert env == {'LANG': 'C'}, env
+    assert set(rec['env']) <= {'LANG', 'LC_CTYPE', 'MIRUM_PROCESS_TOKEN', 'MIRUM_ENGINEERING_OWNER'}
     argv = rec['argv']
     assert argv[0] == str(binary) and argv[1] == 'plate' and argv[3] == '--step' and len(argv) == 5
     for path in (argv[2], argv[4]):
