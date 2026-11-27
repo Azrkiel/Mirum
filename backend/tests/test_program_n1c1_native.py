@@ -260,11 +260,13 @@ def test_ir_accepts_the_additive_enum_value_and_still_rejects_others():
     assert ExecutionSelection(backend=NATIVE, exports=('step',)).backend == NATIVE
 
 
-def test_mel_still_rejects_mirum_native_until_n1c_2():
+def test_mel_accepts_mirum_native_for_the_plate_only_since_n1c_2():
     source = PLATE.read_bytes().replace(b'backend = "occt"', b'backend = "mirum-native"')
     assert source != PLATE.read_bytes()
+    assert compile_source(source).ir.execution.backend == NATIVE
+    beam = BEAM.read_bytes().replace(b'backend = "occt"', b'backend = "mirum-native"')
     with pytest.raises(MelError) as exc:
-        compile_source(source)
+        compile_source(beam)
     assert 'MEL-S012' in str(exc.value)
 
 

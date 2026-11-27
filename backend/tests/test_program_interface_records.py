@@ -376,6 +376,7 @@ def test_revision_refusal_mapping():
     from engineering.program.revisions import REFUSAL_REASONS, RevisionRefusal
     expect = {
         'stale_parent': ('conflict', 'refresh_and_rebase'), 'requirements_changed': ('refused', 'refresh_and_rebase'),
+        'backend_changed': ('refused', 'fix_source'),
         'not_restorable': ('refused', 'none'),
         'already_current': ('refused', 'none'), 'history_expired': ('expired', 'none'),
         'artifacts_expired': ('expired', 'restage'), 'artifacts_missing': ('expired', 'restage'),
