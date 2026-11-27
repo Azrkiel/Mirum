@@ -364,3 +364,12 @@ def test_ir_schema_gained_exactly_the_enum_value():
     schema = json.loads((se.SCHEMA_DIR / 'mirum_program_ir_v0_1.schema.json').read_text(encoding='utf-8'))
     assert schema['$defs']['ExecutionSelection']['properties']['backend']['enum'] == [
         'occt', 'picogk', 'mirum-native']
+
+
+REGISTRY_V0_6_EXPORT_SHA256 = '37cff71e789967ebce931d73cb0eda293163af7586ab57f819038138da518547'
+
+
+def test_registry_v0_6_export_bytes_are_pinned():
+    import hashlib
+    raw = (se.SCHEMA_DIR / 'mirum_operation_registry_v0_6.json').read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == REGISTRY_V0_6_EXPORT_SHA256

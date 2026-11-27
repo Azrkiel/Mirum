@@ -27,7 +27,7 @@ __all__ = [
     'RequirementPlan', 'CandidateParameter', 'CandidateSpace', 'AnalysisPlanRef',
     'EvidenceExpectation', 'ConstructionStep', 'ConstructionGraph', 'CapabilityRef',
     'ExecutionSelection', 'ProgramProvenance', 'ProgramIR', 'ExecutionLock',
-    'execution_lock', 'execution_lock_v0_2', 'execution_lock_v0_3', 'execution_lock_for', 'BackendV0_1', 'load_execution_lock_json', 'load_program_json', 'program_from_dict', 'MAX_POSITION',
+    'execution_lock', 'execution_lock_v0_2', 'execution_lock_v0_3', 'BackendV0_1', 'load_execution_lock_json', 'load_program_json', 'program_from_dict', 'MAX_POSITION',
 ]
 
 def _semantic_id_length(value: str) -> str:
@@ -559,14 +559,6 @@ def execution_lock_v0_3(ir: ProgramIR, backend_lock):
         language_version=MEL_LANGUAGE_VERSION,
         compiler_version=MEL_COMPILER_VERSION,
         backend_lock=backend_lock)
-
-
-def execution_lock_for(ir: ProgramIR, backend_lock):
-    """The lock version that matches the backend lock: v0_3 for mirum-native, v0_2 for occt and picogk."""
-    from .kernel import BackendLockV0_2
-    if isinstance(backend_lock, BackendLockV0_2):
-        return execution_lock_v0_3(ir, backend_lock)
-    return execution_lock_v0_2(ir, backend_lock)
 
 
 def load_execution_lock_json(text: str | bytes):

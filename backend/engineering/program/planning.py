@@ -23,9 +23,9 @@ from engineering.spec import specification_digest
 
 from .adapters import adapter_for
 from .hashing import execution_lock_v0_2_sha256, semantic_sha256
-from .ir import ExecutionLock, execution_lock_for
+from .ir import ExecutionLock, execution_lock_v0_2, execution_lock_v0_3
 from .kernel import (
-    UNAVAILABLE_REASONS, UNSUPPORTED_REASONS, BackendLock, Built, BuildPlan, ExecutionContext,
+    UNAVAILABLE_REASONS, UNSUPPORTED_REASONS, BackendLock, BackendLockV0_2, Built, BuildPlan, ExecutionContext,
     ExecutionLockV0_2, ExecutionLockV0_3, SpanBinding, SupportDecision, backend_lock, plan_for,
 )
 
@@ -106,6 +106,13 @@ class RunAuthorization:
     backend_lock: BackendLock  # fresh, from this run's probe
     plans: tuple[BuildPlan, ...]  # rebuilt from the finalized brief
     source_sha256: str  # provenance of the source being run; may differ from review.source_sha256
+
+
+def execution_lock_for(ir, lock):
+    """The lock version that matches the backend lock: v0_3 for mirum-native, v0_2 for occt and picogk."""
+    if isinstance(lock, BackendLockV0_2):
+        return execution_lock_v0_3(ir, lock)
+    return execution_lock_v0_2(ir, lock)
 
 
 def _refuse(outcome, *reasons, code=None, decision=None) -> PlanRefusal:
