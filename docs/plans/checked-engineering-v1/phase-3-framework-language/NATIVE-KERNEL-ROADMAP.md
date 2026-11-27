@@ -65,7 +65,7 @@ Gate (all required):
 ### Mirum registration (during N1)
 
 - The backend ID `mirum-native` needs `mirum_kernel_v0_2` records. `BackendId` in [kernel.py](../../../../backend/engineering/program/kernel.py) is frozen at `occt | picogk` in v0_1. Add a new records version and a new registry version, and leave the frozen v0_2 registry byte-identical. Existing locks and archives must replay unchanged.
-- Declare only `editable_plate@1.0.0`, with claim scope `geometry_checks_only` until the N1 gate passes, then `checked_design` for that capability alone.
+- Declare only `editable_plate@1.0.0`, with the same claim scope as the OCCT reference (`geometry_checks_only`). The constant `NATIVE_CLAIMS` pins it, and a test checks every completed native result.
 - The backend is selected only by an explicit plan. It is never a default and never a fallback. It is not exposed on public routes; K51 still blocks public enablement.
 - The changes touch the program API surface, so each one gets the independent security review before merge.
 
