@@ -7,7 +7,8 @@ Layering.
   match native_pin) and, when this interpreter has no CadQuery, MIRUM_NATIVE_OCCT_PYTHON to one that has it.
   The older MIRUM_N1C2_REAL_BIN / MIRUM_N1C2_OCCT_PYTHON names are still read. Without the binary they skip.
 - MIRUM_NATIVE_GATE_IMAGE=1 marks an image that must carry the kernel (default path
-  /opt/mirum-native/bin/mirum-native): there a missing binary or missing CadQuery FAILS instead of skipping.
+  /opt/mirum-native/bin/mirum-native): there the `real` fixture (only) FAILS instead of skipping when the binary
+  or CadQuery is missing. The other N1c-3 test files use fakes and never skip for this reason.
 """
 from __future__ import annotations
 

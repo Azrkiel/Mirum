@@ -510,8 +510,8 @@ class DeliveredVerifier:
                 or semantic_sha256(ir) != revision.semantic_sha256
                 or execution_lock_v0_2_sha256(revision.lock) != revision.lock_sha256
                 or revision.lock.backend_lock.adapter_version != expected_version
-                or (native and (ir.execution.backend != 'mirum-native'
-                                or not _native_versions_match_pin(revision.lock.backend_lock.native_versions)))):
+                or ir.execution.backend != revision.lock.backend_lock.backend
+                or (native and not _native_versions_match_pin(revision.lock.backend_lock.native_versions))):
             raise _unavailable('lock_mismatch')
         run = self._read_run(revision)
         candidate, = generator_candidates(content)
@@ -576,19 +576,14 @@ class DeliveredVerifier:
         from engineering.equipment_bay import KERNEL_REVISION
         from .bay_bridge import check_plan_record, content_from_program
         from .hashing import execution_lock_v0_2_sha256, semantic_sha256
-        from .planning import _spans, generator_candidates
-        from .kernel import plan_for
+        from .planning import generator_candidates
 
         content = content_from_program(ir)
-        native = revision.lock.backend_lock.backend == 'mirum-native'
-        expected_version = _native_adapter_version() if native else KERNEL_REVISION
         if (content.brief_sha256 != revision.brief_sha256
                 or content.fixed_requirements_sha256 != revision.fixed_requirements_sha256
                 or semantic_sha256(ir) != revision.semantic_sha256
                 or execution_lock_v0_2_sha256(revision.lock) != revision.lock_sha256
-                or revision.lock.backend_lock.adapter_version != expected_version
-                or (native and (ir.execution.backend != 'mirum-native'
-                                or not _native_versions_match_pin(revision.lock.backend_lock.native_versions)))):
+                or revision.lock.backend_lock.adapter_version != KERNEL_REVISION):
             raise _unavailable('lock_mismatch')
         run = self._read_run(revision)
         candidate, = generator_candidates(content)

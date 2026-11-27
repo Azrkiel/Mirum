@@ -176,3 +176,21 @@ def test_occt_rejection_of_the_native_step_is_not_verified():
 def test_method_version_covers_the_native_pin():
     from engineering.program import delivered
     assert 'native_pin.py' in [p.name for p in delivered.METHOD_SOURCES]
+
+
+def test_an_occt_lock_with_a_native_ir_is_refused():
+    world = World('occt', b'S')
+    native_ir = World(NATIVE, b'S').ir
+    record = asyncio.run(world.verifier().verify(world.revision, native_ir))
+    assert record.verdict == 'unavailable' and 'lock_mismatch' in record.reasons
+    assert world.factory_calls == []
+
+
+def test_the_bay_verifier_has_no_native_branch_and_a_native_bay_lock_stays_out_of_scope():
+    import inspect
+    from engineering.program import delivered
+    assert 'mirum-native' not in inspect.getsource(delivered.DeliveredVerifier._verify_bay)
+    world = World(NATIVE, b'S')
+    bay_ir = SimpleNamespace(capability=SimpleNamespace(id='equipment_bay'))
+    record = asyncio.run(world.verifier().verify(world.revision, bay_ir))
+    assert record.verdict == 'unavailable' and 'out_of_scope' in record.reasons
