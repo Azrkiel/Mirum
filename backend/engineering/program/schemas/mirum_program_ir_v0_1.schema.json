@@ -316,7 +316,8 @@
         "backend": {
           "enum": [
             "occt",
-            "picogk"
+            "picogk",
+            "mirum-native"
           ],
           "title": "Backend",
           "type": "string"

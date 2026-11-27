@@ -23,11 +23,14 @@ from engineering.spec import specification_digest
 
 from .adapters import adapter_for
 from .hashing import execution_lock_v0_2_sha256, semantic_sha256
-from .ir import ExecutionLock, execution_lock_v0_2
+from .ir import ExecutionLock, execution_lock_for
 from .kernel import (
     UNAVAILABLE_REASONS, UNSUPPORTED_REASONS, BackendLock, Built, BuildPlan, ExecutionContext,
-    ExecutionLockV0_2, SpanBinding, SupportDecision, backend_lock, plan_for,
+    ExecutionLockV0_2, ExecutionLockV0_3, SpanBinding, SupportDecision, backend_lock, plan_for,
 )
+
+# A reviewed native lock is a v0_2 lock (occt, picogk) or a v0_3 lock (mirum-native).
+NATIVE_LOCK_TYPES = (ExecutionLockV0_2, ExecutionLockV0_3)
 
 __all__ = [
     'GATE_REASONS', 'PlanRefusal', 'ProgramPlan', 'ProgramReview', 'RunAuthorization',
@@ -84,15 +87,15 @@ class ProgramReview:
     draft_revision: int
     brief_sha256: str
     semantic_sha256: str
-    lock: ExecutionLockV0_2 | ExecutionLock  # a v0_1 lock is readable but cannot authorize a run
+    lock: ExecutionLockV0_2 | ExecutionLockV0_3 | ExecutionLock  # a v0_1 lock is readable but cannot authorize a run
     lock_sha256: str
     source_sha256: str  # the source that was reviewed
 
     def __post_init__(self):
-        if not isinstance(self.lock, (ExecutionLockV0_2, ExecutionLock)):
+        if not isinstance(self.lock, (*NATIVE_LOCK_TYPES, ExecutionLock)):
             raise ValueError('lock must be an execution lock')
         # Security review LOW-3 (PR #138): a v0_2 lock is bound to its hash. (A v0_1 lock never authorizes.)
-        if isinstance(self.lock, ExecutionLockV0_2) and execution_lock_v0_2_sha256(self.lock) != self.lock_sha256:
+        if isinstance(self.lock, NATIVE_LOCK_TYPES) and execution_lock_v0_2_sha256(self.lock) != self.lock_sha256:
             raise ValueError('lock_sha256 does not match the lock')
 
 
@@ -203,12 +206,12 @@ async def _fresh_lock(compiled, adapter):
     if not probe.available:
         return None, _refuse('unavailable', *probe.reasons)
     try:
-        return execution_lock_v0_2(compiled.ir, backend_lock(adapter.describe(), probe)), None
+        return execution_lock_for(compiled.ir, backend_lock(adapter.describe(), probe)), None
     except ValueError:
         return None, _refuse('refused', 'lock_mismatch')
 
 
-async def lock_program(plan: ProgramPlan, *, adapter) -> ExecutionLockV0_2 | PlanRefusal:
+async def lock_program(plan: ProgramPlan, *, adapter) -> ExecutionLockV0_2 | ExecutionLockV0_3 | PlanRefusal:
     if plan.mode == 'mock':
         return _refuse('unavailable', 'mock_backend')
     lock, refusal = await _fresh_lock(plan.compiled, adapter)
@@ -217,11 +220,11 @@ async def lock_program(plan: ProgramPlan, *, adapter) -> ExecutionLockV0_2 | Pla
 
 # ------------------------------------------------------------------ stage 7: review and run gate
 
-def open_review(plan: ProgramPlan, lock: ExecutionLockV0_2, brief_service) -> ProgramReview:
+def open_review(plan: ProgramPlan, lock: ExecutionLockV0_2 | ExecutionLockV0_3, brief_service) -> ProgramReview:
     """Open the draft through the existing BriefService. The user finalizes it with
     ``brief_service.finalize(ReviewAcknowledgement(...))``."""
-    if not isinstance(lock, ExecutionLockV0_2):
-        raise ValueError('a review needs a v0_2 execution lock')
+    if not isinstance(lock, NATIVE_LOCK_TYPES):
+        raise ValueError('a review needs a v0_2 or v0_3 execution lock')
     compiled = plan.compiled
     payload = json.loads(compiled.brief_content.model_dump_json())
     prepared = brief_service.create(payload)
@@ -248,7 +251,7 @@ async def authorize_run(review: ProgramReview, compiled, brief_service, brief_id
         return _refuse('refused', 'review_mismatch')
     if not (semantic_sha256(compiled.ir) == review.semantic_sha256 == compiled.semantic_sha256):
         return _refuse('refused', 'semantic_mismatch')
-    if not isinstance(review.lock, ExecutionLockV0_2):
+    if not isinstance(review.lock, NATIVE_LOCK_TYPES):
         return _refuse('refused', 'lock_version_unsupported')
     fresh, refusal = await _fresh_lock(compiled, adapter)
     if refusal is not None:
@@ -278,7 +281,7 @@ async def authorize_run(review: ProgramReview, compiled, brief_service, brief_id
     if semantic_sha256(ir) != review.semantic_sha256:
         return _refuse('refused', 'semantic_mismatch')
     try:
-        rebound = execution_lock_v0_2_sha256(execution_lock_v0_2(ir, fresh.backend_lock))
+        rebound = execution_lock_v0_2_sha256(execution_lock_for(ir, fresh.backend_lock))
     except ValueError:  # includes pydantic ValidationError: a typed refusal, never an exception
         return _refuse('refused', 'lock_mismatch')
     if rebound != review.lock_sha256:

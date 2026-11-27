@@ -18,7 +18,7 @@ from .kernel import ExecutionLockV0_2
 from .interface import API_SCHEMA_MODELS
 from .revisions import JournalEntry, ProgramRevision, RevisionDiff
 from .registry import (
-    BAY_REGISTRY, DEFAULT_REGISTRY, PLATE_REGISTRY, REGISTRY_V0_1, THERMAL_REGISTRY,
+    BAY_REGISTRY, DEFAULT_REGISTRY, NATIVE_REGISTRY, PLATE_REGISTRY, REGISTRY_V0_1, THERMAL_REGISTRY,
     ArtifactGraph, OperationDescriptor, OpStream,
 )
 from .versions import REGISTRY_VERSION, REGISTRY_VERSION_V0_1
@@ -66,7 +66,7 @@ def generated() -> dict[str, str]:
         'registry_version': REGISTRY_VERSION,
         'operations': [d.model_dump(mode='json') for d in DEFAULT_REGISTRY.descriptors()],
     })
-    for registry in (BAY_REGISTRY, PLATE_REGISTRY, THERMAL_REGISTRY):
+    for registry in (BAY_REGISTRY, PLATE_REGISTRY, THERMAL_REGISTRY, NATIVE_REGISTRY):
         out[f'{registry.version}.json'] = _dump({
             'registry_version': registry.version,
             'operations': [d.model_dump(mode='json') for d in registry.descriptors()],

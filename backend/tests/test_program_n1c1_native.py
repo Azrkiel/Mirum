@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from engineering.language.diagnostics import MelError
 from engineering.language.semantic import compile_source
 from engineering.program import kernel, schema_export as se
 from engineering.program.adapters import adapter_for
@@ -260,11 +261,11 @@ def test_ir_accepts_the_additive_enum_value_and_still_rejects_others():
 
 
 def test_mel_still_rejects_mirum_native_until_n1c_2():
-    source = PLATE.read_bytes().replace(b'backend: occt', b'backend: mirum-native')
+    source = PLATE.read_bytes().replace(b'backend = "occt"', b'backend = "mirum-native"')
     assert source != PLATE.read_bytes()
-    with pytest.raises(ProgramError) as exc:
+    with pytest.raises(MelError) as exc:
         compile_source(source)
-    assert 'MEL-S012' in repr(exc.value) or exc.value.code == 'MEL-S012'
+    assert 'MEL-S012' in str(exc.value)
 
 
 # ------------------------------------------------------------------ lock v0_3

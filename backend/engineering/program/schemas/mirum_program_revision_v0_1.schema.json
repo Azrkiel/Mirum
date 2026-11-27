@@ -139,6 +139,98 @@
       "title": "BackendLock",
       "type": "object"
     },
+    "BackendLockV0_2": {
+      "additionalProperties": false,
+      "description": "mirum-native backend lock (kernel records v0_2). BackendLock stays the v0_1 shape.",
+      "properties": {
+        "adapter_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Adapter Version",
+          "type": "string"
+        },
+        "backend": {
+          "const": "mirum-native",
+          "enum": [
+            "mirum-native"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "export_formats": {
+          "items": {
+            "enum": [
+              "step",
+              "glb",
+              "stl"
+            ],
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Export Formats",
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "native",
+            "mock"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "native_versions": {
+          "items": {
+            "$ref": "#/$defs/NativeVersion"
+          },
+          "maxItems": 256,
+          "title": "Native Versions",
+          "type": "array"
+        },
+        "representations": {
+          "items": {
+            "enum": [
+              "brep",
+              "mesh",
+              "voxel",
+              "report",
+              "file"
+            ],
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Representations",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "mirum_kernel_v0_2",
+          "default": "mirum_kernel_v0_2",
+          "enum": [
+            "mirum_kernel_v0_2"
+          ],
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "tolerances": {
+          "items": {
+            "$ref": "#/$defs/ToleranceConvention"
+          },
+          "maxItems": 256,
+          "title": "Tolerances",
+          "type": "array"
+        }
+      },
+      "required": [
+        "backend",
+        "adapter_version",
+        "mode",
+        "native_versions",
+        "representations",
+        "export_formats",
+        "tolerances"
+      ],
+      "title": "BackendLockV0_2",
+      "type": "object"
+    },
     "BundleIdentity": {
       "additionalProperties": false,
       "description": "External delivery envelope; no circular manifest/ZIP self-hashes.",
@@ -308,6 +400,123 @@
         "backend_lock"
       ],
       "title": "ExecutionLockV0_2",
+      "type": "object"
+    },
+    "ExecutionLockV0_3": {
+      "additionalProperties": false,
+      "description": "N1c-1 execution lock for the mirum-native backend: the v0_2 fields with the backend fixed to\nmirum-native, a BackendLockV0_2 and the v0_6 registry. v0_1 and v0_2 locks never carry mirum-native and\na v0_3 lock never carries occt or picogk.",
+      "properties": {
+        "backend": {
+          "const": "mirum-native",
+          "enum": [
+            "mirum-native"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "backend_lock": {
+          "$ref": "#/$defs/BackendLockV0_2"
+        },
+        "capability_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "capability_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Capability Version",
+          "type": "string"
+        },
+        "compiler_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Compiler Version",
+          "type": "string"
+        },
+        "exports": {
+          "items": {
+            "enum": [
+              "step",
+              "glb",
+              "stl",
+              "source",
+              "brief",
+              "specification",
+              "attempts",
+              "report_json",
+              "report_markdown",
+              "manifest",
+              "zip"
+            ],
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Exports",
+          "type": "array"
+        },
+        "language_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Language Version",
+          "type": "string"
+        },
+        "numerical_policy_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Numerical Policy Version",
+          "type": "string"
+        },
+        "program_ir_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Program Ir Version",
+          "type": "string"
+        },
+        "registry_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Registry Version",
+          "type": "string"
+        },
+        "resource_policy_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Resource Policy Version",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "mirum_execution_lock_v0_3",
+          "enum": [
+            "mirum_execution_lock_v0_3"
+          ],
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "semantics_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Semantics Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "program_ir_version",
+        "semantics_version",
+        "registry_version",
+        "capability_id",
+        "capability_version",
+        "numerical_policy_version",
+        "resource_policy_version",
+        "backend",
+        "exports",
+        "language_version",
+        "compiler_version",
+        "backend_lock"
+      ],
+      "title": "ExecutionLockV0_3",
       "type": "object"
     },
     "NativeVersion": {
@@ -487,7 +696,22 @@
       "type": "string"
     },
     "lock": {
-      "$ref": "#/$defs/ExecutionLockV0_2"
+      "discriminator": {
+        "mapping": {
+          "mirum_execution_lock_v0_2": "#/$defs/ExecutionLockV0_2",
+          "mirum_execution_lock_v0_3": "#/$defs/ExecutionLockV0_3"
+        },
+        "propertyName": "schema_version"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ExecutionLockV0_2"
+        },
+        {
+          "$ref": "#/$defs/ExecutionLockV0_3"
+        }
+      ],
+      "title": "Lock"
     },
     "lock_sha256": {
       "maxLength": 64,

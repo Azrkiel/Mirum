@@ -27,7 +27,7 @@ from .beam_bridge import HEIGHT_ID, _REQUIREMENTS
 from .errors import IRModel, ProgramError
 from .hashing import canonical_json, execution_lock_v0_2_sha256, semantic_sha256
 from .ir import Identifier, ProgramIR, QuantityValue, SemanticId
-from .kernel import ClaimScope, ExecutionLockV0_2, NativeVersion
+from .kernel import ClaimScope, ExecutionLockV0_2, ExecutionLockV0_3, NativeVersion
 from .versions import CHECK_PLAN_VERSION, DELIVERED_EVIDENCE_VERSION
 
 __all__ = [
@@ -356,7 +356,7 @@ def _candidate_entries(spec, pinned: bool) -> tuple[CheckEntry, ...]:
     )
 
 
-def build_check_plan(ir: ProgramIR, lock: ExecutionLockV0_2, candidates: tuple[CandidateSpec, ...], *,
+def build_check_plan(ir: ProgramIR, lock: ExecutionLockV0_2 | ExecutionLockV0_3, candidates: tuple[CandidateSpec, ...], *,
                      mesh_convention_pinned: bool) -> CheckPlan:
     """Beam check plan from reviewed inputs only (D3). Refuses (ProgramError) on any disagreement."""
     if (ir.capability.id, ir.capability.version) != (CAPABILITY.id, CAPABILITY.version):

@@ -1,0 +1,896 @@
+{
+  "operations": [
+    {
+      "args": [
+        {
+          "allowed": [],
+          "dimension": null,
+          "kind": "text",
+          "name": "check",
+          "required": false
+        }
+      ],
+      "backend_requirements": [
+        "capability_runtime"
+      ],
+      "capability_versions": [
+        "rectangular_cantilever@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.analyze",
+      "outputs": [
+        {
+          "name": "analysis",
+          "type": "report"
+        }
+      ],
+      "preconditions": [
+        "capability.build completed"
+      ],
+      "representations": [
+        "report"
+      ],
+      "summary": "Run a required analysis check.",
+      "version": "0.1.0"
+    },
+    {
+      "args": [],
+      "backend_requirements": [
+        "capability_runtime"
+      ],
+      "capability_versions": [
+        "rectangular_cantilever@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.build",
+      "outputs": [
+        {
+          "name": "geometry",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [
+        "program validated against the capability"
+      ],
+      "representations": [
+        "brep",
+        "mesh"
+      ],
+      "summary": "Build the geometry of a validated capability design.",
+      "version": "0.1.0"
+    },
+    {
+      "args": [],
+      "backend_requirements": [
+        "capability_runtime"
+      ],
+      "capability_versions": [
+        "regen_chamber@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.build",
+      "outputs": [
+        {
+          "name": "geometry",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [
+        "program validated against the capability",
+        "regen path is geometry-only"
+      ],
+      "representations": [
+        "voxel",
+        "mesh"
+      ],
+      "summary": "Build the geometry of a validated regen chamber design (geometry-only path).",
+      "version": "0.2.0"
+    },
+    {
+      "args": [],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [
+        "equipment_bay@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.build",
+      "outputs": [
+        {
+          "name": "geometry",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Build a reviewed two-row equipment bay.",
+      "version": "0.3.0"
+    },
+    {
+      "args": [],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [
+        "editable_plate@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.build",
+      "outputs": [
+        {
+          "name": "geometry",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Rebuild an editable rectangular plate from its reviewed width.",
+      "version": "0.4.0"
+    },
+    {
+      "args": [],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [
+        "thermal_bar@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.build",
+      "outputs": [
+        {
+          "name": "geometry",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Build the reviewed bar and solve the thermal benchmark.",
+      "version": "0.5.0"
+    },
+    {
+      "args": [],
+      "backend_requirements": [
+        "mirum-native"
+      ],
+      "capability_versions": [
+        "editable_plate@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.build",
+      "outputs": [
+        {
+          "name": "geometry",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Build the editable rectangular plate with the native kernel.",
+      "version": "0.6.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [
+            "step",
+            "glb"
+          ],
+          "dimension": null,
+          "kind": "text",
+          "name": "format",
+          "required": true
+        }
+      ],
+      "backend_requirements": [
+        "capability_runtime"
+      ],
+      "capability_versions": [
+        "rectangular_cantilever@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.export",
+      "outputs": [
+        {
+          "name": "file",
+          "type": "file"
+        }
+      ],
+      "preconditions": [
+        "capability.build completed"
+      ],
+      "representations": [
+        "file"
+      ],
+      "summary": "Export built geometry to a file format.",
+      "version": "0.1.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [
+            "stl"
+          ],
+          "dimension": null,
+          "kind": "text",
+          "name": "format",
+          "required": true
+        }
+      ],
+      "backend_requirements": [
+        "capability_runtime"
+      ],
+      "capability_versions": [
+        "regen_chamber@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.export",
+      "outputs": [
+        {
+          "name": "file",
+          "type": "file"
+        }
+      ],
+      "preconditions": [
+        "capability.build completed",
+        "regen path is geometry-only"
+      ],
+      "representations": [
+        "file"
+      ],
+      "summary": "Export built regen chamber geometry to STL (geometry-only).",
+      "version": "0.2.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [
+            "step"
+          ],
+          "dimension": null,
+          "kind": "text",
+          "name": "format",
+          "required": true
+        }
+      ],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [
+        "equipment_bay@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.export",
+      "outputs": [
+        {
+          "name": "file",
+          "type": "file"
+        }
+      ],
+      "preconditions": [],
+      "representations": [
+        "file"
+      ],
+      "summary": "Export the hierarchical equipment-bay STEP.",
+      "version": "0.3.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [
+            "step"
+          ],
+          "dimension": null,
+          "kind": "text",
+          "name": "format",
+          "required": true
+        }
+      ],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [
+        "editable_plate@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.export",
+      "outputs": [
+        {
+          "name": "file",
+          "type": "file"
+        }
+      ],
+      "preconditions": [],
+      "representations": [
+        "file"
+      ],
+      "summary": "Export the editable plate STEP.",
+      "version": "0.4.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [
+            "step"
+          ],
+          "dimension": null,
+          "kind": "text",
+          "name": "format",
+          "required": true
+        }
+      ],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [
+        "thermal_bar@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.export",
+      "outputs": [
+        {
+          "name": "file",
+          "type": "file"
+        }
+      ],
+      "preconditions": [],
+      "representations": [
+        "file"
+      ],
+      "summary": "Export the undeformed thermal bar STEP.",
+      "version": "0.5.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [
+            "step"
+          ],
+          "dimension": null,
+          "kind": "text",
+          "name": "format",
+          "required": true
+        }
+      ],
+      "backend_requirements": [
+        "mirum-native"
+      ],
+      "capability_versions": [
+        "editable_plate@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.export",
+      "outputs": [
+        {
+          "name": "file",
+          "type": "file"
+        }
+      ],
+      "preconditions": [],
+      "representations": [
+        "file"
+      ],
+      "summary": "Export the native editable plate STEP.",
+      "version": "0.6.0"
+    },
+    {
+      "args": [],
+      "backend_requirements": [
+        "capability_runtime"
+      ],
+      "capability_versions": [
+        "rectangular_cantilever@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.inspect",
+      "outputs": [
+        {
+          "name": "measurements",
+          "type": "measurement"
+        }
+      ],
+      "preconditions": [
+        "capability.build completed"
+      ],
+      "representations": [
+        "report"
+      ],
+      "summary": "Inspect built geometry and report measurements.",
+      "version": "0.1.0"
+    },
+    {
+      "args": [],
+      "backend_requirements": [
+        "capability_runtime"
+      ],
+      "capability_versions": [
+        "regen_chamber@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.inspect",
+      "outputs": [
+        {
+          "name": "measurements",
+          "type": "measurement"
+        }
+      ],
+      "preconditions": [
+        "capability.build completed",
+        "regen path is geometry-only"
+      ],
+      "representations": [
+        "report"
+      ],
+      "summary": "Inspect built regen chamber geometry and report measurements (geometry-only).",
+      "version": "0.2.0"
+    },
+    {
+      "args": [],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [
+        "equipment_bay@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.inspect",
+      "outputs": [
+        {
+          "name": "measurements",
+          "type": "measurement"
+        }
+      ],
+      "preconditions": [],
+      "representations": [
+        "report"
+      ],
+      "summary": "Measure the equipment bay and mounting bores.",
+      "version": "0.3.0"
+    },
+    {
+      "args": [],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [
+        "editable_plate@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.inspect",
+      "outputs": [
+        {
+          "name": "measurements",
+          "type": "measurement"
+        }
+      ],
+      "preconditions": [],
+      "representations": [
+        "report"
+      ],
+      "summary": "Measure the delivered plate envelope and through-bores.",
+      "version": "0.4.0"
+    },
+    {
+      "args": [],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [
+        "thermal_bar@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.inspect",
+      "outputs": [
+        {
+          "name": "measurements",
+          "type": "measurement"
+        }
+      ],
+      "preconditions": [],
+      "representations": [
+        "report"
+      ],
+      "summary": "Reread the delivered bar and recompute the thermal checks.",
+      "version": "0.5.0"
+    },
+    {
+      "args": [],
+      "backend_requirements": [
+        "mirum-native"
+      ],
+      "capability_versions": [
+        "editable_plate@1.0.0"
+      ],
+      "executable": true,
+      "id": "capability.inspect",
+      "outputs": [
+        {
+          "name": "measurements",
+          "type": "measurement"
+        }
+      ],
+      "preconditions": [],
+      "representations": [
+        "report"
+      ],
+      "summary": "Measure the native plate by rereading its STEP.",
+      "version": "0.6.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [
+            "union",
+            "difference",
+            "intersection"
+          ],
+          "dimension": null,
+          "kind": "text",
+          "name": "operation",
+          "required": true
+        },
+        {
+          "allowed": [],
+          "dimension": null,
+          "kind": "reference",
+          "name": "tool",
+          "required": false
+        }
+      ],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [],
+      "executable": false,
+      "id": "construct.boolean",
+      "outputs": [
+        {
+          "name": "solid",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [
+        "two solids are available"
+      ],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Combine two solids.",
+      "version": "0.1.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [],
+          "dimension": "length",
+          "kind": "quantity",
+          "name": "distance",
+          "required": true
+        },
+        {
+          "allowed": [],
+          "dimension": null,
+          "kind": "reference",
+          "name": "edges",
+          "required": false
+        }
+      ],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [],
+      "executable": false,
+      "id": "construct.chamfer",
+      "outputs": [
+        {
+          "name": "solid",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [
+        "input is a solid",
+        "distance fits the edge geometry"
+      ],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Bevel selected edges of a solid.",
+      "version": "0.1.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [],
+          "dimension": "length",
+          "kind": "quantity",
+          "name": "distance",
+          "required": true
+        }
+      ],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [],
+      "executable": false,
+      "id": "construct.extrude",
+      "outputs": [
+        {
+          "name": "solid",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [
+        "input is a closed sketch"
+      ],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Extrude a sketch along its normal.",
+      "version": "0.1.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [],
+          "dimension": "length",
+          "kind": "quantity",
+          "name": "radius",
+          "required": true
+        },
+        {
+          "allowed": [],
+          "dimension": null,
+          "kind": "reference",
+          "name": "edges",
+          "required": false
+        }
+      ],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [],
+      "executable": false,
+      "id": "construct.fillet",
+      "outputs": [
+        {
+          "name": "solid",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [
+        "input is a solid",
+        "radius fits the edge geometry"
+      ],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Round selected edges of a solid.",
+      "version": "0.1.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [],
+          "dimension": null,
+          "kind": "reference",
+          "name": "profiles",
+          "required": true
+        }
+      ],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [],
+      "executable": false,
+      "id": "construct.loft",
+      "outputs": [
+        {
+          "name": "solid",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [
+        "at least two compatible profiles"
+      ],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Loft through an ordered list of profiles.",
+      "version": "0.1.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [],
+          "dimension": "dimensionless",
+          "kind": "quantity",
+          "name": "count",
+          "required": true
+        },
+        {
+          "allowed": [],
+          "dimension": "length",
+          "kind": "quantity",
+          "name": "spacing",
+          "required": true
+        }
+      ],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [],
+      "executable": false,
+      "id": "construct.pattern",
+      "outputs": [
+        {
+          "name": "solid",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [
+        "input is a solid or feature",
+        "count is at least 1"
+      ],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Repeat a feature at a fixed spacing.",
+      "version": "0.1.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [],
+          "dimension": "angle",
+          "kind": "quantity",
+          "name": "angle",
+          "required": true
+        }
+      ],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [],
+      "executable": false,
+      "id": "construct.revolve",
+      "outputs": [
+        {
+          "name": "solid",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [
+        "input is a closed sketch",
+        "axis does not cross the sketch"
+      ],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Revolve a sketch about an axis.",
+      "version": "0.1.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [],
+          "dimension": "length",
+          "kind": "quantity",
+          "name": "thickness",
+          "required": true
+        },
+        {
+          "allowed": [],
+          "dimension": null,
+          "kind": "reference",
+          "name": "faces",
+          "required": false
+        }
+      ],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [],
+      "executable": false,
+      "id": "construct.shell",
+      "outputs": [
+        {
+          "name": "solid",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [
+        "input is a solid",
+        "thickness less than half the minimum feature size"
+      ],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Hollow a solid to a wall thickness.",
+      "version": "0.1.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [
+            "xy",
+            "yz",
+            "xz"
+          ],
+          "dimension": null,
+          "kind": "text",
+          "name": "plane",
+          "required": false
+        }
+      ],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [],
+      "executable": false,
+      "id": "construct.sketch",
+      "outputs": [
+        {
+          "name": "sketch",
+          "type": "sketch"
+        }
+      ],
+      "preconditions": [
+        "a datum plane exists"
+      ],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Create a planar sketch on a datum plane.",
+      "version": "0.1.0"
+    },
+    {
+      "args": [
+        {
+          "allowed": [],
+          "dimension": null,
+          "kind": "reference",
+          "name": "profile",
+          "required": true
+        },
+        {
+          "allowed": [],
+          "dimension": null,
+          "kind": "reference",
+          "name": "path",
+          "required": true
+        }
+      ],
+      "backend_requirements": [
+        "occt"
+      ],
+      "capability_versions": [],
+      "executable": false,
+      "id": "construct.sweep",
+      "outputs": [
+        {
+          "name": "solid",
+          "type": "solid"
+        }
+      ],
+      "preconditions": [
+        "profile is a closed sketch",
+        "path is a connected curve"
+      ],
+      "representations": [
+        "brep"
+      ],
+      "summary": "Sweep a profile along a path.",
+      "version": "0.1.0"
+    }
+  ],
+  "registry_version": "mirum_operation_registry_v0_6"
+}

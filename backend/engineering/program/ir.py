@@ -18,7 +18,7 @@ from .errors import MAX_POSITION, IRModel, ProgramError, SourceSpan, Str240
 from .units import CANONICAL_UNIT, Dimension
 from .versions import (
     CONSTRUCTION_GRAPH_VERSION, EXECUTION_LOCK_VERSION, EXECUTION_LOCK_VERSION_V0_2,
-    MEL_COMPILER_VERSION, MEL_LANGUAGE_VERSION, PROGRAM_IR_VERSION, REGISTRY_VERSION,
+    EXECUTION_LOCK_VERSION_V0_3, MEL_COMPILER_VERSION, MEL_LANGUAGE_VERSION, PROGRAM_IR_VERSION, REGISTRY_VERSION,
     SEMANTICS_VERSION,
 )
 
@@ -27,7 +27,7 @@ __all__ = [
     'RequirementPlan', 'CandidateParameter', 'CandidateSpace', 'AnalysisPlanRef',
     'EvidenceExpectation', 'ConstructionStep', 'ConstructionGraph', 'CapabilityRef',
     'ExecutionSelection', 'ProgramProvenance', 'ProgramIR', 'ExecutionLock',
-    'execution_lock', 'execution_lock_v0_2', 'load_execution_lock_json', 'load_program_json', 'program_from_dict', 'MAX_POSITION',
+    'execution_lock', 'execution_lock_v0_2', 'execution_lock_v0_3', 'execution_lock_for', 'BackendV0_1', 'load_execution_lock_json', 'load_program_json', 'program_from_dict', 'MAX_POSITION',
 ]
 
 def _semantic_id_length(value: str) -> str:
@@ -53,7 +53,10 @@ MAX_ARGS = 64
 
 # Symbolic backend and export selectors. The compiler and reviewed plans apply the narrower
 # capability-specific format policies.
-Backend = Literal['occt', 'picogk']
+# BackendV0_1 stays on the v0_1/v0_2 locks (their schema files are frozen); Backend adds the
+# additive mirum-native value for the program IR and the v0_3 lock (N1c-1, D3).
+BackendV0_1 = Literal['occt', 'picogk']
+Backend = Literal['occt', 'picogk', 'mirum-native']
 ExportFormat = Literal['step', 'glb', 'stl', 'source', 'brief', 'specification', 'attempts',
                        'report_json', 'report_markdown', 'manifest', 'zip']
 
@@ -274,7 +277,7 @@ class ExecutionLock(IRModel):
     capability_version: Name128
     numerical_policy_version: Name128
     resource_policy_version: Name128
-    backend: Backend
+    backend: BackendV0_1
     exports: Annotated[tuple[ExportFormat, ...], Field(max_length=32)]
 
     @model_validator(mode='before')
@@ -531,11 +534,49 @@ def execution_lock_v0_2(ir: ProgramIR, backend_lock):
         backend_lock=backend_lock)
 
 
+def execution_lock_v0_3(ir: ProgramIR, backend_lock):
+    """v0_3 lock for `ir` pinned to a native kernel.BackendLockV0_2 (mirum-native only).
+
+    ValueError for a mock lock, a v0_1 BackendLock, a non-plate capability or a non-native IR. Built
+    from the IR directly: the v0_1 `execution_lock` cannot carry mirum-native."""
+    from .kernel import BackendLockV0_2, ExecutionLockV0_3
+    from .registry import registry_for_capability
+    if not isinstance(backend_lock, BackendLockV0_2):
+        raise ValueError('backend_lock must be a BackendLockV0_2')
+    if backend_lock.mode != 'native':
+        raise ValueError('a mock backend lock cannot be part of an execution lock')
+    return ExecutionLockV0_3(
+        schema_version=EXECUTION_LOCK_VERSION_V0_3,
+        program_ir_version=ir.schema_version,
+        semantics_version=SEMANTICS_VERSION,
+        registry_version=registry_for_capability(ir.capability.id, ir.execution.backend).version,
+        capability_id=ir.capability.id,
+        capability_version=ir.capability.version,
+        numerical_policy_version=ir.capability.numerical_policy_version,
+        resource_policy_version=ir.capability.resource_policy_version,
+        backend=ir.execution.backend,
+        exports=ir.execution.exports,
+        language_version=MEL_LANGUAGE_VERSION,
+        compiler_version=MEL_COMPILER_VERSION,
+        backend_lock=backend_lock)
+
+
+def execution_lock_for(ir: ProgramIR, backend_lock):
+    """The lock version that matches the backend lock: v0_3 for mirum-native, v0_2 for occt and picogk."""
+    from .kernel import BackendLockV0_2
+    if isinstance(backend_lock, BackendLockV0_2):
+        return execution_lock_v0_3(ir, backend_lock)
+    return execution_lock_v0_2(ir, backend_lock)
+
+
 def load_execution_lock_json(text: str | bytes):
-    """Strict versioned lock loader: ExecutionLock (v0_1) or kernel.ExecutionLockV0_2 (v0_2)."""
-    from .kernel import ExecutionLockV0_2
+    """Strict versioned lock loader: ExecutionLock (v0_1), kernel.ExecutionLockV0_2 (v0_2) or
+    kernel.ExecutionLockV0_3 (v0_3, mirum-native)."""
+    from .kernel import ExecutionLockV0_2, ExecutionLockV0_3
     obj = _parse_json_bounded(text)
     version = obj.get('schema_version') if isinstance(obj, dict) else None
+    if version == EXECUTION_LOCK_VERSION_V0_3:
+        return _validate_record(ExecutionLockV0_3, obj, EXECUTION_LOCK_VERSION_V0_3)
     if version == EXECUTION_LOCK_VERSION_V0_2:
         return _validate_record(ExecutionLockV0_2, obj, EXECUTION_LOCK_VERSION_V0_2)
     return _validate_record(ExecutionLock, obj, EXECUTION_LOCK_VERSION)
