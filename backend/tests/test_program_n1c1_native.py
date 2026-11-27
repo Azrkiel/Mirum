@@ -213,7 +213,13 @@ def test_native_plan_for_plate_with_glb_is_export_not_supported(candidate):
 
 # ------------------------------------------------------------------ IR enum and no fallback
 
-def test_adapter_for_native_is_never_occt_and_never_completes(candidate):
+def test_adapter_for_native_is_never_occt_and_never_completes(candidate, monkeypatch, tmp_path):
+    # Hermetic: the native gate image carries the real binary and sets the kernel env; this row is about the
+    # runtime-missing path, so point the adapter at a path that does not exist.
+    from engineering.program.adapters import native as native_mod
+    monkeypatch.delenv('MIRUM_NATIVE_KERNEL', raising=False)
+    monkeypatch.delenv('MIRUM_NATIVE_BIN', raising=False)
+    monkeypatch.setattr(native_mod, 'BINARY_PATH', str(tmp_path / 'absent' / 'mirum-native'))
     native = adapter_for(NATIVE)
     assert native.backend == NATIVE
     assert 'occt' not in type(native).__module__

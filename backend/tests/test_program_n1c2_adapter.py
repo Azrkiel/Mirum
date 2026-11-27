@@ -239,7 +239,9 @@ def test_default_path_and_env_path_are_used_when_no_binary_given(tmp_path, monke
     monkeypatch.setenv('MIRUM_NATIVE_BIN', str(binary))
     assert run(NativePlateAdapter(pin=pin).probe()).available
     monkeypatch.delenv('MIRUM_NATIVE_BIN')
-    # The default path does not exist on a development host.
+    # Point the default at an absent path: the native gate image carries a real binary at the real default.
+    import engineering.program.adapters.native as native_mod
+    monkeypatch.setattr(native_mod, 'BINARY_PATH', str(tmp_path / 'absent' / 'mirum-native'))
     assert run(NativePlateAdapter(pin=pin).probe()).reasons == ('runtime_missing',)
 
 
