@@ -55,6 +55,7 @@ class Admitted(NamedTuple):
 
 # Keys under this prefix belong to revision admission (program/transactions.py); no public caller may claim them.
 RESERVED_KEY_PREFIX = 'program-revision:'
+JOB_BACKENDS = ('occt', 'mirum-native')  # picogk is never admitted here
 
 
 class UnavailableCapability(RuntimeError):
@@ -124,6 +125,8 @@ class JobController:
         """
         if self.closed:
             raise RuntimeError('Engineering controller is closed')
+        if type(backend) is not str or backend not in JOB_BACKENDS:
+            raise ValueError('Unsupported job backend')
         if type(key) is not str or not key.strip() or len(key) > 128:
             raise ValueError('Idempotency key must contain 1-128 characters')
         if self.publisher:

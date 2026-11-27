@@ -12,6 +12,11 @@ Residual risk (documented): the SHA check and the exec are two steps on the same
 owned by root or the service user, and neither it nor any ancestor directory may be group/world-writable
 (sticky ancestors excepted), so only
 the owner could swap it between the two.
+
+Availability trade-off (intentional): the ancestor check refuses group-writable parents, for example a home
+directory with mode 0775 (common when the user's private group has write access). Install the binary under a
+directory chain that is not group/world-writable, such as /opt/mirum-native/bin. The checks also fail closed
+(``probe_failed``) on a platform without ``os.geteuid``, instead of skipping the ownership checks.
 """
 from __future__ import annotations
 
@@ -111,6 +116,8 @@ class NativePlateAdapter:
     def _check_ancestors(path: str, geteuid) -> None:
         """No symlinked component, and every ancestor directory up to / is owned by root or the service user
         and is not group/world-writable (unless sticky), so nobody else can swap a component of the path."""
+        if not callable(geteuid):  # no ownership information: fail closed, never skip the check
+            raise _Refused('probe_failed')
         if os.path.realpath(path) != os.path.normpath(path):
             raise _Refused('probe_failed')
         directory = os.path.dirname(path)
@@ -123,7 +130,7 @@ class NativePlateAdapter:
                 raise _Refused('probe_failed')
             if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH) and not info.st_mode & stat.S_ISVTX:
                 raise _Refused('probe_failed')
-            if geteuid is not None and info.st_uid not in (0, geteuid()):
+            if info.st_uid not in (0, geteuid()):
                 raise _Refused('probe_failed')
             parent = os.path.dirname(directory)
             if parent == directory:
@@ -145,7 +152,7 @@ class NativePlateAdapter:
         if before.st_mode & (stat.S_IWGRP | stat.S_IWOTH) or not before.st_mode & stat.S_IXUSR:
             raise _Refused('probe_failed')
         geteuid = getattr(os, 'geteuid', None)
-        if geteuid is not None and before.st_uid not in (0, geteuid()):
+        if not callable(geteuid) or before.st_uid not in (0, geteuid()):
             raise _Refused('probe_failed')
         try:
             parent = os.lstat(os.path.dirname(path))
