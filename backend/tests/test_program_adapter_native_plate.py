@@ -6,9 +6,11 @@ Layering.
 - Real rows need the pinned binary and the OCCT plate worker. Set MIRUM_NATIVE_BIN to the binary (it must
   match native_pin) and, when this interpreter has no CadQuery, MIRUM_NATIVE_OCCT_PYTHON to one that has it.
   The older MIRUM_N1C2_REAL_BIN / MIRUM_N1C2_OCCT_PYTHON names are still read. Without the binary they skip.
-- MIRUM_NATIVE_GATE_IMAGE=1 marks an image that must carry the kernel (default path
-  /opt/mirum-native/bin/mirum-native): there the `real` fixture (only) FAILS instead of skipping when the binary
-  or CadQuery is missing. The other N1c-3 test files use fakes and never skip for this reason.
+- MIRUM_NATIVE_GATE_IMAGE=1 together with MIRUM_NATIVE_REQUIRE_BINARY=1 marks an image that must carry the kernel
+  (default path /opt/mirum-native/bin/mirum-native): there the `real` fixture (only) FAILS instead of skipping
+  when the binary or CadQuery is missing. CI already sets MIRUM_NATIVE_GATE_IMAGE=1, but the gate image cannot
+  carry the binary until N1c-3b (the GHCR package is private), so N1c-3b adds MIRUM_NATIVE_REQUIRE_BINARY=1 to
+  the gate-image runs. The other N1c-3 test files use fakes and never skip for this reason.
 """
 from __future__ import annotations
 
@@ -40,7 +42,7 @@ FIX = REPO / 'backend' / 'engineering' / 'fixtures'
 EDGE = (FIX / 'editable_plate' / 'edge.mir').read_bytes()
 DATUM = (FIX / 'editable_plate' / 'datum.mir').read_bytes()
 NATIVE = 'mirum-native'
-GATE = os.environ.get('MIRUM_NATIVE_GATE_IMAGE') == '1'
+GATE = os.environ.get('MIRUM_NATIVE_GATE_IMAGE') == '1' and os.environ.get('MIRUM_NATIVE_REQUIRE_BINARY') == '1'
 BIN = os.environ.get('MIRUM_NATIVE_BIN') or os.environ.get('MIRUM_N1C2_REAL_BIN') or (BINARY_PATH if GATE else None)
 OCCT_PYTHON = (os.environ.get('MIRUM_NATIVE_OCCT_PYTHON') or os.environ.get('MIRUM_N1C2_OCCT_PYTHON')
                or sys.executable)
