@@ -19,7 +19,7 @@ from .briefs import BriefService,RevisionConflict
 from .bundles import BundlePublisher,FORMATS,ALL_FORMATS
 from .capabilities import CAPABILITY,CapabilityDescriptor,adapter_installed,get_capability,get_generator,list_capabilities,resolve
 from .contracts import ContractModel,ReviewAcknowledgement,Text,REVIEW_FIELDS
-from .jobs import JobController,compact_run
+from .jobs import JobController,RESERVED_KEY_PREFIX,compact_run
 from .limits import AiCallBudget,run_in_thread_owned
 from .proposer import make_proposer,rules_proposer
 from .store import SQLiteStore,SQLiteBriefRepository,SQLiteProposalLedger,ArtifactExpired,PreparationQuota
@@ -429,6 +429,8 @@ def attach_v1_routes(app,limiter):
     async def submit_job(body:JobSubmit,request:Request):
         value=runtime(request)
         client=client_key(request)
+        # The revision admission key space is internal: a public key there could pre-empt a native revision's job.
+        if body.idempotency_key.startswith(RESERVED_KEY_PREFIX): raise ValueError('Reserved idempotency key prefix')
         # Admission (cleanup, quota, slot claim, insert) is blocking: run it in a worker thread,
         # then create the asyncio task on the loop. If this request is cancelled in between, the
         # already-admitted job is still started on the loop rather than leaking its slot.

@@ -364,11 +364,13 @@ class OpStream(IRModel):
         return _prepare_input(data)
 
     @classmethod
-    def model_validate_json(cls, json_data, **kwargs):  # type: ignore[override]
+    def model_validate_json(cls, json_data, *, native: bool = False, **kwargs):  # type: ignore[override]
         """Routed through the strict loader rules (byte cap, duplicate keys, non-finite, budgets)."""
         if kwargs:
             raise TypeError('OpStream.model_validate_json takes no options')
-        return _validate_record(cls, _parse_json_bounded(json_data), OP_STREAM_VERSION)
+        stream = _validate_record(cls, _parse_json_bounded(json_data), OP_STREAM_VERSION)
+        _require_native_only_when_native(stream, native)
+        return stream
 
     @model_validator(mode='after')
     def _seq(self):
@@ -404,12 +406,14 @@ class ArtifactGraph(IRModel):
         return _prepare_input(data)
 
     @classmethod
-    def model_validate_json(cls, json_data, **kwargs):  # type: ignore[override]
+    def model_validate_json(cls, json_data, *, native: bool = False, **kwargs):  # type: ignore[override]
         """Routed through the strict loader rules; records only (use load_artifact_graph_json for the
         execution gate)."""
         if kwargs:
             raise TypeError('ArtifactGraph.model_validate_json takes no options')
-        return _validate_record(cls, _parse_json_bounded(json_data), ARTIFACT_GRAPH_VERSION)
+        graph = _validate_record(cls, _parse_json_bounded(json_data), ARTIFACT_GRAPH_VERSION)
+        _require_native_only_when_native(graph.op_stream, native)
+        return graph
 
     @model_validator(mode='after')
     def _cross(self):
@@ -437,11 +441,20 @@ def validate_op_stream(stream: OpStream, registry: OperationRegistry = DEFAULT_R
             registry.get(e.operation, e.operation_version, field=where, span=e.span)
 
 
-def load_artifact_graph_json(text: str | bytes, *, require_executable: bool = True) -> ArtifactGraph:
+def load_artifact_graph_json(text: str | bytes, *, require_executable: bool = True,
+                             native: bool = False) -> ArtifactGraph:
     """Strict, budgeted load that fails closed: reserved `construct.*` operations are rejected (IR009)
     unless the caller passes `require_executable=False` to load them as records. Unknown operations
     and versions are always rejected (by the model itself)."""
     graph = _validate_record(ArtifactGraph, _parse_json_bounded(text), ARTIFACT_GRAPH_VERSION)
+    _require_native_only_when_native(graph.op_stream, native)
     validate_op_stream(graph.op_stream, NATIVE_REGISTRY, require_executable=require_executable,
                        field_prefix='op_stream')
     return graph
+
+
+def _require_native_only_when_native(stream: 'OpStream', native: bool) -> None:
+    """N1c-2: capability.*@0.6.0 (the mirum-native plate operations) load only for a native program or plan.
+    Every other loader sees the v0_5 registry, so those operations are unknown versions (fail closed)."""
+    if not native:
+        validate_op_stream(stream, THERMAL_REGISTRY, require_executable=False, field_prefix='op_stream')

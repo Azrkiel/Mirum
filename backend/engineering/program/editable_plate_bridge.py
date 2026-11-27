@@ -34,7 +34,7 @@ def content_for(specification):
                                  capability=capability_reference(), specification=spec, required_checks=CHECKS)
 
 
-def program_for(content, design, provenance, spans=None, source_span=None):
+def program_for(content, design, provenance, spans=None, source_span=None, backend='occt'):
     spec = content.specification
     spans = spans or {}
     requirements = [
@@ -60,7 +60,7 @@ def program_for(content, design, provenance, spans=None, source_span=None):
         analysis=checks, construction=ConstructionGraph(schema_version=CONSTRUCTION_GRAPH_VERSION),
         evidence=tuple(EvidenceExpectation(id='evidence.' + check.check, analysis_ref=check.id, required=True)
                        for check in checks),
-        execution=ExecutionSelection(backend='occt', exports=('step',)), provenance=provenance,
+        execution=ExecutionSelection(backend=backend, exports=('step',)), provenance=provenance,
         span=source_span)
 
 

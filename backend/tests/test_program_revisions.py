@@ -653,7 +653,7 @@ def test_real_store_no_fk_and_jobs_delete_and_journal_triggers(tmp_path, lock, b
             assert rs.insert_staged(db, staged(lock, bundle, pid, 1), payload(), expected_parent=None) is None
             assert [r['table'] for r in db.execute("PRAGMA foreign_key_list('program_revisions')")] == ['programs']
             db.execute("INSERT INTO briefs VALUES ('b','d',1,'{}')")
-            db.execute("INSERT INTO jobs VALUES ('j','b','k','{}',0,0.0,NULL,0)")
+            db.execute("INSERT INTO jobs(id,brief,key,record,cancel,deadline,expires,reserved) VALUES ('j','b','k','{}',0,0.0,NULL,0)")  # explicit columns: the jobs table gained an additive 'backend' column
             db.execute("DELETE FROM jobs WHERE id='j'")
         with pytest.raises(sqlite3.DatabaseError, match='append-only'):
             with store.transaction() as db:

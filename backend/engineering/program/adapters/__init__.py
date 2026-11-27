@@ -22,9 +22,9 @@ def adapter_for(backend: str, *, mode: str = 'native', **kw):
     if mode != 'native':
         raise ValueError(f'unknown mode {mode!r}; expected native or mock')
     if backend == 'mirum-native':
-        # N1c-1: registered but never available; never falls back to OCCT. N1c-2 swaps in the real adapter.
-        from .native import NativeUnavailableAdapter
-        return NativeUnavailableAdapter(**kw)
+        # Never falls back to OCCT: this is the only constructor reachable for 'mirum-native'.
+        from .native import NativePlateAdapter
+        return NativePlateAdapter(**kw)
     if backend == 'occt':
         from .occt import OcctAdapter
         return OcctAdapter(**kw)

@@ -136,7 +136,7 @@ def test_journal_events_allowlist():
 # ---- refusals ----
 
 def test_refusal_reasons_exact():
-    assert REFUSAL_REASONS == ('stale_parent', 'requirements_changed', 'not_restorable', 'already_current',
+    assert REFUSAL_REASONS == ('stale_parent', 'requirements_changed', 'backend_changed', 'not_restorable', 'already_current',
                                'history_expired',
                                'artifacts_expired', 'artifacts_missing', 'artifacts_altered',
                                'record_altered', 'review_expired', 'capacity')

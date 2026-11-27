@@ -136,12 +136,15 @@ def _reject_constant(_name):
     raise ValueError('non-finite JSON constant')
 
 
-def parse_json_bounded(data: bytes, cap: int = MAX_JSON_BYTES, max_depth: int = MAX_JSON_DEPTH):
-    """Parse untrusted JSON: size cap, no NaN/Infinity, bounded nesting depth. Raises _Problem (unavailable)."""
+def parse_json_bounded(data: bytes, cap: int = MAX_JSON_BYTES, max_depth: int = MAX_JSON_DEPTH,
+                       object_pairs_hook=None):
+    """Parse untrusted JSON: size cap, no NaN/Infinity, bounded nesting depth. Raises _Problem (unavailable).
+
+    ``object_pairs_hook`` is passed to json.loads (default None: unchanged); a hook may raise ValueError."""
     if len(data) > cap:
         raise _unavailable()
     try:
-        value = json.loads(data.decode('utf-8'), parse_constant=_reject_constant)
+        value = json.loads(data.decode('utf-8'), parse_constant=_reject_constant, object_pairs_hook=object_pairs_hook)
     except (ValueError, RecursionError):
         raise _unavailable() from None
     stack = [(value, 1)]
@@ -290,6 +293,13 @@ class DeliveredVerifier:
     # ---- the flow
 
     async def _verify(self, revision, ir, ctx: _Context) -> DeliveredEvidence:
+        if revision.lock.backend_lock.backend == 'mirum-native':
+            # N1c-2: a native build is never verified as, or confused with, an OCCT build. Native delivered
+            # verification (OCCT remeasure of the native STEP) is N1c-3; until then it is explicitly out of
+            # scope and the record is unavailable, never verified.
+            if ir.capability.id == 'editable_plate':
+                ctx.claim_scope = 'geometry_checks_only'
+            raise _unavailable('out_of_scope')
         if ir.capability.id == 'thermal_bar':
             ctx.claim_scope = 'thermal_benchmark'
             return await self._verify_thermal(revision, ir, ctx)

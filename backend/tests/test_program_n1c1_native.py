@@ -173,11 +173,11 @@ def test_canonical_entries_and_plan_use_0_6_0_only_for_native_plate(candidate):
 
 def test_op_stream_and_artifact_graph_loaders_accept_v0_6_operations(candidate):
     plan = plan_for('editable_plate', '1.0.0', NATIVE, candidate, ('step',))
-    stream = OpStream.model_validate_json(canonical_json(plan.op_stream))
+    stream = OpStream.model_validate_json(canonical_json(plan.op_stream), native=True)
     assert stream == plan.op_stream
     graph = {'schema_version': 'mirum_artifact_graph_v0_1', 'op_stream': json.loads(canonical_json(stream)),
              'nodes': []}
-    assert load_artifact_graph_json(json.dumps(graph)).op_stream == stream
+    assert load_artifact_graph_json(json.dumps(graph), native=True).op_stream == stream
 
 
 # ------------------------------------------------------------------ plan support
@@ -260,11 +260,13 @@ def test_ir_accepts_the_additive_enum_value_and_still_rejects_others():
     assert ExecutionSelection(backend=NATIVE, exports=('step',)).backend == NATIVE
 
 
-def test_mel_still_rejects_mirum_native_until_n1c_2():
+def test_mel_accepts_mirum_native_for_the_plate_only_since_n1c_2():
     source = PLATE.read_bytes().replace(b'backend = "occt"', b'backend = "mirum-native"')
     assert source != PLATE.read_bytes()
+    assert compile_source(source).ir.execution.backend == NATIVE
+    beam = BEAM.read_bytes().replace(b'backend = "occt"', b'backend = "mirum-native"')
     with pytest.raises(MelError) as exc:
-        compile_source(source)
+        compile_source(beam)
     assert 'MEL-S012' in str(exc.value)
 
 

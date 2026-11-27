@@ -103,7 +103,7 @@ class ProgramReview:
 class RunAuthorization:
     review: ProgramReview
     brief_id: str
-    backend_lock: BackendLock  # fresh, from this run's probe
+    backend_lock: BackendLock | BackendLockV0_2  # fresh, from this run's probe
     plans: tuple[BuildPlan, ...]  # rebuilt from the finalized brief
     source_sha256: str  # provenance of the source being run; may differ from review.source_sha256
 

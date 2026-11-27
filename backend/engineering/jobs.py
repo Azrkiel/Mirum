@@ -50,6 +50,11 @@ class Admitted(NamedTuple):
     job: object
     brief: object
     owner: object
+    backend: str = 'occt'
+
+
+# Keys under this prefix belong to revision admission (program/transactions.py); no public caller may claim them.
+RESERVED_KEY_PREFIX = 'program-revision:'
 
 
 class UnavailableCapability(RuntimeError):
@@ -111,7 +116,7 @@ class JobController:
         thread and starts on the loop; see ``admit`` and ``start``."""
         return self.start(self.admit(brief_id, key, client))
 
-    def admit(self, brief_id, key, client='anonymous'):
+    def admit(self, brief_id, key, client='anonymous', backend='occt'):
         """Blocking part of submit (cleanup, quota/storage checks, slot claim, insert).
 
         Safe to run in a worker thread; it never touches the event loop. The caller
@@ -126,19 +131,15 @@ class JobController:
         # Idempotency keys are scoped to the client: another client's identical key is a different key.
         key = client + '\x00' + key
         with self.store.transaction() as db:
-            previous=db.execute('SELECT brief,record FROM jobs WHERE key=?',(key,)).fetchone()
+            previous=db.execute('SELECT brief,record,backend FROM jobs WHERE key=?',(key,)).fetchone()
             if previous:
-                if previous['brief'] != brief_id:
-                    raise RevisionConflict('Idempotency key belongs to a different finalized brief')
-                return Admitted(parse_run(previous['record']), None, None)
+                return self._replay(previous, brief_id, backend)
         brief = SQLiteBriefRepository(self.store).read_brief(brief_id)
         owner = object()
         with self.store.transaction() as db:
-            row = db.execute('SELECT brief,record FROM jobs WHERE key=?', (key,)).fetchone()
+            row = db.execute('SELECT brief,record,backend FROM jobs WHERE key=?', (key,)).fetchone()
             if row:
-                if row['brief'] != brief_id:
-                    raise RevisionConflict('Idempotency key belongs to a different finalized brief')
-                return Admitted(parse_run(row['record']), None, None)
+                return self._replay(row, brief_id, backend)
             reserved = db.execute('SELECT COALESCE(SUM(reserved),0), COUNT(*) FROM jobs WHERE reserved>0').fetchone()
             self.fairness.check(client)
             usage=max(reserved[0],self.store.storage_bytes())
@@ -156,24 +157,36 @@ class JobController:
                     capability=brief.content.capability, brief_sha256=brief.brief_sha256,
                     fixed_requirements_sha256=brief.fixed_requirements_sha256,
                     lifecycle=Lifecycle.ADMITTED, outcome=Outcome.NOT_EVALUATED, attempts=(), created_at=now, updated_at=now)
-                db.execute('INSERT INTO jobs(id,brief,key,record,deadline,reserved) VALUES (?,?,?,?,?,?)',
-                           (job.job_id, brief_id, key, job.model_dump_json(), time.time()+self.seconds, budget))
+                db.execute('INSERT INTO jobs(id,brief,key,record,deadline,reserved,backend) VALUES (?,?,?,?,?,?,?)',
+                           (job.job_id, brief_id, key, job.model_dump_json(), time.time()+self.seconds, budget, backend))
             except BaseException:
                 native_slot.release(owner)
                 raise
         self.fairness.admitted(client)
-        return Admitted(job, brief, owner)
+        return Admitted(job, brief, owner, backend)
+
+    @staticmethod
+    def _replay(row, brief_id, backend):
+        """An idempotent replay of an existing job: same brief and same persisted backend, or a conflict.
+
+        Rows from before the backend was persisted (NULL) were all built by OCCT."""
+        if row['brief'] != brief_id:
+            raise RevisionConflict('Idempotency key belongs to a different finalized brief')
+        stored = row['backend'] or 'occt'
+        if stored != backend:
+            raise RevisionConflict('Idempotency key belongs to a job on a different backend')
+        return Admitted(parse_run(row['record']), None, None, stored)
 
     def start(self, admitted):
         """Create the execution task for an admitted job. Must run on the event loop."""
-        job, brief, owner = admitted
+        job, brief, owner, backend = admitted.job, admitted.brief, admitted.owner, admitted.backend
         if owner is None:      # idempotent replay: nothing new to run
             return job
         self.tasks = {key: task for key, task in self.tasks.items() if not task.done()}
         try:
             if self.closed:
                 raise RuntimeError('Engineering controller is closed')
-            self.tasks[job.job_id] = asyncio.create_task(self._run(job, brief, owner, time.monotonic()+self.seconds))
+            self.tasks[job.job_id] = asyncio.create_task(self._run(job, brief, owner, time.monotonic()+self.seconds, backend))
         except BaseException:
             native_slot.release(owner)
             self._terminal(job.job_id, Lifecycle.UNAVAILABLE, failures=('Unable to start execution',))
@@ -225,16 +238,24 @@ class JobController:
                         time.time()+CAPABILITY.resources.bundle_retention_seconds, job_id))
             return run
 
-    def _adapter_for(self, brief):
-        """The beam keeps ``self.adapter``; a generator without a registered adapter is unavailable."""
+    def _adapter_for(self, brief, backend='occt'):
+        """The beam keeps ``self.adapter``; a generator without a registered adapter is unavailable.
+
+        mirum-native routes by (capability, backend) only. A missing native generator is unavailable: it
+        never reaches the capability-keyed generators, which build with OCCT."""
         capability_id = brief.content.capability.id
+        if backend == 'mirum-native':
+            adapter = self.generators.get((capability_id, backend))
+            if adapter is None:
+                raise UnavailableCapability('No native adapter registered for this capability')
+            return adapter
         if capability_id in self.generators:
             return self.generators[capability_id]
         if capability_id == CAPABILITY.id:
             return self.adapter
         raise UnavailableCapability('No adapter registered for this capability')
 
-    async def _run(self, job, brief, owner, deadline):
+    async def _run(self, job, brief, owner, deadline, backend='occt'):
         from process_runner import process_owner
         token = process_owner.set(self.process_owner)
         try:
@@ -243,7 +264,7 @@ class JobController:
                 if event.attempt:
                     current = self.read(job.job_id)
                     self._update(job.job_id, attempts=(*current.attempts, event.attempt))
-            result = await search(brief, adapter=self._adapter_for(brief), cancelled=lambda: self._cancelled(job.job_id),
+            result = await search(brief, adapter=self._adapter_for(brief, backend), cancelled=lambda: self._cancelled(job.job_id),
                                   deadline=deadline-min(1, self.seconds*.1), on_progress=progress)
             self._update(job.job_id, attempts=result.attempts)
             if result.state == 'selected':
