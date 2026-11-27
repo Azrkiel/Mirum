@@ -117,7 +117,7 @@ CAPABILITY_SCHEMAS = {
     ('thermal_bar', '1.0.0'): CapabilitySchema(
         fields=_THERMAL_FIELDS, backends=('occt',), exports=('step',), max_candidates=1),
     ('editable_plate', '1.0.0'): CapabilitySchema(
-        fields=_EDITABLE_PLATE_FIELDS, backends=('occt',), exports=('step',), max_candidates=1),
+        fields=_EDITABLE_PLATE_FIELDS, backends=('occt', 'mirum-native'), exports=('step',), max_candidates=1),
     ('regen_chamber', '1.0.0'): CapabilitySchema(
         fields=_REGEN_FIELDS, backends=('picogk',), exports=('stl',), max_candidates=1),
     ('equipment_bay', '1.0.0'): CapabilitySchema(
@@ -387,8 +387,10 @@ def _compile_program(program: Program, data: bytes, source_id: str | None, guard
         provenance = ProgramProvenance(kind='language', source_sha256=source_hash, source_id=source_id)
         bindings = {path[-1]: SourceSpan(**_span_dict(program.get(name).span, source_id))
                     for name, (_, path, _) in schema.fields.items() if path[:1] == ('specification',)}
+        # Only the editable plate bridge accepts a non-OCCT backend (mirum-native); the rest stay on occt.
+        extra = {'backend': backend} if schema.fields is _EDITABLE_PLATE_FIELDS else {}
         ir = bridge.program_for(content, program.design, provenance, bindings,
-                         SourceSpan(**_span_dict(program.block_span, source_id)))
+                         SourceSpan(**_span_dict(program.block_span, source_id)), **extra)
         if bridge.content_from_program(ir) != content:
             raise _error('MEL-S017', f'{label} brief did not round trip', program.design_span, 'program')
         guard.check(program.design_span, 'design')

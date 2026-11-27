@@ -247,6 +247,11 @@ class RevisionService:
                                                                           compiled.ir.capability.id):
             if parent.fixed_requirements_sha256 != compiled.brief_content.fixed_requirements_sha256:
                 return RevisionRefusal(('requirements_changed',))
+        if kind == 'edit' and parent is not None:
+            before, after = parent.lock.backend_lock.backend, compiled.ir.execution.backend
+            if before != after and 'mirum-native' in (before, after):
+                # An edit never switches a program into or out of the native kernel.
+                return RevisionRefusal(('backend_changed',))
         text = source if isinstance(source, str) else bytes(source).decode('utf-8')
         adapter = adapter_for_program(self.adapter_factory, compiled)
         plan = plan_program(compiled, mode='native', adapter_factory=lambda _backend, **kwargs: adapter)
@@ -331,7 +336,11 @@ class RevisionService:
         rs = self.revision_store
         revision_id = rev.revision_id
         # AdmissionBusy and the like propagate: the revision stays staged.
-        admitted = await asyncio.to_thread(self.jobs.admit, brief_id, 'program-revision:' + revision_id, client)
+        # Only mirum-native carries a backend into the job controller (it routes by capability and backend);
+        # every other backend keeps the unchanged call.
+        extra = {'backend': 'mirum-native'} if rev.lock.backend_lock.backend == 'mirum-native' else {}
+        admitted = await asyncio.to_thread(self.jobs.admit, brief_id, 'program-revision:' + revision_id, client,
+                                           **extra)
         holds_slot = admitted.owner is not None
         started = False
         try:

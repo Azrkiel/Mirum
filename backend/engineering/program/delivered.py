@@ -290,6 +290,13 @@ class DeliveredVerifier:
     # ---- the flow
 
     async def _verify(self, revision, ir, ctx: _Context) -> DeliveredEvidence:
+        if revision.lock.backend_lock.backend == 'mirum-native':
+            # N1c-2: a native build is never verified as, or confused with, an OCCT build. Native delivered
+            # verification (OCCT remeasure of the native STEP) is N1c-3; until then it is explicitly out of
+            # scope and the record is unavailable, never verified.
+            if ir.capability.id == 'editable_plate':
+                ctx.claim_scope = 'geometry_checks_only'
+            raise _unavailable('out_of_scope')
         if ir.capability.id == 'thermal_bar':
             ctx.claim_scope = 'thermal_benchmark'
             return await self._verify_thermal(revision, ir, ctx)

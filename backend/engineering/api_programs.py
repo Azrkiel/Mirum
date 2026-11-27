@@ -256,6 +256,7 @@ def create_program_runtime(engineering):
                                   publication_archive=archive)
         engineering.jobs.generators.setdefault(BAY_ID, EquipmentBayAdapter())
         engineering.jobs.generators.setdefault(PLATE_ID, EditablePlateAdapter())
+        engineering.jobs.generators.setdefault((PLATE_ID, 'mirum-native'), EditablePlateAdapter(backend='mirum-native'))
         engineering.jobs.generators.setdefault(THERMAL_ID, ThermalBarAdapter())
         return ProgramInterface(service, engineering.briefs, engineering.quota,
                                 ProgramQuota.from_env(engineering.store))

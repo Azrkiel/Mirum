@@ -93,17 +93,29 @@ class EditablePlateAdapter:
     def measurements(data):
         return {check: {'diagnostics': len(codes)} for check, codes in diagnostic_groups(json.loads(data)).items()}
 
+    def __init__(self, backend='occt'):
+        if backend not in ('occt', 'mirum-native'):
+            raise ValueError('unsupported editable plate backend')
+        self.backend = backend
+
     async def evaluate(self, candidate):
-        from .program.adapters.occt import OcctAdapter
-        plan = plan_for(EDITABLE_PLATE.id, EDITABLE_PLATE.version, 'occt', candidate, ('step',))
+        plan = plan_for(EDITABLE_PLATE.id, EDITABLE_PLATE.version, self.backend, candidate, ('step',))
         ctx = ExecutionContext(deadline_s=30.0, max_artifact_bytes=1024**2, workspace='editable-plate')
-        built = await OcctAdapter(capability=EDITABLE_PLATE.id).build(plan, ctx)
+        if self.backend == 'mirum-native':
+            # The adapter is chosen by its own backend: a native generator never constructs the OCCT adapter.
+            from .program.adapters.native import NativePlateAdapter
+            kernel = NativePlateAdapter(capability=EDITABLE_PLATE.id)
+        else:
+            from .program.adapters.occt import OcctAdapter
+            kernel = OcctAdapter(capability=EDITABLE_PLATE.id)
+        built = await kernel.build(plan, ctx)
         if built.evaluation is None:
             raise EngineeringUnavailable('Editable plate evaluation unavailable')
         return dict(built.evaluation)
 
 
-def build_result(plan, output, context):
+def build_result(plan, output, context, *, backend='occt', adapter_version=KERNEL_REVISION,
+                 claim_scope='geometry_checks_only', measurements=()):
     candidate = plan.candidate
     step = b64decode(output['step'], validate=True) if 'step' in output else None
     report = bound_report(output['report'], step, candidate)
@@ -136,9 +148,9 @@ def build_result(plan, output, context):
                       stated_digests={path: sha256(data).hexdigest()
                                       for path, data in (captured or diagnostics).items()})
     graph = ArtifactGraph(schema_version='mirum_artifact_graph_v0_1', op_stream=plan.op_stream, nodes=nodes)
-    result = BuildResult(backend='occt', adapter_version=KERNEL_REVISION, mode='native',
+    result = BuildResult(backend=backend, adapter_version=adapter_version, mode='native',
                          capability_id=plan.capability_id, capability_version=plan.capability_version,
                          outcome='completed', domain_outcome=evaluation['outcome'].value,
-                         claim_scope='geometry_checks_only', artifacts=tuple(a.ref for a in artifacts),
+                         claim_scope=claim_scope, artifacts=tuple(a.ref for a in artifacts), measurements=tuple(measurements),
                          op_stream=plan.op_stream, artifact_graph=graph, report_sha256=evaluation['report_sha256'])
     return Built(result=result, artifacts=artifacts, evaluation=evaluation)
