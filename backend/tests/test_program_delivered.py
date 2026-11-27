@@ -292,7 +292,7 @@ def reasons_of(record):
 def test_method_version_covers_all_delivered_verifier_sources():
     assert [p.name for p in dv.METHOD_SOURCES] == [
         'evidence.py', 'delivered.py', '_occt_measure.py', 'occt.py', '_editable_plate_worker.py',
-        '_thermal_worker.py', 'editable_plate_adapter.py', 'thermal_bar.py', 'thermal_bar_adapter.py',
+        '_thermal_worker.py', 'native_pin.py', 'editable_plate_adapter.py', 'thermal_bar.py', 'thermal_bar_adapter.py',
         'mirum_editable_plate.py', 'structural.py', 'thermal.py', 'beam_fea.py',
     ]
     assert all(p.is_file() for p in dv.METHOD_SOURCES)

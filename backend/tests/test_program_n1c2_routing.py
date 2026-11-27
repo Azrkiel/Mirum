@@ -241,11 +241,15 @@ def test_run_authorization_backend_lock_annotation_names_both_lock_types():
 
 # ------------------------------------------------------------------ delivered (LOW 2)
 
-def test_delivered_native_lock_is_explicitly_out_of_scope_and_never_uses_occt():
+def test_delivered_native_lock_never_builds_a_native_adapter():
+    """N1c-3a: native plate locks are verified (see test_program_n1c3_delivered.py); a malformed one is never
+    verified and only the OCCT measurement adapter can ever be requested."""
     from engineering.program.delivered import DeliveredVerifier
+    requested = []
 
-    def factory(*a, **k):
-        raise AssertionError('no adapter may be built for a native revision in N1c-2')
+    def factory(backend, **k):
+        requested.append(backend)
+        raise AssertionError('no adapter is needed for a revision that fails its identity checks')
 
     verifier = DeliveredVerifier.__new__(DeliveredVerifier)
     verifier.adapter_factory = factory
@@ -256,8 +260,8 @@ def test_delivered_native_lock_is_explicitly_out_of_scope_and_never_uses_occt():
     revision = SimpleNamespace(lock=lock, revision_id='a' * 32, job_id='b' * 32)
     ir = compile_source(native_source()).ir
     record = asyncio.run(verifier.verify(revision, ir))
-    assert record.verdict == 'unavailable' and 'out_of_scope' in record.reasons
-    assert record.claim_scope == 'geometry_checks_only'
+    assert record.verdict == 'unavailable' and record.claim_scope == 'geometry_checks_only'
+    assert set(requested) <= {'occt'}
 
 
 # ------------------------------------------------------------------ edits (backend_changed)

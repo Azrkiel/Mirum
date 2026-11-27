@@ -75,6 +75,7 @@ METHOD_SOURCES = (_PROGRAM_DIR / 'evidence.py', _PROGRAM_DIR / 'delivered.py',
                   _PROGRAM_DIR / 'adapters' / '_occt_measure.py', _PROGRAM_DIR / 'adapters' / 'occt.py',
                   _PROGRAM_DIR / 'adapters' / '_editable_plate_worker.py',
                   _PROGRAM_DIR / 'adapters' / '_thermal_worker.py',
+                  _PROGRAM_DIR / 'adapters' / 'native_pin.py',
                   _PROGRAM_DIR.parent / 'editable_plate_adapter.py',
                   _PROGRAM_DIR.parent / 'thermal_bar.py',
                   _PROGRAM_DIR.parent / 'thermal_bar_adapter.py',
@@ -99,6 +100,18 @@ def method_version() -> str:
 
 
 _current_method_version = method_version
+
+
+def _native_adapter_version() -> str:
+    from .adapters.native import ADAPTER_VERSION
+    return ADAPTER_VERSION
+
+
+def _native_versions_match_pin(native_versions) -> bool:
+    """The lock names the pinned mirum-native build: version, kernel commit and binary SHA-256, nothing else."""
+    from .adapters.native_pin import PIN
+    return sorted((v.name, v.version) for v in native_versions) == sorted([
+        ('mirum-native', PIN.version), ('mirum-native-commit', PIN.commit), ('mirum-native-sha256', PIN.sha256)])
 
 
 # --------------------------------------------------------------------------- bounded reads
@@ -293,12 +306,8 @@ class DeliveredVerifier:
     # ---- the flow
 
     async def _verify(self, revision, ir, ctx: _Context) -> DeliveredEvidence:
-        if revision.lock.backend_lock.backend == 'mirum-native':
-            # N1c-2: a native build is never verified as, or confused with, an OCCT build. Native delivered
-            # verification (OCCT remeasure of the native STEP) is N1c-3; until then it is explicitly out of
-            # scope and the record is unavailable, never verified.
-            if ir.capability.id == 'editable_plate':
-                ctx.claim_scope = 'geometry_checks_only'
+        if revision.lock.backend_lock.backend == 'mirum-native' and ir.capability.id != 'editable_plate':
+            # N1c-3a: only the plate is verified for a native lock; every other combination stays denied.
             raise _unavailable('out_of_scope')
         if ir.capability.id == 'thermal_bar':
             ctx.claim_scope = 'thermal_benchmark'
@@ -490,14 +499,19 @@ class DeliveredVerifier:
         from .editable_plate_bridge import content_from_program
         from .bay_bridge import check_plan_record
         from .hashing import execution_lock_v0_2_sha256, semantic_sha256
-        from .planning import generator_candidates
+        from .planning import _spans, generator_candidates
+        from .kernel import plan_for
 
         content = content_from_program(ir)
+        native = revision.lock.backend_lock.backend == 'mirum-native'
+        expected_version = _native_adapter_version() if native else KERNEL_REVISION
         if (content.brief_sha256 != revision.brief_sha256
                 or content.fixed_requirements_sha256 != revision.fixed_requirements_sha256
                 or semantic_sha256(ir) != revision.semantic_sha256
                 or execution_lock_v0_2_sha256(revision.lock) != revision.lock_sha256
-                or revision.lock.backend_lock.adapter_version != KERNEL_REVISION):
+                or revision.lock.backend_lock.adapter_version != expected_version
+                or (native and (ir.execution.backend != 'mirum-native'
+                                or not _native_versions_match_pin(revision.lock.backend_lock.native_versions)))):
             raise _unavailable('lock_mismatch')
         run = self._read_run(revision)
         candidate, = generator_candidates(content)
@@ -513,10 +527,13 @@ class DeliveredVerifier:
         blobs = await asyncio.to_thread(self._lease_all, revision.job_id, bundle, payloads)
         step = blobs[STEP]
         ctx.step_sha256 = hashlib.sha256(step).hexdigest()
+        # The measurement is always the OCCT plate worker reading the delivered STEP, also for a native lock:
+        # the native kernel never verifies its own output.
         adapter = self.adapter_factory('occt', capability='editable_plate')
         if getattr(adapter, 'mode', None) != 'native':
             raise _unavailable('mock_backend')
-        plan, = _plans(ir, (candidate,))
+        plan = plan_for(ir.capability.id, ir.capability.version, 'occt', candidate, tuple(ir.execution.exports),
+                        _spans(ir))
         async with self._semaphore:
             outcome = await adapter.measure_plate(step, plan)
         report = bound_report(outcome['report'], step, candidate)
@@ -559,14 +576,19 @@ class DeliveredVerifier:
         from engineering.equipment_bay import KERNEL_REVISION
         from .bay_bridge import check_plan_record, content_from_program
         from .hashing import execution_lock_v0_2_sha256, semantic_sha256
-        from .planning import generator_candidates
+        from .planning import _spans, generator_candidates
+        from .kernel import plan_for
 
         content = content_from_program(ir)
+        native = revision.lock.backend_lock.backend == 'mirum-native'
+        expected_version = _native_adapter_version() if native else KERNEL_REVISION
         if (content.brief_sha256 != revision.brief_sha256
                 or content.fixed_requirements_sha256 != revision.fixed_requirements_sha256
                 or semantic_sha256(ir) != revision.semantic_sha256
                 or execution_lock_v0_2_sha256(revision.lock) != revision.lock_sha256
-                or revision.lock.backend_lock.adapter_version != KERNEL_REVISION):
+                or revision.lock.backend_lock.adapter_version != expected_version
+                or (native and (ir.execution.backend != 'mirum-native'
+                                or not _native_versions_match_pin(revision.lock.backend_lock.native_versions)))):
             raise _unavailable('lock_mismatch')
         run = self._read_run(revision)
         candidate, = generator_candidates(content)
