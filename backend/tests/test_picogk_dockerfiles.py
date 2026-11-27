@@ -234,11 +234,12 @@ def test_verify_image_checks_the_hash_and_locks_down_the_binary():
     lines = _verify_lines()
     idx = [i for i, l in enumerate(lines) if '--from=ghcr.io/azrkiel/mirum-native' in l][0]
     sha_file = '/workspace/native-kernel/mirum-native.sha256'
-    # the sha file must already be in the image when it is checked
+    # the sha file must already be in the image, and the RUN follows the kernel COPY immediately
     copy_kernel_dir = [i for i, l in enumerate(lines) if l.startswith('COPY native-kernel/')]
-    assert copy_kernel_dir and copy_kernel_dir[0] < idx + 2
+    assert copy_kernel_dir and copy_kernel_dir[0] < idx
     run = lines[idx + 1]
     assert run.startswith('RUN ') and f'sha256sum -c {sha_file}' in run
+    assert [i for i, l in enumerate(lines) if 'sha256sum -c /workspace/native-kernel' in l] == [idx + 1]
     assert 'chown root:root' in run and 'chmod 0755' in run and pin.BINARY_PATH in run
     assert 'chmod -R' not in run
     # nothing after the check may rewrite the binary tree
@@ -256,8 +257,13 @@ def test_ci_gate_runs_require_the_binary_and_kernel_env():
             assert f'-e {env}' in l, (env, l)
 
 
-def test_release_images_do_not_carry_the_native_binary():
-    for rel in ('Dockerfile', 'backend/Dockerfile', 'frontend/Dockerfile'):
-        p = ROOT / rel
-        if p.is_file():
-            assert 'mirum-native' not in p.read_text(encoding='utf-8'), rel
+def test_release_images_and_deploy_files_do_not_carry_the_native_binary():
+    skip_dirs = {'.git', 'node_modules', 'spike-picogk', 'picogk-builder'}
+    files = [p for p in ROOT.rglob('Dockerfile*')
+             if p.is_file() and not (set(p.relative_to(ROOT).parts) & skip_dirs) and p.name != 'Dockerfile.verify']
+    assert ROOT / 'backend' / 'Dockerfile' in files and ROOT / 'frontend' / 'Dockerfile' in files, files
+    files += [ROOT / n for n in ('docker-compose.yml', 'compose.release.yml')]
+    files += [p for p in (ROOT / 'deploy').rglob('*') if p.is_file()]
+    for p in files:
+        text = p.read_text(encoding='utf-8', errors='replace')
+        assert 'mirum-native' not in text and 'MIRUM_NATIVE' not in text, p
