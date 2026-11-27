@@ -53,6 +53,10 @@ class Admitted(NamedTuple):
     backend: str = 'occt'
 
 
+# Keys under this prefix belong to revision admission (program/transactions.py); no public caller may claim them.
+RESERVED_KEY_PREFIX = 'program-revision:'
+
+
 class UnavailableCapability(RuntimeError):
     """A reviewed capability has no registered adapter in this runtime."""
 
@@ -127,19 +131,15 @@ class JobController:
         # Idempotency keys are scoped to the client: another client's identical key is a different key.
         key = client + '\x00' + key
         with self.store.transaction() as db:
-            previous=db.execute('SELECT brief,record FROM jobs WHERE key=?',(key,)).fetchone()
+            previous=db.execute('SELECT brief,record,backend FROM jobs WHERE key=?',(key,)).fetchone()
             if previous:
-                if previous['brief'] != brief_id:
-                    raise RevisionConflict('Idempotency key belongs to a different finalized brief')
-                return Admitted(parse_run(previous['record']), None, None)
+                return self._replay(previous, brief_id, backend)
         brief = SQLiteBriefRepository(self.store).read_brief(brief_id)
         owner = object()
         with self.store.transaction() as db:
-            row = db.execute('SELECT brief,record FROM jobs WHERE key=?', (key,)).fetchone()
+            row = db.execute('SELECT brief,record,backend FROM jobs WHERE key=?', (key,)).fetchone()
             if row:
-                if row['brief'] != brief_id:
-                    raise RevisionConflict('Idempotency key belongs to a different finalized brief')
-                return Admitted(parse_run(row['record']), None, None)
+                return self._replay(row, brief_id, backend)
             reserved = db.execute('SELECT COALESCE(SUM(reserved),0), COUNT(*) FROM jobs WHERE reserved>0').fetchone()
             self.fairness.check(client)
             usage=max(reserved[0],self.store.storage_bytes())
@@ -157,13 +157,25 @@ class JobController:
                     capability=brief.content.capability, brief_sha256=brief.brief_sha256,
                     fixed_requirements_sha256=brief.fixed_requirements_sha256,
                     lifecycle=Lifecycle.ADMITTED, outcome=Outcome.NOT_EVALUATED, attempts=(), created_at=now, updated_at=now)
-                db.execute('INSERT INTO jobs(id,brief,key,record,deadline,reserved) VALUES (?,?,?,?,?,?)',
-                           (job.job_id, brief_id, key, job.model_dump_json(), time.time()+self.seconds, budget))
+                db.execute('INSERT INTO jobs(id,brief,key,record,deadline,reserved,backend) VALUES (?,?,?,?,?,?,?)',
+                           (job.job_id, brief_id, key, job.model_dump_json(), time.time()+self.seconds, budget, backend))
             except BaseException:
                 native_slot.release(owner)
                 raise
         self.fairness.admitted(client)
         return Admitted(job, brief, owner, backend)
+
+    @staticmethod
+    def _replay(row, brief_id, backend):
+        """An idempotent replay of an existing job: same brief and same persisted backend, or a conflict.
+
+        Rows from before the backend was persisted (NULL) were all built by OCCT."""
+        if row['brief'] != brief_id:
+            raise RevisionConflict('Idempotency key belongs to a different finalized brief')
+        stored = row['backend'] or 'occt'
+        if stored != backend:
+            raise RevisionConflict('Idempotency key belongs to a job on a different backend')
+        return Admitted(parse_run(row['record']), None, None, stored)
 
     def start(self, admitted):
         """Create the execution task for an admitted job. Must run on the event loop."""

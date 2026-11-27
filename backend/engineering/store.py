@@ -60,7 +60,7 @@ class SQLiteStore:
                 PRIMARY KEY(draft,revision));
             CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, brief TEXT NOT NULL,
                 key TEXT NOT NULL UNIQUE, record TEXT NOT NULL, cancel INTEGER NOT NULL DEFAULT 0,
-                deadline REAL NOT NULL, expires REAL, reserved INTEGER NOT NULL,
+                deadline REAL NOT NULL, expires REAL, reserved INTEGER NOT NULL, backend TEXT,
                 FOREIGN KEY(brief) REFERENCES briefs(id));
             CREATE TABLE IF NOT EXISTS draft_owners(draft TEXT PRIMARY KEY, client TEXT NOT NULL,
                 bytes INTEGER NOT NULL, updated REAL NOT NULL);
@@ -73,6 +73,9 @@ class SQLiteStore:
             CREATE INDEX IF NOT EXISTS ai_client_requests_created ON ai_client_requests(created);
             PRAGMA user_version=1;
         ''')
+        # Additive migration: rows written before the backend was persisted stay NULL, which reads as 'occt'.
+        if 'backend' not in {row[1] for row in self.db.execute('PRAGMA table_info(jobs)')}:
+            self.db.execute('ALTER TABLE jobs ADD COLUMN backend TEXT')
 
     @contextmanager
     def transaction(self):
