@@ -43,5 +43,5 @@ def test_probe_fails_closed_without_geteuid(tmp_path, monkeypatch, missing):
 
 def test_module_documents_the_group_writable_parent_trade_off():
     import engineering.program.adapters.native as native
-    assert 'group-writable' in native.__doc__ and 'availability' in native.__doc__
+    assert 'group-writable' in native.__doc__ and 'availability' in native.__doc__.lower()
     assert '0775' in native.__doc__
